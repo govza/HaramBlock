@@ -1,0 +1,19 @@
+askPermissionButton: Grant permission
+askPermissionTitle: "HaramBlock requires permission to access all websites"
+extensionDescription: Tell the believing men to lower their gaze and guard their chastity. That is purer for them.
+extensionName: Haram Block
+filterStrictness: Strictness
+global: Global settings
+optionsDashboard: Options
+hostPolicyWhitelist: Allow all
+hostPolicyBlacklist: Block all
+hostPolicyProcess: Process all
+popupSelectRulePageBlur: Blur
+popupSelectRulePagePartialBlur: Blur parts
+websiteWhiteListTitle: WhiteList
+maxHosts: Maximum cached hosts
+maxCacheItems: Maximum cached elements
+cachedFromMax: Cached $1 from $2
+strictness: Strictness
+outlineBoundingBox: Bounding box
+outlineSegment: Segment
