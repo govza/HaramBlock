@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { defaultGlobalKey } from '@/utils/db/HostSettings';
+import { defaultGlobalKey } from '@/utils/db/hostSettings';
 
 /**
  * Hook for managing hostname detection

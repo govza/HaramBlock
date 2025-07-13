@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import { defaultHostSettings, IHostSettings } from '@/utils/db/HostSettings';
+import { defaultHostSettings, IHostSettings } from '@/utils/db/hostSettings';
 
 export class HostSettingsDatabase extends Dexie {
     hostSettings!: Table<IHostSettings, string>;

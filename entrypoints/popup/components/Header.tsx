@@ -2,7 +2,7 @@
 import { useCallback } from 'react';
 import { createI18n } from "@wxt-dev/i18n";
 import { useHostDataContext } from '../context/HostDataContext';
-import { defaultGlobalKey } from '@/utils/db/HostSettings';
+import { defaultGlobalKey } from '@/utils/db/hostSettings';
 
 export const Header = () => {
   const i18n = createI18n();

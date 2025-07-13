@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { createContext, useContext } from 'react';
-import { HostSettings, defaultHostSettings, defaultGlobalKey } from '@/utils/db/HostSettings';
+import { HostSettings, defaultHostSettings, defaultGlobalKey } from '@/utils/db/hostSettings';
 import { useHostSettings } from '@/hooks/useHostSettings';
 import { useHostname } from '@/hooks/useHostname';
 

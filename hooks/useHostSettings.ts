@@ -1,6 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { HostSettings, defaultGlobalKey, defaultHostSettings } from '@/utils/db/HostSettings';
+import { HostSettings, defaultGlobalKey, defaultHostSettings } from '@/utils/db/hostSettings';
 import { hostSettingsDb } from '@/utils/db/db';
 
 /**
