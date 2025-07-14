@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { defaultGlobalKey } from '@/utils/db/hostSettings';
+import { extractHostnameFromUrl } from '@/utils/db/hostnameUtil';
 
 /**
  * Hook for managing hostname detection
@@ -16,8 +17,8 @@ export function useHostname() {
         const tabs = await browser.tabs.query({ active: true, currentWindow: true });
         const urlFromTab = tabs[0]?.url;
         if (urlFromTab) {
-          const currentHostname = new URL(urlFromTab).hostname.replace(/^www\./, '');
-          setDetectedHostname(currentHostname);
+          const currentHostname = extractHostnameFromUrl(urlFromTab);
+          setDetectedHostname(currentHostname || defaultGlobalKey);
         }
       } catch (error) {
         setError('Error fetching current tab URL');

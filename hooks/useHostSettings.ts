@@ -1,6 +1,7 @@
-import { useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { HostSettings, defaultGlobalKey, defaultHostSettings } from '@/utils/db/hostSettings';
+import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
 import { hostSettingsDb } from '@/utils/db/db';
 
 /**
@@ -11,12 +12,9 @@ import { hostSettingsDb } from '@/utils/db/db';
  * @returns Host settings and loading state
  */
 export function useHostSettings(hostname: string) {
-  // Get the effective hostname for database lookup
+  // Get the effective hostname for database lookup using centralized logic
   const effectiveHostname = useMemo(() => {
-    if (!hostname || HostSettings.globalPages.includes(hostname)) {
-      return defaultGlobalKey;
-    }
-    return hostname;
+    return getEffectiveHostname(hostname);
   }, [hostname]);
 
   // Reactively query the database
@@ -30,29 +28,13 @@ export function useHostSettings(hostname: string) {
     if (hostSettingsData) {
       return new HostSettings(hostSettingsData);
     }
-    // Return default settings if no data found
-    return new HostSettings({
+    // Return default settings if no data found (NO auto-save)
+    const settings = new HostSettings({
       ...defaultHostSettings,
       hostname: effectiveHostname,
       isGlobal: effectiveHostname === defaultGlobalKey,
     });
-  }, [hostSettingsData, effectiveHostname]);
-
-  // Initialize default settings if none exist
-  useEffect(() => {
-    if (hostSettingsData === undefined && effectiveHostname) {
-      // Data is loading, wait for it
-      return;
-    }
-    if (hostSettingsData === null) {
-      // No data found, create default settings
-      const defaultSettings = new HostSettings({
-        ...defaultHostSettings,
-        hostname: effectiveHostname,
-        isGlobal: effectiveHostname === defaultGlobalKey,
-      });
-      defaultSettings.save().catch(console.error);
-    }
+    return settings;
   }, [hostSettingsData, effectiveHostname]);
 
   return {

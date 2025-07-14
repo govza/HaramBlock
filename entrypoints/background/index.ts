@@ -1,11 +1,21 @@
 
-import { onMessage } from 'webext-bridge/background';
-import type { HostSettingsResponse } from 'webext-bridge';
-import { HostSettings } from '@/utils/db/hostSettings';
+import { IconEventListener } from '@/entrypoints/background/events';
+import { HostSettingsController } from '@/entrypoints/background/controllers';
+import { HostSettingsService } from '@/entrypoints/background/services';
 
 export default defineBackground(() => {
-  onMessage('GET_HOST_SETTINGS_FROM_DB', async (message): Promise<HostSettingsResponse> => {
-    const hostname = message?.data?.toString();
-    return await HostSettings.load(hostname);
-  });
+  // Initialize services (business logic layer)
+  const hostSettingsService = new HostSettingsService();
+
+  // Initialize event listeners (event handling layer)
+  const iconEventListener = new IconEventListener();
+
+  // Initialize controllers (message/request handling layer)
+  const hostSettingsController = new HostSettingsController(hostSettingsService);
+
+  // Initialize all event listeners and controllers
+  iconEventListener.initialize();
+  hostSettingsController.initialize();
+
+  console.log('Background script initialized successfully.');
 });
