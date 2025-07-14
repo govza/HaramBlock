@@ -11,6 +11,6 @@ declare module 'webext-bridge' {
 
   export interface ProtocolMap {
     // Retrieve host settings (uses IndexedDB)
-    GET_HOST_SETTINGS_FROM_DB: ProtocolWithReturn<HostSettingsRequest, HostSettingsResponse>;
+    GET_HOST_SETTINGS: ProtocolWithReturn<HostSettingsRequest, HostSettingsResponse>;
   }
 }

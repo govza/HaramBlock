@@ -1,4 +1,5 @@
 import { hostSettingsDb } from "./db";
+import { getEffectiveHostname, isGlobalPage } from "./hostnameUtil";
 
 export interface IHostSettings {
   hostname: string;
@@ -24,6 +25,11 @@ export const defaultHostSettings: IHostSettings = {
     strictness: 0.8,
 };
 
+/**
+ * HostSettings - Data model and repository for host settings
+ * Combines entity model with data access methods
+ * Acts as both ActiveRecord pattern and repository for host settings data
+ */
 export class HostSettings implements IHostSettings {
   hostname: string;
   isGlobal: boolean;
@@ -65,7 +71,7 @@ export class HostSettings implements IHostSettings {
     try {
       await hostSettingsDb.hostSettings.put(this.serialize());
     } catch (error) {
-      throw new Error('Failed to save host settings');
+      throw new Error('Failed to save host settings', { cause: error });
     }
   }
 
@@ -80,17 +86,25 @@ export class HostSettings implements IHostSettings {
     };
   }
 
-  static async load(hostname: string): Promise<HostSettings> {
-    if (!hostname || this.globalPages.includes(hostname)) {
-      hostname = defaultGlobalKey;
-    }    
-    const stored = await hostSettingsDb.hostSettings.get(hostname);
+  static async findByHostname(hostname: string): Promise<HostSettings> {
+    const effectiveHostname = getEffectiveHostname(hostname);
+    const stored = await hostSettingsDb.hostSettings.get(effectiveHostname);
     return stored ? new HostSettings(stored) : new HostSettings({
       ...defaultHostSettings,
-      hostname: hostname,
-      isGlobal: hostname === defaultGlobalKey,
+      hostname: effectiveHostname,
+      isGlobal: isGlobalPage(effectiveHostname),
     });
   }
 
-  static globalPages = ['newtab', 'extensions', 'downloads', 'bookmarks', 'history', 'settings'];
+  static async create(settings: Partial<IHostSettings> & { hostname: string }): Promise<HostSettings> {
+    const effectiveHostname = getEffectiveHostname(settings.hostname);
+    const hostSettings = new HostSettings({
+      ...defaultHostSettings,
+      ...settings,
+      hostname: effectiveHostname,
+      isGlobal: isGlobalPage(effectiveHostname),
+    });
+    await hostSettings.save();
+    return hostSettings;
+  }
 }

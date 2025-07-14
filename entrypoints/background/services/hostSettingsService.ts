@@ -1,0 +1,26 @@
+import type { HostSettingsResponse } from 'webext-bridge';
+import { HostSettings } from '@/utils/db/hostSettings';
+
+/**
+ * HostSettingsService handles business logic for host settings
+ * Coordinates between controllers and data layer
+ */
+export class HostSettingsService {
+  /**
+   * Retrieve host settings for a given hostname
+   * @param hostname - The hostname to retrieve settings for
+   * @returns Promise resolving to host settings
+   */
+  async getHostSettings(hostname: string): Promise<HostSettingsResponse> {
+    if (!hostname) {
+      throw new Error('Hostname is required');
+    }
+
+    try {
+      return await HostSettings.findByHostname(hostname);
+    } catch (error) {
+      console.error('Error retrieving host settings for hostname:', hostname, error);
+      throw error;
+    }
+  }
+}
