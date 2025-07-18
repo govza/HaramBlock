@@ -76,6 +76,23 @@ export class IconService {
   }
 
   /**
+   * Update icon for the currently active tab using a specific hostname
+   * This is useful for global pages where the hostname should be overridden
+   */
+  async updateIconForActiveTabWithHostname(hostname: string): Promise<void> {
+    try {
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      const activeTab = tabs[0];
+      
+      if (activeTab?.id) {
+        await this.updateIconForTab(activeTab.id, hostname);
+      }
+    } catch (error) {
+      console.error('Error updating icon for active tab with hostname:', hostname, error);
+    }
+  }
+
+  /**
    * Update icon for a specific tab using URL
    */
   async updateIconForUrl(tabId: number, url: string): Promise<void> {

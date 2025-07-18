@@ -9,8 +9,16 @@ declare module 'webext-bridge' {
   export type HostSettingsRequest = string; // hostname
   export type HostSettingsResponse = IHostSettings; // settings
 
+  // Icon update request
+  export type IconUpdateRequest = {
+    hostname: string;
+  };
+
   export interface ProtocolMap {
     // Retrieve host settings (uses IndexedDB)
     GET_HOST_SETTINGS: ProtocolWithReturn<HostSettingsRequest, HostSettingsResponse>;
+    
+    // Update icon for hostname
+    UPDATE_ICON: ProtocolWithReturn<IconUpdateRequest, void>;
   }
 }

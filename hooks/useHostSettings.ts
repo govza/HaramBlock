@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { HostSettings, defaultGlobalKey, defaultHostSettings } from '@/utils/db/hostSettings';
-import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { sendMessage } from 'webext-bridge/popup';
+import { HostSettings, defaultHostSettings } from '@/utils/db/hostSettings';
+import { getEffectiveHostname, isGlobalPage } from '@/utils/db/hostnameUtil';
 import { hostSettingsDb } from '@/utils/db/db';
 
 /**
@@ -23,19 +24,43 @@ export function useHostSettings(hostname: string) {
     [effectiveHostname]
   );
 
+  // Function to update icon after settings change
+  const updateIcon = useCallback(async () => {
+    if (effectiveHostname) {
+      try {
+        await sendMessage('UPDATE_ICON', { hostname: effectiveHostname });
+      } catch (error) {
+        console.error('Error updating icon:', error);
+      }
+    }
+  }, [effectiveHostname]);
+
   // Create HostSettings instance from the data
   const hostSettings = useMemo(() => {
     if (hostSettingsData) {
-      return new HostSettings(hostSettingsData);
+      const settings = new HostSettings(hostSettingsData);
+      // Override the save method to trigger icon updates
+      const originalSave = settings.save.bind(settings);
+      settings.save = async () => {
+        await originalSave();
+        await updateIcon();
+      };
+      return settings;
     }
-    // Return default settings if no data found (NO auto-save)
+    // Return default settings if no data found
     const settings = new HostSettings({
       ...defaultHostSettings,
       hostname: effectiveHostname,
-      isGlobal: effectiveHostname === defaultGlobalKey,
+      isGlobal: isGlobalPage(effectiveHostname),
     });
+    // Override the save method to trigger icon updates
+    const originalSave = settings.save.bind(settings);
+    settings.save = async () => {
+      await originalSave();
+      await updateIcon();
+    };
     return settings;
-  }, [hostSettingsData, effectiveHostname]);
+  }, [hostSettingsData, effectiveHostname, updateIcon]);
 
   return {
     // Main settings

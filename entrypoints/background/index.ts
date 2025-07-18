@@ -1,6 +1,6 @@
 
 import { IconEventListener } from '@/entrypoints/background/events';
-import { HostSettingsController } from '@/entrypoints/background/controllers';
+import { HostSettingsController, IconController } from '@/entrypoints/background/controllers';
 import { HostSettingsService } from '@/entrypoints/background/services';
 
 export default defineBackground(() => {
@@ -12,10 +12,12 @@ export default defineBackground(() => {
 
   // Initialize controllers (message/request handling layer)
   const hostSettingsController = new HostSettingsController(hostSettingsService);
+  const iconController = new IconController();
 
   // Initialize all event listeners and controllers
   iconEventListener.initialize();
   hostSettingsController.initialize();
+  iconController.initialize();
 
   console.log('Background script initialized successfully.');
 });
