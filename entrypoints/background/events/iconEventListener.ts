@@ -15,13 +15,13 @@ export class IconEventListener {
     
     // Tab event listeners
     // Update extension icon when a tab's URL changes
-    browser.tabs.onUpdated.addListener(async (tabId: number, changeInfo: any, tab: any) => {
+    browser.tabs.onUpdated.addListener(async (tabId: number, changeInfo: Browser.tabs.TabChangeInfo, tab: Browser.tabs.Tab) => {
       if (!changeInfo.url || !tab.active) return;
       await this.iconService.updateIconForUrl(tabId, changeInfo.url);
     });
 
     // Handle tab activation to update icon for the active tab
-    browser.tabs.onActivated.addListener(async (activeInfo: any) => {
+    browser.tabs.onActivated.addListener(async (activeInfo: Browser.tabs.TabActiveInfo) => {
       try {
         const tab = await browser.tabs.get(activeInfo.tabId);
         if (tab.url) {
