@@ -9,8 +9,8 @@ declare module 'webext-bridge' {
   export type HostSettingsRequest = string; // hostname
   export type HostSettingsResponse = IHostSettings; // settings
 
-  // Icon update request
-  export type IconUpdateRequest = {
+  // Hostname change notification (used for icon updates and settings change notifications)
+  export type HostnameChangeRequest = {
     hostname: string;
   };
 
@@ -19,6 +19,9 @@ declare module 'webext-bridge' {
     GET_HOST_SETTINGS: ProtocolWithReturn<HostSettingsRequest, HostSettingsResponse>;
     
     // Update icon for hostname
-    UPDATE_ICON: ProtocolWithReturn<IconUpdateRequest, void>;
+    UPDATE_ICON: ProtocolWithReturn<HostnameChangeRequest, void>;
+    
+    // Notify content scripts of settings changes
+    HOST_SETTINGS_UPDATED: ProtocolWithReturn<HostnameChangeRequest, void>;
   }
 }
