@@ -35,15 +35,53 @@ export function useHostSettings(hostname: string) {
     }
   }, [effectiveHostname]);
 
+  // Function to notify content scripts of settings changes
+  const notifyContentScripts = useCallback(async () => {
+    if (effectiveHostname) {
+      try {
+        // Get all tabs and find ones matching this hostname
+        const tabs = await browser.tabs.query({});
+        const relevantTabs = tabs.filter(tab => {
+          if (!tab.url) return false;
+          try {
+            const tabHostname = new URL(tab.url).hostname;
+            return getEffectiveHostname(tabHostname) === effectiveHostname;
+          } catch {
+            return false;
+          }
+        });
+
+        // Send message to all relevant content scripts
+        const notifications = relevantTabs.map(tab => {
+          if (tab.id) {
+            return sendMessage('HOST_SETTINGS_UPDATED', 
+              { hostname: effectiveHostname }, 
+              `content-script@${tab.id}`
+            ).catch(error => {
+              // Ignore errors for tabs that might not have content script loaded
+              console.debug('Could not notify tab', tab.id, 'of settings change:', error.message);
+            });
+          }
+          return Promise.resolve();
+        });
+
+        await Promise.all(notifications);
+      } catch (error) {
+        console.error('Error notifying content scripts:', error);
+      }
+    }
+  }, [effectiveHostname]);
+
   // Create HostSettings instance from the data
   const hostSettings = useMemo(() => {
     if (hostSettingsData) {
       const settings = new HostSettings(hostSettingsData);
-      // Override the save method to trigger icon updates
+      // Override the save method to trigger icon updates and notify content scripts
       const originalSave = settings.save.bind(settings);
       settings.save = async () => {
         await originalSave();
         await updateIcon();
+        await notifyContentScripts();
       };
       return settings;
     }
@@ -53,14 +91,15 @@ export function useHostSettings(hostname: string) {
       hostname: effectiveHostname,
       isGlobal: isGlobalPage(effectiveHostname),
     });
-    // Override the save method to trigger icon updates
+    // Override the save method to trigger icon updates and notify content scripts
     const originalSave = settings.save.bind(settings);
     settings.save = async () => {
       await originalSave();
       await updateIcon();
+      await notifyContentScripts();
     };
     return settings;
-  }, [hostSettingsData, effectiveHostname, updateIcon]);
+  }, [hostSettingsData, effectiveHostname, updateIcon, notifyContentScripts]);
 
   return {
     // Main settings
