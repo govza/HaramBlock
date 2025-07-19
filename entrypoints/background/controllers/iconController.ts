@@ -1,6 +1,6 @@
 import { onMessage } from 'webext-bridge/background';
 import { IconService } from '@/entrypoints/background/services/iconService';
-import { BridgeMessage, IconUpdateRequest } from 'webext-bridge';
+import { BridgeMessage, HostnameChangeRequest } from 'webext-bridge';
 
 /**
  * IconController handles incoming messages related to icon updates
@@ -25,7 +25,7 @@ export class IconController {
      * @param message - The incoming message containing the icon update request
      * @returns Promise resolving when icon is updated
      */
-    public async updateIcon(message: BridgeMessage<IconUpdateRequest>): Promise<void> {
+    public async updateIcon(message: BridgeMessage<HostnameChangeRequest>): Promise<void> {
         const { hostname } = message.data;
         const tabId = message.sender.tabId || null;
 
