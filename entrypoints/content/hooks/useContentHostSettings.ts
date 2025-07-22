@@ -21,7 +21,7 @@ export async function useContentHostSettings(onSettingsUpdate?: (settings: IHost
   // Function to fetch settings from background
   const fetchSettings = async (): Promise<IHostSettings | undefined> => {
     try {
-      const hostSettings = await sendMessage('GET_HOST_SETTINGS', hostname, 'background');
+      const hostSettings = await sendMessage('GET_HOST_SETTINGS', { hostname }, 'background');
       return hostSettings;
     } catch (error) {
       console.error('Error fetching host settings:', error);
@@ -34,7 +34,7 @@ export async function useContentHostSettings(onSettingsUpdate?: (settings: IHost
     isLoading = true;
     settings = await fetchSettings();
     isLoading = false;
-    
+
     // Call the update callback if provided and settings are available
     if (onSettingsUpdate && settings) {
       onSettingsUpdate(settings);
@@ -47,7 +47,7 @@ export async function useContentHostSettings(onSettingsUpdate?: (settings: IHost
   // Setup listener for settings updates
   const unsubscribe = onMessage('HOST_SETTINGS_UPDATED', async (message) => {
     const { hostname: updatedHostname } = message.data;
-    
+
     // Check if this message is for our hostname
     if (getEffectiveHostname(updatedHostname) === effectiveHostname) {
       await refresh();

@@ -1,6 +1,6 @@
 import { onMessage } from 'webext-bridge/background';
-import type { HostSettingsResponse, HostSettingsRequest } from 'webext-bridge';
 import { HostSettingsService } from '@/entrypoints/background/services';
+import { IHostSettings } from '@/utils/db/hostSettings';
 
 /**
  * HostSettingsController handles incoming messages related to host settings
@@ -25,8 +25,8 @@ export class HostSettingsController {
    * @param message - The incoming message containing the hostname
    * @returns Promise resolving to the host settings
    */
-  public async getHostSettings(message: { data: HostSettingsRequest }): Promise<HostSettingsResponse> {
-    const hostname = message.data;
+  public async getHostSettings(message: { data: { hostname: string } }): Promise<IHostSettings> {
+    const hostname = message.data.hostname;
     return await this.hostSettingsService.getHostSettings(hostname);
   }
 }
