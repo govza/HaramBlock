@@ -1,4 +1,5 @@
 import { PredictionCache, IImagePrediction } from '@/utils/db/predictionCache';
+import { logger } from '@/utils/logger';
 
 /**
  * PredictionCacheService handles business logic for prediction cache
@@ -10,9 +11,7 @@ export class PredictionCacheService {
    * @param predictions - Array of predictions to cache
    * @param hostname - Hostname for caching
    */
-  async cachePredictions(predictions: IImagePrediction[], hostname: string): Promise<void> {
-    console.log(`Caching ${predictions.length} predictions for hostname: ${hostname}`);
-    
+  async cachePredictions(predictions: IImagePrediction[], hostname: string): Promise<void> { 
     try {
       const cachePromises = predictions.map(async (prediction) => {
         // Create prediction cache instance and save (upsert)
@@ -22,9 +21,8 @@ export class PredictionCacheService {
       });
       
       await Promise.all(cachePromises);
-      console.log(`Successfully cached all predictions`);
     } catch (error) {
-      console.error('Error caching predictions:', error);
+      logger.withTag('predictionCacheService').error('Error caching predictions:', error);
       throw error;
     }
   }
@@ -54,17 +52,17 @@ export class PredictionCacheService {
               prediction.updateAccessTime();
               await prediction.save();
             } catch (error) {
-              console.warn('Failed to update access time for prediction:', prediction.src, error);
+              logger.withTag('predictionCacheService').warn('Failed to update access time for prediction:', prediction.src, error);
             }
           })
         ).catch(error => {
-          console.warn('Background access time update failed:', error);
+          logger.withTag('predictionCacheService').warn('Background access time update failed:', error);
         });
       }
       
       return serializedPredictions;
     } catch (error) {
-      console.error('Error retrieving cached predictions for hostname:', hostname, error);
+      logger.withTag('predictionCacheService').error('Error retrieving cached predictions for hostname:', hostname, error);
       throw error;
     }
   }

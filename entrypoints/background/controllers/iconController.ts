@@ -1,6 +1,7 @@
 import { onMessage } from 'webext-bridge/background';
 import { IconService } from '@/entrypoints/background/services/iconService';
 import { BridgeMessage } from 'webext-bridge';
+import { logger } from '@/utils/logger';
 
 /**
  * IconController handles incoming messages related to icon updates
@@ -42,7 +43,7 @@ export class IconController {
                 await this.iconService.updateIconForActiveTabWithHostname(hostname);
             }
         } catch (error) {
-            console.error('Error updating icon for hostname:', hostname, error);
+            logger.withTag('iconController').error('Error updating icon for hostname:', hostname, error);
             throw error;
         }
     }
