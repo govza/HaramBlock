@@ -1,4 +1,5 @@
 import { IconService } from '@/entrypoints/background/services/iconService';
+import { logger } from '@/utils/logger';
 
 /**
  * IconEventListener handles all browser events related to icon updates
@@ -31,7 +32,7 @@ export class IconEventListener {
           await this.iconService.updateIconForUrl(activeInfo.tabId, tab.url);
         }
       } catch (error) {
-        console.error('Error handling tab activation:', error);
+        logger.withTag('iconEventListener').error('Error handling tab activation:', error);
       }
     });
 

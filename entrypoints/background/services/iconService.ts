@@ -1,6 +1,7 @@
 import type { HostPolicy } from '@/utils/db/hostSettings';
 import { HostSettings } from '@/utils/db/hostSettings';
 import { getEffectiveHostname, extractHostnameFromUrl } from '@/utils/db/hostnameUtil';
+import { logger } from '@/utils/logger';
 
 /**
  * IconService handles browser extension icon updates
@@ -53,7 +54,7 @@ export class IconService {
       const iconPaths = this.getIconPaths(hostSettings.policy);
       await browser.action.setIcon({ tabId, path: iconPaths });
     } catch (error) {
-      console.error('Error updating toolbar icon for hostname:', effectiveHostname, error);
+      logger.withTag('iconService').error('Error updating toolbar icon for hostname:', effectiveHostname, error);
     }
   }
 
@@ -71,7 +72,7 @@ export class IconService {
         }
       }
     } catch (error) {
-      console.error('Error updating icon for active tab:', error);
+      logger.withTag('iconService').error('Error updating icon for active tab:', error);
     }
   }
 
@@ -88,7 +89,7 @@ export class IconService {
         await this.updateIconForTab(activeTab.id, hostname);
       }
     } catch (error) {
-      console.error('Error updating icon for active tab with hostname:', hostname, error);
+      logger.withTag('iconService').error('Error updating icon for active tab with hostname:', hostname, error);
     }
   }
 

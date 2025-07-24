@@ -1,4 +1,5 @@
 import { HostSettings, IHostSettings } from '@/utils/db/hostSettings';
+import { logger } from '@/utils/logger';
 
 /**
  * HostSettingsService handles business logic for host settings
@@ -18,7 +19,7 @@ export class HostSettingsService {
     try {
       return await HostSettings.findByHostname(hostname);
     } catch (error) {
-      console.error('Error retrieving host settings for hostname:', hostname, error);
+      logger.withTag('hostSettingsService').error('Error retrieving host settings for hostname:', hostname, error);
       throw error;
     }
   }

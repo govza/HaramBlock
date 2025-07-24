@@ -17,6 +17,13 @@ declare module 'webext-bridge' {
     // Notify content scripts of settings changes
     HOST_SETTINGS_UPDATED: ProtocolWithReturn<{ hostname: string }, void>;
 
+    // Retrieve cached image predictions for a given hostname
     GET_HOSTNAME_IMAGE_PREDICTION_CACHE: ProtocolWithReturn<{ hostname: string }, IImagePrediction[]>;
+
+    // Post images to AI model for processing
+    POST_INFERENCE_IMAGES: ProtocolWithReturn<{ hostname: string; imageSrcs: string[] }, void>;
+
+    // Notify content scripts of inference predictions
+    INFERENCE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[]; }, void>;
   }
 }

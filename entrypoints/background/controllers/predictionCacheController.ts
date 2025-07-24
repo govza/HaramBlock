@@ -3,6 +3,7 @@ import { onMessage } from 'webext-bridge/background';
 
 import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
 import { IImagePrediction } from '@/utils/db/predictionCache';
+import { logger } from '@/utils/logger';
 
 export class PredictionCacheController {
     private readonly predictionCacheService: PredictionCacheService;
@@ -34,7 +35,7 @@ export class PredictionCacheController {
             const cachedPredictions = await this.predictionCacheService.getCachedPredictionsByHostname(hostname);
             return cachedPredictions;
         } catch (error) {
-            console.error('Error retrieving cached predictions for hostname:', hostname, error);
+            logger.withTag('predictionCacheController').error('Error retrieving cached predictions for hostname:', hostname, error);
             throw error;
         }
     }
