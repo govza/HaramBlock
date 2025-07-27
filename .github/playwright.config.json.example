@@ -1,0 +1,10 @@
+{
+  "browser": {
+    "launchOptions": {
+      "args": [
+        "--disable-extensions-except=D:\\dev\\projects\\ab\\extension\\HaramBlock\\.output\\chrome-mv3",
+        "--load-extension=D:\\dev\\projects\\ab\\extension\\HaramBlock\\.output\\chrome-mv3"
+      ]
+    }
+  }
+}
