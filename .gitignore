@@ -31,3 +31,4 @@ coverage/
 
 # Copilot files
 .github/chatmodes/*
+.github/playwright.config.json
