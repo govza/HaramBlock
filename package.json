@@ -37,6 +37,7 @@
     "globals": "^16.3.0",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.8.3",
+    "vite": "^7.0.6",
     "vitest": "^3.2.4",
     "wxt": "^0.20.6"
   }
