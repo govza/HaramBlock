@@ -1,6 +1,7 @@
 import { sendMessage } from 'webext-bridge/content-script';
-import { IHostSettings, IImagePrediction } from '@/utils/types';
+
 import { logger } from '@/utils/logger';
+import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 /**
  * Communication sender module for HaramBlock content script
@@ -15,11 +16,13 @@ import { logger } from '@/utils/logger';
  * @param hostname - The hostname to get settings for
  * @returns Promise resolving to host settings or undefined
  */
-export async function requestHostSettings(hostname: string): Promise<IHostSettings | undefined> {
+export async function requestHostSettings(
+  hostname: string,
+): Promise<IHostSettings | undefined> {
   try {
     return await sendMessage('GET_HOST_SETTINGS', { hostname }, 'background');
   } catch (error) {
-    logger.withTag("Content").error('Failed to request host settings:', error);
+    logger.withTag('Content').error('Failed to request host settings:', error);
     return undefined;
   }
 }
@@ -33,12 +36,20 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
  * @param hostname - The hostname to get cached predictions for
  * @returns Promise resolving to array of cached predictions
  */
-export async function requestCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
+export async function requestCachedPredictions(
+  hostname: string,
+): Promise<IImagePrediction[]> {
   try {
-    const result = await sendMessage('GET_HOSTNAME_IMAGE_PREDICTION_CACHE', { hostname }, 'background');
+    const result = await sendMessage(
+      'GET_HOSTNAME_IMAGE_PREDICTION_CACHE',
+      { hostname },
+      'background',
+    );
     return result || [];
   } catch (error) {
-    logger.withTag("Content").error('Failed to request cached predictions:', error);
+    logger
+      .withTag('Content')
+      .error('Failed to request cached predictions:', error);
     return [];
   }
 }
@@ -53,15 +64,23 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
  * @param imageSrcs - Array of image source URLs to process
  * @returns Promise that resolves when images are queued
  */
-export async function queueImagesForInference(hostname: string, imageSrcs: string[]): Promise<void> {
+export async function queueImagesForInference(
+  hostname: string,
+  imageSrcs: string[],
+): Promise<void> {
   try {
-    await sendMessage('POST_INFERENCE_IMAGES', {
-      hostname,
-      imageSrcs
-    }, 'background');
-    
+    await sendMessage(
+      'POST_INFERENCE_IMAGES',
+      {
+        hostname,
+        imageSrcs,
+      },
+      'background',
+    );
   } catch (error) {
-    logger.withTag("Content").error('Failed to queue images for inference:', error);
+    logger
+      .withTag('Content')
+      .error('Failed to queue images for inference:', error);
     throw error;
   }
 }
@@ -82,18 +101,18 @@ export async function requestHostData(hostname: string): Promise<{
   try {
     const [settings, predictions] = await Promise.all([
       requestHostSettings(hostname),
-      requestCachedPredictions(hostname)
+      requestCachedPredictions(hostname),
     ]);
 
     return {
       settings,
-      predictions
+      predictions,
     };
   } catch (error) {
-    logger.withTag("Content").error('Failed to request host data:', error);
+    logger.withTag('Content').error('Failed to request host data:', error);
     return {
       settings: undefined,
-      predictions: []
+      predictions: [],
     };
   }
 }

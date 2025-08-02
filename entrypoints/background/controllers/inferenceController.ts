@@ -1,5 +1,6 @@
+import { type BridgeMessage } from 'webext-bridge';
 import { onMessage } from 'webext-bridge/background';
-import { BridgeMessage } from 'webext-bridge';
+
 import { InferenceService } from '@/entrypoints/background/services/inferenceService';
 import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
 import { logger } from '@/utils/logger';
@@ -29,49 +30,72 @@ export class InferenceController {
    * @param message - The incoming message containing images and hostname
    */
   public async handleInferenceRequest(
-    message: BridgeMessage<{ hostname: string; imageSrcs: string[] }>
+    message: BridgeMessage<{ hostname: string; imageSrcs: string[] }>,
   ): Promise<void> {
     const { hostname, imageSrcs } = message.data;
-    const tabId = message.sender.tabId;
+    const { tabId } = message.sender;
 
     // Validate input
     if (!hostname) {
-      logger.withTag('inferenceController').error('Hostname is required for inference request');
+      logger
+        .withTag('inferenceController')
+        .error('Hostname is required for inference request');
       return;
     }
 
     if (!imageSrcs || !Array.isArray(imageSrcs) || imageSrcs.length === 0) {
-      logger.withTag('inferenceController').error('Image sources array is required and must not be empty');
+      logger
+        .withTag('inferenceController')
+        .error('Image sources array is required and must not be empty');
       return;
     }
 
     if (!tabId) {
-      logger.withTag('inferenceController').error('Tab ID is required to send results back to content script');
+      logger
+        .withTag('inferenceController')
+        .error('Tab ID is required to send results back to content script');
       return;
     }
 
     try {
-      logger.withTag('inferenceController').log(`Received inference request for ${imageSrcs.length} images from hostname: ${hostname}`);
+      logger
+        .withTag('inferenceController')
+        .log(
+          `Received inference request for ${imageSrcs.length} images from hostname: ${hostname}`,
+        );
 
       // Filter out invalid/empty image sources
-      const validImageSrcs = imageSrcs.filter(src => src && src.trim().length > 0);
-      
+      const validImageSrcs = imageSrcs.filter(
+        src => src && src.trim().length > 0,
+      );
+
       if (validImageSrcs.length === 0) {
-        logger.withTag('inferenceController').warn('No valid image sources provided for inference');
+        logger
+          .withTag('inferenceController')
+          .warn('No valid image sources provided for inference');
         return;
       }
 
       // Start inference processing (fire-and-forget)
-      this.inferenceService.processImages(validImageSrcs, hostname, tabId)
+      this.inferenceService
+        .processImages(validImageSrcs, hostname, tabId)
         .catch(error => {
-          logger.withTag('inferenceController').error('Background inference processing failed:', error);
+          logger
+            .withTag('inferenceController')
+            .error('Background inference processing failed:', error);
         });
 
-      logger.withTag('inferenceController').debug(`Queued ${validImageSrcs.length} images for inference processing`);
-
+      logger
+        .withTag('inferenceController')
+        .debug(
+          `Queued ${validImageSrcs.length} images for inference processing`,
+        );
     } catch (error) {
-      logger.withTag('inferenceController').error('Error handling inference request:', error);
+      logger
+        .withTag('inferenceController')
+        .error('Error handling inference request:', error);
     }
-  }
 
+    return Promise.resolve();
+  }
 }

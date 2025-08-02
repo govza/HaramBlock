@@ -1,1 +1,1 @@
-export { IconEventListener } from './iconEventListener';
+export { IconEventListener } from '@/entrypoints/background/events/iconEventListener';

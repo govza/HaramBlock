@@ -1,5 +1,5 @@
-import type { ProtocolWithReturn } from 'webext-bridge';
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
+import type { ProtocolWithReturn } from 'webext-bridge';
 
 /**
  * Protocol for the bridge to communicate between different parts of the extension
@@ -16,12 +16,21 @@ declare module 'webext-bridge' {
     HOST_SETTINGS_UPDATED: ProtocolWithReturn<{ hostname: string }, void>;
 
     // Retrieve cached image predictions for a given hostname
-    GET_HOSTNAME_IMAGE_PREDICTION_CACHE: ProtocolWithReturn<{ hostname: string }, IImagePrediction[]>;
+    GET_HOSTNAME_IMAGE_PREDICTION_CACHE: ProtocolWithReturn<
+      { hostname: string },
+      IImagePrediction[]
+    >;
 
     // Post images to AI model for processing
-    POST_INFERENCE_IMAGES: ProtocolWithReturn<{ hostname: string; imageSrcs: string[] }, void>;
+    POST_INFERENCE_IMAGES: ProtocolWithReturn<
+      { hostname: string; imageSrcs: string[] },
+      void
+    >;
 
     // Notify content scripts of inference predictions
-    INFERENCE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[]; }, void>;
+    INFERENCE_PREDICTIONS: ProtocolWithReturn<
+      { predictions: IImagePrediction[] },
+      void
+    >;
   }
 }

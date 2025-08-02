@@ -1,5 +1,8 @@
-import { IHostSettings } from "@/utils/db/hostSettings";
-import { IImagePrediction } from "@/utils/db/predictionCache";
+import {
+  type IHostSettings,
+  type IImagePrediction,
+  type IElementPrediction,
+} from '@/utils/types';
 
 /**
  * Consolidated styling module for HaramBlock content script
@@ -172,10 +175,10 @@ export const injectPredictionStyles = () => {
  * @param predictionSource - Source of predictions ('cached' | 'ai-processed')
  */
 export const applyPredictionsStyling = (
-  images: HTMLImageElement[], 
-  predictions: IImagePrediction[], 
+  images: HTMLImageElement[],
+  predictions: IImagePrediction[],
   hostSettings: IHostSettings,
-  predictionSource: 'cached' | 'ai-processed' = 'cached'
+  predictionSource: 'cached' | 'ai-processed' = 'cached',
 ): void => {
   // Ensure prediction styles are injected
   injectPredictionStyles();
@@ -190,7 +193,12 @@ export const applyPredictionsStyling = (
   images.forEach(image => {
     const prediction = predictionMap.get(image.src);
     if (prediction) {
-      applyImagePredictionStyling(image, prediction, hostSettings, predictionSource);
+      applyImagePredictionStyling(
+        image,
+        prediction,
+        hostSettings,
+        predictionSource,
+      );
     }
   });
 };
@@ -200,29 +208,32 @@ export const applyPredictionsStyling = (
  * @param image - The HTMLImageElement to apply styling to
  */
 export const applyBlacklistStyling = (image: HTMLImageElement): void => {
-    image.style.filter = 'blur(10px)';
-    image.style.opacity = '0.3';
-    image.classList.add('haramblock-blacklisted');
-  }
+  image.style.filter = 'blur(10px)';
+  image.style.opacity = '0.3';
+  image.classList.add('haramblock-blacklisted');
+};
 
 /**
  * Apply default styling to an image based on host settings
- * 
+ *
  * This function applies immediate, basic styling to images before AI predictions are available.
  * It serves as the first layer of protection in the two-stage filtering system:
  * 1. Default styling (this function) - Applied immediately when images are detected
  * 2. Prediction-based styling - Applied later when AI analysis completes
- * 
+ *
  * The styling is generic and doesn't require any AI analysis, making it suitable for
  * immediate application to provide basic content filtering while waiting for more
  * sophisticated AI-driven styling through applyPredictionsStyling().
- * 
+ *
  * @param image - The HTMLImageElement to apply default styling to
  * @param hostSettings - Host settings containing mask configuration (e.g., blur preferences)
  */
-export const applyDefaultStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {
+export const applyDefaultStyling = (
+  image: HTMLImageElement,
+  hostSettings: IHostSettings,
+): void => {
   const filters: string[] = [];
-  const masks = hostSettings.masks;
+  const { masks } = hostSettings;
 
   if (masks.includes('blur')) {
     filters.push('blur(5px)');
@@ -235,11 +246,11 @@ export const applyDefaultStyling = (image: HTMLImageElement, hostSettings: IHost
 
 /**
  * Apply comprehensive AI-driven styling to a single image based on prediction data
- * 
+ *
  * This is the core function for applying intelligent, prediction-based styling to individual images.
  * It serves as the second layer in the two-stage filtering system, replacing basic default styling
  * with sophisticated AI-driven visual effects based on actual content analysis.
- * 
+ *
  * The function performs a complete styling workflow:
  * 1. Clears any existing HaramBlock styling to ensure clean state
  * 2. Applies base metadata and CSS classes for identification
@@ -247,33 +258,33 @@ export const applyDefaultStyling = (image: HTMLImageElement, hostSettings: IHost
  *    - Intelligent blur (8px) - Only applied if high-confidence predictions exist
  *    - Visual overlays - Bounding boxes or segmentation polygons
  *    - Prediction indicators - Visual badges showing processing status
- * 
+ *
  * Unlike applyDefaultStyling(), this function uses prediction confidence thresholds
  * (hostSettings.strictness) to make intelligent decisions about which styling to apply,
  * ensuring that only images with confident AI predictions receive enhanced filtering.
- * 
+ *
  * @param image - The HTMLImageElement to apply AI-driven styling to
  * @param prediction - AI prediction data containing detected objects and confidence scores
  * @param hostSettings - Host configuration including strictness threshold and style preferences
  * @param predictionSource - Source of predictions ('cached' from database | 'ai-processed' from fresh analysis)
  */
 export const applyImagePredictionStyling = (
-  image: HTMLImageElement, 
-  prediction: IImagePrediction, 
+  image: HTMLImageElement,
+  prediction: IImagePrediction,
   hostSettings: IHostSettings,
-  predictionSource: 'cached' | 'ai-processed'
+  predictionSource: 'cached' | 'ai-processed',
 ): void => {
   // Clear any existing HaramBlock styling
   clearElementStyles(image);
 
   // Apply base styling and metadata
   applyBaseStyles(image, prediction, predictionSource);
-  
+
   // Apply prediction-specific styling based on host settings
   if (hostSettings.masks.includes('blur')) {
     applyPredictionBlur(image, prediction, hostSettings);
   }
-  
+
   if (hostSettings.outline === 'bbox') {
     applyBoundingBoxOutline(image, prediction, hostSettings);
   } else if (hostSettings.outline === 'segment') {
@@ -288,14 +299,14 @@ export const applyImagePredictionStyling = (
  * @param hostSettings - Host settings containing strictness threshold
  */
 export const applyBoundingBoxOutline = (
-  image: HTMLImageElement, 
-  prediction: IImagePrediction, 
-  hostSettings: IHostSettings
+  image: HTMLImageElement,
+  prediction: IImagePrediction,
+  hostSettings: IHostSettings,
 ): void => {
   const highConfidencePredictions = prediction.predictions.filter(
-    pred => pred.probability >= hostSettings.strictness
+    (pred: IElementPrediction) => pred.probability >= hostSettings.strictness,
   );
-  
+
   if (highConfidencePredictions.length > 0) {
     const overlay = createBoundingBox(image, highConfidencePredictions);
     if (overlay && image.parentElement) {
@@ -311,14 +322,14 @@ export const applyBoundingBoxOutline = (
  * @param hostSettings - Host settings containing strictness threshold
  */
 export const applySegmentOutline = (
-  image: HTMLImageElement, 
-  prediction: IImagePrediction, 
-  hostSettings: IHostSettings
+  image: HTMLImageElement,
+  prediction: IImagePrediction,
+  hostSettings: IHostSettings,
 ): void => {
   const highConfidencePredictions = prediction.predictions.filter(
-    pred => pred.probability >= hostSettings.strictness
+    (pred: IElementPrediction) => pred.probability >= hostSettings.strictness,
   );
-  
+
   if (highConfidencePredictions.length > 0) {
     const overlay = createPolygon(image, highConfidencePredictions);
     if (overlay && image.parentElement) {
@@ -340,15 +351,21 @@ export const applySegmentOutline = (
 export const applyBaseStyles = (
   image: HTMLImageElement,
   prediction: IImagePrediction,
-  predictionSource: 'cached' | 'ai-processed'
+  predictionSource: 'cached' | 'ai-processed',
 ): void => {
   // Set custom properties for debugging and styling
-  image.style.setProperty('--prediction-count', prediction.predictions.length.toString());
+  image.style.setProperty(
+    '--prediction-count',
+    prediction.predictions.length.toString(),
+  );
   image.style.setProperty('--cache-timestamp', prediction.timestamp.toString());
   image.style.setProperty('--prediction-source', predictionSource);
 
   // Add appropriate CSS class
-  const cssClass = predictionSource === 'cached' ? 'haramblock-cached-processed' : 'haramblock-ai-processed';
+  const cssClass =
+    predictionSource === 'cached'
+      ? 'haramblock-cached-processed'
+      : 'haramblock-ai-processed';
   image.classList.add(cssClass);
 };
 
@@ -358,7 +375,11 @@ export const applyBaseStyles = (
  */
 export const clearElementStyles = (image: HTMLImageElement): void => {
   // Remove HaramBlock classes
-  image.classList.remove('haramblock-cached-processed', 'haramblock-ai-processed', 'haramblock-blacklisted');
+  image.classList.remove(
+    'haramblock-cached-processed',
+    'haramblock-ai-processed',
+    'haramblock-blacklisted',
+  );
 
   // Remove custom properties
   image.style.removeProperty('--cached-predictions');
@@ -375,7 +396,9 @@ export const clearElementStyles = (image: HTMLImageElement): void => {
   // Remove existing overlays
   const parent = image.parentElement;
   if (parent) {
-    const existingOverlays = parent.querySelectorAll('.haramblock-bbox-overlay, .haramblock-polygon-overlay');
+    const existingOverlays = parent.querySelectorAll(
+      '.haramblock-bbox-overlay, .haramblock-polygon-overlay',
+    );
     existingOverlays.forEach(overlay => overlay.remove());
   }
 };
@@ -386,7 +409,9 @@ export const clearElementStyles = (image: HTMLImageElement): void => {
  * @param image - The HTMLImageElement to hide and wait for
  * @returns Promise that resolves when image loads or rejects on error
  */
-export const hideImageAndWaitForLoad = (image: HTMLImageElement): Promise<void> => {
+export const hideImageAndWaitForLoad = (
+  image: HTMLImageElement,
+): Promise<void> => {
   return new Promise<void>((resolve, reject) => {
     // Hide the image element
     const hideElement = (): boolean => {
@@ -448,10 +473,10 @@ export const hideImageAndWaitForLoad = (image: HTMLImageElement): Promise<void> 
 export const applyPredictionBlur = (
   image: HTMLImageElement,
   prediction: IImagePrediction,
-  hostSettings: IHostSettings
+  hostSettings: IHostSettings,
 ): void => {
   const highConfidencePredictions = prediction.predictions.filter(
-    pred => pred.probability >= hostSettings.strictness
+    (pred: IElementPrediction) => pred.probability >= hostSettings.strictness,
   );
 
   if (highConfidencePredictions.length > 0) {
@@ -472,7 +497,7 @@ export const applyPredictionBlur = (
  */
 export const createBoundingBox = (
   image: HTMLImageElement,
-  predictions: IImagePrediction['predictions']
+  predictions: IImagePrediction['predictions'],
 ): HTMLElement | null => {
   if (!predictions.length) return null;
 
@@ -486,24 +511,24 @@ export const createBoundingBox = (
   overlay.style.pointerEvents = 'none';
   overlay.style.zIndex = '10';
 
-  predictions.forEach((prediction) => {
+  predictions.forEach((prediction: IElementPrediction) => {
     const bbox = document.createElement('div');
     bbox.className = `haramblock-bbox haramblock-bbox-${prediction.className}`;
     bbox.style.position = 'absolute';
-    
+
     // Calculate percentage-based positioning
     bbox.style.left = `${(prediction.boundingBox.x / image.naturalWidth) * 100}%`;
     bbox.style.top = `${(prediction.boundingBox.y / image.naturalHeight) * 100}%`;
     bbox.style.width = `${(prediction.boundingBox.width / image.naturalWidth) * 100}%`;
     bbox.style.height = `${(prediction.boundingBox.height / image.naturalHeight) * 100}%`;
-    
+
     // Apply default styling (can be overridden by CSS classes)
     bbox.style.border = '2px solid red';
     bbox.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
     bbox.style.boxSizing = 'border-box';
     bbox.style.borderRadius = '2px';
     bbox.style.transition = 'opacity 0.2s ease';
-    
+
     // Add metadata attributes
     bbox.setAttribute('data-class', prediction.className);
     bbox.setAttribute('data-probability', prediction.probability.toString());
@@ -522,7 +547,7 @@ export const createBoundingBox = (
  */
 export const createPolygon = (
   image: HTMLImageElement,
-  predictions: IImagePrediction['predictions']
+  predictions: IImagePrediction['predictions'],
 ): HTMLElement | null => {
   if (!predictions.length) return null;
 
@@ -536,7 +561,7 @@ export const createPolygon = (
   overlay.style.pointerEvents = 'none';
   overlay.style.zIndex = '10';
 
-  predictions.forEach((prediction) => {
+  predictions.forEach((prediction: IElementPrediction) => {
     if (!prediction.polygon || prediction.polygon.length === 0) {
       return;
     }
@@ -545,20 +570,28 @@ export const createPolygon = (
     svg.style.position = 'absolute';
     svg.style.width = '100%';
     svg.style.height = '100%';
-    svg.setAttribute('viewBox', `0 0 ${image.naturalWidth} ${image.naturalHeight}`);
+    svg.setAttribute(
+      'viewBox',
+      `0 0 ${image.naturalWidth} ${image.naturalHeight}`,
+    );
 
-    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    
+    const polygon = document.createElementNS(
+      'http://www.w3.org/2000/svg',
+      'polygon',
+    );
+
     // Convert polygon points to SVG points string
-    const points = prediction.polygon.map(point => `${point.x},${point.y}`).join(' ');
+    const points = prediction.polygon
+      .map((point: { x: number; y: number }) => `${point.x},${point.y}`)
+      .join(' ');
     polygon.setAttribute('points', points);
-    
+
     // Apply styling
     polygon.setAttribute('fill', 'rgba(255, 0, 0, 0.1)');
     polygon.setAttribute('stroke', 'red');
     polygon.setAttribute('stroke-width', '2');
     polygon.style.transition = 'opacity 0.2s ease';
-    
+
     // Add metadata attributes
     polygon.setAttribute('data-class', prediction.className);
     polygon.setAttribute('data-probability', prediction.probability.toString());

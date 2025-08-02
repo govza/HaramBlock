@@ -1,5 +1,7 @@
-import { defineConfig, type WxtViteConfig } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
+import { defineConfig, type WxtViteConfig } from 'wxt';
+
+// eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
 // See https://wxt.dev/api/config.html

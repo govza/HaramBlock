@@ -1,10 +1,13 @@
-import { MediaStateManager } from './MediaStateManager';
-import { MediaHandler } from './MediaHandler';
-import { IHostSettings, IImagePrediction } from '@/utils/types';
+import { MediaHandler } from '@/entrypoints/content/dom/MediaHandler';
+import { MediaStateManager } from '@/entrypoints/content/dom/MediaStateManager';
 import {
-  applyPredictionsStyling, applyBlacklistStyling, applyDefaultStyling, hideImageAndWaitForLoad
-} from '../presentation/styler';
+  applyPredictionsStyling,
+  applyBlacklistStyling,
+  applyDefaultStyling,
+  hideImageAndWaitForLoad,
+} from '@/entrypoints/content/presentation/styler';
 import { logger } from '@/utils/logger';
+import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 interface ProcessorConfig {
   throttleDelay: number;
@@ -26,7 +29,7 @@ const DEFAULT_CONFIG: ProcessorConfig = {
 };
 
 /**
-  * MediaProcessor handles media elements in the DOM, applying styles and processing images/videos
+ * MediaProcessor handles media elements in the DOM, applying styles and processing images/videos
  */
 export class MediaProcessor {
   private observer: MutationObserver | null = null;
@@ -41,24 +44,29 @@ export class MediaProcessor {
   private initialProcessingCompleted = false;
 
   constructor(
-    hostSettings: IHostSettings, 
+    hostSettings: IHostSettings,
     cachedPredictions: IImagePrediction[] = [],
-    private config: ProcessorConfig = DEFAULT_CONFIG
+    private config: ProcessorConfig = DEFAULT_CONFIG,
   ) {
     this.stateManager = new MediaStateManager(hostSettings);
     this.mediaHandler = new MediaHandler(
-      hostSettings, 
-      this.stateManager, 
+      hostSettings,
+      this.stateManager,
       cachedPredictions,
-      (predictions) => this.handleInferenceResults(predictions)
+      predictions => this.handleInferenceResults(predictions),
     );
     this.setupEventListeners();
-    logger.withTag("MediaProcessor").debug('MediaProcessor initialized');
+    logger.withTag('MediaProcessor').debug('MediaProcessor initialized');
   }
 
-  public start(target: Node = document, onInitialProcessingComplete?: () => void): void {
+  public start(
+    target: Node = document,
+    onInitialProcessingComplete?: () => void,
+  ): void {
     this.onInitialProcessingComplete = onInitialProcessingComplete;
-    this.observer = new MutationObserver(this.throttledMutationHandler.bind(this));
+    this.observer = new MutationObserver(
+      this.throttledMutationHandler.bind(this),
+    );
     this.observer.observe(target, this.config.mutationConfig);
     this.processExistingElements(target);
   }
@@ -77,14 +85,21 @@ export class MediaProcessor {
     // Apply styling directly using presentation layer functions
     predictions.forEach(prediction => {
       // Find images with matching src
-      const images = Array.from(document.querySelectorAll('img')).filter(img => {
-        const src = img.currentSrc || img.src;
-        return src === prediction.src;
-      }) as HTMLImageElement[];
+      const images = Array.from(document.querySelectorAll('img')).filter(
+        img => {
+          const src = img.currentSrc || img.src;
+          return src === prediction.src;
+        },
+      );
 
       if (images.length > 0) {
-        applyPredictionsStyling(images, [prediction], this.stateManager.getHostSettings(), 'ai-processed');
-        
+        applyPredictionsStyling(
+          images,
+          [prediction],
+          this.stateManager.getHostSettings(),
+          'ai-processed',
+        );
+
         images.forEach(image => {
           this.stateManager.markProcessed(image, prediction.src, 'styling');
         });
@@ -99,18 +114,18 @@ export class MediaProcessor {
       pendingMutations: this.pendingMutations.length,
       pendingImages: this.pendingImages.length,
       pendingVideos: this.pendingVideos.length,
-      hostSettings: this.stateManager.getHostSettings()
+      hostSettings: this.stateManager.getHostSettings(),
     };
   }
 
   private throttledMutationHandler(mutations: MutationRecord[]): void {
     this.pendingMutations.push(...mutations);
-    
+
     if (this.mutationTimeout !== null) {
       return;
     }
 
-    this.mutationTimeout = window.setTimeout(() => {
+    this.mutationTimeout = globalThis.setTimeout(() => {
       const allMutations = [...this.pendingMutations];
       this.pendingMutations = [];
       this.mutationTimeout = null;
@@ -120,11 +135,11 @@ export class MediaProcessor {
 
   private handleMutations(mutations: MutationRecord[]): void {
     const { images, videos } = this.extractMediaFromMutations(mutations);
-    
+
     if (images.length > 0) {
       this.queueImages(images);
     }
-    
+
     if (videos.length > 0) {
       this.queueVideos(videos);
     }
@@ -146,7 +161,10 @@ export class MediaProcessor {
         });
       }
 
-      if (mutation.type === 'attributes' && mutation.target.nodeType === Node.ELEMENT_NODE) {
+      if (
+        mutation.type === 'attributes' &&
+        mutation.target.nodeType === Node.ELEMENT_NODE
+      ) {
         const element = mutation.target as HTMLElement;
         if (element.tagName === 'IMG') {
           imageSet.add(element as HTMLImageElement);
@@ -158,14 +176,14 @@ export class MediaProcessor {
 
     return {
       images: Array.from(imageSet),
-      videos: Array.from(videoSet)
+      videos: Array.from(videoSet),
     };
   }
 
   private collectMediaElements(
     node: HTMLElement,
     images: Set<HTMLImageElement>,
-    videos: Set<HTMLVideoElement>
+    videos: Set<HTMLVideoElement>,
   ): void {
     if (node.tagName === 'IMG') {
       images.add(node as HTMLImageElement);
@@ -176,7 +194,7 @@ export class MediaProcessor {
     // Check children
     const imgChildren = node.querySelectorAll('img');
     const videoChildren = node.querySelectorAll('video');
-    
+
     imgChildren.forEach(img => images.add(img));
     videoChildren.forEach(video => videos.add(video));
   }
@@ -212,8 +230,8 @@ export class MediaProcessor {
       clearTimeout(this.batchTimeout);
     }
 
-    this.batchTimeout = window.setTimeout(() => {
-      this.processBatches();
+    this.batchTimeout = globalThis.setTimeout(() => {
+      void this.processBatches();
     }, this.config.throttleDelay);
   }
 
@@ -223,13 +241,13 @@ export class MediaProcessor {
       if (this.pendingImages.length > 0) {
         const images = [...this.pendingImages];
         this.pendingImages = [];
-        
+
         const validImages = images.filter(img => {
           const src = img.currentSrc || img.src;
           const isValid = src && img.width >= 50 && img.height >= 50;
           return isValid;
         });
-        
+
         if (validImages.length > 0) {
           await this.mediaHandler.handleImages(validImages);
         }
@@ -238,11 +256,13 @@ export class MediaProcessor {
       if (this.pendingVideos.length > 0) {
         const videos = [...this.pendingVideos];
         this.pendingVideos = [];
-        
+
         this.mediaHandler.handleVideos(videos);
       }
     } catch (error) {
-      logger.withTag("MediaProcessor").error('Failed to process media batches:', error);
+      logger
+        .withTag('MediaProcessor')
+        .error('Failed to process media batches:', error);
     } finally {
       this.batchTimeout = null;
     }
@@ -255,18 +275,24 @@ export class MediaProcessor {
     if (target.nodeType === Node.DOCUMENT_NODE) {
       // Handle document node (e.g., when image is opened in its own tab)
       const document = target as Document;
-      images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
-      videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+      images = Array.from(document.querySelectorAll('img'));
+      videos = Array.from(document.querySelectorAll('video'));
     } else if (target.nodeType === Node.ELEMENT_NODE) {
       // Handle element node
       const element = target as HTMLElement;
-      images = Array.from(element.querySelectorAll('img')) as HTMLImageElement[];
-      videos = Array.from(element.querySelectorAll('video')) as HTMLVideoElement[];
+      images = Array.from(element.querySelectorAll('img'));
+      videos = Array.from(element.querySelectorAll('video'));
     } else {
       // For other node types, call completion callback and return
-      if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
+      if (
+        this.onInitialProcessingComplete &&
+        !this.initialProcessingCompleted
+      ) {
         setTimeout(() => {
-          if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
+          if (
+            this.onInitialProcessingComplete &&
+            !this.initialProcessingCompleted
+          ) {
             this.initialProcessingCompleted = true;
             this.onInitialProcessingComplete();
           }
@@ -282,7 +308,10 @@ export class MediaProcessor {
     if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
       const delay = images.length > 0 || videos.length > 0 ? 50 : 10;
       setTimeout(() => {
-        if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
+        if (
+          this.onInitialProcessingComplete &&
+          !this.initialProcessingCompleted
+        ) {
           this.initialProcessingCompleted = true;
           this.onInitialProcessingComplete();
         }
@@ -318,7 +347,6 @@ export class MediaProcessor {
     }
 
     if (!image.complete || image.naturalWidth === 0) {
-      
       hideImageAndWaitForLoad(image)
         .then(() => {
           applyDefaultStyling(image, this.stateManager.getHostSettings());
@@ -332,7 +360,7 @@ export class MediaProcessor {
   }
 
   private setupEventListeners(): void {
-    window.addEventListener('beforeunload', () => {
+    globalThis.addEventListener('beforeunload', () => {
       this.stop();
     });
   }

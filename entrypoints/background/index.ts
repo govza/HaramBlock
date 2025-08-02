@@ -1,11 +1,10 @@
-
-import { IconEventListener } from '@/entrypoints/background/events';
-import { 
-  HostSettingsController, 
-  IconController, 
+import {
+  HostSettingsController,
+  IconController,
   PredictionCacheController,
-  InferenceController 
+  InferenceController,
 } from '@/entrypoints/background/controllers';
+import { IconEventListener } from '@/entrypoints/background/events';
 import { HostSettingsService } from '@/entrypoints/background/services';
 import { logger } from '@/utils/logger';
 
@@ -17,7 +16,9 @@ export default defineBackground(() => {
   const iconEventListener = new IconEventListener();
 
   // Initialize controllers (message/request handling layer)
-  const hostSettingsController = new HostSettingsController(hostSettingsService);
+  const hostSettingsController = new HostSettingsController(
+    hostSettingsService,
+  );
   const iconController = new IconController();
   const predictionCacheController = new PredictionCacheController();
   const inferenceController = new InferenceController();
@@ -29,5 +30,7 @@ export default defineBackground(() => {
   predictionCacheController.initialize();
   inferenceController.initialize();
 
-  logger.withTag('background').debug('Background script initialized successfull.');
+  logger
+    .withTag('background')
+    .debug('Background script initialized successfull.');
 });

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { defaultGlobalKey } from '@/utils/db/hostSettings';
+
+import { defaultGlobalKey } from '@/utils/db/constants';
 import { extractHostnameFromUrl } from '@/utils/db/hostnameUtil';
 
 /**
@@ -7,14 +8,18 @@ import { extractHostnameFromUrl } from '@/utils/db/hostnameUtil';
  * Handles auto-detection of current tab hostname
  */
 export function useHostname() {
-  const [detectedHostname, setDetectedHostname] = useState<string>(defaultGlobalKey);
+  const [detectedHostname, setDetectedHostname] =
+    useState<string>(defaultGlobalKey);
   const [error, setError] = useState<string | null>(null);
 
   // Auto-detect current hostname from active tab
   useEffect(() => {
     const getCurrentHostName = async () => {
       try {
-        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+        const tabs = await browser.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
         const urlFromTab = tabs[0]?.url;
         if (urlFromTab) {
           const currentHostname = extractHostnameFromUrl(urlFromTab);
@@ -26,7 +31,7 @@ export function useHostname() {
       }
     };
 
-    getCurrentHostName();
+    void getCurrentHostName();
   }, []);
 
   // Get the current effective hostname
