@@ -8,6 +8,6 @@ const logLevel = import.meta.env.DEV ? 5 : 0;
 export const logger = createConsola({
   level: logLevel,
   defaults: {
-    tag: "HaramBlock",
+    tag: 'HaramBlock',
   },
 });

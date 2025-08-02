@@ -1,6 +1,6 @@
-import { predictionsDb } from "./db";
-import { getEffectiveHostname } from "./hostnameUtil";
-import { ICacheMetadata, IImagePrediction } from "@/utils/types";
+import { predictionsDb } from '@/utils/db/db';
+import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { type ICacheMetadata, type IImagePrediction } from '@/utils/types';
 
 /**
  * PredictionCache - Data model and repository for cached prediction records
@@ -113,13 +113,19 @@ export class PredictionCache implements IImagePrediction {
   }
 
   static async findBySrc(src: string): Promise<PredictionCache[]> {
-    const records = await predictionsDb.predictions.where('src').equals(src).toArray();
+    const records = await predictionsDb.predictions
+      .where('src')
+      .equals(src)
+      .toArray();
     return records.map(record => new PredictionCache(record));
   }
 
   static async findByHostname(hostname: string): Promise<PredictionCache[]> {
     const effectiveHostname = getEffectiveHostname(hostname);
-    const records = await predictionsDb.predictions.where('hostname').equals(effectiveHostname).toArray();
+    const records = await predictionsDb.predictions
+      .where('hostname')
+      .equals(effectiveHostname)
+      .toArray();
     return records.map(record => new PredictionCache(record));
   }
 
@@ -128,15 +134,21 @@ export class PredictionCache implements IImagePrediction {
    * @param hostname - The hostname to search for
    * @returns Promise resolving to array of valid prediction cache entries
    */
-  static async findValidByHostname(hostname: string): Promise<PredictionCache[]> {
+  static async findValidByHostname(
+    hostname: string,
+  ): Promise<PredictionCache[]> {
     const allRecords = await this.findByHostname(hostname);
     return allRecords.filter(record => record.isValid());
   }
 
-  static async findBySrcAndHostname(src: string, hostname: string): Promise<PredictionCache[]> {
+  static async findBySrcAndHostname(
+    src: string,
+    hostname: string,
+  ): Promise<PredictionCache[]> {
     const effectiveHostname = getEffectiveHostname(hostname);
     const records = await predictionsDb.predictions
-      .where('src').equals(src)
+      .where('src')
+      .equals(src)
       .and(record => record.hostname === effectiveHostname)
       .toArray();
     return records.map(record => new PredictionCache(record));
@@ -151,7 +163,10 @@ export class PredictionCache implements IImagePrediction {
     return records.map(record => new PredictionCache(record));
   }
 
-  static async create(prediction: PredictionCache, hostname: string): Promise<PredictionCache> {
+  static async create(
+    prediction: PredictionCache,
+    hostname: string,
+  ): Promise<PredictionCache> {
     const effectiveHostname = getEffectiveHostname(hostname);
     const now = Date.now();
 
@@ -163,7 +178,7 @@ export class PredictionCache implements IImagePrediction {
         ...prediction.cacheMetadata,
         createdAt: now,
         accessedAt: now,
-      }
+      },
     });
     await predictionRecord.save();
     return predictionRecord;
@@ -179,7 +194,7 @@ export class PredictionCache implements IImagePrediction {
   static createCacheMetadata(
     headers: Record<string, string> = {},
     contentType?: string,
-    contentLength?: number
+    contentLength?: number,
   ): ICacheMetadata {
     const now = Date.now();
     const cacheControl = headers['cache-control'] || headers['Cache-Control'];
@@ -224,11 +239,17 @@ export class PredictionCache implements IImagePrediction {
 
   static async deleteByHostname(hostname: string): Promise<number> {
     const effectiveHostname = getEffectiveHostname(hostname);
-    return await predictionsDb.predictions.where('hostname').equals(effectiveHostname).delete();
+    return predictionsDb.predictions
+      .where('hostname')
+      .equals(effectiveHostname)
+      .delete();
   }
 
   static async deleteOlderThan(timestamp: number): Promise<number> {
-    return await predictionsDb.predictions.where('timestamp').below(timestamp).delete();
+    return predictionsDb.predictions
+      .where('timestamp')
+      .below(timestamp)
+      .delete();
   }
 
   /**
@@ -247,18 +268,21 @@ export class PredictionCache implements IImagePrediction {
     }
 
     if (expiredIds.length > 0) {
-      return await predictionsDb.predictions.where('src').anyOf(expiredIds).delete();
+      return predictionsDb.predictions.where('src').anyOf(expiredIds).delete();
     }
 
     return 0;
   }
 
   static async count(): Promise<number> {
-    return await predictionsDb.predictions.count();
+    return predictionsDb.predictions.count();
   }
 
   static async countByHostname(hostname: string): Promise<number> {
     const effectiveHostname = getEffectiveHostname(hostname);
-    return await predictionsDb.predictions.where('hostname').equals(effectiveHostname).count();
+    return predictionsDb.predictions
+      .where('hostname')
+      .equals(effectiveHostname)
+      .count();
   }
 }

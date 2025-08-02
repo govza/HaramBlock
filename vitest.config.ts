@@ -9,7 +9,7 @@ export default defineConfig({
     watch: false,
   },
 
-  // @ts-ignore
+  // @ts-expect-error - WxtVitest plugin types may not be fully compatible
   plugins: [WxtVitest()],
 
   // If any dependencies rely on webextension-polyfill, add them here to the `ssr.noExternal` option.

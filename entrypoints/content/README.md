@@ -1,6 +1,8 @@
 # Content Script Module
 
-This folder contains the HaramBlock content script that runs on web pages to detect, analyze, and filter media content. The content script is the main interface between the extension and the web page's DOM.
+This folder contains the HaramBlock content script that runs on web pages to detect, analyze, and
+filter media content. The content script is the main interface between the extension and the web
+page's DOM.
 
 ## Architecture Overview
 
@@ -17,7 +19,9 @@ The content script follows a modular architecture with clear separation of conce
 ### Entry Point
 
 #### `index.ts`
+
 The main content script entry point that orchestrates the entire media filtering system. It:
+
 - Initializes global hiding styles to prevent content flash
 - Uses the `useHostData` hook to get host settings and cached predictions
 - Creates and manages `MediaProcessor` instances based on host policy
@@ -27,15 +31,19 @@ The main content script entry point that orchestrates the entire media filtering
 ### DOM Processing (`dom/`)
 
 #### `MediaStateManager.ts`
-Manages the processing state of media elements to prevent duplicate processing and maintain performance.
+
+Manages the processing state of media elements to prevent duplicate processing and maintain
+performance.
 
 **Key Features:**
+
 - Uses `WeakMap` for memory-efficient element tracking
 - Tracks last processed source URL and timestamp for each element
 - Stores host settings for consistent processing decisions
 - Provides methods to mark, check, and retrieve element processing state
 
 **Interface:**
+
 ```typescript
 export interface ElementState {
   lastProcessedSrc: string;
@@ -45,9 +53,12 @@ export interface ElementState {
 ```
 
 #### `MediaProcessor.ts`
-The core orchestrator for media element processing, combining DOM observation with AI-powered content analysis.
+
+The core orchestrator for media element processing, combining DOM observation with AI-powered
+content analysis.
 
 **Key Features:**
+
 - Uses `MutationObserver` to detect new/changed media elements
 - Implements batched processing for performance optimization
 - Manages processing queues for images and videos separately
@@ -55,14 +66,17 @@ The core orchestrator for media element processing, combining DOM observation wi
 - Handles AI prediction results and applies advanced styling
 
 **Configuration:**
+
 - Throttle delay: 500ms for batch processing
 - Batch size: 20 elements per batch
 - Monitors src, srcset attributes and DOM changes
 
 #### `MediaHandler.ts`
+
 Unified handler for both image and video processing with AI integration.
 
 **Key Features:**
+
 - Categorizes images into cached vs. uncached for efficient processing
 - Queues uncached images for AI inference via background script
 - Handles AI prediction results and applies appropriate styling
@@ -72,21 +86,26 @@ Unified handler for both image and video processing with AI integration.
 ### Communication (`communication/`)
 
 #### `listener.ts`
+
 Handles all inbound messages from the background script using webext-bridge.
 
 **Message Types:**
+
 - `HOST_SETTINGS_UPDATED` - Notifies when host settings change
 - `INFERENCE_PREDICTIONS` - Delivers AI prediction results
 
 **Key Features:**
+
 - Provides filtered listeners for specific hostnames
 - Offers utility functions for setting up multiple listeners
 - Returns cleanup functions for proper resource management
 
 #### `sender.ts`
+
 Manages all outbound communication to the background script.
 
 **Key Functions:**
+
 - `requestHostSettings()` - Gets current host settings
 - `requestCachedPredictions()` - Retrieves cached AI predictions
 - `queueImagesForInference()` - Sends images for AI processing
@@ -95,9 +114,11 @@ Manages all outbound communication to the background script.
 ### Hooks (`hooks/`)
 
 #### `useHostData.ts`
+
 Unified reactive hook for managing host settings and cached predictions.
 
 **Key Features:**
+
 - Fetches both settings and predictions in parallel for efficiency
 - Automatically refreshes data when host settings change
 - Provides loading state and manual refresh capabilities
@@ -105,6 +126,7 @@ Unified reactive hook for managing host settings and cached predictions.
 - Triggers page reload on settings changes to ensure clean state
 
 **Return Interface:**
+
 ```typescript
 {
   settings: IHostSettings | undefined;
@@ -118,6 +140,7 @@ Unified reactive hook for managing host settings and cached predictions.
 ### Presentation (`presentation/`)
 
 #### `styler.ts`
+
 Comprehensive styling module that handles all visual effects and CSS injection.
 
 **Core Functions:**
@@ -139,12 +162,13 @@ Comprehensive styling module that handles all visual effects and CSS injection.
    - `createBoundingBox()` - Creates bounding box overlays for detected objects
    - `createPolygon()` - Creates segmentation polygon overlays
 
-**Styling Strategy:**
-The module implements a two-stage filtering approach:
+**Styling Strategy:** The module implements a two-stage filtering approach:
+
 1. **Immediate Protection:** Basic styling applied instantly when images are detected
 2. **AI-Enhanced Filtering:** Sophisticated styling applied after AI analysis completes
 
 **Visual Indicators:**
+
 - 🎯 Badge for cached predictions
 - 🤖 Badge for fresh AI predictions
 - Color-coded bounding boxes by object class
@@ -258,7 +282,8 @@ classDiagram
 
 ## Performance Considerations
 
-- **Batched Processing:** Media elements are processed in batches to reduce DOM manipulation overhead
+- **Batched Processing:** Media elements are processed in batches to reduce DOM manipulation
+  overhead
 - **Throttled Observation:** Mutation observer uses 500ms throttle to prevent excessive processing
 - **WeakMap State:** Element state uses WeakMap for automatic garbage collection
 - **Cached Predictions:** Previously analyzed images skip AI processing

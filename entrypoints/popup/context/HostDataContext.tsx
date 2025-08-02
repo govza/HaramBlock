@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
-import { createContext, useContext } from 'react';
-import { HostSettings, defaultHostSettings, defaultGlobalKey } from '@/utils/db/hostSettings';
-import { useHostSettings } from '@/hooks/useHostSettings';
+import { createContext, useContext, type ReactNode } from 'react';
+
 import { useHostname } from '@/hooks/useHostname';
+import { useHostSettings } from '@/hooks/useHostSettings';
+import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
+import { HostSettings } from '@/utils/db/hostSettings';
 
 type HostDataType = {
   hostSettings: HostSettings;
@@ -24,7 +25,7 @@ type HostDataProviderProps = {
 export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   // Get hostname management
   const { currentHostname, error: hostnameError } = useHostname();
-  
+
   // Get settings for the current hostname
   const { hostSettings, isLoading } = useHostSettings(currentHostname);
 
@@ -41,7 +42,8 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
         currentHostname,
         isLoading,
         error,
-      }}>
+      }}
+    >
       {children}
     </HostDataContext.Provider>
   );
@@ -50,7 +52,9 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
 export const useHostDataContext = (): HostDataType => {
   const context = useContext(HostDataContext);
   if (!context) {
-    throw new Error('useHostDataContext must be used within a HostDataProvider');
+    throw new Error(
+      'useHostDataContext must be used within a HostDataProvider',
+    );
   }
   return context;
 };

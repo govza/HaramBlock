@@ -2,17 +2,15 @@ import { createI18n } from '@wxt-dev/i18n';
 import { useCallback } from 'react';
 
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
-import { defaultGlobalKey } from '@/utils/db/hostSettings';
-
-
+import { defaultGlobalKey } from '@/utils/db/constants';
 
 export const Header = () => {
   const i18n = createI18n();
   const { hostSettings } = useHostDataContext();
   const isGlobalSettings = hostSettings.hostname === defaultGlobalKey;
 
-  const togglePolicy = useCallback(async () => {
-    await hostSettings.togglePolicy();
+  const togglePolicy = useCallback(() => {
+    void hostSettings.togglePolicy();
   }, [hostSettings]);
 
   const renderSvgPath = () => {

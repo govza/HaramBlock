@@ -1,17 +1,13 @@
-import { hostSettingsDb } from "./db";
-import { getEffectiveHostname, isGlobalPage } from "./hostnameUtil";
-import type { IHostSettings, MaskType, OutlineType, HostPolicy } from "@/utils/types";
+import { defaultHostSettings } from '@/utils/db/constants';
+import { hostSettingsDb } from '@/utils/db/db';
+import { getEffectiveHostname, isGlobalPage } from '@/utils/db/hostnameUtil';
 
-export const defaultGlobalKey = 'global';
-
-export const defaultHostSettings: IHostSettings = {
-  hostname: defaultGlobalKey,
-  masks: ['blur'],
-  isGlobal: true,
-  outline: 'segment',
-  policy: 'process',
-  strictness: 0.8,
-};
+import type {
+  IHostSettings,
+  MaskType,
+  OutlineType,
+  HostPolicy,
+} from '@/utils/types';
 
 /**
  * HostSettings - Data model and repository for host settings
@@ -36,7 +32,13 @@ export class HostSettings implements IHostSettings {
   }
 
   async togglePolicy(): Promise<void> {
-    this.policy = this.policy === 'whitelist' ? 'blacklist' : this.policy === 'blacklist' ? 'process' : 'whitelist';
+    if (this.policy === 'whitelist') {
+      this.policy = 'blacklist';
+    } else if (this.policy === 'blacklist') {
+      this.policy = 'process';
+    } else {
+      this.policy = 'whitelist';
+    }
     await this.save();
   }
 
@@ -77,14 +79,18 @@ export class HostSettings implements IHostSettings {
   static async findByHostname(hostname: string): Promise<HostSettings> {
     const effectiveHostname = getEffectiveHostname(hostname);
     const stored = await hostSettingsDb.hostSettings.get(effectiveHostname);
-    return stored ? new HostSettings(stored) : new HostSettings({
-      ...defaultHostSettings,
-      hostname: effectiveHostname,
-      isGlobal: isGlobalPage(effectiveHostname),
-    });
+    return stored
+      ? new HostSettings(stored)
+      : new HostSettings({
+          ...defaultHostSettings,
+          hostname: effectiveHostname,
+          isGlobal: isGlobalPage(effectiveHostname),
+        });
   }
 
-  static async create(settings: Partial<IHostSettings> & { hostname: string }): Promise<HostSettings> {
+  static async create(
+    settings: Partial<IHostSettings> & { hostname: string },
+  ): Promise<HostSettings> {
     const effectiveHostname = getEffectiveHostname(settings.hostname);
     const hostSettings = new HostSettings({
       ...defaultHostSettings,

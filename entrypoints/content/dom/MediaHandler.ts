@@ -1,7 +1,7 @@
-import { IHostSettings, IImagePrediction } from '@/utils/types';
-import { MediaStateManager } from './MediaStateManager';
-import { queueImagesForInference } from '../communication/sender';
+import { queueImagesForInference } from '@/entrypoints/content/communication/sender';
+import { type MediaStateManager } from '@/entrypoints/content/dom/MediaStateManager';
 import { logger } from '@/utils/logger';
+import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 /**
  * Unified handler for both image and video processing
@@ -15,7 +15,7 @@ export class MediaHandler {
     private hostSettings: IHostSettings,
     private readonly stateManager: MediaStateManager,
     private cachedPredictions: IImagePrediction[] = [],
-    onCachedPredictionsFound?: (predictions: IImagePrediction[]) => void
+    onCachedPredictionsFound?: (predictions: IImagePrediction[]) => void,
   ) {
     this.onCachedPredictionsFound = onCachedPredictionsFound;
   }
@@ -30,9 +30,7 @@ export class MediaHandler {
   public async handleImages(images: HTMLImageElement[]): Promise<void> {
     if (!images.length) return;
 
-    for (const image of images) {
-      await this.handleSingleImage(image);
-    }
+    await Promise.all(images.map(image => this.handleSingleImage(image)));
   }
 
   /**
@@ -57,7 +55,9 @@ export class MediaHandler {
     try {
       await this.processImageForAI(image);
     } catch (error) {
-      logger.withTag("MediaHandler").error('Failed to handle single image:', error);
+      logger
+        .withTag('MediaHandler')
+        .error('Failed to handle single image:', error);
     }
   }
 
@@ -66,20 +66,24 @@ export class MediaHandler {
    */
   private async processImageForAI(image: HTMLImageElement): Promise<void> {
     try {
-      const { cachedImages, uncachedImages } = this.categorizeImages([image], this.cachedPredictions);
+      const { cachedImages, uncachedImages } = this.categorizeImages(
+        [image],
+        this.cachedPredictions,
+      );
 
       if (cachedImages.length > 0) {
         // For cached predictions, we need to notify the MediaProcessor to apply styling
         const predictions = cachedImages.map(item => item.prediction);
         this.onCachedPredictionsFound?.(predictions);
       }
-      
+
       if (uncachedImages.length > 0) {
         await this.queueForAiProcessing(uncachedImages);
       }
-      
     } catch (error) {
-      logger.withTag("MediaHandler").error('Failed to process image for AI:', error);
+      logger
+        .withTag('MediaHandler')
+        .error('Failed to process image for AI:', error);
     }
   }
 
@@ -97,19 +101,25 @@ export class MediaHandler {
 
   private categorizeImages(
     images: HTMLImageElement[],
-    cachedPredictions: IImagePrediction[]
+    cachedPredictions: IImagePrediction[],
   ): {
-    cachedImages: Array<{ image: HTMLImageElement; prediction: IImagePrediction }>;
+    cachedImages: Array<{
+      image: HTMLImageElement;
+      prediction: IImagePrediction;
+    }>;
     uncachedImages: HTMLImageElement[];
   } {
     const predictionMap = new Map(cachedPredictions.map(p => [p.src, p]));
-    const cachedImages: Array<{ image: HTMLImageElement; prediction: IImagePrediction }> = [];
+    const cachedImages: Array<{
+      image: HTMLImageElement;
+      prediction: IImagePrediction;
+    }> = [];
     const uncachedImages: HTMLImageElement[] = [];
 
     images.forEach(image => {
       const src = image.currentSrc || image.src;
       const prediction = predictionMap.get(src);
-      
+
       if (prediction) {
         cachedImages.push({ image, prediction });
       } else {
@@ -120,14 +130,16 @@ export class MediaHandler {
     return { cachedImages, uncachedImages };
   }
 
-  private async queueForAiProcessing(images: HTMLImageElement[]): Promise<void> {
+  private async queueForAiProcessing(
+    images: HTMLImageElement[],
+  ): Promise<void> {
     const imageSrcs = images.map(img => img.currentSrc || img.src);
-    
+
     // Store images for matching with predictions
     images.forEach(image => {
       const src = image.currentSrc || image.src;
       const existing = this.pendingImages.get(src);
-      
+
       if (existing) {
         existing.push(image);
       } else {
@@ -137,9 +149,10 @@ export class MediaHandler {
 
     try {
       await queueImagesForInference(this.hostSettings.hostname, imageSrcs);
-      
     } catch (error) {
-      logger.withTag("MediaHandler").error('queueForAiProcessing - Error:', error);
+      logger
+        .withTag('MediaHandler')
+        .error('queueForAiProcessing - Error:', error);
       // Clean up on error
       imageSrcs.forEach(src => this.pendingImages.delete(src));
       throw error;

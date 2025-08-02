@@ -1,13 +1,15 @@
-
 # Host Settings: IndexedDB Storage, Reactivity, and Hooks
 
-This extension uses **Dexie** (a wrapper for IndexedDB) to store and manage per-host and global settings. All settings are accessed and updated reactively in your UI using custom React hooks powered by `dexie-react-hooks`.
+This extension uses **Dexie** (a wrapper for IndexedDB) to store and manage per-host and global
+settings. All settings are accessed and updated reactively in your UI using custom React hooks
+powered by `dexie-react-hooks`.
 
 ## How HostSettings Work
 
 ### 1. Data Model
 
-- **HostSettings** are objects representing configuration for a specific hostname or for global defaults.
+- **HostSettings** are objects representing configuration for a specific hostname or for global
+  defaults.
 - Each HostSettings object includes:
   - `hostname`: The domain or 'global' for default settings
   - `isGlobal`: Boolean, true for global settings
@@ -24,6 +26,7 @@ This extension uses **Dexie** (a wrapper for IndexedDB) to store and manage per-
 - Each HostSettings entry is keyed by its `hostname`.
 
 **Example Dexie setup:**
+
 ```typescript
 import Dexie from 'dexie';
 import { defaultHostSettings, IHostSettings } from './HostSettings';
@@ -48,15 +51,18 @@ hostSettingsDb.on('populate', () => {
 - No manual refresh or polling is needed—UI updates instantly when data changes.
 
 **Example reactive hook:**
+
 ```typescript
 import { useLiveQuery } from 'dexie-react-hooks';
 import { hostSettingsDb } from './db';
 
-const hostSettings = useLiveQuery(() => hostSettingsDb.hostSettings.get('example.com'), ['example.com']);
+const hostSettings = useLiveQuery(
+  () => hostSettingsDb.hostSettings.get('example.com'),
+  ['example.com']
+);
 ```
 
 ## Features
-
 
 ## HostSettings React Hooks & Context
 
@@ -86,10 +92,12 @@ The system now uses two focused hooks for better clarity and separation of conce
   - All consumers update automatically when settings change
 
 **Context Properties:**
-  - `hostSettings`: Current reactive host settings (automatically global or host-specific based on hostname)
-  - `currentHostname`: Current hostname being tracked
-  - `isLoading`: Loading state indicator
-  - `error`: Error message (if any)
+
+- `hostSettings`: Current reactive host settings (automatically global or host-specific based on
+  hostname)
+- `currentHostname`: Current hostname being tracked
+- `isLoading`: Loading state indicator
+- `error`: Error message (if any)
 
 **Note:** Use `hostSettings.isGlobal` to check if the current settings are global or host-specific.
 
@@ -121,6 +129,7 @@ function YourComponent() {
 ## Usage Examples
 
 ### Basic Usage
+
 ```tsx
 import { HostDataProvider, useHostDataContext } from './context/HostDataContext';
 
@@ -134,12 +143,12 @@ function App() {
 
 function YourComponent() {
   const { hostSettings } = useHostDataContext();
-  
+
   const handleUpdate = async () => {
     await hostSettings.togglePolicy();
     // Component automatically re-renders - no manual refresh needed!
   };
-  
+
   return (
     <div>
       <p>Current policy: {hostSettings.policy}</p>
@@ -150,6 +159,7 @@ function YourComponent() {
 ```
 
 ### Advanced Usage
+
 ```tsx
 import { HostDataProvider, useHostDataContext } from './context/HostDataContext';
 
@@ -162,11 +172,8 @@ function App() {
 }
 
 function YourComponent() {
-  const { 
-    hostSettings, 
-    currentHostname,
-  } = useHostDataContext();
-  
+  const { hostSettings, currentHostname } = useHostDataContext();
+
   return (
     <div>
       <p>Current Host: {currentHostname}</p>
@@ -178,6 +185,7 @@ function YourComponent() {
 ```
 
 ### Direct Hook Usage
+
 ```tsx
 import { useHostname } from '@/hooks/useHostname';
 import { useHostSettings } from '@/hooks/useHostSettings';
@@ -186,9 +194,9 @@ import { useHostSettings } from '@/hooks/useHostSettings';
 function DetailedHostSettings() {
   const { currentHostname } = useHostname();
   const { hostSettings, isLoading } = useHostSettings(currentHostname);
-  
+
   if (isLoading) return <div>Loading...</div>;
-  
+
   return (
     <div>
       <p>Current hostname: {currentHostname}</p>
@@ -201,9 +209,9 @@ function DetailedHostSettings() {
 // Using just the settings hook for a specific hostname
 function SpecificHostSettings() {
   const { hostSettings, isLoading } = useHostSettings('example.com');
-  
+
   if (isLoading) return <div>Loading...</div>;
-  
+
   return (
     <div>
       <p>Settings for example.com: {hostSettings.policy}</p>
@@ -211,8 +219,11 @@ function SpecificHostSettings() {
   );
 }
 ```
+
 ### Error Handling
-The reactive hooks handle errors gracefully and provide error states when needed. The `useLiveQuery` hook will return `undefined` while loading and the actual data when ready.
+
+The reactive hooks handle errors gracefully and provide error states when needed. The `useLiveQuery`
+hook will return `undefined` while loading and the actual data when ready.
 
 ## Dependencies
 

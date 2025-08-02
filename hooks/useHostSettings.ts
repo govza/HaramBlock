@@ -1,14 +1,16 @@
-import { useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useMemo, useCallback } from 'react';
 import { sendMessage } from 'webext-bridge/popup';
-import { HostSettings, defaultHostSettings } from '@/utils/db/hostSettings';
-import { getEffectiveHostname, isGlobalPage } from '@/utils/db/hostnameUtil';
+
+import { defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
+import { getEffectiveHostname, isGlobalPage } from '@/utils/db/hostnameUtil';
+import { HostSettings } from '@/utils/db/hostSettings';
 
 /**
  * Reactive hook for HostSettings data management
  * Focuses purely on loading and managing settings for a specific hostname
- * 
+ *
  * @param hostname - The hostname to load settings for
  * @returns Host settings and loading state
  */
@@ -21,7 +23,7 @@ export function useHostSettings(hostname: string) {
   // Reactively query the database
   const hostSettingsData = useLiveQuery(
     () => hostSettingsDb.hostSettings.get(effectiveHostname),
-    [effectiveHostname]
+    [effectiveHostname],
   );
 
   // Function to update icon after settings change
@@ -54,12 +56,18 @@ export function useHostSettings(hostname: string) {
         // Send message to all relevant content scripts
         const notifications = relevantTabs.map(tab => {
           if (tab.id) {
-            return sendMessage('HOST_SETTINGS_UPDATED', 
-              { hostname: effectiveHostname }, 
-              `content-script@${tab.id}`
+            return sendMessage(
+              'HOST_SETTINGS_UPDATED',
+              { hostname: effectiveHostname },
+              `content-script@${tab.id}`,
             ).catch(error => {
               // Ignore errors for tabs that might not have content script loaded
-              console.debug('Could not notify tab', tab.id, 'of settings change:', error.message);
+              console.warn(
+                'Could not notify tab',
+                tab.id,
+                'of settings change:',
+                error instanceof Error ? error.message : String(error),
+              );
             });
           }
           return Promise.resolve();
@@ -104,7 +112,7 @@ export function useHostSettings(hostname: string) {
   return {
     // Main settings
     hostSettings,
-    
+
     // Status
     isLoading: hostSettingsData === undefined,
     effectiveHostname,

@@ -26,19 +26,19 @@ export interface IElementPrediction {
 
 export interface ICacheMetadata {
   // HTTP Cache headers
-  cacheControl?: string;           // Cache-Control header value
-  etag?: string;                   // ETag header value
-  lastModified?: number;           // Last-Modified timestamp
-  expires?: number;                // Expires header timestamp
-  
+  cacheControl?: string; // Cache-Control header value
+  etag?: string; // ETag header value
+  lastModified?: number; // Last-Modified timestamp
+  expires?: number; // Expires header timestamp
+
   // Cache management
-  maxAge?: number;                // Max age in seconds (from Cache-Control or computed)
-  createdAt: number;              // When this cache entry was created
-  accessedAt: number;             // Last time this cache entry was accessed
-  
+  maxAge?: number; // Max age in seconds (from Cache-Control or computed)
+  createdAt: number; // When this cache entry was created
+  accessedAt: number; // Last time this cache entry was accessed
+
   // Image metadata
-  contentType?: string;           // MIME type of the image
-  contentLength?: number;         // Size of the image in bytes
+  contentType?: string; // MIME type of the image
+  contentLength?: number; // Size of the image in bytes
 }
 
 export interface IImagePrediction {
@@ -47,6 +47,16 @@ export interface IImagePrediction {
   imageWidth: number;
   imageHeight: number;
   predictions: IElementPrediction[];
-  timestamp: number;              // When the prediction was made
-  cacheMetadata: ICacheMetadata;  // HTTP cache and metadata information
+  timestamp: number; // When the prediction was made
+  cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
+}
+
+export interface ModelConfig {
+  names: string[];
+  stride: number;
+  imgsz: [number, number, number];
+  outputShape: [number, number, number];
+
+  namesToCheck: string[];
+  numClass: number;
 }

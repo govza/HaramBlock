@@ -1,5 +1,6 @@
-import { PredictionCache, IImagePrediction } from '@/utils/db/predictionCache';
+import { PredictionCache } from '@/utils/db/predictionCache';
 import { logger } from '@/utils/logger';
+import { type IImagePrediction } from '@/utils/types';
 
 /**
  * PredictionCacheService handles business logic for prediction cache
@@ -11,18 +12,23 @@ export class PredictionCacheService {
    * @param predictions - Array of predictions to cache
    * @param hostname - Hostname for caching
    */
-  async cachePredictions(predictions: IImagePrediction[], hostname: string): Promise<void> { 
+  async cachePredictions(
+    predictions: IImagePrediction[],
+    _hostname: string,
+  ): Promise<void> {
     try {
-      const cachePromises = predictions.map(async (prediction) => {
+      const cachePromises = predictions.map(async prediction => {
         // Create prediction cache instance and save (upsert)
         // The database schema ensures src uniqueness, so put() will overwrite existing entries
         const predictionCache = new PredictionCache(prediction);
-        return await predictionCache.save();
+        return predictionCache.save();
       });
-      
+
       await Promise.all(cachePromises);
     } catch (error) {
-      logger.withTag('predictionCacheService').error('Error caching predictions:', error);
+      logger
+        .withTag('predictionCacheService')
+        .error('Error caching predictions:', error);
       throw error;
     }
   }
@@ -32,7 +38,9 @@ export class PredictionCacheService {
    * @param hostname - The hostname to retrieve predictions for
    * @returns Promise resolving to array of cached predictions
    */
-  async getCachedPredictionsByHostname(hostname: string): Promise<IImagePrediction[]> {
+  async getCachedPredictionsByHostname(
+    hostname: string,
+  ): Promise<IImagePrediction[]> {
     if (!hostname || !hostname.trim()) {
       throw new Error('Hostname is required');
     }
@@ -40,29 +48,45 @@ export class PredictionCacheService {
     try {
       // Get only valid (non-expired) predictions
       const predictions = await PredictionCache.findValidByHostname(hostname);
-      
+
       // Serialize the data to return immediately
-      const serializedPredictions = predictions.map(prediction => prediction.serialize());
-      
+      const serializedPredictions = predictions.map(prediction =>
+        prediction.serialize(),
+      );
+
       // Update access time and save in background (fire-and-forget)
       if (predictions.length > 0) {
         Promise.all(
-          predictions.map(async (prediction) => {
+          predictions.map(async prediction => {
             try {
               prediction.updateAccessTime();
               await prediction.save();
             } catch (error) {
-              logger.withTag('predictionCacheService').warn('Failed to update access time for prediction:', prediction.src, error);
+              logger
+                .withTag('predictionCacheService')
+                .warn(
+                  'Failed to update access time for prediction:',
+                  prediction.src,
+                  error,
+                );
             }
-          })
+          }),
         ).catch(error => {
-          logger.withTag('predictionCacheService').warn('Background access time update failed:', error);
+          logger
+            .withTag('predictionCacheService')
+            .warn('Background access time update failed:', error);
         });
       }
-      
+
       return serializedPredictions;
     } catch (error) {
-      logger.withTag('predictionCacheService').error('Error retrieving cached predictions for hostname:', hostname, error);
+      logger
+        .withTag('predictionCacheService')
+        .error(
+          'Error retrieving cached predictions for hostname:',
+          hostname,
+          error,
+        );
       throw error;
     }
   }

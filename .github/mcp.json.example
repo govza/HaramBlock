@@ -1,18 +1,18 @@
 {
-    "servers": {
-        "playwright": {
-            "type": "stdio",
-            "command": "npx",
-            "args": [
-                "@playwright/mcp@latest",
-                "--browser",
-                "chromium",
-                "--user-data-dir",
-                "./.wxt/chrome-mcp-data",
-                "--config",
-                "./.github/playwright.config.json",
-            ],
-        }
-    },
-    "inputs": []
+  "servers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--browser",
+        "chromium",
+        "--user-data-dir",
+        "./.wxt/chrome-mcp-data",
+        "--config",
+        "./.github/playwright.config.json"
+      ]
+    }
+  },
+  "inputs": []
 }
