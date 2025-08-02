@@ -1,0 +1,52 @@
+# Build outputs
+.output/
+.wxt/
+dist/
+build/
+
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+
+# Generated files
+*.min.js
+*.min.css
+
+# Assets and models
+public/models/
+*.bin
+*.pb
+*.tflite
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Extension specific
+web-ext-artifacts/
+*.zip
+*.crx
+*.xpi
+
+# Documentation that should preserve formatting
+CHANGELOG.md
