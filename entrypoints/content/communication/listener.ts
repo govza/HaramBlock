@@ -1,5 +1,5 @@
 import { onMessage } from 'webext-bridge/content-script';
-import { IImagePrediction } from '@/utils/db/predictionCache';
+import { IImagePrediction } from '@/utils/types';
 
 /**
  * Communication listener module for HaramBlock content script

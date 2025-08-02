@@ -1,45 +1,6 @@
 import { predictionsDb } from "./db";
 import { getEffectiveHostname } from "./hostnameUtil";
-
-interface IElementPrediction {
-  classId: number;
-  className: string;
-  probability: number;
-  boundingBox: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  polygon: Array<{ x: number; y: number }>;
-}
-
-interface ICacheMetadata {
-  // HTTP Cache headers
-  cacheControl?: string;           // Cache-Control header value
-  etag?: string;                   // ETag header value
-  lastModified?: number;           // Last-Modified timestamp
-  expires?: number;                // Expires header timestamp
-  
-  // Cache management
-  maxAge?: number;                // Max age in seconds (from Cache-Control or computed)
-  createdAt: number;              // When this cache entry was created
-  accessedAt: number;             // Last time this cache entry was accessed
-  
-  // Image metadata
-  contentType?: string;           // MIME type of the image
-  contentLength?: number;         // Size of the image in bytes
-}
-
-export interface IImagePrediction {
-  hostname: string;
-  src: string;
-  imageWidth: number;
-  imageHeight: number;
-  predictions: IElementPrediction[];
-  timestamp: number;              // When the prediction was made
-  cacheMetadata: ICacheMetadata;  // HTTP cache and metadata information
-}
+import { ICacheMetadata, IImagePrediction } from "@/utils/types";
 
 /**
  * PredictionCache - Data model and repository for cached prediction records
@@ -107,12 +68,12 @@ export class PredictionCache implements IImagePrediction {
    */
   isValid(): boolean {
     const now = Date.now();
-    
+
     // Check if explicitly expired
     if (this.cacheMetadata.expires && now > this.cacheMetadata.expires) {
       return false;
     }
-    
+
     // Check max-age
     if (this.cacheMetadata.maxAge) {
       const ageInSeconds = (now - this.cacheMetadata.createdAt) / 1000;
@@ -120,7 +81,7 @@ export class PredictionCache implements IImagePrediction {
         return false;
       }
     }
-    
+
     // If no specific cache rules, consider valid
     return true;
   }
@@ -138,16 +99,16 @@ export class PredictionCache implements IImagePrediction {
    */
   getRemainingTTL(): number | null {
     const now = Date.now();
-    
+
     if (this.cacheMetadata.expires) {
       return Math.max(0, Math.floor((this.cacheMetadata.expires - now) / 1000));
     }
-    
+
     if (this.cacheMetadata.maxAge) {
       const ageInSeconds = (now - this.cacheMetadata.createdAt) / 1000;
       return Math.max(0, this.cacheMetadata.maxAge - ageInSeconds);
     }
-    
+
     return null;
   }
 
@@ -193,7 +154,7 @@ export class PredictionCache implements IImagePrediction {
   static async create(prediction: PredictionCache, hostname: string): Promise<PredictionCache> {
     const effectiveHostname = getEffectiveHostname(hostname);
     const now = Date.now();
-    
+
     const predictionRecord = new PredictionCache({
       ...prediction,
       hostname: effectiveHostname,
@@ -277,18 +238,18 @@ export class PredictionCache implements IImagePrediction {
   static async deleteExpired(): Promise<number> {
     const allRecords = await predictionsDb.predictions.toArray();
     const expiredIds: string[] = [];
-    
+
     for (const record of allRecords) {
       const predictionCache = new PredictionCache(record);
       if (!predictionCache.isValid()) {
         expiredIds.push(record.src);
       }
     }
-    
+
     if (expiredIds.length > 0) {
       return await predictionsDb.predictions.where('src').anyOf(expiredIds).delete();
     }
-    
+
     return 0;
   }
 

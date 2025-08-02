@@ -1,7 +1,5 @@
 import type { ProtocolWithReturn } from 'webext-bridge';
-
-import type { IHostSettings } from '../db/hostSettings';
-import { IImagePrediction } from '../db/predictionCache';
+import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
 /**
  * Protocol for the bridge to communicate between different parts of the extension

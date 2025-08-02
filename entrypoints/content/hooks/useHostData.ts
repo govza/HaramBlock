@@ -1,6 +1,5 @@
 import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
-import { IHostSettings } from '@/utils/db/hostSettings';
-import { IImagePrediction } from '@/utils/db/predictionCache';
+import { IHostSettings, IImagePrediction } from '@/utils/types';
 import { logger } from '@/utils/logger';
 import { requestHostData } from '../communication/sender';
 import { onHostSettingsUpdatedForHostname } from '../communication/listener';

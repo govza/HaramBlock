@@ -1,5 +1,4 @@
-import { IHostSettings } from '@/utils/db/hostSettings';
-import { IImagePrediction } from '@/utils/db/predictionCache';
+import { IHostSettings, IImagePrediction } from '@/utils/types';
 import { MediaStateManager } from './MediaStateManager';
 import { queueImagesForInference } from '../communication/sender';
 import { logger } from '@/utils/logger';

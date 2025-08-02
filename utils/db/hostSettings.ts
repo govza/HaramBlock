@@ -1,28 +1,16 @@
 import { hostSettingsDb } from "./db";
 import { getEffectiveHostname, isGlobalPage } from "./hostnameUtil";
-
-export interface IHostSettings {
-  hostname: string;
-  isGlobal: boolean;
-  masks: MaskType[];
-  outline: OutlineType;
-  policy: HostPolicy;
-  strictness: number;
-}
-
-export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
-export type MaskType = 'blur' | 'pixelate';
-export type OutlineType = 'bbox' | 'segment';
+import type { IHostSettings, MaskType, OutlineType, HostPolicy } from "@/utils/types";
 
 export const defaultGlobalKey = 'global';
 
 export const defaultHostSettings: IHostSettings = {
-    hostname: defaultGlobalKey,
-    masks: ['blur'],
-    isGlobal: true,
-    outline: 'segment',
-    policy: 'process',
-    strictness: 0.8,
+  hostname: defaultGlobalKey,
+  masks: ['blur'],
+  isGlobal: true,
+  outline: 'segment',
+  policy: 'process',
+  strictness: 0.8,
 };
 
 /**
