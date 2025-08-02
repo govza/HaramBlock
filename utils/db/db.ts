@@ -1,6 +1,6 @@
-import Dexie, { type Table } from 'dexie';
-import { defaultHostSettings, IHostSettings } from '@/utils/db/hostSettings';
-import { IImagePrediction } from '@/utils/db/predictionCache';
+import Dexie, {type Table } from 'dexie';
+import { defaultHostSettings } from '@/utils/db/hostSettings';
+import { IHostSettings, IImagePrediction } from '@/utils/types';
 
 /**
  * HostSettingsDatabase - Dexie database for host settings

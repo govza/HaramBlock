@@ -1,7 +1,6 @@
 import { MediaStateManager } from './MediaStateManager';
 import { MediaHandler } from './MediaHandler';
-import { IHostSettings } from '@/utils/db/hostSettings';
-import { IImagePrediction } from '@/utils/db/predictionCache';
+import { IHostSettings, IImagePrediction } from '@/utils/types';
 import {
   applyPredictionsStyling, applyBlacklistStyling, applyDefaultStyling, hideImageAndWaitForLoad
 } from '../presentation/styler';

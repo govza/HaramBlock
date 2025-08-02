@@ -1,6 +1,5 @@
 import { sendMessage } from 'webext-bridge/content-script';
-import { IHostSettings } from '@/utils/db/hostSettings';
-import { IImagePrediction } from '@/utils/db/predictionCache';
+import { IHostSettings, IImagePrediction } from '@/utils/types';
 import { logger } from '@/utils/logger';
 
 /**

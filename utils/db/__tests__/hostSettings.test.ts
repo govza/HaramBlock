@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { HostSettings, defaultHostSettings, defaultGlobalKey, type IHostSettings } from "@/utils/db/hostSettings";
+import { HostSettings, defaultHostSettings, defaultGlobalKey } from "@/utils/db/hostSettings";
+import { IHostSettings } from "@/utils/types";
 
 // Mock the database
 vi.mock("@/utils/db/db", () => ({

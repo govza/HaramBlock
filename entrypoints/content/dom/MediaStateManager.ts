@@ -1,4 +1,4 @@
-import { IHostSettings } from '@/utils/db/hostSettings';
+import { IHostSettings } from '@/utils/types';
 
 export interface ElementState {
   lastProcessedSrc: string;

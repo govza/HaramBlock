@@ -9,7 +9,7 @@ export default defineConfig({
     watch: false
   },
 
-  // This is the line that matters!
+  // @ts-ignore
   plugins: [WxtVitest()],
 
   // If any dependencies rely on webextension-polyfill, add them here to the `ssr.noExternal` option.

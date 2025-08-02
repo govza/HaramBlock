@@ -4,6 +4,9 @@ import globals from 'globals';
 
 export default [
     {
+        ignores: ['.output/**']
+    },
+    {
         files: ['**/*.ts', '**/*.tsx'],
         languageOptions: {
             parser: tsparser,
