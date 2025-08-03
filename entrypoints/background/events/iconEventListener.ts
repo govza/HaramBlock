@@ -21,37 +21,38 @@ export class IconEventListener {
         changeInfo: Browser.tabs.TabChangeInfo,
         tab: Browser.tabs.Tab,
       ) => {
-        void (async () => {
-          if (changeInfo.url || changeInfo.status === 'complete') {
-            if (tab.url) {
-              await this.iconService.updateIconForUrl(tabId, tab.url);
-            }
+        if (changeInfo.url || changeInfo.status === 'complete') {
+          if (tab.url) {
+            this.iconService.updateIconForUrl(tabId, tab.url).catch(error => {
+              logger
+                .withTag('iconEventListener')
+                .error('Error updating icon for tab:', error);
+            });
           }
-        })();
+        }
       },
     );
-
-    // Handle tab activation to update icon for the active tab
+    // Update extension icon when a tab is removed
     browser.tabs.onActivated.addListener(
       (activeInfo: Browser.tabs.TabActiveInfo) => {
-        void (async () => {
-          try {
-            const tab = await browser.tabs.get(activeInfo.tabId);
+        browser.tabs
+          .get(activeInfo.tabId)
+          .then(tab => {
             if (tab.url) {
-              await this.iconService.updateIconForUrl(
+              return this.iconService.updateIconForUrl(
                 activeInfo.tabId,
                 tab.url,
               );
             }
-          } catch (error) {
+            return Promise.resolve();
+          })
+          .catch(error => {
             logger
               .withTag('iconEventListener')
               .error('Error handling tab activation:', error);
-          }
-        })();
+          });
       },
     );
-
     // Runtime event listeners
     browser.runtime.onStartup.addListener(() => {
       void this.iconService.updateIconForActiveTab();

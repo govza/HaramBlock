@@ -1,7 +1,11 @@
 import { sendMessage } from 'webext-bridge/content-script';
 
 import { logger } from '@/utils/logger';
-import { type IHostSettings, type IImagePrediction } from '@/utils/types';
+import {
+  type IHostSettings,
+  type IImagePrediction,
+  type IImageWithMetadata,
+} from '@/utils/types';
 
 /**
  * Communication sender module for HaramBlock content script
@@ -61,25 +65,25 @@ export async function requestCachedPredictions(
 /**
  * Queue images for AI processing in background script
  * @param hostname - The hostname for these images
- * @param imageSrcs - Array of image source URLs to process
+ * @param imageDatas - Array of image data with metadata to process
  * @returns Promise that resolves when images are queued
  */
 export async function queueImagesForInference(
   hostname: string,
-  imageSrcs: string[],
+  imageDatas: IImageWithMetadata[],
 ): Promise<void> {
   try {
     await sendMessage(
       'POST_INFERENCE_IMAGES',
       {
         hostname,
-        imageSrcs,
+        imageDatas,
       },
       'background',
     );
     logger
       .withTag('sender')
-      .debug(`Queued ${imageSrcs.length} images for inference on ${hostname}`);
+      .debug(`Queued ${imageDatas.length} images for inference on ${hostname}`);
   } catch (error) {
     logger
       .withTag('Content')

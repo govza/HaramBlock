@@ -10,8 +10,7 @@ import {
 
 import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
 import { PredictionCache } from '@/utils/db/predictionCache';
-
-import type { IImagePrediction } from '@/utils/types';
+import { type IImagePrediction } from '@/utils/types';
 
 // Mock the PredictionCache class
 vi.mock('@/utils/db/predictionCache', () => ({
@@ -20,7 +19,22 @@ vi.mock('@/utils/db/predictionCache', () => ({
   },
 }));
 
-const mockFindValidByHostname = vi.mocked(PredictionCache).findValidByHostname;
+// Mock the logger
+vi.mock('@/utils/logger', () => ({
+  logger: {
+    withTag: vi.fn().mockReturnThis(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+ 
+const mockFindValidByHostname =
+  PredictionCache.findValidByHostname as ReturnType<typeof vi.fn>;
+
+// Import mocked logger
+const { logger } = await import('@/utils/logger');
+const mockLogger = vi.mocked(logger);
 
 // Test fixtures
 const TEST_HOSTNAME = 'example.com';
@@ -93,6 +107,11 @@ describe('PredictionCacheService', () => {
 
     // Ensure the mock has a default return value to prevent undefined errors
     mockFindValidByHostname.mockResolvedValue([]);
+
+    // Reset logger mocks
+    mockLogger.withTag.mockReturnThis();
+    mockLogger.warn.mockImplementation(() => {});
+    mockLogger.error.mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -163,10 +182,6 @@ describe('PredictionCacheService', () => {
       });
 
       it('should handle background save failures gracefully without affecting response', async () => {
-        const consoleSpy = vi
-          .spyOn(console, 'warn')
-          .mockImplementation(() => {});
-
         const prediction = createMockPredictionCache();
         prediction.save.mockRejectedValue(
           new Error('Database connection failed'),
@@ -185,20 +200,14 @@ describe('PredictionCacheService', () => {
         await new Promise(resolve => setTimeout(resolve, 10));
 
         // Should have logged warning but not thrown
-        expect(consoleSpy).toHaveBeenCalledWith(
+        expect(mockLogger.warn).toHaveBeenCalledWith(
           'Failed to update access time for prediction:',
           prediction.src,
           expect.any(Error),
         );
-
-        consoleSpy.mockRestore();
       });
 
       it('should handle mixed success/failure in background save operations', async () => {
-        const consoleSpy = vi
-          .spyOn(console, 'warn')
-          .mockImplementation(() => {});
-
         const successPrediction = createMockPredictionCache({
           src: 'success.jpg',
         });
@@ -221,14 +230,12 @@ describe('PredictionCacheService', () => {
         await new Promise(resolve => setTimeout(resolve, 10));
 
         // Success case should not log warnings
-        expect(consoleSpy).toHaveBeenCalledTimes(1);
-        expect(consoleSpy).toHaveBeenCalledWith(
+        expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+        expect(mockLogger.warn).toHaveBeenCalledWith(
           'Failed to update access time for prediction:',
           'fail.jpg',
           expect.any(Error),
         );
-
-        consoleSpy.mockRestore();
       });
 
       it('should optimize for empty result sets', async () => {
@@ -346,7 +353,8 @@ describe('PredictionCacheService', () => {
         expect(result).toHaveLength(1);
         expect(result[0]).toEqual(originalData);
 
-        const firstResult = result[0] as IImagePrediction;
+        // Type-safe assertions with proper null checks
+        const firstResult = result[0];
         const firstPrediction = firstResult?.predictions?.[0];
         expect(firstPrediction?.probability).toBe(0.87);
         expect(firstResult?.cacheMetadata?.etag).toBe('abc123');

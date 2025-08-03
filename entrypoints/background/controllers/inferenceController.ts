@@ -1,22 +1,20 @@
 import { type BridgeMessage } from 'webext-bridge';
 import { onMessage } from 'webext-bridge/background';
 
-import { InferenceService } from '@/entrypoints/background/services/inferenceService';
-import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
+import { type HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
+import { type InferenceService } from '@/entrypoints/background/services/inferenceService';
 import { logger } from '@/utils/logger';
+import { type IImageWithMetadata } from '@/utils/types';
 
 /**
  * InferenceController handles AI model inference requests from content scripts
- * Coordinates between content scripts and the inference service
+ * Coordinates between content scripts and the inference orchestration service
  */
 export class InferenceController {
-  private readonly inferenceService: InferenceService;
-  private readonly predictionCacheService: PredictionCacheService;
-
-  constructor() {
-    this.predictionCacheService = new PredictionCacheService();
-    this.inferenceService = new InferenceService(this.predictionCacheService);
-  }
+  constructor(
+    private readonly orchestrationService: InferenceService,
+    private readonly hostSettingsService: HostSettingsService,
+  ) {}
 
   /**
    * Initialize message listeners (API)
@@ -30,9 +28,12 @@ export class InferenceController {
    * @param message - The incoming message containing images and hostname
    */
   public async handleInferenceRequest(
-    message: BridgeMessage<{ hostname: string; imageSrcs: string[] }>,
+    message: BridgeMessage<{
+      hostname: string;
+      imageDatas: IImageWithMetadata[];
+    }>,
   ): Promise<void> {
-    const { hostname, imageSrcs } = message.data;
+    const { hostname, imageDatas } = message.data;
     const { tabId } = message.sender;
 
     // Validate input
@@ -43,10 +44,10 @@ export class InferenceController {
       return;
     }
 
-    if (!imageSrcs || !Array.isArray(imageSrcs) || imageSrcs.length === 0) {
+    if (!imageDatas || !Array.isArray(imageDatas) || imageDatas.length === 0) {
       logger
         .withTag('inferenceController')
-        .error('Image sources array is required and must not be empty');
+        .error('Image data array is required and must not be empty');
       return;
     }
 
@@ -57,45 +58,45 @@ export class InferenceController {
       return;
     }
 
-    try {
-      logger
-        .withTag('inferenceController')
-        .log(
-          `Received inference request for ${imageSrcs.length} images from hostname: ${hostname}`,
-        );
-
-      // Filter out invalid/empty image sources
-      const validImageSrcs = imageSrcs.filter(
-        src => src && src.trim().length > 0,
+    logger
+      .withTag('inferenceController')
+      .log(
+        `Received inference request for ${imageDatas.length} images from hostname: ${hostname}`,
       );
 
-      if (validImageSrcs.length === 0) {
-        logger
-          .withTag('inferenceController')
-          .warn('No valid image sources provided for inference');
-        return;
-      }
+    // Filter out invalid/empty image sources
+    const validImageDatas = imageDatas.filter(
+      imageData => imageData.src && imageData.src.trim().length > 0,
+    );
 
-      // Start inference processing (fire-and-forget)
-      this.inferenceService
-        .processImages(validImageSrcs, hostname, tabId)
-        .catch(error => {
-          logger
-            .withTag('inferenceController')
-            .error('Background inference processing failed:', error);
-        });
-
+    if (validImageDatas.length === 0) {
       logger
         .withTag('inferenceController')
-        .debug(
-          `Queued ${validImageSrcs.length} images for inference processing`,
-        );
+        .warn('No valid image data provided for inference');
+      return;
+    }
+
+    // Get host settings once for all images in this batch
+    try {
+      const hostSettings =
+        await this.hostSettingsService.getHostSettings(hostname);
+
+      // Schedule inference tasks for each image
+      await Promise.all(
+        validImageDatas.map(imageData =>
+          this.orchestrationService.scheduleInferenceTask(
+            imageData.src,
+            hostname,
+            tabId,
+            hostSettings,
+            imageData.metadata,
+          ),
+        ),
+      );
     } catch (error) {
       logger
         .withTag('inferenceController')
-        .error('Error handling inference request:', error);
+        .error('Failed to get host settings for hostname:', hostname, error);
     }
-
-    return Promise.resolve();
   }
 }

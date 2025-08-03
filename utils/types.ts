@@ -24,6 +24,22 @@ export interface IElementPrediction {
   polygon: Array<{ x: number; y: number }>;
 }
 
+export interface IImageMetadata {
+  contentType?: string;
+  contentLength?: number;
+  lastModified?: string;
+  cacheControl?: string;
+  etag?: string;
+  expires?: string;
+  [key: string]: string | number | undefined;
+}
+
+export interface IImageWithMetadata {
+  src: string;
+  metadata?: IImageMetadata;
+  [key: string]: string | IImageMetadata | undefined;
+}
+
 export interface ICacheMetadata {
   // HTTP Cache headers
   cacheControl?: string; // Cache-Control header value
@@ -51,12 +67,28 @@ export interface IImagePrediction {
   cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
 }
 
-export interface ModelConfig {
-  names: string[];
+export interface YamlMetadata {
+  names: { [key: number]: string };
   stride: number;
-  imgsz: [number, number, number];
-  outputShape: [number, number, number];
+  imgsz: [number, number];
 
+  description?: string;
+  author?: string;
+  date?: string;
+  version?: string;
+  license?: string;
+  docs?: string;
+  batch?: number;
+
+  args?: {
+    batch: number;
+    half: boolean;
+    int8: boolean;
+    nms: boolean;
+  };
+}
+
+export interface Metadata extends YamlMetadata {
+  outputShape: [number, number, number];
   namesToCheck: string[];
-  numClass: number;
 }

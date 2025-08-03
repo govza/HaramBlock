@@ -24,12 +24,10 @@ const { hostSettingsDb } = await import('@/utils/db/db');
 const { getEffectiveHostname, isGlobalPage } = await import(
   '@/utils/db/hostnameUtil'
 );
-const mockPut = vi.mocked(
-  hostSettingsDb.hostSettings.put.bind(hostSettingsDb.hostSettings),
-);
-const mockGet = vi.mocked(
-  hostSettingsDb.hostSettings.get.bind(hostSettingsDb.hostSettings),
-);
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const mockPut = hostSettingsDb.hostSettings.put as ReturnType<typeof vi.fn>;
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const mockGet = hostSettingsDb.hostSettings.get as ReturnType<typeof vi.fn>;
 const mockGetEffectiveHostname = vi.mocked(getEffectiveHostname);
 const mockIsGlobalPage = vi.mocked(isGlobalPage);
 

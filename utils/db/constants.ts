@@ -1,3 +1,5 @@
+import type { IHostSettings } from '@/utils/types';
+
 export const defaultGlobalKey = 'global';
 
 export const defaultHostSettings: IHostSettings = {

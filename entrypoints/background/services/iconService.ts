@@ -5,6 +5,8 @@ import {
 import { HostSettings } from '@/utils/db/hostSettings';
 import { logger } from '@/utils/logger';
 
+import type { HostPolicy } from '@/utils/types';
+
 /**
  * IconService handles browser extension icon updates
  * Focused on icon management and rendering logic
