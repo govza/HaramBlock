@@ -4,8 +4,8 @@ import { sendMessage } from 'webext-bridge/popup';
 
 import { defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
-import { getEffectiveHostname, isGlobalPage } from '@/utils/db/hostnameUtil';
 import { HostSettings } from '@/utils/db/hostSettings';
+import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
 /**
  * Reactive hook for HostSettings data management

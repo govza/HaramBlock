@@ -22,7 +22,7 @@ vi.mock('@/utils/db/hostnameUtil', () => ({
 
 const { hostSettingsDb } = await import('@/utils/db/db');
 const { getEffectiveHostname, isGlobalPage } = await import(
-  '@/utils/db/hostnameUtil'
+  '@/utils/hostnameUtil'
 );
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const mockPut = hostSettingsDb.hostSettings.put as ReturnType<typeof vi.fn>;
