@@ -77,6 +77,9 @@ export async function queueImagesForInference(
       },
       'background',
     );
+    logger
+      .withTag('sender')
+      .debug(`Queued ${imageSrcs.length} images for inference on ${hostname}`);
   } catch (error) {
     logger
       .withTag('Content')
