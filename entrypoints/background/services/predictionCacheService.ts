@@ -1,4 +1,4 @@
-import { PredictionCache } from '@/utils/db/predictionCache';
+import { PredictionCacheRepository } from '@/utils/db/predictionCacheRepository';
 import { logger } from '@/utils/logger';
 import { type IImagePrediction } from '@/utils/types';
 
@@ -7,6 +7,11 @@ import { type IImagePrediction } from '@/utils/types';
  * Coordinates between controllers and data layer for cached predictions
  */
 export class PredictionCacheService {
+  private repository: PredictionCacheRepository;
+
+  constructor() {
+    this.repository = new PredictionCacheRepository();
+  }
   /**
    * Cache predictions ensuring uniqueness by src URL
    * @param predictions - Array of predictions to cache
@@ -15,10 +20,9 @@ export class PredictionCacheService {
   async cachePredictions(predictions: IImagePrediction[]): Promise<void> {
     try {
       const cachePromises = predictions.map(async prediction => {
-        // Create prediction cache instance and save (upsert)
+        // Save prediction directly (upsert)
         // The database schema ensures src uniqueness, so put() will overwrite existing entries
-        const predictionCache = new PredictionCache(prediction);
-        return predictionCache.save();
+        return this.repository.savePrediction(prediction);
       });
 
       await Promise.all(cachePromises);
@@ -44,20 +48,19 @@ export class PredictionCacheService {
 
     try {
       // Get only valid (non-expired) predictions
-      const predictions = await PredictionCache.findValidByHostname(hostname);
+      const predictions = await this.repository.findValidByHostname(hostname);
 
-      // Serialize the data to return immediately
-      const serializedPredictions = predictions.map(prediction =>
-        prediction.serialize(),
-      );
+      // Return the predictions directly (no need to serialize since they're already plain objects)
+      const predictionsToReturn = [...predictions];
 
       // Update access time and save in background (fire-and-forget)
       if (predictions.length > 0) {
         Promise.all(
           predictions.map(async prediction => {
             try {
-              prediction.updateAccessTime();
-              await prediction.save();
+              const updatedPrediction =
+                this.repository.updateAccessTime(prediction);
+              await this.repository.savePrediction(updatedPrediction);
             } catch (error) {
               logger
                 .withTag('predictionCacheService')
@@ -75,7 +78,7 @@ export class PredictionCacheService {
         });
       }
 
-      return serializedPredictions;
+      return predictionsToReturn;
     } catch (error) {
       logger
         .withTag('predictionCacheService')
@@ -95,8 +98,8 @@ export class PredictionCacheService {
 
     try {
       // Find prediction by src URL
-      const prediction = await PredictionCache.findBySrc(src);
-      return prediction;
+      const predictions = await this.repository.findBySrc(src);
+      return predictions;
     } catch (error) {
       logger
         .withTag('predictionCacheService')
