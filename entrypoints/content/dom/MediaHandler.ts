@@ -171,7 +171,10 @@ export class MediaHandler {
     });
 
     try {
-      await queueImagesForInference(this.hostSettings.hostname, validImageDatas);
+      await queueImagesForInference(
+        this.hostSettings.hostname,
+        validImageDatas,
+      );
     } catch (error) {
       logger
         .withTag('MediaHandler')

@@ -1,6 +1,7 @@
 import { onHostSettingsUpdatedForHostname } from '@/entrypoints/content/communication/listener';
 import { requestHostData } from '@/entrypoints/content/communication/sender';
 import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { logger } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 /**
@@ -67,7 +68,7 @@ export async function useHostData(
       // Small delay to ensure background script has finished processing
       globalThis.setTimeout(() => {
         globalThis.location.reload();
-      }, 100);
+      }, 500);
     },
   );
 
