@@ -5,7 +5,7 @@ import {
   type ModelLoaderService,
   type ImageProcessorService,
 } from '@/entrypoints/background/services';
-import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 import {
   type IElementPrediction,

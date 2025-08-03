@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { defaultGlobalKey } from '@/utils/db/constants';
-import { extractHostnameFromUrl } from '@/utils/db/hostnameUtil';
+import { extractHostnameFromUrl } from '@/utils/hostnameUtil';
 
 /**
  * Hook for managing hostname detection

@@ -1,6 +1,6 @@
 import { BaseRepository } from '@/utils/db/baseRepository';
 import { predictionsDb } from '@/utils/db/db';
-import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 import { type IImagePrediction, type ICacheMetadata } from '@/utils/types';
 

@@ -1,6 +1,6 @@
 import { onHostSettingsUpdatedForHostname } from '@/entrypoints/content/communication/listener';
 import { requestHostData } from '@/entrypoints/content/communication/sender';
-import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 

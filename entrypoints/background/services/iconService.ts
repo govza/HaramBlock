@@ -1,8 +1,8 @@
+import { HostSettings } from '@/utils/db/hostSettings';
 import {
   getEffectiveHostname,
   extractHostnameFromUrl,
-} from '@/utils/db/hostnameUtil';
-import { HostSettings } from '@/utils/db/hostSettings';
+} from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 
 import type { HostPolicy } from '@/utils/types';

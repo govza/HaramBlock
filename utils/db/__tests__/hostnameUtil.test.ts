@@ -4,7 +4,7 @@ import { defaultGlobalKey } from '@/utils/db/constants';
 import {
   extractHostnameFromUrl,
   getEffectiveHostname,
-} from '@/utils/db/hostnameUtil';
+} from '@/utils/hostnameUtil';
 
 describe('hostnameUtil', () => {
   // Focus only on the main integration function that other parts of the app use
