@@ -30,44 +30,44 @@ export class MediaHandler {
   public async handleImages(images: HTMLImageElement[]): Promise<void> {
     if (!images.length) return;
 
-    await Promise.all(images.map(image => this.handleSingleImage(image)));
-  }
+    // Filter out images that don't need AI processing
+    const imagesToProcess = images.filter(image => {
+      const currentSrc = image.currentSrc || image.src;
+      
+      // Skip AI processing if blacklisted
+      if (this.hostSettings.policy === 'blacklist') {
+        return false;
+      }
 
-  /**
-   * Handle a single image with proper loading and masking
-   */
-  private async handleSingleImage(image: HTMLImageElement): Promise<void> {
-    const currentSrc = image.currentSrc || image.src;
+      // Skip if already processed
+      return !this.stateManager.isProcessed(image, currentSrc, 'ai');
+    });
 
-    // Skip AI processing if blacklisted
-    if (this.hostSettings.policy === 'blacklist') {
-      return;
-    }
+    if (imagesToProcess.length === 0) return;
 
-    // Check if already processed with same src for AI processing
-    if (this.stateManager.isProcessed(image, currentSrc, 'ai')) {
-      return;
-    }
-
-    // Mark as processed for AI processing
-    this.stateManager.markProcessed(image, currentSrc, 'ai');
+    // Mark all images as processed for AI processing
+    imagesToProcess.forEach(image => {
+      const currentSrc = image.currentSrc || image.src;
+      this.stateManager.markProcessed(image, currentSrc, 'ai');
+    });
 
     try {
-      await this.processImageForAI(image);
+      await this.processImages(imagesToProcess);
     } catch (error) {
       logger
         .withTag('MediaHandler')
-        .error('Failed to handle single image:', error);
+        .error('Failed to handle images batch:', error);
     }
   }
 
+
   /**
-   * Process image for AI analysis and caching
+   * Process multiple images for AI analysis and caching
    */
-  private async processImageForAI(image: HTMLImageElement): Promise<void> {
+  private async processImages(images: HTMLImageElement[]): Promise<void> {
     try {
       const { cachedImages, uncachedImages } = this.categorizeImages(
-        [image],
+        images,
         this.cachedPredictions,
       );
 
@@ -83,7 +83,7 @@ export class MediaHandler {
     } catch (error) {
       logger
         .withTag('MediaHandler')
-        .error('Failed to process image for AI:', error);
+        .error('Failed to process images for AI:', error);
     }
   }
 
