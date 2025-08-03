@@ -1,8 +1,5 @@
-import { HostSettings } from '@/utils/db/hostSettings';
-import {
-  getEffectiveHostname,
-  extractHostnameFromUrl,
-} from '@/utils/hostnameUtil';
+import { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
+import { extractHostnameFromUrl } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 
 import type { HostPolicy } from '@/utils/types';
@@ -13,6 +10,11 @@ import type { HostPolicy } from '@/utils/types';
  */
 export class IconService {
   private readonly iconBasePath = '/icon/';
+  private hostSettingService: HostSettingsService;
+
+  constructor() {
+    this.hostSettingService = new HostSettingsService();
+  }
 
   private getIconPaths(policy: HostPolicy): Record<string, string> {
     switch (policy) {
@@ -48,23 +50,15 @@ export class IconService {
    * Update icon for a specific tab and hostname
    */
   async updateIconForTab(tabId: number, hostname: string): Promise<void> {
-    // Normalize the hostname using centralized logic
-    const effectiveHostname = getEffectiveHostname(hostname);
-
-    if (!effectiveHostname) return;
-
     try {
-      const hostSettings = await HostSettings.findByHostname(effectiveHostname);
+      const hostSettings =
+        await this.hostSettingService.getHostSettings(hostname);
       const iconPaths = this.getIconPaths(hostSettings.policy);
       await browser.action.setIcon({ tabId, path: iconPaths });
     } catch (error) {
       logger
         .withTag('iconService')
-        .error(
-          'Error updating toolbar icon for hostname:',
-          effectiveHostname,
-          error,
-        );
+        .error('Error updating toolbar icon for hostname:', hostname, error);
     }
   }
 

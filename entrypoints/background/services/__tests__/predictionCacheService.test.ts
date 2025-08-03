@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
-import { PredictionCacheRepository } from '@/utils/db/predictionCacheRepository';
 import { type IImagePrediction } from '@/utils/types';
 
 // Mock the PredictionCacheRepository class
@@ -22,13 +21,10 @@ vi.mock('@/utils/logger', () => ({
 }));
 
 // Create a mock repository instance to access mocked methods
-const createMockRepository = () => {
-  const MockedRepository = vi.mocked(PredictionCacheRepository);
-  return new MockedRepository() as unknown as {
-    findValidByHostname: ReturnType<typeof vi.fn>;
-    findBySrc: ReturnType<typeof vi.fn>;
-  };
-};
+const createMockRepository = () => ({
+  findValidByHostname: vi.fn(),
+  findBySrc: vi.fn(),
+});
 
 // Import mocked logger
 const { logger } = await import('@/utils/logger');
