@@ -2,8 +2,8 @@ import { type BridgeMessage } from 'webext-bridge';
 import { onMessage } from 'webext-bridge/background';
 
 import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
-import { type IImagePrediction } from '@/utils/db/predictionCache';
 import { logger } from '@/utils/logger';
+import { type IImagePrediction } from '@/utils/types';
 
 export class PredictionCacheController {
   private readonly predictionCacheService: PredictionCacheService;

@@ -4,13 +4,44 @@ import {
   PredictionCacheController,
   InferenceController,
 } from '@/entrypoints/background/controllers';
-import { IconEventListener } from '@/entrypoints/background/events';
-import { HostSettingsService } from '@/entrypoints/background/services';
+import {
+  IconEventListener,
+  TabEventListener,
+} from '@/entrypoints/background/events';
+import {
+  HostSettingsService,
+  ModelLoaderService,
+  PredictionCacheService,
+  ImageProcessorService,
+  PredictionService,
+  QueueService,
+  InferenceService,
+} from '@/entrypoints/background/services';
 import { logger } from '@/utils/logger';
 
 export default defineBackground(() => {
-  // Initialize services (business logic layer)
+  // Initialize core services (business logic layer)
   const hostSettingsService = new HostSettingsService();
+  const modelLoaderService = new ModelLoaderService();
+  const predictionCacheService = new PredictionCacheService();
+
+  // Initialize new architecture services
+  const imageProcessorService = new ImageProcessorService();
+  const queueService = new QueueService();
+
+  const predictionService = new PredictionService(
+    modelLoaderService,
+    imageProcessorService,
+  );
+
+  const tabEventListener = new TabEventListener();
+
+  const inferenceService = new InferenceService(
+    queueService,
+    predictionService,
+    predictionCacheService,
+    tabEventListener,
+  );
 
   // Initialize event listeners (event handling layer)
   const iconEventListener = new IconEventListener();
@@ -21,16 +52,23 @@ export default defineBackground(() => {
   );
   const iconController = new IconController();
   const predictionCacheController = new PredictionCacheController();
-  const inferenceController = new InferenceController();
+  const inferenceController = new InferenceController(
+    inferenceService,
+    hostSettingsService,
+  );
 
   // Initialize all event listeners and controllers
   iconEventListener.initialize();
+  tabEventListener.initialize();
   hostSettingsController.initialize();
   iconController.initialize();
   predictionCacheController.initialize();
   inferenceController.initialize();
 
+  // Initialize services
+  void modelLoaderService.initialize();
+
   logger
     .withTag('background')
-    .debug('Background script initialized successfull.');
+    .debug('Background script initialized successfully.');
 });

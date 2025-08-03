@@ -12,10 +12,7 @@ export class PredictionCacheService {
    * @param predictions - Array of predictions to cache
    * @param hostname - Hostname for caching
    */
-  async cachePredictions(
-    predictions: IImagePrediction[],
-    _hostname: string,
-  ): Promise<void> {
+  async cachePredictions(predictions: IImagePrediction[]): Promise<void> {
     try {
       const cachePromises = predictions.map(async prediction => {
         // Create prediction cache instance and save (upsert)
@@ -87,6 +84,23 @@ export class PredictionCacheService {
           hostname,
           error,
         );
+      throw error;
+    }
+  }
+
+  async getCachedPredictionsBySrc(src: string): Promise<IImagePrediction[]> {
+    if (!src || !src.trim()) {
+      throw new Error('Source URL is required');
+    }
+
+    try {
+      // Find prediction by src URL
+      const prediction = await PredictionCache.findBySrc(src);
+      return prediction;
+    } catch (error) {
+      logger
+        .withTag('predictionCacheService')
+        .error('Error retrieving cached prediction by src:', src, error);
       throw error;
     }
   }

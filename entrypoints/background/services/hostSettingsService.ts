@@ -1,6 +1,8 @@
 import { HostSettings } from '@/utils/db/hostSettings';
 import { logger } from '@/utils/logger';
 
+import type { IHostSettings } from '@/utils/types';
+
 /**
  * HostSettingsService handles business logic for host settings
  * Coordinates between controllers and data layer

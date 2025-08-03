@@ -1,4 +1,8 @@
-import type { IHostSettings, IImagePrediction } from '@/utils/types';
+import type {
+  IHostSettings,
+  IImagePrediction,
+  IImageWithMetadata,
+} from '@/utils/types';
 import type { ProtocolWithReturn } from 'webext-bridge';
 
 /**
@@ -23,7 +27,7 @@ declare module 'webext-bridge' {
 
     // Post images to AI model for processing
     POST_INFERENCE_IMAGES: ProtocolWithReturn<
-      { hostname: string; imageSrcs: string[] },
+      { hostname: string; imageDatas: IImageWithMetadata[] },
       void
     >;
 

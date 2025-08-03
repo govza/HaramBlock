@@ -130,7 +130,7 @@ export class MediaProcessor {
       this.pendingMutations = [];
       this.mutationTimeout = null;
       this.handleMutations(allMutations);
-    }, this.config.mutationThrottleDelay);
+    }, this.config.mutationThrottleDelay) as unknown as number;
   }
 
   private handleMutations(mutations: MutationRecord[]): void {
@@ -232,7 +232,7 @@ export class MediaProcessor {
 
     this.batchTimeout = globalThis.setTimeout(() => {
       void this.processBatches();
-    }, this.config.throttleDelay);
+    }, this.config.throttleDelay) as unknown as number;
   }
 
   private async processBatches(): Promise<void> {

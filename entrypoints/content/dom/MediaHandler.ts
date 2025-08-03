@@ -1,7 +1,11 @@
 import { queueImagesForInference } from '@/entrypoints/content/communication/sender';
 import { type MediaStateManager } from '@/entrypoints/content/dom/MediaStateManager';
 import { logger } from '@/utils/logger';
-import { type IHostSettings, type IImagePrediction } from '@/utils/types';
+import {
+  type IHostSettings,
+  type IImagePrediction,
+  type IImageMetadata,
+} from '@/utils/types';
 
 /**
  * Unified handler for both image and video processing
@@ -33,7 +37,7 @@ export class MediaHandler {
     // Filter out images that don't need AI processing
     const imagesToProcess = images.filter(image => {
       const currentSrc = image.currentSrc || image.src;
-      
+
       // Skip AI processing if blacklisted
       if (this.hostSettings.policy === 'blacklist') {
         return false;
@@ -59,7 +63,6 @@ export class MediaHandler {
         .error('Failed to handle images batch:', error);
     }
   }
-
 
   /**
    * Process multiple images for AI analysis and caching
@@ -133,29 +136,83 @@ export class MediaHandler {
   private async queueForAiProcessing(
     images: HTMLImageElement[],
   ): Promise<void> {
-    const imageSrcs = images.map(img => img.currentSrc || img.src);
+    const imageDatas = await Promise.all(
+      images.map(async img => {
+        const src = img.currentSrc || img.src;
+        const metadata = await this.extractImageMetadata(src);
+        return { src, metadata };
+      }),
+    );
+
+    // Filter out images with empty/invalid sources
+    const validImageDatas = imageDatas.filter(
+      imageData => imageData.src && imageData.src.trim().length > 0,
+    );
+
+    if (validImageDatas.length === 0) {
+      logger
+        .withTag('MediaHandler')
+        .warn('No valid image sources found for AI processing');
+      return;
+    }
 
     // Store images for matching with predictions
     images.forEach(image => {
       const src = image.currentSrc || image.src;
-      const existing = this.pendingImages.get(src);
+      if (src && src.trim().length > 0) {
+        const existing = this.pendingImages.get(src);
 
-      if (existing) {
-        existing.push(image);
-      } else {
-        this.pendingImages.set(src, [image]);
+        if (existing) {
+          existing.push(image);
+        } else {
+          this.pendingImages.set(src, [image]);
+        }
       }
     });
 
     try {
-      await queueImagesForInference(this.hostSettings.hostname, imageSrcs);
+      await queueImagesForInference(this.hostSettings.hostname, validImageDatas);
     } catch (error) {
       logger
         .withTag('MediaHandler')
         .error('queueForAiProcessing - Error:', error);
       // Clean up on error
-      imageSrcs.forEach(src => this.pendingImages.delete(src));
+      validImageDatas.forEach(({ src }) => this.pendingImages.delete(src));
       throw error;
+    }
+  }
+
+  private async extractImageMetadata(
+    src: string,
+  ): Promise<IImageMetadata | undefined> {
+    try {
+      // Only extract metadata for HTTP(S) URLs to avoid CORS issues
+      if (!src.startsWith('http://') && !src.startsWith('https://')) {
+        return undefined;
+      }
+
+      const response = await fetch(src, { method: 'HEAD' });
+      if (!response.ok) {
+        return undefined;
+      }
+
+      return {
+        contentType: response.headers.get('content-type') || undefined,
+        contentLength: (() => {
+          const length = response.headers.get('content-length');
+          return length ? parseInt(length, 10) : undefined;
+        })(),
+        lastModified: response.headers.get('last-modified') || undefined,
+        cacheControl: response.headers.get('cache-control') || undefined,
+        etag: response.headers.get('etag') || undefined,
+        expires: response.headers.get('expires') || undefined,
+      };
+    } catch (error) {
+      // Silently fail metadata extraction to avoid breaking image processing
+      logger
+        .withTag('MediaHandler')
+        .debug(`Failed to extract metadata for ${src}:`, error);
+      return undefined;
     }
   }
 

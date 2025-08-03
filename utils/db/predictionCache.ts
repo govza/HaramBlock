@@ -1,7 +1,12 @@
 import { predictionsDb } from '@/utils/db/db';
 import { getEffectiveHostname } from '@/utils/db/hostnameUtil';
+import { logger } from '@/utils/logger';
 import { type ICacheMetadata, type IImagePrediction } from '@/utils/types';
 
+const isCacheDisabled = import.meta.env.MODE === 'nocache';
+if (isCacheDisabled) {
+  logger.withTag('predictionCache').info('Prediction cache is disabled');
+}
 /**
  * PredictionCache - Data model and repository for cached prediction records
  * Combines entity model with data access methods
@@ -26,6 +31,11 @@ export class PredictionCache implements IImagePrediction {
   }
 
   async save(): Promise<string> {
+    // Don't save when cache is disabled
+    if (isCacheDisabled) {
+      return this.src;
+    }
+
     try {
       if (this.src) {
         await predictionsDb.predictions.put(this.serialize());
@@ -113,6 +123,9 @@ export class PredictionCache implements IImagePrediction {
   }
 
   static async findBySrc(src: string): Promise<PredictionCache[]> {
+    if (isCacheDisabled) {
+      return [];
+    }
     const records = await predictionsDb.predictions
       .where('src')
       .equals(src)
@@ -121,6 +134,9 @@ export class PredictionCache implements IImagePrediction {
   }
 
   static async findByHostname(hostname: string): Promise<PredictionCache[]> {
+    if (isCacheDisabled) {
+      return [];
+    }
     const effectiveHostname = getEffectiveHostname(hostname);
     const records = await predictionsDb.predictions
       .where('hostname')
@@ -137,6 +153,9 @@ export class PredictionCache implements IImagePrediction {
   static async findValidByHostname(
     hostname: string,
   ): Promise<PredictionCache[]> {
+    if (isCacheDisabled) {
+      return [];
+    }
     const allRecords = await this.findByHostname(hostname);
     return allRecords.filter(record => record.isValid());
   }
@@ -145,6 +164,9 @@ export class PredictionCache implements IImagePrediction {
     src: string,
     hostname: string,
   ): Promise<PredictionCache[]> {
+    if (isCacheDisabled) {
+      return [];
+    }
     const effectiveHostname = getEffectiveHostname(hostname);
     const records = await predictionsDb.predictions
       .where('src')
@@ -155,6 +177,9 @@ export class PredictionCache implements IImagePrediction {
   }
 
   static async findRecent(limit: number = 50): Promise<PredictionCache[]> {
+    if (isCacheDisabled) {
+      return [];
+    }
     const records = await predictionsDb.predictions
       .orderBy('timestamp')
       .reverse()
