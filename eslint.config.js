@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import importPlugin from 'eslint-plugin-import';
+import react from 'eslint-plugin-react';
 import prettierConfig from 'eslint-config-prettier';
 import globals from 'globals';
 import js from '@eslint/js';
@@ -41,11 +42,18 @@ export default [
     plugins: {
       '@typescript-eslint': tseslint,
       import: importPlugin,
+      react: react,
     },
     rules: {
       // Import recommended rules first
       ...importPlugin.configs.recommended.rules,
       ...importPlugin.configs.typescript.rules,
+
+      // React recommended rules
+      ...react.configs.recommended.rules,
+
+      // Disable React import requirement for modern JSX transform
+      'react/react-in-jsx-scope': 'off',
 
       // TypeScript recommended rules
       ...tseslint.configs.recommended.rules,
@@ -175,6 +183,9 @@ export default [
       },
       'import/parsers': {
         '@typescript-eslint/parser': ['.ts', '.tsx'],
+      },
+      react: {
+        version: 'detect',
       },
     },
   },
