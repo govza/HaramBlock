@@ -57,6 +57,11 @@ export class HostSettings implements IHostSettings {
     await this.save();
   }
 
+  async setPolicy(policy: HostPolicy): Promise<void> {
+    this.policy = policy;
+    await this.save();
+  }
+
   async save(): Promise<void> {
     try {
       await hostSettingsDb.hostSettings.put(this.serialize());
