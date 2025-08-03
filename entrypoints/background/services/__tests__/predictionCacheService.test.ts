@@ -28,8 +28,8 @@ vi.mock('@/utils/logger', () => ({
   },
 }));
 
- 
 const mockFindValidByHostname =
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   PredictionCache.findValidByHostname as ReturnType<typeof vi.fn>;
 
 // Import mocked logger
