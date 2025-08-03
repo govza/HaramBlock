@@ -131,6 +131,13 @@ export class InferenceService {
     predictions: IImagePrediction[],
     tabId: number,
   ): Promise<void> {
+    if (!predictions || predictions.length === 0 || !predictions.some(p => p.predictions.length != 0)) {
+      logger
+        .withTag('inferenceService')
+        .warn('No predictions to send to content script');
+      return;
+    }
+
     try {
       await sendMessage(
         'INFERENCE_PREDICTIONS',

@@ -2,17 +2,12 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const Strictness = () => {
-  const { hostSettings } = useHostDataContext();
+  const { hostSettings, predictionCacheRepository } = useHostDataContext();
 
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(event.target.value);
     await hostSettings.setStrictness(value);
-
-    if (value === 0) {
-      await hostSettings.setPolicy('whitelist');
-    } else {
-      await hostSettings.setPolicy('process');
-    }
+    await predictionCacheRepository.deleteByHostname(hostSettings.hostname);
   };
 
   return (

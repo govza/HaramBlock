@@ -1,4 +1,5 @@
-import { HostSettings } from '@/utils/db/hostSettings';
+import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 
 import type { IHostSettings } from '@/utils/types';
@@ -8,6 +9,12 @@ import type { IHostSettings } from '@/utils/types';
  * Coordinates between controllers and data layer
  */
 export class HostSettingsService {
+  private repository: HostSettingsRepository;
+
+  constructor() {
+    this.repository = new HostSettingsRepository();
+  }
+
   /**
    * Retrieve host settings for a given hostname
    * @param hostname - The hostname to retrieve settings for
@@ -18,12 +25,19 @@ export class HostSettingsService {
       throw new Error('Hostname is required');
     }
 
+    // Normalize the hostname using centralized logic
+    const effectiveHostname = getEffectiveHostname(hostname);
+
     try {
-      return await HostSettings.findByHostname(hostname);
+      return await this.repository.findByHostname(effectiveHostname);
     } catch (error) {
       logger
         .withTag('hostSettingsService')
-        .error('Error retrieving host settings for hostname:', hostname, error);
+        .error(
+          'Error retrieving host settings for hostname:',
+          effectiveHostname,
+          error,
+        );
       throw error;
     }
   }

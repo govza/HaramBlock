@@ -4,8 +4,10 @@ import { sendMessage } from 'webext-bridge/popup';
 
 import { defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
-import { HostSettings } from '@/utils/db/hostSettings';
+import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
+
+import type { MaskType, OutlineType, HostPolicy } from '@/utils/types';
 
 /**
  * Reactive hook for HostSettings data management
@@ -80,34 +82,64 @@ export function useHostSettings(hostname: string) {
     }
   }, [effectiveHostname]);
 
-  // Create HostSettings instance from the data
+  // Create repository instance
+  const repository = useMemo(() => new HostSettingsRepository(), []);
+
+  // Create host settings object with repository methods
   const hostSettings = useMemo(() => {
-    if (hostSettingsData) {
-      const settings = new HostSettings(hostSettingsData);
-      // Override the save method to trigger icon updates and notify content scripts
-      const originalSave = settings.save.bind(settings);
-      settings.save = async () => {
-        await originalSave();
-        await updateIcon();
-        await notifyContentScripts();
-      };
-      return settings;
-    }
-    // Return default settings if no data found
-    const settings = new HostSettings({
+    const settings = hostSettingsData || {
       ...defaultHostSettings,
       hostname: effectiveHostname,
       isGlobal: isGlobalPage(effectiveHostname),
-    });
-    // Override the save method to trigger icon updates and notify content scripts
-    const originalSave = settings.save.bind(settings);
-    settings.save = async () => {
-      await originalSave();
-      await updateIcon();
-      await notifyContentScripts();
     };
-    return settings;
-  }, [hostSettingsData, effectiveHostname, updateIcon, notifyContentScripts]);
+
+    // Return settings with helper methods that trigger updates
+    return {
+      ...settings,
+
+      async togglePolicy(): Promise<void> {
+        await repository.togglePolicy(effectiveHostname);
+        await updateIcon();
+        await notifyContentScripts();
+      },
+
+      async setOutline(outlineVariant: OutlineType): Promise<void> {
+        await repository.setOutline(effectiveHostname, outlineVariant);
+        await updateIcon();
+        await notifyContentScripts();
+      },
+
+      async setMask(maskArray: MaskType[]): Promise<void> {
+        await repository.setMask(effectiveHostname, maskArray);
+        await updateIcon();
+        await notifyContentScripts();
+      },
+
+      async setStrictness(strictness: number): Promise<void> {
+        await repository.setStrictness(effectiveHostname, strictness);
+        await updateIcon();
+        await notifyContentScripts();
+      },
+
+      async setPolicy(policy: HostPolicy): Promise<void> {
+        await repository.setPolicy(effectiveHostname, policy);
+        await updateIcon();
+        await notifyContentScripts();
+      },
+
+      async save(): Promise<void> {
+        await repository.saveSettings(settings);
+        await updateIcon();
+        await notifyContentScripts();
+      },
+    };
+  }, [
+    hostSettingsData,
+    effectiveHostname,
+    updateIcon,
+    notifyContentScripts,
+    repository,
+  ]);
 
   return {
     // Main settings
