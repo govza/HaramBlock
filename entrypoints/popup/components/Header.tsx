@@ -56,7 +56,7 @@ export const Header = () => {
       </p>
       <button onClick={togglePolicy} className='cursor-pointer'>
         <svg
-          className='inline-block h-[2em] w-auto fill-current pl-1'
+          className='inline-block h-[2em] w-auto fill-current px-1'
           viewBox='0 0 24 24'
         >
           {renderSvgPath()}
