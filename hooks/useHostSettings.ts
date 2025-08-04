@@ -7,6 +7,7 @@ import { hostSettingsDb } from '@/utils/db/db';
 import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
+import { logger } from '@/utils/logger';
 
 import type { MaskType, OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
 
@@ -52,7 +53,7 @@ export function useHostSettings(hostname: string) {
         await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
       }
     } catch (error) {
-      console.error('Error updating icon:', error);
+      logger.withTag('useHostSettings').error('Error updating icon:', error);
     }
   }, [effectiveHostname, hostSettingsData]);
 
@@ -81,7 +82,7 @@ export function useHostSettings(hostname: string) {
               `content-script@${tab.id}`,
             ).catch(error => {
               // Ignore errors for tabs that might not have content script loaded
-              console.warn(
+              logger.withTag('useHostSettings').warn(
                 'Could not notify tab',
                 tab.id,
                 'of settings change:',
@@ -94,7 +95,7 @@ export function useHostSettings(hostname: string) {
 
         await Promise.all(notifications);
       } catch (error) {
-        console.error('Error notifying content scripts:', error);
+        logger.withTag('useHostSettings').error('Error notifying content scripts:', error);
       }
     }
   }, [effectiveHostname]);
