@@ -1,4 +1,5 @@
 import { Content } from '@/entrypoints/popup/components/Content';
+import { Footer } from '@/entrypoints/popup/components/footer/Footer';
 import { Header } from '@/entrypoints/popup/components/Header';
 import { HostDataProvider } from '@/entrypoints/popup/context/HostDataContext';
 import { PopupLayout } from '@/entrypoints/popup/layouts/PopupLayout';
@@ -9,6 +10,7 @@ function App() {
       <PopupLayout>
         <Header />
         <Content />
+        <Footer />
       </PopupLayout>
     </HostDataProvider>
   );
