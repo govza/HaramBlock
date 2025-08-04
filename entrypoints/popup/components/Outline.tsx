@@ -6,7 +6,10 @@ import type { OutlineType } from '@/utils/types';
 export const Outline = () => {
   const { hostSettings, hostSettingsRepository } = useHostDataContext();
 
+  const isDisabled = hostSettings.policy !== 'process';
+
   const handleChange = (outline: OutlineType) => {
+    if (isDisabled) return;
     void hostSettingsRepository.setOutline(hostSettings.hostname, outline);
   };
 
@@ -18,20 +21,24 @@ export const Outline = () => {
           : ''
       }`}>
         <button
-          className={`flex-1 rounded-full p-1 text-center transition cursor-pointer ${
+          className={`flex-1 rounded-full p-1 text-center transition ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${
             hostSettings.outline === 'bbox' ? 'bg-gray-600' : 'text-gray-800'
           }`}
           onClick={() => handleChange('bbox')}
+          disabled={isDisabled}
+          style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
           {t('outlineBoundingBox')}
         </button>
         <button
-          className={`flex-1 rounded-full p-1 text-center transition cursor-pointer ${
+          className={`flex-1 rounded-full p-1 text-center transition ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${
             hostSettings.outline === 'segment'
               ? 'bg-gray-600'
               : 'text-gray-800'
           }`}
           onClick={() => handleChange('segment')}
+          disabled={isDisabled}
+          style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
           {t('outlineSegment')}
         </button>
@@ -42,12 +49,14 @@ export const Outline = () => {
           : 'bg-gray-400'
       }`}>
         <button
-          className={`w-full h-full rounded-full cursor-pointer flex items-center justify-center transition ${
+          className={`w-full h-full rounded-full ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-center transition ${
             hostSettings.outline === 'full'
               ? 'bg-gray-600 text-red-900'
               : 'text-gray-700'
           }`}
           onClick={() => handleChange('full')}
+          disabled={isDisabled}
+          style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
           <svg
             xmlns='http://www.w3.org/2000/svg'
