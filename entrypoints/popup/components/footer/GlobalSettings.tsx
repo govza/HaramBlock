@@ -1,5 +1,6 @@
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { defaultGlobalKey } from '@/utils/db/constants';
+import { logger } from '@/utils/logger';
 
 export const GlobalSettings = () => {
   const { hostSettings } = useHostDataContext();
@@ -8,7 +9,7 @@ export const GlobalSettings = () => {
   const handleClick = () => {
     // Toggle between global and current hostname
     // This would need to be implemented based on your app's global state management
-    console.log('Toggle global settings clicked');
+    logger.withTag('GlobalSettings').info('Toggle global settings clicked');
   };
 
   return (
