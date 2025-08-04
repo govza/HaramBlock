@@ -5,42 +5,23 @@ import { useHostSettings } from '@/hooks/useHostSettings';
 import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
 import { PredictionCacheRepository } from '@/utils/db/predictionCacheRepository';
 
-import type {
-  IHostSettings,
-  MaskType,
-  OutlineType,
-  HostPolicy,
-} from '@/utils/types';
-
-type HostSettingsWithMethods = IHostSettings & {
-  togglePolicy(): Promise<void>;
-  setOutline(outlineVariant: OutlineType): Promise<void>;
-  setMask(maskArray: MaskType[]): Promise<void>;
-  setStrictness(strictness: number): Promise<void>;
-  setPolicy(policy: HostPolicy): Promise<void>;
-  save(): Promise<void>;
-};
+import type { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import type { IHostSettings } from '@/utils/types';
 
 type HostDataType = {
-  hostSettings: HostSettingsWithMethods;
+  hostSettings: IHostSettings;
   currentHostname: string;
   isLoading: boolean;
   error?: string;
+  hostSettingsRepository: HostSettingsRepository;
   predictionCacheRepository: PredictionCacheRepository;
 };
 
 const HostDataContext = createContext<HostDataType>({
-  hostSettings: {
-    ...defaultHostSettings,
-    async togglePolicy() {},
-    async setOutline() {},
-    async setMask() {},
-    async setStrictness() {},
-    async setPolicy() {},
-    async save() {},
-  },
+  hostSettings: defaultHostSettings,
   currentHostname: defaultGlobalKey,
   isLoading: false,
+  hostSettingsRepository: {} as HostSettingsRepository,
   predictionCacheRepository: new PredictionCacheRepository(),
 });
 
@@ -50,7 +31,7 @@ type HostDataProviderProps = {
 
 export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const { currentHostname, error: hostnameError } = useHostname();
-  const { hostSettings, isLoading } = useHostSettings(currentHostname);
+  const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
   const error = hostnameError;
   const predictionCacheRepository = new PredictionCacheRepository();
 
@@ -65,6 +46,7 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
         currentHostname,
         isLoading,
         error,
+        hostSettingsRepository,
         predictionCacheRepository,
       }}
     >

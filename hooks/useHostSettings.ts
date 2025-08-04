@@ -6,8 +6,9 @@ import { defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
 import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
+import { getIconPaths } from '@/utils/icons';
 
-import type { MaskType, OutlineType, HostPolicy } from '@/utils/types';
+import type { MaskType, OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
 
 /**
  * Reactive hook for HostSettings data management
@@ -30,14 +31,30 @@ export function useHostSettings(hostname: string) {
 
   // Function to update icon after settings change
   const updateIcon = useCallback(async () => {
-    if (effectiveHostname) {
-      try {
-        await sendMessage('UPDATE_ICON', { hostname: effectiveHostname });
-      } catch (error) {
-        console.error('Error updating icon:', error);
+    if (!effectiveHostname) return;
+    
+    try {
+      const tabs = await browser.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      const activeTab = tabs[0];
+
+      if (activeTab?.id) {
+        // Get current host settings to determine policy
+        const currentSettings = hostSettingsData || {
+          ...defaultHostSettings,
+          hostname: effectiveHostname,
+          isGlobal: isGlobalPage(effectiveHostname),
+        };
+        
+        const iconPaths = getIconPaths(currentSettings.policy);
+        await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
       }
+    } catch (error) {
+      console.error('Error updating icon:', error);
     }
-  }, [effectiveHostname]);
+  }, [effectiveHostname, hostSettingsData]);
 
   // Function to notify content scripts of settings changes
   const notifyContentScripts = useCallback(async () => {
@@ -82,68 +99,67 @@ export function useHostSettings(hostname: string) {
     }
   }, [effectiveHostname]);
 
-  // Create repository instance
-  const repository = useMemo(() => new HostSettingsRepository(), []);
+  // Create repository instance with enhanced methods that include side effects
+  const repository = useMemo(() => {
+    const baseRepository = new HostSettingsRepository();
+    
+    // Create a proxy that intercepts the methods we want to enhance
+    return new Proxy(baseRepository, {
+      get(target, prop) {
+        const enhancedMethods = {
+          togglePolicy: async (hostname: string) => {
+            const result = await target.togglePolicy(hostname);
+            await updateIcon();
+            await notifyContentScripts();
+            return result;
+          },
+          setOutline: async (hostname: string, outlineVariant: OutlineType) => {
+            const result = await target.setOutline(hostname, outlineVariant);
+            await updateIcon();
+            await notifyContentScripts();
+            return result;
+          },
+          setMask: async (hostname: string, maskArray: MaskType[]) => {
+            const result = await target.setMask(hostname, maskArray);
+            await updateIcon();
+            await notifyContentScripts();
+            return result;
+          },
+          setStrictness: async (hostname: string, strictness: number) => {
+            const result = await target.setStrictness(hostname, strictness);
+            await updateIcon();
+            await notifyContentScripts();
+            return result;
+          },
+          setPolicy: async (hostname: string, policy: HostPolicy) => {
+            const result = await target.setPolicy(hostname, policy);
+            await updateIcon();
+            await notifyContentScripts();
+            return result;
+          },
+          saveSettings: async (settings: IHostSettings) => {
+            await target.saveSettings(settings);
+            await updateIcon();
+            await notifyContentScripts();
+          }
+        };
+        
+        return enhancedMethods[prop as keyof typeof enhancedMethods] || target[prop as keyof typeof target];
+      }
+    });
+  }, [updateIcon, notifyContentScripts]);
 
-  // Create host settings object with repository methods
-  const hostSettings = useMemo(() => {
-    const settings = hostSettingsData || {
+
+  return {
+    // Main settings - return plain settings without methods
+    hostSettings: hostSettingsData || {
       ...defaultHostSettings,
       hostname: effectiveHostname,
       isGlobal: isGlobalPage(effectiveHostname),
-    };
+    },
 
-    // Return settings with helper methods that trigger updates
-    return {
-      ...settings,
-
-      async togglePolicy(): Promise<void> {
-        await repository.togglePolicy(effectiveHostname);
-        await updateIcon();
-        await notifyContentScripts();
-      },
-
-      async setOutline(outlineVariant: OutlineType): Promise<void> {
-        await repository.setOutline(effectiveHostname, outlineVariant);
-        await updateIcon();
-        await notifyContentScripts();
-      },
-
-      async setMask(maskArray: MaskType[]): Promise<void> {
-        await repository.setMask(effectiveHostname, maskArray);
-        await updateIcon();
-        await notifyContentScripts();
-      },
-
-      async setStrictness(strictness: number): Promise<void> {
-        await repository.setStrictness(effectiveHostname, strictness);
-        await updateIcon();
-        await notifyContentScripts();
-      },
-
-      async setPolicy(policy: HostPolicy): Promise<void> {
-        await repository.setPolicy(effectiveHostname, policy);
-        await updateIcon();
-        await notifyContentScripts();
-      },
-
-      async save(): Promise<void> {
-        await repository.saveSettings(settings);
-        await updateIcon();
-        await notifyContentScripts();
-      },
-    };
-  }, [
-    hostSettingsData,
-    effectiveHostname,
-    updateIcon,
-    notifyContentScripts,
-    repository,
-  ]);
-
-  return {
-    // Main settings
-    hostSettings,
+    // Repository instance
+    hostSettingsRepository: repository,
 
     // Status
     isLoading: hostSettingsData === undefined,
