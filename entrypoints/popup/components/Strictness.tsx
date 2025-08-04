@@ -2,11 +2,11 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const Strictness = () => {
-  const { hostSettings, predictionCacheRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, predictionCacheRepository } = useHostDataContext();
 
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(event.target.value);
-    await hostSettings.setStrictness(value);
+    await hostSettingsRepository.setStrictness(hostSettings.hostname, value);
     await predictionCacheRepository.deleteByHostname(hostSettings.hostname);
   };
 

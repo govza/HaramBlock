@@ -5,12 +5,12 @@ import { defaultGlobalKey } from '@/utils/db/constants';
 import { t } from '@/utils/i18n';
 
 export const Header = () => {
-  const { hostSettings } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository } = useHostDataContext();
   const isGlobalSettings = hostSettings.hostname === defaultGlobalKey;
 
   const togglePolicy = useCallback(() => {
-    void hostSettings.togglePolicy();
-  }, [hostSettings]);
+    void hostSettingsRepository.togglePolicy(hostSettings.hostname);
+  }, [hostSettingsRepository, hostSettings.hostname]);
 
   const renderSvgPath = () => {
     switch (hostSettings.policy) {
