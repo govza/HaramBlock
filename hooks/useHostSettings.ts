@@ -30,6 +30,49 @@ export function useHostSettings(hostname: string) {
     [effectiveHostname],
   );
 
+  // Function to update icon with specific policy
+  const updateIconFromPolicy = useCallback(async (policy: HostPolicy) => {
+    if (!effectiveHostname) return;
+    
+    try {
+      const tabs = await browser.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      const activeTab = tabs[0];
+
+      if (activeTab?.id) {
+        const currentSettings = {
+          ...defaultHostSettings,
+          hostname: effectiveHostname,
+          isGlobal: isGlobalPage(effectiveHostname),
+          policy,
+        };
+        // Setting global policy icon
+        if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
+          const iconPaths = getIconPaths(currentSettings.policy);
+          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        }
+
+        // Setting local policy icon from the tab's hostname
+        else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
+          const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
+          const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
+          const tabSettings = await hostSettingsDb.hostSettings.get(effectiveTabHostname) || defaultHostSettings;
+          const iconPaths = getIconPaths(tabSettings.policy);
+          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        }
+        else {
+          // Not global policy, set currentSettings icon
+          const iconPaths = getIconPaths(currentSettings.policy);
+          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        }
+      }
+    } catch (error) {
+      logger.withTag('useHostSettings').error('Error updating icon:', error);
+    }
+  }, [effectiveHostname]);
+
   // Function to update icon after settings change
   const updateIcon = useCallback(async () => {
     if (!effectiveHostname) return;
@@ -48,9 +91,29 @@ export function useHostSettings(hostname: string) {
           hostname: effectiveHostname,
           isGlobal: isGlobalPage(effectiveHostname),
         };
-        
-        const iconPaths = getIconPaths(currentSettings.policy);
-        await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        logger.warn("hostSettingsPolicy", currentSettings.policy);
+        // Setting global policy icon
+        if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
+          logger.withTag('useHostSettings').debug('first');
+          const iconPaths = getIconPaths(currentSettings.policy);
+          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        }
+
+        // Setting local policy icon from the tab's hostname
+        else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
+          logger.withTag('useHostSettings').debug('second');
+          const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
+          const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
+          const tabSettings = await hostSettingsDb.hostSettings.get(effectiveTabHostname) || defaultHostSettings;
+          const iconPaths = getIconPaths(tabSettings.policy);
+          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        }
+        else {
+          logger.withTag('useHostSettings').debug('third');
+          // Not global policy, set currentSettings icon
+          const iconPaths = getIconPaths(currentSettings.policy);
+          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        }
       }
     } catch (error) {
       logger.withTag('useHostSettings').error('Error updating icon:', error);
@@ -110,7 +173,7 @@ export function useHostSettings(hostname: string) {
         const enhancedMethods = {
           togglePolicy: async (hostname: string) => {
             const result = await target.togglePolicy(hostname);
-            await updateIcon();
+            await updateIconFromPolicy(result.policy);
             await notifyContentScripts();
             return result;
           },
@@ -148,7 +211,7 @@ export function useHostSettings(hostname: string) {
         return enhancedMethods[prop as keyof typeof enhancedMethods] || target[prop as keyof typeof target];
       }
     });
-  }, [updateIcon, notifyContentScripts]);
+  }, [updateIcon, updateIconFromPolicy, notifyContentScripts]);
 
 
   return {

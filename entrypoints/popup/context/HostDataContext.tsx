@@ -1,11 +1,11 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
 import { useHostSettings } from '@/hooks/useHostSettings';
 import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
+import { type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { PredictionCacheRepository } from '@/utils/db/predictionCacheRepository';
 
-import type { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import type { IHostSettings } from '@/utils/types';
 
 type HostDataType = {
@@ -15,6 +15,9 @@ type HostDataType = {
   error?: string;
   hostSettingsRepository: HostSettingsRepository;
   predictionCacheRepository: PredictionCacheRepository;
+  switchToGlobal: () => void;
+  switchToLocal: () => void;
+  isGlobalMode: boolean;
 };
 
 const HostDataContext = createContext<HostDataType>({
@@ -23,6 +26,9 @@ const HostDataContext = createContext<HostDataType>({
   isLoading: false,
   hostSettingsRepository: {} as HostSettingsRepository,
   predictionCacheRepository: new PredictionCacheRepository(),
+  switchToGlobal: () => {},
+  switchToLocal: () => {},
+  isGlobalMode: false,
 });
 
 type HostDataProviderProps = {
@@ -30,10 +36,35 @@ type HostDataProviderProps = {
 };
 
 export const HostDataProvider = ({ children }: HostDataProviderProps) => {
-  const { currentHostname, error: hostnameError } = useHostname();
+  const { currentHostname: detectedHostname, error: hostnameError } = useHostname();
+  const [isGlobalMode, setIsGlobalMode] = useState(false);
+  
+  const currentHostname = isGlobalMode ? defaultGlobalKey : detectedHostname;
   const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
   const error = hostnameError;
   const predictionCacheRepository = new PredictionCacheRepository();
+
+  // Check global settings to enforce global mode if policy !== "process"
+  useEffect(() => {
+    const checkGlobalSettings = async () => {
+      try {
+        const globalSettings = await hostSettingsRepository.findByHostname(defaultGlobalKey);
+        
+        if (globalSettings.policy !== 'process') {
+          setIsGlobalMode(true);
+        }
+      } catch {
+        // Do nothing
+      }
+    };
+
+    if (hostSettingsRepository && !isLoading) {
+      void checkGlobalSettings();
+    }
+  }, [hostSettingsRepository, isLoading]);
+
+  const switchToGlobal = () => setIsGlobalMode(true);
+  const switchToLocal = () => setIsGlobalMode(false);
 
   if (error) {
     return <div>Error: {error}</div>;
@@ -48,6 +79,9 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
         error,
         hostSettingsRepository,
         predictionCacheRepository,
+        switchToGlobal,
+        switchToLocal,
+        isGlobalMode,
       }}
     >
       {children}
