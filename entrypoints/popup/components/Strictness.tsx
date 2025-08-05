@@ -4,6 +4,8 @@ import { t } from '@/utils/i18n';
 export const Strictness = () => {
   const { hostSettings, hostSettingsRepository, predictionCacheRepository } = useHostDataContext();
 
+  const isDisabled = hostSettings.policy !== 'process';
+
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(event.target.value);
     await hostSettingsRepository.setStrictness(hostSettings.hostname, value);
@@ -25,7 +27,8 @@ export const Strictness = () => {
         onChange={e => {
           void handleChange(e);
         }}
-        className='w-full accent-blue-500 md:w-1/2'
+        disabled={isDisabled}
+        className={`w-full accent-blue-500 md:w-1/2 ${isDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
       />
     </div>
   );
