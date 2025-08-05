@@ -21,8 +21,8 @@ export const Outline = () => {
           : ''
       }`}>
         <button
-          className={`flex-1 rounded-full p-1 text-center transition ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${
-            hostSettings.outline === 'bbox' ? 'bg-gray-600' : 'text-gray-800'
+          className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} ${
+            hostSettings.outline === 'bbox' ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50' : 'text-gray-800 hover:text-gray-700'
           }`}
           onClick={() => handleChange('bbox')}
           disabled={isDisabled}
@@ -31,10 +31,10 @@ export const Outline = () => {
           {t('outlineBoundingBox')}
         </button>
         <button
-          className={`flex-1 rounded-full p-1 text-center transition ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${
+          className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} ${
             hostSettings.outline === 'segment'
-              ? 'bg-gray-600'
-              : 'text-gray-800'
+              ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+              : 'text-gray-800 hover:text-gray-700'
           }`}
           onClick={() => handleChange('segment')}
           disabled={isDisabled}
@@ -49,10 +49,10 @@ export const Outline = () => {
           : 'bg-gray-400'
       }`}>
         <button
-          className={`w-full h-full rounded-full ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-center transition ${
+          className={`w-full h-full rounded-full ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} flex items-center justify-center transition-all duration-200 ${
             hostSettings.outline === 'full'
-              ? 'bg-gray-600 text-red-900'
-              : 'text-gray-700'
+              ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+              : 'text-gray-700 hover:text-gray-600'
           }`}
           onClick={() => handleChange('full')}
           disabled={isDisabled}
