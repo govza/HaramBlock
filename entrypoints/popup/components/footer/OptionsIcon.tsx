@@ -1,6 +1,10 @@
+import { logger } from '@/utils/logger';
+
 export const OptionsIcon = () => {
   const handleClick = () => {
-    void browser.runtime.openOptionsPage();
+    void browser.runtime.openOptionsPage().catch(error => {
+      logger.error('Failed to open options page:', error);
+    });
   };
   return (
     <button className='cursor-pointer' onClick={handleClick}>

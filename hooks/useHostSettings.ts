@@ -115,7 +115,7 @@ export function useHostSettings(hostname: string) {
           hostname: effectiveHostname,
           isGlobal: isGlobalPage(effectiveHostname),
         };
-        logger.warn('hostSettingsPolicy', currentSettings.policy);
+
         // Setting global policy icon
         if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
           logger.withTag('useHostSettings').debug('first');
