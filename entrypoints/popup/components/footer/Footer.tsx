@@ -4,7 +4,7 @@ import { OptionsIcon } from '@/entrypoints/popup/components/footer/OptionsIcon';
 
 export const Footer = () => {
   return (
-    <div className="flex w-full items-center bg-gray-800 p-2">
+    <div className='flex w-full items-center bg-gray-800 p-2'>
       <GlobalSettings />
       <OptionsIcon />
       <AppVersion />

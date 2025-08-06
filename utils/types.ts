@@ -1,6 +1,6 @@
 export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
 export type MaskType = 'blur' | 'pixelate';
-export type OutlineType = 'bbox' | 'segment'  | 'full';
+export type OutlineType = 'bbox' | 'segment' | 'full';
 
 export interface IHostSettings {
   hostname: string;
@@ -92,3 +92,4 @@ export interface Metadata extends YamlMetadata {
   outputShape: [number, number, number];
   namesToCheck: string[];
 }
+// test
