@@ -28,7 +28,9 @@ export function useHostname() {
         }
       } catch (error) {
         setError('Error fetching current tab URL');
-        logger.withTag('useHostname').error('Error fetching current tab URL:', error);
+        logger
+          .withTag('useHostname')
+          .error('Error fetching current tab URL:', error);
       }
     };
 

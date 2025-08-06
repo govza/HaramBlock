@@ -15,14 +15,16 @@ export const Outline = () => {
 
   return (
     <div className='my-2 flex items-center gap-2 text-sm'>
-      <div className={`flex flex-1 rounded-full bg-gray-400 p-1 transition ${
-        hostSettings.outline === 'full' 
-          ? 'opacity-50' 
-          : ''
-      }`}>
+      <div
+        className={`flex flex-1 rounded-full bg-gray-400 p-1 transition ${
+          hostSettings.outline === 'full' ? 'opacity-50' : ''
+        }`}
+      >
         <button
           className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} ${
-            hostSettings.outline === 'bbox' ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50' : 'text-gray-800 hover:text-gray-700'
+            hostSettings.outline === 'bbox'
+              ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+              : 'text-gray-800 hover:text-gray-700'
           }`}
           onClick={() => handleChange('bbox')}
           disabled={isDisabled}
@@ -43,11 +45,13 @@ export const Outline = () => {
           {t('outlineSegment')}
         </button>
       </div>
-      <div className={`w-9 h-9 rounded-full transition p-1 ${
-        hostSettings.outline === 'full'
-          ? 'bg-gray-400 ring-2 ring-inset ring-gray-400'
-          : 'bg-gray-400'
-      }`}>
+      <div
+        className={`w-9 h-9 rounded-full transition p-1 ${
+          hostSettings.outline === 'full'
+            ? 'bg-gray-400 ring-2 ring-inset ring-gray-400'
+            : 'bg-gray-400'
+        }`}
+      >
         <button
           className={`w-full h-full rounded-full ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} flex items-center justify-center transition-all duration-200 ${
             hostSettings.outline === 'full'

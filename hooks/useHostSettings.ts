@@ -9,7 +9,12 @@ import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
 import { logger } from '@/utils/logger';
 
-import type { MaskType, OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
+import type {
+  MaskType,
+  OutlineType,
+  HostPolicy,
+  IHostSettings,
+} from '@/utils/types';
 
 /**
  * Reactive hook for HostSettings data management
@@ -31,52 +36,71 @@ export function useHostSettings(hostname: string) {
   );
 
   // Function to update icon with specific policy
-  const updateIconFromPolicy = useCallback(async (policy: HostPolicy) => {
-    if (!effectiveHostname) return;
-    
-    try {
-      const tabs = await browser.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      const activeTab = tabs[0];
+  const updateIconFromPolicy = useCallback(
+    async (policy: HostPolicy) => {
+      if (!effectiveHostname) return;
 
-      if (activeTab?.id) {
-        const currentSettings = {
-          ...defaultHostSettings,
-          hostname: effectiveHostname,
-          isGlobal: isGlobalPage(effectiveHostname),
-          policy,
-        };
-        // Setting global policy icon
-        if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
-          const iconPaths = getIconPaths(currentSettings.policy);
-          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
-        }
+      try {
+        const tabs = await browser.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        const activeTab = tabs[0];
 
-        // Setting local policy icon from the tab's hostname
-        else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
-          const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
-          const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
-          const tabSettings = await hostSettingsDb.hostSettings.get(effectiveTabHostname) || defaultHostSettings;
-          const iconPaths = getIconPaths(tabSettings.policy);
-          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+        if (activeTab?.id) {
+          const currentSettings = {
+            ...defaultHostSettings,
+            hostname: effectiveHostname,
+            isGlobal: isGlobalPage(effectiveHostname),
+            policy,
+          };
+          // Setting global policy icon
+          if (
+            currentSettings.isGlobal &&
+            currentSettings.policy !== 'process'
+          ) {
+            const iconPaths = getIconPaths(currentSettings.policy);
+            await browser.action.setIcon({
+              tabId: activeTab.id,
+              path: iconPaths,
+            });
+          }
+
+          // Setting local policy icon from the tab's hostname
+          else if (
+            currentSettings.isGlobal &&
+            currentSettings.policy === 'process'
+          ) {
+            const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
+            const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
+            const tabSettings =
+              (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) ||
+              defaultHostSettings;
+            const iconPaths = getIconPaths(tabSettings.policy);
+            await browser.action.setIcon({
+              tabId: activeTab.id,
+              path: iconPaths,
+            });
+          } else {
+            // Not global policy, set currentSettings icon
+            const iconPaths = getIconPaths(currentSettings.policy);
+            await browser.action.setIcon({
+              tabId: activeTab.id,
+              path: iconPaths,
+            });
+          }
         }
-        else {
-          // Not global policy, set currentSettings icon
-          const iconPaths = getIconPaths(currentSettings.policy);
-          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
-        }
+      } catch (error) {
+        logger.withTag('useHostSettings').error('Error updating icon:', error);
       }
-    } catch (error) {
-      logger.withTag('useHostSettings').error('Error updating icon:', error);
-    }
-  }, [effectiveHostname]);
+    },
+    [effectiveHostname],
+  );
 
   // Function to update icon after settings change
   const updateIcon = useCallback(async () => {
     if (!effectiveHostname) return;
-    
+
     try {
       const tabs = await browser.tabs.query({
         active: true,
@@ -91,28 +115,41 @@ export function useHostSettings(hostname: string) {
           hostname: effectiveHostname,
           isGlobal: isGlobalPage(effectiveHostname),
         };
-        logger.warn("hostSettingsPolicy", currentSettings.policy);
+        logger.warn('hostSettingsPolicy', currentSettings.policy);
         // Setting global policy icon
         if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
           logger.withTag('useHostSettings').debug('first');
           const iconPaths = getIconPaths(currentSettings.policy);
-          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+          await browser.action.setIcon({
+            tabId: activeTab.id,
+            path: iconPaths,
+          });
         }
 
         // Setting local policy icon from the tab's hostname
-        else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
+        else if (
+          currentSettings.isGlobal &&
+          currentSettings.policy === 'process'
+        ) {
           logger.withTag('useHostSettings').debug('second');
           const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
           const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
-          const tabSettings = await hostSettingsDb.hostSettings.get(effectiveTabHostname) || defaultHostSettings;
+          const tabSettings =
+            (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) ||
+            defaultHostSettings;
           const iconPaths = getIconPaths(tabSettings.policy);
-          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
-        }
-        else {
+          await browser.action.setIcon({
+            tabId: activeTab.id,
+            path: iconPaths,
+          });
+        } else {
           logger.withTag('useHostSettings').debug('third');
           // Not global policy, set currentSettings icon
           const iconPaths = getIconPaths(currentSettings.policy);
-          await browser.action.setIcon({ tabId: activeTab.id, path: iconPaths });
+          await browser.action.setIcon({
+            tabId: activeTab.id,
+            path: iconPaths,
+          });
         }
       }
     } catch (error) {
@@ -145,12 +182,14 @@ export function useHostSettings(hostname: string) {
               `content-script@${tab.id}`,
             ).catch(error => {
               // Ignore errors for tabs that might not have content script loaded
-              logger.withTag('useHostSettings').warn(
-                'Could not notify tab',
-                tab.id,
-                'of settings change:',
-                error instanceof Error ? error.message : String(error),
-              );
+              logger
+                .withTag('useHostSettings')
+                .warn(
+                  'Could not notify tab',
+                  tab.id,
+                  'of settings change:',
+                  error instanceof Error ? error.message : String(error),
+                );
             });
           }
           return Promise.resolve();
@@ -158,7 +197,9 @@ export function useHostSettings(hostname: string) {
 
         await Promise.all(notifications);
       } catch (error) {
-        logger.withTag('useHostSettings').error('Error notifying content scripts:', error);
+        logger
+          .withTag('useHostSettings')
+          .error('Error notifying content scripts:', error);
       }
     }
   }, [effectiveHostname]);
@@ -166,7 +207,7 @@ export function useHostSettings(hostname: string) {
   // Create repository instance with enhanced methods that include side effects
   const repository = useMemo(() => {
     const baseRepository = new HostSettingsRepository();
-    
+
     // Create a proxy that intercepts the methods we want to enhance
     return new Proxy(baseRepository, {
       get(target, prop) {
@@ -205,14 +246,16 @@ export function useHostSettings(hostname: string) {
             await target.saveSettings(settings);
             await updateIcon();
             await notifyContentScripts();
-          }
+          },
         };
-        
-        return enhancedMethods[prop as keyof typeof enhancedMethods] || target[prop as keyof typeof target];
-      }
+
+        return (
+          enhancedMethods[prop as keyof typeof enhancedMethods] ||
+          target[prop as keyof typeof target]
+        );
+      },
     });
   }, [updateIcon, updateIconFromPolicy, notifyContentScripts]);
-
 
   return {
     // Main settings - return plain settings without methods

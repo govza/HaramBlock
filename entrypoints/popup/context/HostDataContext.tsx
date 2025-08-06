@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+} from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
 import { useHostSettings } from '@/hooks/useHostSettings';
@@ -36,11 +42,13 @@ type HostDataProviderProps = {
 };
 
 export const HostDataProvider = ({ children }: HostDataProviderProps) => {
-  const { currentHostname: detectedHostname, error: hostnameError } = useHostname();
+  const { currentHostname: detectedHostname, error: hostnameError } =
+    useHostname();
   const [isGlobalMode, setIsGlobalMode] = useState(false);
-  
+
   const currentHostname = isGlobalMode ? defaultGlobalKey : detectedHostname;
-  const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
+  const { hostSettings, hostSettingsRepository, isLoading } =
+    useHostSettings(currentHostname);
   const error = hostnameError;
   const predictionCacheRepository = new PredictionCacheRepository();
 
@@ -48,8 +56,9 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   useEffect(() => {
     const checkGlobalSettings = async () => {
       try {
-        const globalSettings = await hostSettingsRepository.findByHostname(defaultGlobalKey);
-        
+        const globalSettings =
+          await hostSettingsRepository.findByHostname(defaultGlobalKey);
+
         if (globalSettings.policy !== 'process') {
           setIsGlobalMode(true);
         }
