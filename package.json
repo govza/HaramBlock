@@ -20,7 +20,8 @@
     "format:check": "prettier --check .",
     "check": "pnpm run format:check && pnpm run lint",
     "fix": "pnpm run format && pnpm run lint:fix",
-    "check:parallel": "pnpm run --parallel format:check lint"
+    "check:parallel": "pnpm run --parallel format:check lint",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
@@ -48,6 +49,7 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react": "^7.37.5",
     "globals": "^16.3.0",
+    "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.8.3",
