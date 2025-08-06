@@ -53,10 +53,6 @@ export function onInferencePredictions(
 ): () => void {
   return onMessage('INFERENCE_PREDICTIONS', message => {
     if (message.data) {
-      logger.withTag('listener').debug(
-        `Received predictions 
-            ${JSON.stringify(message.data.predictions.map(pred => pred.predictions.map(p => p.className + p.probability.toFixed(2))))}`,
-      );
       callback(message.data as unknown as InferencePredictionsMessage);
     }
   });

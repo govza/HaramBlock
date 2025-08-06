@@ -134,7 +134,7 @@ export class InferenceService {
     if (
       !predictions ||
       predictions.length === 0 ||
-      !predictions.some(p => p.predictions.length != 0)
+      !predictions.some(p => p.predictions.length !== 0)
     ) {
       logger
         .withTag('inferenceService')

@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useMemo,
   type ReactNode,
 } from 'react';
 
@@ -31,7 +32,7 @@ const HostDataContext = createContext<HostDataType>({
   currentHostname: defaultGlobalKey,
   isLoading: false,
   hostSettingsRepository: {} as HostSettingsRepository,
-  predictionCacheRepository: new PredictionCacheRepository(),
+  predictionCacheRepository: {} as PredictionCacheRepository,
   switchToGlobal: () => {},
   switchToLocal: () => {},
   isGlobalMode: false,
@@ -50,7 +51,10 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const { hostSettings, hostSettingsRepository, isLoading } =
     useHostSettings(currentHostname);
   const error = hostnameError;
-  const predictionCacheRepository = new PredictionCacheRepository();
+  const predictionCacheRepository = useMemo(
+    () => new PredictionCacheRepository(),
+    [],
+  );
 
   // Check global settings to enforce global mode if policy !== "process"
   useEffect(() => {
