@@ -14,5 +14,6 @@ export default defineConfig({
   manifest: {
     default_locale: 'en',
     permissions: ['storage', 'tabs', 'activeTab', 'scripting'],
+    options_page: 'options.html',
   },
 });

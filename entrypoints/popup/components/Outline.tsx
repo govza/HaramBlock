@@ -16,15 +16,15 @@ export const Outline = () => {
   return (
     <div className='my-2 flex items-center gap-2 text-sm'>
       <div
-        className={`flex flex-1 rounded-full bg-gray-400 p-1 transition ${
+        className={`flex flex-1 rounded-full bg-text-muted p-1 transition ${
           hostSettings.outline === 'full' ? 'opacity-50' : ''
         }`}
       >
         <button
-          className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} ${
+          className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} ${
             hostSettings.outline === 'bbox'
-              ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-              : 'text-gray-800 hover:text-gray-700'
+              ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
+              : 'text-text-inverse hover:text-text-inverse'
           }`}
           onClick={() => handleChange('bbox')}
           disabled={isDisabled}
@@ -33,10 +33,10 @@ export const Outline = () => {
           {t('HostSettings.Outline.boundingBox')}
         </button>
         <button
-          className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} ${
+          className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} ${
             hostSettings.outline === 'segment'
-              ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-              : 'text-gray-800 hover:text-gray-700'
+              ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
+              : 'text-text-inverse hover:text-text-inverse'
           }`}
           onClick={() => handleChange('segment')}
           disabled={isDisabled}
@@ -47,14 +47,14 @@ export const Outline = () => {
       </div>
       <div
         className={`w-9 h-9 rounded-full transition p-1 ${
-          hostSettings.outline === 'full' ? 'bg-gray-400 ring-2 ring-inset ring-gray-400' : 'bg-gray-400'
+          hostSettings.outline === 'full' ? 'bg-text-muted ring-2 ring-inset ring-text-muted' : 'bg-text-muted'
         }`}
       >
         <button
-          className={`w-full h-full rounded-full ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} flex items-center justify-center transition-all duration-200 ${
+          className={`w-full h-full rounded-full ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} flex items-center justify-center transition-all duration-200 ${
             hostSettings.outline === 'full'
-              ? 'bg-gray-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-              : 'text-gray-700 hover:text-gray-600'
+              ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
+              : 'text-text-inverse hover:text-text-inverse'
           }`}
           onClick={() => handleChange('full')}
           disabled={isDisabled}
