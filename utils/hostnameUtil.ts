@@ -30,7 +30,12 @@ export function extractHostnameFromUrl(url: string | null | undefined): string |
 
   try {
     // Treat all special browser URLs as global
-    if (url.startsWith('chrome://') || url.startsWith('moz-extension://') || url.startsWith('about:')) {
+    if (
+      url.startsWith('chrome://') ||
+      url.startsWith('chrome-extension://') ||
+      url.startsWith('moz-extension://') ||
+      url.startsWith('about:')
+    ) {
       return defaultGlobalKey;
     }
 
