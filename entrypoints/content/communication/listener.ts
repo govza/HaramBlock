@@ -29,9 +29,7 @@ export interface InferencePredictionsMessage {
  * @param callback - Function to call when settings are updated
  * @returns Cleanup function to remove the listener
  */
-export function onHostSettingsUpdated(
-  callback: (data: HostSettingsUpdateMessage) => void,
-): () => void {
+export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage) => void): () => void {
   return onMessage('HOST_SETTINGS_UPDATED', message => {
     if (message.data) {
       callback(message.data as HostSettingsUpdateMessage);
@@ -48,9 +46,7 @@ export function onHostSettingsUpdated(
  * @param callback - Function to call when predictions are received
  * @returns Cleanup function to remove the listener
  */
-export function onInferencePredictions(
-  callback: (data: InferencePredictionsMessage) => void,
-): () => void {
+export function onInferencePredictions(callback: (data: InferencePredictionsMessage) => void): () => void {
   return onMessage('INFERENCE_PREDICTIONS', message => {
     if (message.data) {
       callback(message.data as unknown as InferencePredictionsMessage);
@@ -68,10 +64,7 @@ export function onInferencePredictions(
  * @param callback - Function to call when settings for this hostname are updated
  * @returns Cleanup function to remove the listener
  */
-export function onHostSettingsUpdatedForHostname(
-  targetHostname: string,
-  callback: () => void,
-): () => void {
+export function onHostSettingsUpdatedForHostname(targetHostname: string, callback: () => void): () => void {
   return onHostSettingsUpdated(data => {
     if (data.hostname === targetHostname) {
       callback();
@@ -112,15 +105,11 @@ export function setupListeners(listeners: {
   const cleanupFunctions: (() => void)[] = [];
 
   if (listeners.onHostSettingsUpdated) {
-    cleanupFunctions.push(
-      onHostSettingsUpdated(listeners.onHostSettingsUpdated),
-    );
+    cleanupFunctions.push(onHostSettingsUpdated(listeners.onHostSettingsUpdated));
   }
 
   if (listeners.onInferencePredictions) {
-    cleanupFunctions.push(
-      onInferencePredictions(listeners.onInferencePredictions),
-    );
+    cleanupFunctions.push(onInferencePredictions(listeners.onInferencePredictions));
   }
 
   // Return single cleanup function that calls all individual cleanup functions

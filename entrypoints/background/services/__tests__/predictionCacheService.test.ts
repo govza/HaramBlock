@@ -33,9 +33,7 @@ const mockLogger = vi.mocked(logger);
 // Test fixtures
 const TEST_HOSTNAME = 'example.com';
 
-const createMockPrediction = (
-  overrides: Partial<IImagePrediction> = {},
-): IImagePrediction => {
+const createMockPrediction = (overrides: Partial<IImagePrediction> = {}): IImagePrediction => {
   return {
     hostname: TEST_HOSTNAME,
     src: 'https://example.com/image1.jpg',
@@ -106,21 +104,15 @@ describe('PredictionCacheService', () => {
           timestamp: Date.now() - 1500,
         });
 
-        mockRepository.findValidByHostname.mockResolvedValue([
-          validPrediction1,
-          validPrediction2,
-        ]);
+        mockRepository.findValidByHostname.mockResolvedValue([validPrediction1, validPrediction2]);
 
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
 
         // Should return data from both valid predictions
         expect(result).toHaveLength(2);
         expect(result[0]).toEqual(validPrediction1);
         expect(result[1]).toEqual(validPrediction2);
-        expect(mockRepository.findValidByHostname).toHaveBeenCalledWith(
-          TEST_HOSTNAME,
-        );
+        expect(mockRepository.findValidByHostname).toHaveBeenCalledWith(TEST_HOSTNAME);
       });
 
       it('should update access times asynchronously without blocking response', async () => {
@@ -129,14 +121,10 @@ describe('PredictionCacheService', () => {
           src: 'https://example.com/image2.jpg',
         });
 
-        mockRepository.findValidByHostname.mockResolvedValue([
-          prediction1,
-          prediction2,
-        ]);
+        mockRepository.findValidByHostname.mockResolvedValue([prediction1, prediction2]);
 
         const startTime = Date.now();
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
         const responseTime = Date.now() - startTime;
 
         // Response should be fast (not waiting for save operations)
@@ -155,8 +143,7 @@ describe('PredictionCacheService', () => {
         mockRepository.findValidByHostname.mockResolvedValue([prediction]);
 
         // Should not throw despite potential save failures
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
 
         expect(result).toHaveLength(1);
         expect(result[0]).toEqual(prediction);
@@ -171,13 +158,9 @@ describe('PredictionCacheService', () => {
         });
         const failPrediction = createMockPrediction({ src: 'fail.jpg' });
 
-        mockRepository.findValidByHostname.mockResolvedValue([
-          successPrediction,
-          failPrediction,
-        ]);
+        mockRepository.findValidByHostname.mockResolvedValue([successPrediction, failPrediction]);
 
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
 
         expect(result).toHaveLength(2);
         expect(result[0]).toEqual(successPrediction);
@@ -189,13 +172,10 @@ describe('PredictionCacheService', () => {
       it('should optimize for empty result sets', async () => {
         mockRepository.findValidByHostname.mockResolvedValue([]);
 
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
 
         expect(result).toEqual([]);
-        expect(mockRepository.findValidByHostname).toHaveBeenCalledWith(
-          TEST_HOSTNAME,
-        );
+        expect(mockRepository.findValidByHostname).toHaveBeenCalledWith(TEST_HOSTNAME);
         // No background operations should be triggered for empty results
       });
 
@@ -208,13 +188,10 @@ describe('PredictionCacheService', () => {
           }),
         );
 
-        mockRepository.findValidByHostname.mockResolvedValue(
-          largePredictionSet,
-        );
+        mockRepository.findValidByHostname.mockResolvedValue(largePredictionSet);
 
         const startTime = Date.now();
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
         const responseTime = Date.now() - startTime;
 
         expect(result).toHaveLength(100);
@@ -231,37 +208,29 @@ describe('PredictionCacheService', () => {
         const dbError = new Error('Database connection timeout');
         mockRepository.findValidByHostname.mockRejectedValue(dbError);
 
-        await expect(
-          service.getCachedPredictionsByHostname(TEST_HOSTNAME),
-        ).rejects.toThrow('Database connection timeout');
-
-        expect(mockRepository.findValidByHostname).toHaveBeenCalledWith(
-          TEST_HOSTNAME,
+        await expect(service.getCachedPredictionsByHostname(TEST_HOSTNAME)).rejects.toThrow(
+          'Database connection timeout',
         );
+
+        expect(mockRepository.findValidByHostname).toHaveBeenCalledWith(TEST_HOSTNAME);
       });
 
       it('should validate hostname parameter correctly', async () => {
         // Test empty string
-        await expect(
-          service.getCachedPredictionsByHostname(''),
-        ).rejects.toThrow('Hostname is required');
+        await expect(service.getCachedPredictionsByHostname('')).rejects.toThrow('Hostname is required');
 
         // Test whitespace string
-        await expect(
-          service.getCachedPredictionsByHostname('   '),
-        ).rejects.toThrow('Hostname is required');
+        await expect(service.getCachedPredictionsByHostname('   ')).rejects.toThrow('Hostname is required');
 
         // Test null (cast to string as the method expects string)
-        await expect(
-          service.getCachedPredictionsByHostname(null as unknown as string),
-        ).rejects.toThrow('Hostname is required');
+        await expect(service.getCachedPredictionsByHostname(null as unknown as string)).rejects.toThrow(
+          'Hostname is required',
+        );
 
         // Test undefined (cast to string as the method expects string)
-        await expect(
-          service.getCachedPredictionsByHostname(
-            undefined as unknown as string,
-          ),
-        ).rejects.toThrow('Hostname is required');
+        await expect(service.getCachedPredictionsByHostname(undefined as unknown as string)).rejects.toThrow(
+          'Hostname is required',
+        );
 
         // Should not have called database for invalid hostnames
         expect(mockRepository.findValidByHostname).not.toHaveBeenCalled();
@@ -300,8 +269,7 @@ describe('PredictionCacheService', () => {
         const mockPrediction = createMockPrediction(originalData);
         mockRepository.findValidByHostname.mockResolvedValue([mockPrediction]);
 
-        const result =
-          await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
+        const result = await service.getCachedPredictionsByHostname(TEST_HOSTNAME);
 
         expect(result).toHaveLength(1);
         expect(result[0]).toEqual(mockPrediction);

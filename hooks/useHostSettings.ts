@@ -9,12 +9,7 @@ import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
 import { logger } from '@/utils/logger';
 
-import type {
-  MaskType,
-  OutlineType,
-  HostPolicy,
-  IHostSettings,
-} from '@/utils/types';
+import type { MaskType, OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
 
 /**
  * Reactive hook for HostSettings data management
@@ -30,10 +25,7 @@ export function useHostSettings(hostname: string) {
   }, [hostname]);
 
   // Reactively query the database
-  const hostSettingsData = useLiveQuery(
-    () => hostSettingsDb.hostSettings.get(effectiveHostname),
-    [effectiveHostname],
-  );
+  const hostSettingsData = useLiveQuery(() => hostSettingsDb.hostSettings.get(effectiveHostname), [effectiveHostname]);
 
   // Function to update icon with specific policy
   const updateIconFromPolicy = useCallback(
@@ -55,10 +47,7 @@ export function useHostSettings(hostname: string) {
             policy,
           };
           // Setting global policy icon
-          if (
-            currentSettings.isGlobal &&
-            currentSettings.policy !== 'process'
-          ) {
+          if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
             const iconPaths = getIconPaths(currentSettings.policy);
             await browser.action.setIcon({
               tabId: activeTab.id,
@@ -67,15 +56,10 @@ export function useHostSettings(hostname: string) {
           }
 
           // Setting local policy icon from the tab's hostname
-          else if (
-            currentSettings.isGlobal &&
-            currentSettings.policy === 'process'
-          ) {
+          else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
             const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
             const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
-            const tabSettings =
-              (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) ||
-              defaultHostSettings;
+            const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
             const iconPaths = getIconPaths(tabSettings.policy);
             await browser.action.setIcon({
               tabId: activeTab.id,
@@ -127,16 +111,11 @@ export function useHostSettings(hostname: string) {
         }
 
         // Setting local policy icon from the tab's hostname
-        else if (
-          currentSettings.isGlobal &&
-          currentSettings.policy === 'process'
-        ) {
+        else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
           logger.withTag('useHostSettings').debug('second');
           const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
           const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
-          const tabSettings =
-            (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) ||
-            defaultHostSettings;
+          const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
           const iconPaths = getIconPaths(tabSettings.policy);
           await browser.action.setIcon({
             tabId: activeTab.id,
@@ -197,9 +176,7 @@ export function useHostSettings(hostname: string) {
 
         await Promise.all(notifications);
       } catch (error) {
-        logger
-          .withTag('useHostSettings')
-          .error('Error notifying content scripts:', error);
+        logger.withTag('useHostSettings').error('Error notifying content scripts:', error);
       }
     }
   }, [effectiveHostname]);
@@ -249,10 +226,7 @@ export function useHostSettings(hostname: string) {
           },
         };
 
-        return (
-          enhancedMethods[prop as keyof typeof enhancedMethods] ||
-          target[prop as keyof typeof target]
-        );
+        return enhancedMethods[prop as keyof typeof enhancedMethods] || target[prop as keyof typeof target];
       },
     });
   }, [updateIcon, updateIconFromPolicy, notifyContentScripts]);

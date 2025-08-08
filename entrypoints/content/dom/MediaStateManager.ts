@@ -20,38 +20,27 @@ export class MediaStateManager {
     return this.hostSettings;
   }
 
-  public markProcessed(
-    element: HTMLElement,
-    currentSrc: string,
-    type: 'styling' | 'ai' = 'ai',
-  ): void {
+  public markProcessed(element: HTMLElement, currentSrc: string, type: 'styling' | 'ai' = 'ai'): void {
     const existingState = this.processedElements.get(element);
 
     const state: ElementState = {
       lastProcessedSrc: currentSrc,
       processedAt: Date.now(),
       element,
-      processedForStyling:
-        existingState?.processedForStyling || type === 'styling',
+      processedForStyling: existingState?.processedForStyling || type === 'styling',
       processedForAI: existingState?.processedForAI || type === 'ai',
     };
 
     this.processedElements.set(element, state);
   }
 
-  public isProcessed(
-    element: HTMLElement,
-    currentSrc: string,
-    type: 'styling' | 'ai' = 'ai',
-  ): boolean {
+  public isProcessed(element: HTMLElement, currentSrc: string, type: 'styling' | 'ai' = 'ai'): boolean {
     const state = this.processedElements.get(element);
     if (!state || state.lastProcessedSrc !== currentSrc) {
       return false;
     }
 
-    return type === 'styling'
-      ? Boolean(state.processedForStyling)
-      : Boolean(state.processedForAI);
+    return type === 'styling' ? Boolean(state.processedForStyling) : Boolean(state.processedForAI);
   }
 
   public getElementState(element: HTMLElement): ElementState | undefined {

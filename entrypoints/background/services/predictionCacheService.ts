@@ -27,9 +27,7 @@ export class PredictionCacheService {
 
       await Promise.all(cachePromises);
     } catch (error) {
-      logger
-        .withTag('predictionCacheService')
-        .error('Error caching predictions:', error);
+      logger.withTag('predictionCacheService').error('Error caching predictions:', error);
       throw error;
     }
   }
@@ -39,9 +37,7 @@ export class PredictionCacheService {
    * @param hostname - The hostname to retrieve predictions for
    * @returns Promise resolving to array of cached predictions
    */
-  async getCachedPredictionsByHostname(
-    hostname: string,
-  ): Promise<IImagePrediction[]> {
+  async getCachedPredictionsByHostname(hostname: string): Promise<IImagePrediction[]> {
     if (!hostname || !hostname.trim()) {
       throw new Error('Hostname is required');
     }
@@ -58,23 +54,16 @@ export class PredictionCacheService {
         Promise.all(
           predictions.map(async prediction => {
             try {
-              const updatedPrediction =
-                this.repository.updateAccessTime(prediction);
+              const updatedPrediction = this.repository.updateAccessTime(prediction);
               await this.repository.savePrediction(updatedPrediction);
             } catch (error) {
               logger
                 .withTag('predictionCacheService')
-                .warn(
-                  'Failed to update access time for prediction:',
-                  prediction.src,
-                  error,
-                );
+                .warn('Failed to update access time for prediction:', prediction.src, error);
             }
           }),
         ).catch(error => {
-          logger
-            .withTag('predictionCacheService')
-            .warn('Background access time update failed:', error);
+          logger.withTag('predictionCacheService').warn('Background access time update failed:', error);
         });
       }
 
@@ -82,11 +71,7 @@ export class PredictionCacheService {
     } catch (error) {
       logger
         .withTag('predictionCacheService')
-        .error(
-          'Error retrieving cached predictions for hostname:',
-          hostname,
-          error,
-        );
+        .error('Error retrieving cached predictions for hostname:', hostname, error);
       throw error;
     }
   }
@@ -101,9 +86,7 @@ export class PredictionCacheService {
       const predictions = await this.repository.findBySrc(src);
       return predictions;
     } catch (error) {
-      logger
-        .withTag('predictionCacheService')
-        .error('Error retrieving cached prediction by src:', src, error);
+      logger.withTag('predictionCacheService').error('Error retrieving cached prediction by src:', src, error);
       throw error;
     }
   }

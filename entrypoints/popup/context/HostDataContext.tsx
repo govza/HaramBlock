@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useMemo,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
 import { useHostSettings } from '@/hooks/useHostSettings';
@@ -43,25 +36,19 @@ type HostDataProviderProps = {
 };
 
 export const HostDataProvider = ({ children }: HostDataProviderProps) => {
-  const { currentHostname: detectedHostname, error: hostnameError } =
-    useHostname();
+  const { currentHostname: detectedHostname, error: hostnameError } = useHostname();
   const [isGlobalMode, setIsGlobalMode] = useState(false);
 
   const currentHostname = isGlobalMode ? defaultGlobalKey : detectedHostname;
-  const { hostSettings, hostSettingsRepository, isLoading } =
-    useHostSettings(currentHostname);
+  const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
   const error = hostnameError;
-  const predictionCacheRepository = useMemo(
-    () => new PredictionCacheRepository(),
-    [],
-  );
+  const predictionCacheRepository = useMemo(() => new PredictionCacheRepository(), []);
 
   // Check global settings to enforce global mode if policy !== "process"
   useEffect(() => {
     const checkGlobalSettings = async () => {
       try {
-        const globalSettings =
-          await hostSettingsRepository.findByHostname(defaultGlobalKey);
+        const globalSettings = await hostSettingsRepository.findByHostname(defaultGlobalKey);
 
         if (globalSettings.policy !== 'process') {
           setIsGlobalMode(true);
@@ -105,9 +92,7 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
 export const useHostDataContext = (): HostDataType => {
   const context = useContext(HostDataContext);
   if (!context) {
-    throw new Error(
-      'useHostDataContext must be used within a HostDataProvider',
-    );
+    throw new Error('useHostDataContext must be used within a HostDataProvider');
   }
   return context;
 };

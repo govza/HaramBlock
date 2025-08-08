@@ -25,18 +25,12 @@ export function normalizeHostname(hostname: string | null | undefined): string {
  * @param url - Full URL string
  * @returns Normalized hostname or null if invalid
  */
-export function extractHostnameFromUrl(
-  url: string | null | undefined,
-): string | null {
+export function extractHostnameFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
 
   try {
     // Treat all special browser URLs as global
-    if (
-      url.startsWith('chrome://') ||
-      url.startsWith('moz-extension://') ||
-      url.startsWith('about:')
-    ) {
+    if (url.startsWith('chrome://') || url.startsWith('moz-extension://') || url.startsWith('about:')) {
       return defaultGlobalKey;
     }
 
@@ -65,9 +59,7 @@ export function isGlobalPage(hostname: string | null | undefined): boolean {
  * @param hostname - Raw hostname or URL
  * @returns Effective hostname for database storage
  */
-export function getEffectiveHostname(
-  hostname: string | null | undefined,
-): string {
+export function getEffectiveHostname(hostname: string | null | undefined): string {
   // If it looks like a URL, extract the hostname first
   if (hostname && (hostname.includes('://') || hostname.startsWith('about:'))) {
     return extractHostnameFromUrl(hostname) || defaultGlobalKey;

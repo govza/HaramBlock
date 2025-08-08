@@ -4,10 +4,7 @@ import {
   PredictionCacheController,
   InferenceController,
 } from '@/entrypoints/background/controllers';
-import {
-  IconEventListener,
-  TabEventListener,
-} from '@/entrypoints/background/events';
+import { IconEventListener, TabEventListener } from '@/entrypoints/background/events';
 import {
   HostSettingsService,
   ModelLoaderService,
@@ -29,10 +26,7 @@ export default defineBackground(() => {
   const imageProcessorService = new ImageProcessorService();
   const queueService = new QueueService();
 
-  const predictionService = new PredictionService(
-    modelLoaderService,
-    imageProcessorService,
-  );
+  const predictionService = new PredictionService(modelLoaderService, imageProcessorService);
 
   const tabEventListener = new TabEventListener();
 
@@ -47,15 +41,10 @@ export default defineBackground(() => {
   const iconEventListener = new IconEventListener();
 
   // Initialize controllers (message/request handling layer)
-  const hostSettingsController = new HostSettingsController(
-    hostSettingsService,
-  );
+  const hostSettingsController = new HostSettingsController(hostSettingsService);
   const iconController = new IconController();
   const predictionCacheController = new PredictionCacheController();
-  const inferenceController = new InferenceController(
-    inferenceService,
-    hostSettingsService,
-  );
+  const inferenceController = new InferenceController(inferenceService, hostSettingsService);
 
   // Initialize all event listeners and controllers
   iconEventListener.initialize();
@@ -68,7 +57,5 @@ export default defineBackground(() => {
   // Initialize services
   void modelLoaderService.initialize();
 
-  logger
-    .withTag('background')
-    .debug('Background script initialized successfully.');
+  logger.withTag('background').debug('Background script initialized successfully.');
 });

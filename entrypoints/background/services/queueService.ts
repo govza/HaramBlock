@@ -15,16 +15,12 @@ export class QueueService {
     });
   }
 
-  setTaskProcessingHandler(
-    handler: (task: InferenceTask) => Promise<void>,
-  ): void {
+  setTaskProcessingHandler(handler: (task: InferenceTask) => Promise<void>): void {
     this.onTaskProcessing = handler;
   }
 
   enqueue(task: InferenceTask): Promise<void> {
-    logger
-      .withTag('queueService')
-      .debug(`Enqueueing task ${task.id} with priority ${task.priority}`);
+    logger.withTag('queueService').debug(`Enqueueing task ${task.id} with priority ${task.priority}`);
 
     // Return the promise to allow proper tracking of task completion
     return this.queue.add(
@@ -48,11 +44,7 @@ export class QueueService {
   }
 
   isIdle(): boolean {
-    return (
-      this.queue.isPaused === false &&
-      this.queue.size === 0 &&
-      this.queue.pending === 0
-    );
+    return this.queue.isPaused === false && this.queue.size === 0 && this.queue.pending === 0;
   }
 
   pause(): void {

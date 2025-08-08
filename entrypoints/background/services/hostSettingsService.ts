@@ -33,11 +33,7 @@ export class HostSettingsService {
     } catch (error) {
       logger
         .withTag('hostSettingsService')
-        .error(
-          'Error retrieving host settings for hostname:',
-          effectiveHostname,
-          error,
-        );
+        .error('Error retrieving host settings for hostname:', effectiveHostname, error);
       throw error;
     }
   }

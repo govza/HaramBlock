@@ -22,9 +22,7 @@ vi.mock('@/utils/hostnameUtil', () => ({
 }));
 
 const { hostSettingsDb } = await import('@/utils/db/db');
-const { getEffectiveHostname, isGlobalPage } = await import(
-  '@/utils/hostnameUtil'
-);
+const { getEffectiveHostname, isGlobalPage } = await import('@/utils/hostnameUtil');
 
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const mockPut = hostSettingsDb.hostSettings.put as ReturnType<typeof vi.fn>;
@@ -62,12 +60,8 @@ describe('HostSettingsRepository', () => {
     vi.clearAllMocks();
     repository = new HostSettingsRepository();
     // Set up default mocks
-    mockGetEffectiveHostname.mockImplementation(
-      hostname => hostname || defaultGlobalKey,
-    );
-    mockIsGlobalPage.mockImplementation(
-      hostname => hostname === defaultGlobalKey,
-    );
+    mockGetEffectiveHostname.mockImplementation(hostname => hostname || defaultGlobalKey);
+    mockIsGlobalPage.mockImplementation(hostname => hostname === defaultGlobalKey);
   });
 
   afterEach(() => {
@@ -99,9 +93,7 @@ describe('HostSettingsRepository', () => {
       mockPut.mockRejectedValue(new Error('Database error'));
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
 
-      await expect(repository.togglePolicy(TEST_HOSTNAME)).rejects.toThrow(
-        'Failed to save host settings',
-      );
+      await expect(repository.togglePolicy(TEST_HOSTNAME)).rejects.toThrow('Failed to save host settings');
     });
   });
 

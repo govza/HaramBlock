@@ -49,24 +49,16 @@ export class MediaProcessor {
     private config: ProcessorConfig = DEFAULT_CONFIG,
   ) {
     this.stateManager = new MediaStateManager(hostSettings);
-    this.mediaHandler = new MediaHandler(
-      hostSettings,
-      this.stateManager,
-      cachedPredictions,
-      predictions => this.handleInferenceResults(predictions),
+    this.mediaHandler = new MediaHandler(hostSettings, this.stateManager, cachedPredictions, predictions =>
+      this.handleInferenceResults(predictions),
     );
     this.setupEventListeners();
     logger.withTag('MediaProcessor').debug('MediaProcessor initialized');
   }
 
-  public start(
-    target: Node = document,
-    onInitialProcessingComplete?: () => void,
-  ): void {
+  public start(target: Node = document, onInitialProcessingComplete?: () => void): void {
     this.onInitialProcessingComplete = onInitialProcessingComplete;
-    this.observer = new MutationObserver(
-      this.throttledMutationHandler.bind(this),
-    );
+    this.observer = new MutationObserver(this.throttledMutationHandler.bind(this));
     this.observer.observe(target, this.config.mutationConfig);
     this.processExistingElements(target);
   }
@@ -85,20 +77,13 @@ export class MediaProcessor {
     // Apply styling directly using presentation layer functions
     predictions.forEach(prediction => {
       // Find images with matching src
-      const images = Array.from(document.querySelectorAll('img')).filter(
-        img => {
-          const src = img.currentSrc || img.src;
-          return src === prediction.src;
-        },
-      );
+      const images = Array.from(document.querySelectorAll('img')).filter(img => {
+        const src = img.currentSrc || img.src;
+        return src === prediction.src;
+      });
 
       if (images.length > 0) {
-        applyPredictionsStyling(
-          images,
-          [prediction],
-          this.stateManager.getHostSettings(),
-          'ai-processed',
-        );
+        applyPredictionsStyling(images, [prediction], this.stateManager.getHostSettings(), 'ai-processed');
 
         images.forEach(image => {
           this.stateManager.markProcessed(image, prediction.src, 'styling');
@@ -161,10 +146,7 @@ export class MediaProcessor {
         });
       }
 
-      if (
-        mutation.type === 'attributes' &&
-        mutation.target.nodeType === Node.ELEMENT_NODE
-      ) {
+      if (mutation.type === 'attributes' && mutation.target.nodeType === Node.ELEMENT_NODE) {
         const element = mutation.target as HTMLElement;
         if (element.tagName === 'IMG') {
           imageSet.add(element as HTMLImageElement);
@@ -180,11 +162,7 @@ export class MediaProcessor {
     };
   }
 
-  private collectMediaElements(
-    node: HTMLElement,
-    images: Set<HTMLImageElement>,
-    videos: Set<HTMLVideoElement>,
-  ): void {
+  private collectMediaElements(node: HTMLElement, images: Set<HTMLImageElement>, videos: Set<HTMLVideoElement>): void {
     if (node.tagName === 'IMG') {
       images.add(node as HTMLImageElement);
     } else if (node.tagName === 'VIDEO') {
@@ -260,9 +238,7 @@ export class MediaProcessor {
         this.mediaHandler.handleVideos(videos);
       }
     } catch (error) {
-      logger
-        .withTag('MediaProcessor')
-        .error('Failed to process media batches:', error);
+      logger.withTag('MediaProcessor').error('Failed to process media batches:', error);
     } finally {
       this.batchTimeout = null;
     }
@@ -284,15 +260,9 @@ export class MediaProcessor {
       videos = Array.from(element.querySelectorAll('video'));
     } else {
       // For other node types, call completion callback and return
-      if (
-        this.onInitialProcessingComplete &&
-        !this.initialProcessingCompleted
-      ) {
+      if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
         setTimeout(() => {
-          if (
-            this.onInitialProcessingComplete &&
-            !this.initialProcessingCompleted
-          ) {
+          if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
             this.initialProcessingCompleted = true;
             this.onInitialProcessingComplete();
           }
@@ -308,10 +278,7 @@ export class MediaProcessor {
     if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
       const delay = images.length > 0 || videos.length > 0 ? 50 : 10;
       setTimeout(() => {
-        if (
-          this.onInitialProcessingComplete &&
-          !this.initialProcessingCompleted
-        ) {
+        if (this.onInitialProcessingComplete && !this.initialProcessingCompleted) {
           this.initialProcessingCompleted = true;
           this.onInitialProcessingComplete();
         }

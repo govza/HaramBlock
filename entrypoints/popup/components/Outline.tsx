@@ -47,9 +47,7 @@ export const Outline = () => {
       </div>
       <div
         className={`w-9 h-9 rounded-full transition p-1 ${
-          hostSettings.outline === 'full'
-            ? 'bg-gray-400 ring-2 ring-inset ring-gray-400'
-            : 'bg-gray-400'
+          hostSettings.outline === 'full' ? 'bg-gray-400 ring-2 ring-inset ring-gray-400' : 'bg-gray-400'
         }`}
       >
         <button
@@ -70,10 +68,7 @@ export const Outline = () => {
             stroke='currentColor'
             className='size-6'
           >
-            <path
-              strokeLinecap='round'
-              d='M15 12H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z'
-            />
+            <path strokeLinecap='round' d='M15 12H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z' />
           </svg>
         </button>
       </div>

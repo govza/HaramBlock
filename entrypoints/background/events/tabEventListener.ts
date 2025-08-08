@@ -13,17 +13,10 @@ export class TabEventListener {
       const previousActiveTabId = this.activeTabId;
       this.activeTabId = activeInfo.tabId;
 
-      logger
-        .withTag('tabEventListener')
-        .debug(
-          `Tab activated: ${activeInfo.tabId} (previous: ${previousActiveTabId})`,
-        );
+      logger.withTag('tabEventListener').debug(`Tab activated: ${activeInfo.tabId} (previous: ${previousActiveTabId})`);
 
       // Notify callback if registered
-      if (
-        this.onTabActivatedCallback &&
-        previousActiveTabId !== this.activeTabId
-      ) {
+      if (this.onTabActivatedCallback && previousActiveTabId !== this.activeTabId) {
         this.onTabActivatedCallback(this.activeTabId);
       }
     });

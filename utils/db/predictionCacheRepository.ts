@@ -6,19 +6,14 @@ import { type IImagePrediction, type ICacheMetadata } from '@/utils/types';
 
 const isCacheDisabled = import.meta.env.MODE === 'nocache';
 if (isCacheDisabled) {
-  logger
-    .withTag('predictionCacheRepository')
-    .info('Prediction cache is disabled');
+  logger.withTag('predictionCacheRepository').info('Prediction cache is disabled');
 }
 
 /**
  * Repository for managing prediction cache records
  * Provides database operations specific to prediction cache
  */
-export class PredictionCacheRepository extends BaseRepository<
-  IImagePrediction,
-  string
-> {
+export class PredictionCacheRepository extends BaseRepository<IImagePrediction, string> {
   constructor() {
     super(predictionsDb.predictions);
   }
@@ -58,10 +53,7 @@ export class PredictionCacheRepository extends BaseRepository<
   /**
    * Find predictions by both src and hostname
    */
-  async findBySrcAndHostname(
-    src: string,
-    hostname: string,
-  ): Promise<IImagePrediction[]> {
+  async findBySrcAndHostname(src: string, hostname: string): Promise<IImagePrediction[]> {
     if (isCacheDisabled) {
       return [];
     }
@@ -85,10 +77,7 @@ export class PredictionCacheRepository extends BaseRepository<
   /**
    * Create a new prediction cache record
    */
-  async createPrediction(
-    prediction: IImagePrediction,
-    hostname: string,
-  ): Promise<IImagePrediction> {
+  async createPrediction(prediction: IImagePrediction, hostname: string): Promise<IImagePrediction> {
     const effectiveHostname = getEffectiveHostname(hostname);
     const now = Date.now();
 
@@ -198,10 +187,7 @@ export class PredictionCacheRepository extends BaseRepository<
     const now = Date.now();
 
     // Check if explicitly expired
-    if (
-      prediction.cacheMetadata.expires &&
-      now > prediction.cacheMetadata.expires
-    ) {
+    if (prediction.cacheMetadata.expires && now > prediction.cacheMetadata.expires) {
       return false;
     }
 

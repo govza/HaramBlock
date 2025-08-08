@@ -1,17 +1,10 @@
 import * as tf from '@tensorflow/tfjs';
 
 import { type InferenceTask } from '@/entrypoints/background/domain/models';
-import {
-  type ModelLoaderService,
-  type ImageProcessorService,
-} from '@/entrypoints/background/services';
+import { type ModelLoaderService, type ImageProcessorService } from '@/entrypoints/background/services';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
-import {
-  type IElementPrediction,
-  type IImagePrediction,
-  type Metadata,
-} from '@/utils/types';
+import { type IElementPrediction, type IImagePrediction, type Metadata } from '@/utils/types';
 
 export class PredictionError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -31,28 +24,18 @@ export class PredictionService {
     const startTime = Date.now();
 
     try {
-      logger
-        .withTag('predictionService')
-        .debug(`Processing inference task ${task.id}...`);
+      logger.withTag('predictionService').debug(`Processing inference task ${task.id}...`);
 
       // 1. Load the model and get config
       const model = await this.modelLoaderService.loadModelAsync();
       const config = this.modelLoaderService.getModelConfig();
 
       // 2. Load and preprocess the image
-      const imageBitmap = await this.imageProcessor.loadImageBitmap(
-        task.imageSrc,
-      );
-      const { width: imageWidth, height: imageHeight } =
-        this.imageProcessor.getImageDimensions(imageBitmap);
+      const imageBitmap = await this.imageProcessor.loadImageBitmap(task.imageSrc);
+      const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
       // 3. Run inference through integrated prediction processing
-      const predictions = await this.getFramePredictions(
-        imageBitmap,
-        model,
-        config,
-        1 - task.hostSettings.strictness,
-      );
+      const predictions = await this.getFramePredictions(imageBitmap, model, config, 1 - task.hostSettings.strictness);
 
       // 4. Create result
       const processingTimeMs = Date.now() - startTime;
@@ -62,10 +45,7 @@ export class PredictionService {
       const cacheControlHeader = task.imageMetadata?.cacheControl;
       const contentType = task.imageMetadata?.contentType ?? 'image/jpeg';
 
-      const maxAge =
-        typeof cacheControlHeader === 'string'
-          ? (this.extractMaxAge(cacheControlHeader) ?? 3600)
-          : 3600;
+      const maxAge = typeof cacheControlHeader === 'string' ? (this.extractMaxAge(cacheControlHeader) ?? 3600) : 3600;
 
       const cacheMetadata = {
         createdAt: timestamp,
@@ -87,15 +67,11 @@ export class PredictionService {
 
       logger
         .withTag('predictionService')
-        .info(
-          `Completed inference task ${task.id} in ${processingTimeMs}ms with ${predictions.length} predictions`,
-        );
+        .info(`Completed inference task ${task.id} in ${processingTimeMs}ms with ${predictions.length} predictions`);
 
       return result;
     } catch (error) {
-      logger
-        .withTag('predictionService')
-        .error(`Failed to process task ${task.id}:`, error);
+      logger.withTag('predictionService').error(`Failed to process task ${task.id}:`, error);
       throw new PredictionError(`Failed to process task ${task.id}`, error);
     }
   }
@@ -109,19 +85,14 @@ export class PredictionService {
     const [modelHeight, modelWidth] = config.imgsz;
 
     try {
-      const { width: originalWidth, height: originalHeight } =
-        this.imageProcessor.getImageDimensions(imageBitmap);
-      const input = this.imageProcessor.tensorFromImageBitmap(imageBitmap, [
+      const { width: originalWidth, height: originalHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
+      const input = this.imageProcessor.tensorFromImageBitmap(imageBitmap, [modelWidth, modelHeight]);
+      const { scaleX, scaleY, offsetX, offsetY } = this.imageProcessor.calculateScaleFactors(
+        originalWidth,
+        originalHeight,
         modelWidth,
         modelHeight,
-      ]);
-      const { scaleX, scaleY, offsetX, offsetY } =
-        this.imageProcessor.calculateScaleFactors(
-          originalWidth,
-          originalHeight,
-          modelWidth,
-          modelHeight,
-        );
+      );
 
       // Run model inference
       // Suppress false warnings
@@ -148,9 +119,7 @@ export class PredictionService {
 
       return predictions;
     } catch (error) {
-      logger
-        .withTag('predictionService')
-        .error('Error in getFramePredictions:', error);
+      logger.withTag('predictionService').error('Error in getFramePredictions:', error);
       throw error;
     }
   }
@@ -166,19 +135,13 @@ export class PredictionService {
   ): Promise<IElementPrediction[]> {
     try {
       if (!result || result.length < 3) {
-        logger
-          .withTag('predictionService')
-          .error(
-            'Invalid model output: expected at least 3 tensors for segmentation',
-          );
+        logger.withTag('predictionService').error('Invalid model output: expected at least 3 tensors for segmentation');
         return [];
       }
 
       // Extract tensors following the working segmentation approach
       if (!result[0] || !result[2]) {
-        logger
-          .withTag('predictionService')
-          .error('Model output missing expected tensors for segmentation');
+        logger.withTag('predictionService').error('Model output missing expected tensors for segmentation');
         return [];
       }
       const detectionTensor = result[0].squeeze(); // Main detection tensor
@@ -188,10 +151,7 @@ export class PredictionService {
       const scoreSlice = detectionTensor.slice([0, 4], [-1, 1]).squeeze();
       const boxIndexes = scoreSlice.greater(scoreThreshold);
 
-      const filteredDetections = await tf.booleanMaskAsync(
-        detectionTensor,
-        boxIndexes,
-      );
+      const filteredDetections = await tf.booleanMaskAsync(detectionTensor, boxIndexes);
       const numFilteredDetections = filteredDetections.shape[0];
 
       if (numFilteredDetections === 0) {
@@ -209,9 +169,7 @@ export class PredictionService {
       const segmentationCoeffs = totalFeatures - segmentationStartIndex;
 
       if (segmentationCoeffs <= 0) {
-        logger
-          .withTag('predictionService')
-          .warn('No segmentation coefficients found in detection tensor');
+        logger.withTag('predictionService').warn('No segmentation coefficients found in detection tensor');
         scoreSlice.dispose();
         boxIndexes.dispose();
         filteredDetections.dispose();
@@ -219,16 +177,10 @@ export class PredictionService {
       }
 
       // Get segmentation coefficients (vectors) from filtered detections - exactly like working code
-      const vectors = filteredDetections.slice(
-        [0, segmentationStartIndex],
-        [-1, -1],
-      );
+      const vectors = filteredDetections.slice([0, segmentationStartIndex], [-1, -1]);
 
       // Reshape mask weights to matrix format: [160*160, 32] (following working approach)
-      const maskWeightReshaped = maskWeightTensor.reshape([
-        160 * 160,
-        segmentationCoeffs,
-      ]);
+      const maskWeightReshaped = maskWeightTensor.reshape([160 * 160, segmentationCoeffs]);
 
       // Transpose vectors for matrix multiplication
       const transponsedVectors = vectors.transpose([1, 0]);
@@ -239,9 +191,7 @@ export class PredictionService {
       // Apply sigmoid and threshold (following working approach)
       const probabilityMap = dotProduct.sigmoid();
       const binaryMask = probabilityMap.greater(scoreThreshold);
-      const masks = binaryMask
-        .transpose([1, 0])
-        .reshape([numFilteredDetections, 160, 160]);
+      const masks = binaryMask.transpose([1, 0]).reshape([numFilteredDetections, 160, 160]);
 
       // Extract predictions from filtered detections
       const predictions: IElementPrediction[] = [];
@@ -274,9 +224,7 @@ export class PredictionService {
         }
 
         const labelIndex = Math.floor(labelFloat);
-        const className =
-          config.names[labelIndex % Object.keys(config.names).length] ||
-          'unknown';
+        const className = config.names[labelIndex % Object.keys(config.names).length] || 'unknown';
 
         // Filter out classes that are not in namesToCheck
         if (!config.namesToCheck.includes(className)) {
@@ -335,9 +283,7 @@ export class PredictionService {
 
       return predictions;
     } catch (error) {
-      logger
-        .withTag('predictionService')
-        .error('Error in processSegmentationResults:', error);
+      logger.withTag('predictionService').error('Error in processSegmentationResults:', error);
       throw error;
     }
   }

@@ -45,13 +45,9 @@ export class ModelLoaderService {
     // Load the model
     try {
       await this.loadModelAsync();
-      logger
-        .withTag('modelLoaderService')
-        .info('AI model loaded and ready for inference');
+      logger.withTag('modelLoaderService').info('AI model loaded and ready for inference');
     } catch (error) {
-      logger
-        .withTag('modelLoaderService')
-        .error('Failed to load AI model:', error);
+      logger.withTag('modelLoaderService').error('Failed to load AI model:', error);
       throw error;
     }
 
@@ -86,9 +82,7 @@ export class ModelLoaderService {
       }
 
       const inputShape = inputSpec.shape;
-      const actualShape = inputShape.map((dim: number | null) =>
-        dim === -1 || dim === null ? 1 : dim,
-      );
+      const actualShape = inputShape.map((dim: number | null) => (dim === -1 || dim === null ? 1 : dim));
       const dummyInput = tf.randomUniform(actualShape, 0, 1, 'float32');
 
       // Suppress false warnings during warmup
@@ -106,9 +100,7 @@ export class ModelLoaderService {
 
       dummyInput.dispose();
     } catch (error) {
-      logger
-        .withTag('modelLoaderService')
-        .error('Error during model warmup:', error);
+      logger.withTag('modelLoaderService').error('Error during model warmup:', error);
     }
   }
 
@@ -127,9 +119,7 @@ export class ModelLoaderService {
         this.model = null;
       }
     } catch (error) {
-      logger
-        .withTag('modelLoaderService')
-        .error('Error during model cleanup:', error);
+      logger.withTag('modelLoaderService').error('Error during model cleanup:', error);
     }
   }
 
