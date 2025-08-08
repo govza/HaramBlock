@@ -26,9 +26,7 @@ export class HostSettingsController {
    * @param message - The incoming message containing the hostname
    * @returns Promise resolving to the host settings
    */
-  public async getHostSettings(message: {
-    data: { hostname: string };
-  }): Promise<IHostSettings> {
+  public async getHostSettings(message: { data: { hostname: string } }): Promise<IHostSettings> {
     const { hostname } = message.data;
     return this.hostSettingsService.getHostSettings(hostname);
   }

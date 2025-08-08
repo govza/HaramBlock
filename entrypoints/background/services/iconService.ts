@@ -19,14 +19,11 @@ export class IconService {
    */
   async updateIconForTab(tabId: number, hostname: string): Promise<void> {
     try {
-      const hostSettings =
-        await this.hostSettingService.getHostSettings(hostname);
+      const hostSettings = await this.hostSettingService.getHostSettings(hostname);
       const iconPaths = getIconPaths(hostSettings.policy);
       await browser.action.setIcon({ tabId, path: iconPaths });
     } catch (error) {
-      logger
-        .withTag('iconService')
-        .error('Error updating toolbar icon for hostname:', hostname, error);
+      logger.withTag('iconService').error('Error updating toolbar icon for hostname:', hostname, error);
     }
   }
 
@@ -47,9 +44,7 @@ export class IconService {
         }
       }
     } catch (error) {
-      logger
-        .withTag('iconService')
-        .error('Error updating icon for active tab:', error);
+      logger.withTag('iconService').error('Error updating icon for active tab:', error);
     }
   }
 
@@ -69,13 +64,7 @@ export class IconService {
         await this.updateIconForTab(activeTab.id, hostname);
       }
     } catch (error) {
-      logger
-        .withTag('iconService')
-        .error(
-          'Error updating icon for active tab with hostname:',
-          hostname,
-          error,
-        );
+      logger.withTag('iconService').error('Error updating icon for active tab with hostname:', hostname, error);
     }
   }
 

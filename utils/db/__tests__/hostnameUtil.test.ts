@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { defaultGlobalKey } from '@/utils/db/constants';
-import {
-  extractHostnameFromUrl,
-  getEffectiveHostname,
-} from '@/utils/hostnameUtil';
+import { extractHostnameFromUrl, getEffectiveHostname } from '@/utils/hostnameUtil';
 
 describe('hostnameUtil', () => {
   // Focus only on the main integration function that other parts of the app use
@@ -12,9 +9,7 @@ describe('hostnameUtil', () => {
     it('should handle different URL and hostname formats correctly', () => {
       // Test URLs
       expect(getEffectiveHostname('https://example.com')).toBe('example.com');
-      expect(getEffectiveHostname('https://www.google.com/search')).toBe(
-        'google.com',
-      );
+      expect(getEffectiveHostname('https://www.google.com/search')).toBe('google.com');
 
       // Test special browser URLs
       expect(getEffectiveHostname('chrome://newtab/')).toBe(defaultGlobalKey);
@@ -35,9 +30,7 @@ describe('hostnameUtil', () => {
     it('should handle special browser URLs correctly', () => {
       expect(extractHostnameFromUrl('chrome://newtab/')).toBe(defaultGlobalKey);
       expect(extractHostnameFromUrl('about:blank')).toBe(defaultGlobalKey);
-      expect(extractHostnameFromUrl('moz-extension://12345/')).toBe(
-        defaultGlobalKey,
-      );
+      expect(extractHostnameFromUrl('moz-extension://12345/')).toBe(defaultGlobalKey);
     });
 
     it('should return null for invalid URLs', () => {

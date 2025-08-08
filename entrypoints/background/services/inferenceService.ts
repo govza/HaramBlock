@@ -6,11 +6,7 @@ import { type PredictionCacheService } from '@/entrypoints/background/services/p
 import { type PredictionService } from '@/entrypoints/background/services/predictionService';
 import { type QueueService } from '@/entrypoints/background/services/queueService';
 import { logger } from '@/utils/logger';
-import {
-  type IImagePrediction,
-  type IHostSettings,
-  type IImageMetadata,
-} from '@/utils/types';
+import { type IImagePrediction, type IHostSettings, type IImageMetadata } from '@/utils/types';
 
 export class InferenceService {
   constructor(
@@ -34,8 +30,7 @@ export class InferenceService {
 
     // Check cache first to avoid expensive processing
     try {
-      const cachedPredictions =
-        await this.predictionCacheService.getCachedPredictionsBySrc(imageSrc);
+      const cachedPredictions = await this.predictionCacheService.getCachedPredictionsBySrc(imageSrc);
 
       if (cachedPredictions && cachedPredictions.length > 0) {
         // Maybe we have image cached on different hostname (cdn, etc.)
@@ -43,12 +38,7 @@ export class InferenceService {
         return taskId;
       }
     } catch (error) {
-      logger
-        .withTag('inferenceService')
-        .warn(
-          `Cache lookup failed for ${imageSrc}, proceeding with inference:`,
-          error,
-        );
+      logger.withTag('inferenceService').warn(`Cache lookup failed for ${imageSrc}, proceeding with inference:`, error);
     }
 
     // No cache hit, create inference task
@@ -63,15 +53,11 @@ export class InferenceService {
       imageMetadata,
     };
 
-    logger
-      .withTag('inferenceService')
-      .debug(`Scheduling inference task ${task.id} for ${hostname}`);
+    logger.withTag('inferenceService').debug(`Scheduling inference task ${task.id} for ${hostname}`);
 
     // Add to queue (fire-and-forget for immediate response)
     this.queueService.enqueue(task).catch(error => {
-      logger
-        .withTag('inferenceService')
-        .error(`Failed to enqueue task ${task.id}:`, error);
+      logger.withTag('inferenceService').error(`Failed to enqueue task ${task.id}:`, error);
     });
 
     return task.id;
@@ -80,8 +66,7 @@ export class InferenceService {
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       try {
-        const imagePrediction =
-          await this.processingService.processInferenceTask(task);
+        const imagePrediction = await this.processingService.processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
       } catch (error) {
         await this.handleError(task, error as Error);
@@ -89,17 +74,12 @@ export class InferenceService {
     });
   }
 
-  private async handleSuccess(
-    task: InferenceTask,
-    imagePrediction: IImagePrediction,
-  ): Promise<void> {
+  private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     try {
       await this.predictionCacheService.cachePredictions([imagePrediction]);
       await this.sendPredictionsToContent([imagePrediction], task.tabId);
     } catch (error) {
-      logger
-        .withTag('inferenceService')
-        .error(`Error handling success for task ${task.id}:`, error);
+      logger.withTag('inferenceService').error(`Error handling success for task ${task.id}:`, error);
     }
   }
 
@@ -118,46 +98,24 @@ export class InferenceService {
         { context: 'content-script', tabId: task.tabId },
       );
     } catch (sendError) {
-      logger
-        .withTag('inferenceService')
-        .error(
-          'Error sending error notification to content script:',
-          sendError,
-        );
+      logger.withTag('inferenceService').error('Error sending error notification to content script:', sendError);
     }
   }
 
-  private async sendPredictionsToContent(
-    predictions: IImagePrediction[],
-    tabId: number,
-  ): Promise<void> {
-    if (
-      !predictions ||
-      predictions.length === 0 ||
-      !predictions.some(p => p.predictions.length !== 0)
-    ) {
-      logger
-        .withTag('inferenceService')
-        .warn('No predictions to send to content script');
+  private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
+    if (!predictions || predictions.length === 0 || !predictions.some(p => p.predictions.length !== 0)) {
+      logger.withTag('inferenceService').warn('No predictions to send to content script');
       return;
     }
 
     try {
-      await sendMessage(
-        'INFERENCE_PREDICTIONS',
-        { predictions },
-        { context: 'content-script', tabId },
-      );
+      await sendMessage('INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
 
       logger
         .withTag('inferenceService')
-        .debug(
-          `Sent ${predictions.length} predictions to content script (tab ${tabId})`,
-        );
+        .debug(`Sent ${predictions.length} predictions to content script (tab ${tabId})`);
     } catch (error) {
-      logger
-        .withTag('inferenceService')
-        .error('Error sending predictions to content script:', error);
+      logger.withTag('inferenceService').error('Error sending predictions to content script:', error);
     }
   }
 
@@ -172,9 +130,7 @@ export class InferenceService {
     this.tabEventListener.setOnTabActivatedCallback((activeTabId: number) => {
       logger
         .withTag('inferenceService')
-        .debug(
-          `Active tab changed to ${activeTabId}, new tasks will get priority boost`,
-        );
+        .debug(`Active tab changed to ${activeTabId}, new tasks will get priority boost`);
     });
   }
 

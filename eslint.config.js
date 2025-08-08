@@ -89,14 +89,7 @@ export default [
       'import/order': [
         'error',
         {
-          groups: [
-            'builtin',
-            'external',
-            'internal',
-            ['parent', 'sibling'],
-            'index',
-            'type',
-          ],
+          groups: ['builtin', 'external', 'internal', ['parent', 'sibling'], 'index', 'type'],
           'newlines-between': 'always',
           pathGroups: [
             {
@@ -155,8 +148,7 @@ export default [
         'error',
         {
           name: 'window',
-          message:
-            'Use globalThis instead for better web extension compatibility',
+          message: 'Use globalThis instead for better web extension compatibility',
         },
       ],
 
@@ -167,8 +159,7 @@ export default [
           patterns: [
             {
               group: ['../*', './*'],
-              message:
-                'Please use absolute imports instead of relative imports.',
+              message: 'Please use absolute imports instead of relative imports.',
             },
           ],
         },
@@ -205,13 +196,7 @@ export default [
   },
   // Configuration files override
   {
-    files: [
-      '*.js',
-      '*.config.js',
-      '*.config.ts',
-      'vite.config.ts',
-      'wxt.config.ts',
-    ],
+    files: ['*.js', '*.config.js', '*.config.ts', 'vite.config.ts', 'wxt.config.ts'],
     rules: {
       '@typescript-eslint/no-var-requires': 'off',
       'no-console': 'off',

@@ -1,11 +1,7 @@
 import { queueImagesForInference } from '@/entrypoints/content/communication/sender';
 import { type MediaStateManager } from '@/entrypoints/content/dom/MediaStateManager';
 import { logger } from '@/utils/logger';
-import {
-  type IHostSettings,
-  type IImagePrediction,
-  type IImageMetadata,
-} from '@/utils/types';
+import { type IHostSettings, type IImagePrediction, type IImageMetadata } from '@/utils/types';
 
 /**
  * Unified handler for both image and video processing
@@ -58,9 +54,7 @@ export class MediaHandler {
     try {
       await this.processImages(imagesToProcess);
     } catch (error) {
-      logger
-        .withTag('MediaHandler')
-        .error('Failed to handle images batch:', error);
+      logger.withTag('MediaHandler').error('Failed to handle images batch:', error);
     }
   }
 
@@ -69,10 +63,7 @@ export class MediaHandler {
    */
   private async processImages(images: HTMLImageElement[]): Promise<void> {
     try {
-      const { cachedImages, uncachedImages } = this.categorizeImages(
-        images,
-        this.cachedPredictions,
-      );
+      const { cachedImages, uncachedImages } = this.categorizeImages(images, this.cachedPredictions);
 
       if (cachedImages.length > 0) {
         // For cached predictions, we need to notify the MediaProcessor to apply styling
@@ -84,9 +75,7 @@ export class MediaHandler {
         await this.queueForAiProcessing(uncachedImages);
       }
     } catch (error) {
-      logger
-        .withTag('MediaHandler')
-        .error('Failed to process images for AI:', error);
+      logger.withTag('MediaHandler').error('Failed to process images for AI:', error);
     }
   }
 
@@ -133,9 +122,7 @@ export class MediaHandler {
     return { cachedImages, uncachedImages };
   }
 
-  private async queueForAiProcessing(
-    images: HTMLImageElement[],
-  ): Promise<void> {
+  private async queueForAiProcessing(images: HTMLImageElement[]): Promise<void> {
     const imageDatas = await Promise.all(
       images.map(async img => {
         const src = img.currentSrc || img.src;
@@ -145,14 +132,10 @@ export class MediaHandler {
     );
 
     // Filter out images with empty/invalid sources
-    const validImageDatas = imageDatas.filter(
-      imageData => imageData.src && imageData.src.trim().length > 0,
-    );
+    const validImageDatas = imageDatas.filter(imageData => imageData.src && imageData.src.trim().length > 0);
 
     if (validImageDatas.length === 0) {
-      logger
-        .withTag('MediaHandler')
-        .warn('No valid image sources found for AI processing');
+      logger.withTag('MediaHandler').warn('No valid image sources found for AI processing');
       return;
     }
 
@@ -171,23 +154,16 @@ export class MediaHandler {
     });
 
     try {
-      await queueImagesForInference(
-        this.hostSettings.hostname,
-        validImageDatas,
-      );
+      await queueImagesForInference(this.hostSettings.hostname, validImageDatas);
     } catch (error) {
-      logger
-        .withTag('MediaHandler')
-        .error('queueForAiProcessing - Error:', error);
+      logger.withTag('MediaHandler').error('queueForAiProcessing - Error:', error);
       // Clean up on error
       validImageDatas.forEach(({ src }) => this.pendingImages.delete(src));
       throw error;
     }
   }
 
-  private async extractImageMetadata(
-    src: string,
-  ): Promise<IImageMetadata | undefined> {
+  private async extractImageMetadata(src: string): Promise<IImageMetadata | undefined> {
     try {
       // Only extract metadata for HTTP(S) URLs to avoid CORS issues
       if (!src.startsWith('http://') && !src.startsWith('https://')) {
@@ -212,9 +188,7 @@ export class MediaHandler {
       };
     } catch (error) {
       // Silently fail metadata extraction to avoid breaking image processing
-      logger
-        .withTag('MediaHandler')
-        .debug(`Failed to extract metadata for ${src}:`, error);
+      logger.withTag('MediaHandler').debug(`Failed to extract metadata for ${src}:`, error);
       return undefined;
     }
   }

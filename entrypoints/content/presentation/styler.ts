@@ -1,8 +1,4 @@
-import {
-  type IHostSettings,
-  type IImagePrediction,
-  type IElementPrediction,
-} from '@/utils/types';
+import { type IHostSettings, type IImagePrediction, type IElementPrediction } from '@/utils/types';
 
 /**
  * Consolidated styling module for HaramBlock content script
@@ -193,12 +189,7 @@ export const applyPredictionsStyling = (
   images.forEach(image => {
     const prediction = predictionMap.get(image.src);
     if (prediction) {
-      applyImagePredictionStyling(
-        image,
-        prediction,
-        hostSettings,
-        predictionSource,
-      );
+      applyImagePredictionStyling(image, prediction, hostSettings, predictionSource);
     }
   });
 };
@@ -228,10 +219,7 @@ export const applyBlacklistStyling = (image: HTMLImageElement): void => {
  * @param image - The HTMLImageElement to apply default styling to
  * @param hostSettings - Host settings containing mask configuration (e.g., blur preferences)
  */
-export const applyDefaultStyling = (
-  image: HTMLImageElement,
-  hostSettings: IHostSettings,
-): void => {
+export const applyDefaultStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {
   const filters: string[] = [];
   const { masks } = hostSettings;
 
@@ -354,18 +342,12 @@ export const applyBaseStyles = (
   predictionSource: 'cached' | 'ai-processed',
 ): void => {
   // Set custom properties for debugging and styling
-  image.style.setProperty(
-    '--prediction-count',
-    prediction.predictions.length.toString(),
-  );
+  image.style.setProperty('--prediction-count', prediction.predictions.length.toString());
   image.style.setProperty('--cache-timestamp', prediction.timestamp.toString());
   image.style.setProperty('--prediction-source', predictionSource);
 
   // Add appropriate CSS class
-  const cssClass =
-    predictionSource === 'cached'
-      ? 'haramblock-cached-processed'
-      : 'haramblock-ai-processed';
+  const cssClass = predictionSource === 'cached' ? 'haramblock-cached-processed' : 'haramblock-ai-processed';
   image.classList.add(cssClass);
 };
 
@@ -375,11 +357,7 @@ export const applyBaseStyles = (
  */
 export const clearElementStyles = (image: HTMLImageElement): void => {
   // Remove HaramBlock classes
-  image.classList.remove(
-    'haramblock-cached-processed',
-    'haramblock-ai-processed',
-    'haramblock-blacklisted',
-  );
+  image.classList.remove('haramblock-cached-processed', 'haramblock-ai-processed', 'haramblock-blacklisted');
 
   // Remove custom properties
   image.style.removeProperty('--cached-predictions');
@@ -396,9 +374,7 @@ export const clearElementStyles = (image: HTMLImageElement): void => {
   // Remove existing overlays
   const parent = image.parentElement;
   if (parent) {
-    const existingOverlays = parent.querySelectorAll(
-      '.haramblock-bbox-overlay, .haramblock-polygon-overlay',
-    );
+    const existingOverlays = parent.querySelectorAll('.haramblock-bbox-overlay, .haramblock-polygon-overlay');
     existingOverlays.forEach(overlay => overlay.remove());
   }
 };
@@ -409,9 +385,7 @@ export const clearElementStyles = (image: HTMLImageElement): void => {
  * @param image - The HTMLImageElement to hide and wait for
  * @returns Promise that resolves when image loads or rejects on error
  */
-export const hideImageAndWaitForLoad = (
-  image: HTMLImageElement,
-): Promise<void> => {
+export const hideImageAndWaitForLoad = (image: HTMLImageElement): Promise<void> => {
   return new Promise<void>((resolve, reject) => {
     // Hide the image element
     const hideElement = (): boolean => {
@@ -570,20 +544,12 @@ export const createPolygon = (
     svg.style.position = 'absolute';
     svg.style.width = '100%';
     svg.style.height = '100%';
-    svg.setAttribute(
-      'viewBox',
-      `0 0 ${image.naturalWidth} ${image.naturalHeight}`,
-    );
+    svg.setAttribute('viewBox', `0 0 ${image.naturalWidth} ${image.naturalHeight}`);
 
-    const polygon = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      'polygon',
-    );
+    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
 
     // Convert polygon points to SVG points string
-    const points = prediction.polygon
-      .map((point: { x: number; y: number }) => `${point.x},${point.y}`)
-      .join(' ');
+    const points = prediction.polygon.map((point: { x: number; y: number }) => `${point.x},${point.y}`).join(' ');
     polygon.setAttribute('points', points);
 
     // Apply styling

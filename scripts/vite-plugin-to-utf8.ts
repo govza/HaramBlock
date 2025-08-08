@@ -3,11 +3,7 @@ import { type PluginOption } from 'vite';
 function strToUtf8(str: string) {
   return str
     .split('')
-    .map(ch =>
-      ch.charCodeAt(0) <= 0x7f
-        ? ch
-        : `\\u${`0000${ch.charCodeAt(0).toString(16)}`.slice(-4)}`,
-    )
+    .map(ch => (ch.charCodeAt(0) <= 0x7f ? ch : `\\u${`0000${ch.charCodeAt(0).toString(16)}`.slice(-4)}`))
     .join('');
 }
 

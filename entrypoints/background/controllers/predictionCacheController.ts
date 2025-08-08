@@ -16,10 +16,7 @@ export class PredictionCacheController {
    * Initialize message listeners (API)
    */
   public initialize(): void {
-    onMessage(
-      'GET_HOSTNAME_IMAGE_PREDICTION_CACHE',
-      this.getHostnameImagePredictionCache.bind(this),
-    );
+    onMessage('GET_HOSTNAME_IMAGE_PREDICTION_CACHE', this.getHostnameImagePredictionCache.bind(this));
   }
 
   /**
@@ -37,19 +34,12 @@ export class PredictionCacheController {
     }
 
     try {
-      const cachedPredictions =
-        await this.predictionCacheService.getCachedPredictionsByHostname(
-          hostname,
-        );
+      const cachedPredictions = await this.predictionCacheService.getCachedPredictionsByHostname(hostname);
       return cachedPredictions;
     } catch (error) {
       logger
         .withTag('predictionCacheController')
-        .error(
-          'Error retrieving cached predictions for hostname:',
-          hostname,
-          error,
-        );
+        .error('Error retrieving cached predictions for hostname:', hostname, error);
       throw error;
     }
   }

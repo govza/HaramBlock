@@ -9,10 +9,7 @@ import { type IHostSettings, type IImagePrediction } from '@/utils/types';
  * Provides a clean API for getting and managing all host-specific initialization data
  */
 export async function useHostData(
-  onDataUpdate?: (data: {
-    settings: IHostSettings;
-    predictions: IImagePrediction[];
-  }) => void,
+  onDataUpdate?: (data: { settings: IHostSettings; predictions: IImagePrediction[] }) => void,
 ): Promise<{
   settings: IHostSettings | undefined;
   predictions: IImagePrediction[];
@@ -34,12 +31,7 @@ export async function useHostData(
     const hostData = await requestHostData(effectiveHostname);
     logger
       .withTag('useHostData')
-      .debug(
-        'Fetched data: host settings: ',
-        hostData.settings,
-        'cached predictions: ',
-        hostData.predictions,
-      );
+      .debug('Fetched data: host settings: ', hostData.settings, 'cached predictions: ', hostData.predictions);
     return hostData;
   };
 
@@ -61,16 +53,13 @@ export async function useHostData(
   await refresh();
 
   // Setup listener for settings updates (predictions are updated via inference results)
-  const unsubscribe = onHostSettingsUpdatedForHostname(
-    effectiveHostname,
-    () => {
-      // Refresh the page when settings change to ensure clean state
-      // Small delay to ensure background script has finished processing
-      globalThis.setTimeout(() => {
-        globalThis.location.reload();
-      }, 500);
-    },
-  );
+  const unsubscribe = onHostSettingsUpdatedForHostname(effectiveHostname, () => {
+    // Refresh the page when settings change to ensure clean state
+    // Small delay to ensure background script has finished processing
+    globalThis.setTimeout(() => {
+      globalThis.location.reload();
+    }, 500);
+  });
 
   const messageCleanup = unsubscribe;
 

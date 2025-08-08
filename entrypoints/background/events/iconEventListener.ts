@@ -16,43 +16,30 @@ export class IconEventListener {
     // Tab event listeners
     // Update extension icon when a tab's URL changes OR when page status changes (including refresh)
     browser.tabs.onUpdated.addListener(
-      (
-        tabId: number,
-        changeInfo: Browser.tabs.TabChangeInfo,
-        tab: Browser.tabs.Tab,
-      ) => {
+      (tabId: number, changeInfo: Browser.tabs.TabChangeInfo, tab: Browser.tabs.Tab) => {
         if (changeInfo.url || changeInfo.status === 'complete') {
           if (tab.url) {
             this.iconService.updateIconForUrl(tabId, tab.url).catch(error => {
-              logger
-                .withTag('iconEventListener')
-                .error('Error updating icon for tab:', error);
+              logger.withTag('iconEventListener').error('Error updating icon for tab:', error);
             });
           }
         }
       },
     );
     // Update extension icon when a tab is removed
-    browser.tabs.onActivated.addListener(
-      (activeInfo: Browser.tabs.TabActiveInfo) => {
-        browser.tabs
-          .get(activeInfo.tabId)
-          .then(tab => {
-            if (tab.url) {
-              return this.iconService.updateIconForUrl(
-                activeInfo.tabId,
-                tab.url,
-              );
-            }
-            return Promise.resolve();
-          })
-          .catch(error => {
-            logger
-              .withTag('iconEventListener')
-              .error('Error handling tab activation:', error);
-          });
-      },
-    );
+    browser.tabs.onActivated.addListener((activeInfo: Browser.tabs.TabActiveInfo) => {
+      browser.tabs
+        .get(activeInfo.tabId)
+        .then(tab => {
+          if (tab.url) {
+            return this.iconService.updateIconForUrl(activeInfo.tabId, tab.url);
+          }
+          return Promise.resolve();
+        })
+        .catch(error => {
+          logger.withTag('iconEventListener').error('Error handling tab activation:', error);
+        });
+    });
     // Runtime event listeners
     browser.runtime.onStartup.addListener(() => {
       void this.iconService.updateIconForActiveTab();

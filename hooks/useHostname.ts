@@ -9,8 +9,7 @@ import { logger } from '@/utils/logger';
  * Handles auto-detection of current tab hostname
  */
 export function useHostname() {
-  const [detectedHostname, setDetectedHostname] =
-    useState<string>(defaultGlobalKey);
+  const [detectedHostname, setDetectedHostname] = useState<string>(defaultGlobalKey);
   const [error, setError] = useState<string | null>(null);
 
   // Auto-detect current hostname from active tab
@@ -28,9 +27,7 @@ export function useHostname() {
         }
       } catch (error) {
         setError('Error fetching current tab URL');
-        logger
-          .withTag('useHostname')
-          .error('Error fetching current tab URL:', error);
+        logger.withTag('useHostname').error('Error fetching current tab URL:', error);
       }
     };
 

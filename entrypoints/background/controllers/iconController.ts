@@ -27,9 +27,7 @@ export class IconController {
    * @param message - The incoming message containing the icon update request
    * @returns Promise resolving when icon is updated
    */
-  public async updateIcon(
-    message: BridgeMessage<{ hostname: string }>,
-  ): Promise<void> {
+  public async updateIcon(message: BridgeMessage<{ hostname: string }>): Promise<void> {
     const { hostname } = message.data;
     const tabId = message.sender.tabId || null;
 
@@ -46,9 +44,7 @@ export class IconController {
         await this.iconService.updateIconForActiveTabWithHostname(hostname);
       }
     } catch (error) {
-      logger
-        .withTag('iconController')
-        .error('Error updating icon for hostname:', hostname, error);
+      logger.withTag('iconController').error('Error updating icon for hostname:', hostname, error);
       throw error;
     }
   }

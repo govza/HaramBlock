@@ -11,32 +11,18 @@ export class ImageProcessorService {
         imageBitmap = await this.loadBlobImage(imageSrc);
       } else if (imageSrc.startsWith('data:')) {
         imageBitmap = await this.loadDataUrlImage(imageSrc);
-      } else if (
-        imageSrc.startsWith('http://') ||
-        imageSrc.startsWith('https://')
-      ) {
+      } else if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
         imageBitmap = await this.loadUrlImage(imageSrc);
       } else {
-        throw new Error(
-          `Unsupported image source type: ${imageSrc.substring(0, 20)}...`,
-        );
+        throw new Error(`Unsupported image source type: ${imageSrc.substring(0, 20)}...`);
       }
 
-      logger
-        .withTag('imageProcessorService')
-        .debug(
-          `Successfully loaded image from: ${imageSrc.substring(0, 50)}...`,
-        );
+      logger.withTag('imageProcessorService').debug(`Successfully loaded image from: ${imageSrc.substring(0, 50)}...`);
 
       return imageBitmap;
     } catch (error) {
-      logger
-        .withTag('imageProcessorService')
-        .error('Failed to load image:', error);
-      throw new Error(
-        `Failed to load image from ${imageSrc.substring(0, 50)}...`,
-        { cause: error },
-      );
+      logger.withTag('imageProcessorService').error('Failed to load image:', error);
+      throw new Error(`Failed to load image from ${imageSrc.substring(0, 50)}...`, { cause: error });
     }
   }
 
@@ -44,9 +30,7 @@ export class ImageProcessorService {
     logger.withTag('imageProcessorService').debug('Loading blob image');
     const response = await fetch(blobUrl);
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch blob: ${response.status} ${response.statusText}`,
-      );
+      throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
     }
     const blob = await response.blob();
     return createImageBitmap(blob);
@@ -56,9 +40,7 @@ export class ImageProcessorService {
     logger.withTag('imageProcessorService').debug('Loading data URL image');
     const response = await fetch(dataUrl);
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch data URL: ${response.status} ${response.statusText}`,
-      );
+      throw new Error(`Failed to fetch data URL: ${response.status} ${response.statusText}`);
     }
     const blob = await response.blob();
     return createImageBitmap(blob);
@@ -67,9 +49,7 @@ export class ImageProcessorService {
   private async loadUrlImage(url: string): Promise<ImageBitmap> {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch URL: ${response.status} ${response.statusText}`,
-      );
+      throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
     }
     const blob = await response.blob();
     return createImageBitmap(blob);
@@ -92,10 +72,7 @@ export class ImageProcessorService {
    * @param imgsz Target size [width, height] from YOLO metadata
    * @returns Canvas element ready for TensorFlow processing
    */
-  convertImageToCanvas(
-    imageBitmap: ImageBitmap,
-    imgsz: [number, number],
-  ): OffscreenCanvas {
+  convertImageToCanvas(imageBitmap: ImageBitmap, imgsz: [number, number]): OffscreenCanvas {
     const canvas = new OffscreenCanvas(imgsz[0], imgsz[1]);
     const context = canvas.getContext('2d');
     if (!context) {
@@ -128,10 +105,7 @@ export class ImageProcessorService {
    * @param imgsz Target size [width, height] from YOLO metadata
    * @returns TensorFlow tensor ready for model inference
    */
-  tensorFromImageBitmap(
-    imageBitmap: ImageBitmap,
-    imgsz: [number, number],
-  ): tf.Tensor4D {
+  tensorFromImageBitmap(imageBitmap: ImageBitmap, imgsz: [number, number]): tf.Tensor4D {
     // Convert to canvas first
     const canvas = this.convertImageToCanvas(imageBitmap, imgsz);
 
@@ -159,10 +133,7 @@ export class ImageProcessorService {
     modelWidth: number,
     modelHeight: number,
   ): { scaleX: number; scaleY: number; offsetX: number; offsetY: number } {
-    const scale = Math.min(
-      modelWidth / originalWidth,
-      modelHeight / originalHeight,
-    );
+    const scale = Math.min(modelWidth / originalWidth, modelHeight / originalHeight);
 
     const scaledWidth = originalWidth * scale;
     const scaledHeight = originalHeight * scale;

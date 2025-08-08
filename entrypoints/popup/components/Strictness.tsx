@@ -2,8 +2,7 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const Strictness = () => {
-  const { hostSettings, hostSettingsRepository, predictionCacheRepository } =
-    useHostDataContext();
+  const { hostSettings, hostSettingsRepository, predictionCacheRepository } = useHostDataContext();
 
   const isDisabled = hostSettings.policy !== 'process';
 

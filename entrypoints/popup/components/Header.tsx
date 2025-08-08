@@ -48,17 +48,12 @@ export const Header = () => {
   };
 
   return (
-    <div
-      className={`flex w-full items-center p-2 ${isGlobalSettings ? 'bg-red-900' : 'bg-gray-700'}`}
-    >
+    <div className={`flex w-full items-center p-2 ${isGlobalSettings ? 'bg-red-900' : 'bg-gray-700'}`}>
       <p className='w-full truncate text-center text-lg'>
         {isGlobalSettings ? t(defaultGlobalKey) : hostSettings.hostname}
       </p>
       <button onClick={togglePolicy} className='cursor-pointer'>
-        <svg
-          className='inline-block h-[2em] w-auto fill-current px-1'
-          viewBox='0 0 24 24'
-        >
+        <svg className='inline-block h-[2em] w-auto fill-current px-1' viewBox='0 0 24 24'>
           {renderSvgPath()}
         </svg>
       </button>

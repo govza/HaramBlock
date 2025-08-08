@@ -3,21 +3,13 @@ import { defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
-import type {
-  IHostSettings,
-  MaskType,
-  OutlineType,
-  HostPolicy,
-} from '@/utils/types';
+import type { IHostSettings, MaskType, OutlineType, HostPolicy } from '@/utils/types';
 
 /**
  * Repository for managing host settings records
  * Provides database operations and business logic for host settings
  */
-export class HostSettingsRepository extends BaseRepository<
-  IHostSettings,
-  string
-> {
+export class HostSettingsRepository extends BaseRepository<IHostSettings, string> {
   constructor() {
     super(hostSettingsDb.hostSettings);
   }
@@ -44,9 +36,7 @@ export class HostSettingsRepository extends BaseRepository<
    * @param settings - Partial settings with required hostname
    * @returns Created host settings
    */
-  async createHostSettings(
-    settings: Partial<IHostSettings> & { hostname: string },
-  ): Promise<IHostSettings> {
+  async createHostSettings(settings: Partial<IHostSettings> & { hostname: string }): Promise<IHostSettings> {
     const effectiveHostname = getEffectiveHostname(settings.hostname);
     const hostSettings: IHostSettings = {
       ...defaultHostSettings,
@@ -96,10 +86,7 @@ export class HostSettingsRepository extends BaseRepository<
    * @param outlineVariant - The outline type to set
    * @returns Updated host settings
    */
-  async setOutline(
-    hostname: string,
-    outlineVariant: OutlineType,
-  ): Promise<IHostSettings> {
+  async setOutline(hostname: string, outlineVariant: OutlineType): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.outline = outlineVariant;
     await this.saveSettings(settings);
@@ -112,10 +99,7 @@ export class HostSettingsRepository extends BaseRepository<
    * @param maskArray - Array of mask types to set
    * @returns Updated host settings
    */
-  async setMask(
-    hostname: string,
-    maskArray: MaskType[],
-  ): Promise<IHostSettings> {
+  async setMask(hostname: string, maskArray: MaskType[]): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.masks = maskArray;
     await this.saveSettings(settings);
@@ -128,10 +112,7 @@ export class HostSettingsRepository extends BaseRepository<
    * @param strictness - Strictness level (clamped between 0 and 1)
    * @returns Updated host settings
    */
-  async setStrictness(
-    hostname: string,
-    strictness: number,
-  ): Promise<IHostSettings> {
+  async setStrictness(hostname: string, strictness: number): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.strictness = Math.max(0, Math.min(1, strictness));
     await this.saveSettings(settings);
@@ -144,10 +125,7 @@ export class HostSettingsRepository extends BaseRepository<
    * @param policy - The policy to set
    * @returns Updated host settings
    */
-  async setPolicy(
-    hostname: string,
-    policy: HostPolicy,
-  ): Promise<IHostSettings> {
+  async setPolicy(hostname: string, policy: HostPolicy): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.policy = policy;
     await this.saveSettings(settings);
