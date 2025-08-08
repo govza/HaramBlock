@@ -48,7 +48,7 @@ export const Header = () => {
   };
 
   return (
-    <div className={`flex w-full items-center p-2 ${isGlobalSettings ? 'bg-red-900' : 'bg-gray-700'}`}>
+    <div className={`flex w-full items-center p-2 ${isGlobalSettings ? 'bg-danger-bg' : 'bg-secondary'}`}>
       <p className='w-full truncate text-center text-lg'>
         {isGlobalSettings ? t(defaultGlobalKey) : hostSettings.hostname}
       </p>

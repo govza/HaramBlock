@@ -1,1 +1,51 @@
 @import "tailwindcss";
+
+@theme {
+  /* Primary backgrounds (dark grays) */
+  --color-primary: #1f2937; /* gray-800 */
+  --color-primary-light: #374151; /* gray-700 */
+  --color-primary-dark: #111827; /* gray-900 */
+
+  /* Secondary/Surface colors */
+  --color-secondary: #374151; /* gray-700 */
+  --color-secondary-light: #4b5563; /* gray-600 */
+  --color-secondary-dark: #1f2937; /* gray-800 */
+
+  /* Surface colors for inputs, buttons, etc */
+  --color-surface: #4b5563; /* gray-600 */
+  --color-surface-light: #6b7280; /* gray-500 */
+  --color-surface-dark: #374151; /* gray-700 */
+
+  /* Text colors */
+  --color-text-primary: #f9fafb; /* gray-50 */
+  --color-text-secondary: #e5e7eb; /* gray-200 */
+  --color-text-body: #d1d5db; /* gray-300 */
+  --color-text-muted: #9ca3af; /* gray-400 */
+  --color-text-disabled: #6b7280; /* gray-500 */
+  --color-text-inverse: #1f2937; /* gray-800 for text on light backgrounds */
+
+  /* Border colors */
+  --color-border-primary: #374151; /* gray-700 */
+  --color-border-secondary: #6b7280; /* gray-500 */
+  --color-border-light: #9ca3af; /* gray-400 */
+
+  /* Accent colors (blue) */
+  --color-accent: #3b82f6; /* blue-500 */
+  --color-accent-light: #60a5fa; /* blue-400 */
+  --color-accent-dark: #2563eb; /* blue-600 */
+  --color-accent-muted: #93c5fd; /* blue-300 */
+
+  /* State colors */
+  --color-danger: #ef4444; /* red-500 */
+  --color-danger-light: #f87171; /* red-400 */
+  --color-danger-dark: #dc2626; /* red-600 */
+  --color-danger-bg: #7f1d1d; /* red-900 */
+
+  --color-success: #10b981; /* emerald-500 */
+  --color-success-light: #34d399; /* emerald-400 */
+  --color-success-dark: #059669; /* emerald-600 */
+
+  --color-warning: #f59e0b; /* amber-500 */
+  --color-warning-light: #fbbf24; /* amber-400 */
+  --color-warning-dark: #d97706; /* amber-600 */
+}
