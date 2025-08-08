@@ -102,7 +102,6 @@ export function useHostSettings(hostname: string) {
 
         // Setting global policy icon
         if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
-          logger.withTag('useHostSettings').debug('first');
           const iconPaths = getIconPaths(currentSettings.policy);
           await browser.action.setIcon({
             tabId: activeTab.id,
@@ -112,7 +111,6 @@ export function useHostSettings(hostname: string) {
 
         // Setting local policy icon from the tab's hostname
         else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
-          logger.withTag('useHostSettings').debug('second');
           const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
           const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
           const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
@@ -122,7 +120,6 @@ export function useHostSettings(hostname: string) {
             path: iconPaths,
           });
         } else {
-          logger.withTag('useHostSettings').debug('third');
           // Not global policy, set currentSettings icon
           const iconPaths = getIconPaths(currentSettings.policy);
           await browser.action.setIcon({
