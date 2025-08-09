@@ -30,7 +30,7 @@ export const Outline = () => {
           disabled={isDisabled}
           style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
-          {t('outlineBoundingBox')}
+          {t('HostSettings.Outline.boundingBox')}
         </button>
         <button
           className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-500'} ${
@@ -42,7 +42,7 @@ export const Outline = () => {
           disabled={isDisabled}
           style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
-          {t('outlineSegment')}
+          {t('HostSettings.Outline.segment')}
         </button>
       </div>
       <div
