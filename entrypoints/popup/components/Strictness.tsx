@@ -15,7 +15,7 @@ export const Strictness = () => {
   return (
     <div className='my-2 flex flex-col text-sm'>
       <label htmlFor='strictness-slider'>
-        {t('strictness')} {`${(hostSettings.strictness * 100).toFixed()} %`}
+        {t('HostSettings.Strictness.title')} {`${(hostSettings.strictness * 100).toFixed()} %`}
       </label>
       <input
         id='strictness-slider'
