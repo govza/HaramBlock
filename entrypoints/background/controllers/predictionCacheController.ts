@@ -35,6 +35,11 @@ export class PredictionCacheController {
 
     try {
       const cachedPredictions = await this.predictionCacheService.getCachedPredictionsByHostname(hostname);
+      if (cachedPredictions.length > 0) {
+        logger
+          .withTag('predictionCacheController')
+          .log(`Retrieved ${cachedPredictions.length} cached predictions for hostname: ${hostname}`);
+      }
       return cachedPredictions;
     } catch (error) {
       logger
