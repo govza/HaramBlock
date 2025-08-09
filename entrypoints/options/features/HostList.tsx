@@ -100,7 +100,7 @@ export const HostList = () => {
               : 'bg-secondary text-text-muted hover:text-text-primary hover:bg-surface'
           }`}
         >
-          {t('HostSettings.HostList.whiteList')} ({whitelistHosts.length})
+          {t('HostSettings.HostList.whitelist')} ({whitelistHosts.length})
           {activeTab === 'whitelist' && (
             <div className='absolute bottom-0 left-0 right-0 h-0.5 bg-accent animate-pulse' />
           )}
@@ -113,7 +113,7 @@ export const HostList = () => {
               : 'bg-secondary text-text-muted hover:text-text-primary hover:bg-surface'
           }`}
         >
-          {t('HostSettings.HostList.blackList')} ({blacklistHosts.length})
+          {t('HostSettings.HostList.blacklist')} ({blacklistHosts.length})
           {activeTab === 'blacklist' && (
             <div className='absolute bottom-0 left-0 right-0 h-0.5 bg-accent animate-pulse' />
           )}
