@@ -1,0 +1,49 @@
+{
+  "Extension": {
+    "description": "HaramBlock is a browser extension that blocks Haram content on the web.",
+    "name": "Haram Block"
+  },
+  "HostSettings": {
+    "global": "Global settings",
+    "description": "Configure your extension preferences",
+    "HostList": {
+      "blackList": "Blacklist",
+      "process": "Process list",
+      "whiteList": "Whitelist",
+      "title": "Host Lists",
+      "description": "Manage whitelist and blacklist for your sites"
+    },
+    "Masks": {
+      "popupSelectRulePageBlur": "Blur",
+      "popupSelectRulePagePartialBlur": "Blur parts"
+    },
+    "Outline": {
+      "boundingBox": "Bounding box",
+      "segment": "Segment"
+    },
+    "Policy": {
+      "title": "Content filtering policy",
+      "description": "Control how AI processes content",
+      "blacklist": "Block all",
+      "process": "Process all",
+      "whitelist": "Allow all"
+    },
+    "Strictness": {
+      "title": "Strictness",
+      "permissive": "Permissive",
+      "strict": "Strict"
+    }
+  },
+  "Common": {
+    "add": "Add",
+    "remove": "Remove",
+    "noData": "No data"
+  },
+  "Options": {
+    "title": "Options"
+  },
+  "Permissions": {
+    "askPermission": "HaramBlock requires permission to access all websites",
+    "grantPermission": "Grant permission"
+  }
+}
