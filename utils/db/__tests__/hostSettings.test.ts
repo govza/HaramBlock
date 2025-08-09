@@ -11,6 +11,7 @@ vi.mock('@/utils/db/db', () => ({
       put: vi.fn(),
       get: vi.fn(),
       add: vi.fn(),
+      delete: vi.fn(),
     },
   },
 }));
@@ -30,6 +31,8 @@ const mockPut = hostSettingsDb.hostSettings.put as ReturnType<typeof vi.fn>;
 const mockGet = hostSettingsDb.hostSettings.get as ReturnType<typeof vi.fn>;
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const mockAdd = hostSettingsDb.hostSettings.add as ReturnType<typeof vi.fn>;
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const mockDelete = hostSettingsDb.hostSettings.delete as ReturnType<typeof vi.fn>;
 const mockGetEffectiveHostname = vi.mocked(getEffectiveHostname);
 const mockIsGlobalPage = vi.mocked(isGlobalPage);
 
@@ -173,6 +176,40 @@ describe('HostSettingsRepository', () => {
         policy: 'whitelist',
         strictness: 0,
       });
+    });
+  });
+
+  describe('delete method', () => {
+    it('should delete regular host settings', async () => {
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+      mockDelete.mockResolvedValue(undefined);
+
+      await repository.delete(TEST_HOSTNAME);
+
+      expect(mockDelete).toHaveBeenCalledWith(TEST_HOSTNAME);
+      expect(mockPut).not.toHaveBeenCalled();
+    });
+
+    it('should reset global settings instead of deleting', async () => {
+      mockGetEffectiveHostname.mockReturnValue(defaultGlobalKey);
+      mockPut.mockResolvedValue(defaultGlobalKey);
+
+      await repository.delete(defaultGlobalKey);
+
+      expect(mockPut).toHaveBeenCalledWith(defaultHostSettings);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('should reset global settings for any hostname that maps to global', async () => {
+      // Test that chrome:// URLs get mapped to global and reset
+      mockGetEffectiveHostname.mockReturnValue(defaultGlobalKey);
+      mockPut.mockResolvedValue(defaultGlobalKey);
+
+      await repository.delete('chrome://newtab');
+
+      expect(mockGetEffectiveHostname).toHaveBeenCalledWith('chrome://newtab');
+      expect(mockPut).toHaveBeenCalledWith(defaultHostSettings);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
   });
 });

@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { VerticalTabs, type TabItem } from '@/entrypoints/options/components/VerticalTabs';
 import { About } from '@/entrypoints/options/features/About';
+import { CustomSettings } from '@/entrypoints/options/features/CustomSettings';
 import { HostList } from '@/entrypoints/options/features/HostList';
 import { Overview } from '@/entrypoints/options/features/Overview';
 import { HostDataProvider } from '@/entrypoints/popup/context/HostDataContext';
@@ -9,6 +10,7 @@ import { HostDataProvider } from '@/entrypoints/popup/context/HostDataContext';
 const tabItems: TabItem[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'hostList', label: 'List of hosts' },
+  { id: 'customSettings', label: 'Custom settings' },
   { id: 'about', label: 'About' },
 ];
 
@@ -22,6 +24,7 @@ function App() {
           {{
             overview: <Overview />,
             hostList: <HostList />,
+            customSettings: <CustomSettings />,
             about: <About />,
           }}
         </VerticalTabs>

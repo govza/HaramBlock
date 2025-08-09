@@ -1,5 +1,5 @@
 import { BaseRepository } from '@/utils/db/baseRepository';
-import { defaultHostSettings } from '@/utils/db/constants';
+import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
@@ -130,5 +130,23 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     settings.policy = policy;
     await this.saveSettings(settings);
     return settings;
+  }
+
+  /**
+   * Delete host settings by hostname
+   * For global settings, resets to default instead of deleting
+   * @param hostname - The hostname to delete or reset
+   */
+  async delete(hostname: string): Promise<void> {
+    const effectiveHostname = getEffectiveHostname(hostname);
+
+    // Special case: reset global settings instead of deleting
+    if (effectiveHostname === defaultGlobalKey) {
+      await this.saveSettings(defaultHostSettings);
+      return;
+    }
+
+    // Regular deletion for non-global hosts
+    await super.delete(effectiveHostname);
   }
 }
