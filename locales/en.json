@@ -52,5 +52,16 @@
   "Permissions": {
     "askPermission": "HaramBlock requires permission to access all websites",
     "grantPermission": "Grant permission"
+  },
+  "About": {
+    "title": "About",
+    "extensionInformation": "Extension Information",
+    "version": "Version:",
+    "author": "Author:",
+    "description": "Description",
+    "supportLinks": "Support & Links",
+    "reportBug": "Report a Bug",
+    "featureRequest": "Feature Request",
+    "documentation": "Documentation"
   }
 }
