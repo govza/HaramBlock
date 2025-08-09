@@ -34,6 +34,14 @@ export class InferenceService {
 
       if (cachedPredictions && cachedPredictions.length > 0) {
         // Maybe we have image cached on different hostname (cdn, etc.)
+        logger.withTag('inferenceService').debug(`Cache hit for ${imageSrc} on src`);
+        // Save cache as hostname key as well
+        await this.predictionCacheService.cachePredictions(
+          cachedPredictions.map(prediction => ({
+            ...prediction,
+            hostname,
+          })),
+        );
         await this.sendPredictionsToContent(cachedPredictions, tabId);
         return taskId;
       }
