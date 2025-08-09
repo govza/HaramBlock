@@ -45,6 +45,8 @@ export class ModelLoaderService {
     // Load the model
     try {
       await this.loadModelAsync();
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await this.warmupModel(this.model!);
       logger.withTag('modelLoaderService').info('AI model loaded and ready for inference');
     } catch (error) {
       logger.withTag('modelLoaderService').error('Failed to load AI model:', error);
@@ -69,7 +71,6 @@ export class ModelLoaderService {
       }
 
       this.model = loadedModel;
-      await this.warmupModel(this.model);
     }
     return this.model;
   }
