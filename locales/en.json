@@ -8,9 +8,9 @@
     "description": "Configure your extension preferences",
     "customSettings": "Custom Settings",
     "HostList": {
-      "blackList": "Blacklist",
+      "blacklist": "Blacklist",
       "process": "Process list",
-      "whiteList": "Whitelist",
+      "whitelist": "Whitelist",
       "title": "Host Lists",
       "description": "Manage whitelist and blacklist for your sites"
     },
