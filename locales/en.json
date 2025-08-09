@@ -6,6 +6,7 @@
   "HostSettings": {
     "global": "Global settings",
     "description": "Configure your extension preferences",
+    "customSettings": "Custom Settings",
     "HostList": {
       "blackList": "Blacklist",
       "process": "Process list",
@@ -14,15 +15,18 @@
       "description": "Manage whitelist and blacklist for your sites"
     },
     "Masks": {
-      "popupSelectRulePageBlur": "Blur",
-      "popupSelectRulePagePartialBlur": "Blur parts"
+      "title": "Masks",
+      "blur": "Blur",
+      "pixelate": "Pixelate",
+      "none": "None"
     },
     "Outline": {
+      "title": "Outline",
       "boundingBox": "Bounding box",
       "segment": "Segment"
     },
     "Policy": {
-      "title": "Content filtering policy",
+      "title": "Policy",
       "description": "Control how AI processes content",
       "blacklist": "Block all",
       "process": "Process all",
@@ -37,8 +41,11 @@
   "Common": {
     "add": "Add",
     "remove": "Remove",
-    "noData": "No data"
+    "noData": "No data",
+    "hostname": "Hostname",
+    "actions": "Actions"
   },
+  "global": "Default settings",
   "Options": {
     "title": "Options"
   },
