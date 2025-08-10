@@ -77,7 +77,7 @@ export class InferenceService {
         const imagePrediction = await this.processingService.processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
       } catch (error) {
-        await this.handleError(task, error as Error);
+        logger.withTag('inferenceService').error(`Error processing task ${task.id}:`, error);
       }
     });
   }
@@ -88,25 +88,6 @@ export class InferenceService {
       await this.sendPredictionsToContent([imagePrediction], task.tabId);
     } catch (error) {
       logger.withTag('inferenceService').error(`Error handling success for task ${task.id}:`, error);
-    }
-  }
-
-  private async handleError(task: InferenceTask, error: Error): Promise<void> {
-    logger.withTag('inferenceService').error(`Task ${task.id} failed:`, error);
-
-    // Send error to content script if tabId provided
-    try {
-      await sendMessage(
-        'INFERENCE_ERROR',
-        {
-          taskId: task.id,
-          error: error.message,
-          imageSrc: task.imageSrc,
-        },
-        { context: 'content-script', tabId: task.tabId },
-      );
-    } catch (sendError) {
-      logger.withTag('inferenceService').error('Error sending error notification to content script:', sendError);
     }
   }
 
