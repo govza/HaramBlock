@@ -10,3 +10,10 @@ export interface InferenceTask {
   hostSettings: IHostSettings;
   imageMetadata?: IImageMetadata;
 }
+
+export enum ProcessingStatus {
+  QUEUED = 'queued',
+  PROCESSING = 'processing',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+}
