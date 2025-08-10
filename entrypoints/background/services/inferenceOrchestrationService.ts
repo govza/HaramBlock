@@ -1,7 +1,7 @@
 import { sendMessage } from 'webext-bridge/background';
 
-import { type InferenceTask } from '@/entrypoints/background/domain/models';
 import { type TabEventListener } from '@/entrypoints/background/events/tabEventListener';
+import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
 import { type PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
 import { type PredictionService } from '@/entrypoints/background/services/predictionService';
 import { type QueueService } from '@/entrypoints/background/services/queueService';

@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs';
 
-import { type InferenceTask } from '@/entrypoints/background/domain/models';
-import { edgeBoundingBoxCorrection } from '@/entrypoints/background/domain/models/corrections';
+import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
+import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
 import { type ModelLoaderService, type ImageProcessorService } from '@/entrypoints/background/services';
 import { createCacheMetadataFromImageMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';

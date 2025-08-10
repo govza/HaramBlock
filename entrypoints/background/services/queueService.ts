@@ -1,6 +1,6 @@
 import PQueue from 'p-queue';
 
-import { type InferenceTask } from '@/entrypoints/background/domain/models';
+import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
 import { logger } from '@/utils/logger';
 
 export class QueueService {
