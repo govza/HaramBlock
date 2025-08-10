@@ -11,3 +11,12 @@ export const logger = createConsola({
     tag: 'HaramBlock',
   },
 });
+
+// Utility function to extract digit group from image URLs or return full URL
+export const extractUrlId = (imgUrl: string): string => {
+  if (import.meta.env.DEV) {
+    const match = imgUrl.match(/(\d+)/);
+    if (match) return match[1] ?? imgUrl;
+  }
+  return imgUrl;
+};
