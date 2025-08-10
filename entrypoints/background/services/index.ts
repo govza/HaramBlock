@@ -5,4 +5,4 @@ export { ModelLoaderService } from '@/entrypoints/background/services/modelLoade
 export { ImageProcessorService } from '@/entrypoints/background/services/imageProcessorService';
 export { PredictionService } from '@/entrypoints/background/services/predictionService';
 export { QueueService } from '@/entrypoints/background/services/queueService';
-export { InferenceService } from '@/entrypoints/background/services/inferenceService';
+export { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';

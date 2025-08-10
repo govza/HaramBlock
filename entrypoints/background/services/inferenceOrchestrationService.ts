@@ -8,7 +8,7 @@ import { type QueueService } from '@/entrypoints/background/services/queueServic
 import { logger } from '@/utils/logger';
 import { type IImagePrediction, type IHostSettings, type IImageMetadata } from '@/utils/types';
 
-export class InferenceService {
+export class InferenceOrchestrationService {
   constructor(
     private queueService: QueueService,
     private processingService: PredictionService,
@@ -34,7 +34,7 @@ export class InferenceService {
 
       if (cachedPredictions && cachedPredictions.length > 0) {
         // Maybe we have image cached on different hostname (cdn, etc.)
-        logger.withTag('inferenceService').debug(`Cache hit for ${imageSrc} on src`);
+        logger.withTag('inferenceOrchestrationService').debug(`Cache hit for ${imageSrc} on src`);
         // Save cache as hostname key as well
         await this.predictionCacheService.cachePredictions(
           cachedPredictions.map(prediction => ({
@@ -46,7 +46,9 @@ export class InferenceService {
         return taskId;
       }
     } catch (error) {
-      logger.withTag('inferenceService').warn(`Cache lookup failed for ${imageSrc}, proceeding with inference:`, error);
+      logger
+        .withTag('inferenceOrchestrationService')
+        .warn(`Cache lookup failed for ${imageSrc}, proceeding with inference:`, error);
     }
 
     // No cache hit, create inference task
@@ -61,11 +63,11 @@ export class InferenceService {
       imageMetadata,
     };
 
-    logger.withTag('inferenceService').debug(`Scheduling inference task ${task.id} for ${hostname}`);
+    logger.withTag('inferenceOrchestrationService').debug(`Scheduling inference task ${task.id} for ${hostname}`);
 
     // Add to queue (fire-and-forget for immediate response)
     this.queueService.enqueue(task).catch(error => {
-      logger.withTag('inferenceService').error(`Failed to enqueue task ${task.id}:`, error);
+      logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task ${task.id}:`, error);
     });
 
     return task.id;
@@ -77,7 +79,7 @@ export class InferenceService {
         const imagePrediction = await this.processingService.processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
       } catch (error) {
-        logger.withTag('inferenceService').error(`Error processing task ${task.id}:`, error);
+        logger.withTag('inferenceOrchestrationService').error(`Error processing task ${task.id}:`, error);
       }
     });
   }
@@ -87,13 +89,13 @@ export class InferenceService {
       await this.predictionCacheService.cachePredictions([imagePrediction]);
       await this.sendPredictionsToContent([imagePrediction], task.tabId);
     } catch (error) {
-      logger.withTag('inferenceService').error(`Error handling success for task ${task.id}:`, error);
+      logger.withTag('inferenceOrchestrationService').error(`Error handling success for task ${task.id}:`, error);
     }
   }
 
   private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
     if (!predictions || predictions.length === 0 || !predictions.some(p => p.predictions.length !== 0)) {
-      logger.withTag('inferenceService').warn('No predictions to send to content script');
+      logger.withTag('inferenceOrchestrationService').warn('No predictions to send to content script');
       return;
     }
 
@@ -101,10 +103,10 @@ export class InferenceService {
       await sendMessage('INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
 
       logger
-        .withTag('inferenceService')
+        .withTag('inferenceOrchestrationService')
         .debug(`Sent ${predictions.length} predictions to content script (tab ${tabId})`);
     } catch (error) {
-      logger.withTag('inferenceService').error('Error sending predictions to content script:', error);
+      logger.withTag('inferenceOrchestrationService').error('Error sending predictions to content script:', error);
     }
   }
 
@@ -118,7 +120,7 @@ export class InferenceService {
   private setupTabActivationHandler(): void {
     this.tabEventListener.setOnTabActivatedCallback((activeTabId: number) => {
       logger
-        .withTag('inferenceService')
+        .withTag('inferenceOrchestrationService')
         .debug(`Active tab changed to ${activeTabId}, new tasks will get priority boost`);
     });
   }
