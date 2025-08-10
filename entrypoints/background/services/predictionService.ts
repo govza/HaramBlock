@@ -3,6 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import { type InferenceTask } from '@/entrypoints/background/domain/models';
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/domain/models/corrections';
 import { type ModelLoaderService, type ImageProcessorService } from '@/entrypoints/background/services';
+import { createCacheMetadataFromImageMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 import { type IElementPrediction, type IImagePrediction, type Metadata } from '@/utils/types';
@@ -50,19 +51,8 @@ export class PredictionService {
       const processingTimeMs = Date.now() - startTime;
       const timestamp = Date.now();
 
-      // Create cache metadata from real image metadata or defaults
-      const cacheControlHeader = task.imageMetadata?.cacheControl;
-      const contentType = task.imageMetadata?.contentType ?? 'image/jpeg';
-
-      const maxAge = typeof cacheControlHeader === 'string' ? (this.extractMaxAge(cacheControlHeader) ?? 3600) : 3600;
-
-      const cacheMetadata = {
-        createdAt: timestamp,
-        accessedAt: timestamp,
-        maxAge,
-        cacheControl: cacheControlHeader || `max-age=${maxAge}`,
-        contentType,
-      };
+      // Create cache metadata from image metadata
+      const cacheMetadata = createCacheMetadataFromImageMetadata(task.imageMetadata);
 
       const result: IImagePrediction = {
         hostname: getEffectiveHostname(task.hostname),
@@ -85,6 +75,15 @@ export class PredictionService {
     }
   }
 
+  /**
+   *  Get predictions for a single image frame.
+   *  This method handles the core inference logic, including model execution and post-processing.
+   * @param imageBitmap
+   * @param model
+   * @param config
+   * @param scoreThreshold
+   * @returns Promise<IElementPrediction[]>
+   */
   private async getFramePredictions(
     imageBitmap: ImageBitmap,
     model: tf.GraphModel,
@@ -111,7 +110,6 @@ export class PredictionService {
       const result = (await model.executeAsync(input)) as tf.Tensor2D[];
       console.warn = originalWarn;
 
-      // Process segmentation using the working approach from examples
       const predictions = await this.processSegmentationResults(
         result,
         config,
@@ -148,7 +146,7 @@ export class PredictionService {
         return [];
       }
 
-      // Extract tensors following the working segmentation approach
+      // Extract tensors
       if (!result[0] || !result[2]) {
         logger.withTag('predictionService').error('Model output missing expected tensors for segmentation');
         return [];
@@ -170,11 +168,11 @@ export class PredictionService {
         return [];
       }
 
-      // Extract segmentation coefficients (following working approach exactly)
+      // Extract segmentation coefficients
       // In working code: vectors = filteredBbox.slice([0, 6], [-1, -1])
       // This means segmentation coefficients start at position 6 (after x,y,w,h,score,class)
       const totalFeatures = filteredDetections.shape[1] || 0;
-      const segmentationStartIndex = 6; // Fixed position as in working code
+      const segmentationStartIndex = 6;
       const segmentationCoeffs = totalFeatures - segmentationStartIndex;
 
       if (segmentationCoeffs <= 0) {
@@ -193,6 +191,27 @@ export class PredictionService {
 
       // Transpose vectors for matrix multiplication
       const transponsedVectors = vectors.transpose([1, 0]);
+
+      // Verify shapes are compatible for matrix multiplication
+      const maskWeightShapeForMatMul = maskWeightReshaped.shape;
+      const transposedShape = transponsedVectors.shape;
+
+      logger
+        .withTag('predictionService')
+        .debug(`Matrix mult: [${maskWeightShapeForMatMul.join(', ')}] × [${transposedShape.join(', ')}]`);
+
+      if (maskWeightShapeForMatMul[1] !== transposedShape[0]) {
+        logger
+          .withTag('predictionService')
+          .error(`Matrix multiplication shape mismatch: ${maskWeightShapeForMatMul[1]} !== ${transposedShape[0]}`);
+        scoreSlice.dispose();
+        boxIndexes.dispose();
+        filteredDetections.dispose();
+        vectors.dispose();
+        maskWeightReshaped.dispose();
+        transponsedVectors.dispose();
+        return [];
+      }
 
       // Matrix multiplication: mask weights × vectors = probability maps
       const dotProduct = tf.matMul(maskWeightReshaped, transponsedVectors);
@@ -295,10 +314,5 @@ export class PredictionService {
       logger.withTag('predictionService').error('Error in processSegmentationResults:', error);
       throw error;
     }
-  }
-
-  private extractMaxAge(cacheControl: string): number | null {
-    const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
-    return maxAgeMatch && maxAgeMatch[1] ? parseInt(maxAgeMatch[1], 10) : null;
   }
 }
