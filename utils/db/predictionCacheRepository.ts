@@ -2,7 +2,7 @@ import { BaseRepository } from '@/utils/db/baseRepository';
 import { predictionsDb } from '@/utils/db/db';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
-import { type IImagePrediction, type ICacheMetadata } from '@/utils/types';
+import { type IImagePrediction } from '@/utils/types';
 
 const isCacheDisabled = import.meta.env.MODE === 'nocache';
 if (isCacheDisabled) {
@@ -201,58 +201,5 @@ export class PredictionCacheRepository extends BaseRepository<IImagePrediction, 
 
     // If no specific cache rules, consider valid
     return true;
-  }
-
-  /**
-   * Create cache metadata from HTTP response headers
-   * @param headers - HTTP response headers
-   * @param contentType - MIME type of the image
-   * @param contentLength - Size of the image in bytes
-   * @returns Cache metadata object
-   */
-  createCacheMetadata(
-    headers: Record<string, string> = {},
-    contentType?: string,
-    contentLength?: number,
-  ): ICacheMetadata {
-    const now = Date.now();
-    const cacheControl = headers['cache-control'] || headers['Cache-Control'];
-    const etag = headers['etag'] || headers['ETag'];
-    const lastModified = headers['last-modified'] || headers['Last-Modified'];
-    const expires = headers['expires'] || headers['Expires'];
-
-    let maxAge: number | undefined;
-    let expiresTimestamp: number | undefined;
-
-    // Parse Cache-Control max-age
-    if (cacheControl) {
-      const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
-      if (maxAgeMatch && maxAgeMatch[1]) {
-        maxAge = parseInt(maxAgeMatch[1], 10);
-      }
-    }
-
-    // Parse Expires header
-    if (expires) {
-      expiresTimestamp = new Date(expires).getTime();
-    }
-
-    // Parse Last-Modified header
-    let lastModifiedTimestamp: number | undefined;
-    if (lastModified) {
-      lastModifiedTimestamp = new Date(lastModified).getTime();
-    }
-
-    return {
-      cacheControl,
-      etag,
-      lastModified: lastModifiedTimestamp,
-      expires: expiresTimestamp,
-      maxAge,
-      createdAt: now,
-      accessedAt: now,
-      contentType,
-      contentLength,
-    };
   }
 }
