@@ -92,4 +92,3 @@ export interface Metadata extends YamlMetadata {
   outputShape: [number, number, number];
   namesToCheck: string[];
 }
-// test
