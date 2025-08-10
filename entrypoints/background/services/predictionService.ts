@@ -1,6 +1,7 @@
 import * as tf from '@tensorflow/tfjs';
 
 import { type InferenceTask } from '@/entrypoints/background/domain/models';
+import { edgeBoundingBoxCorrection } from '@/entrypoints/background/domain/models/corrections';
 import { type ModelLoaderService, type ImageProcessorService } from '@/entrypoints/background/services';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
@@ -35,7 +36,15 @@ export class PredictionService {
       const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
       // 3. Run inference through integrated prediction processing
-      const predictions = await this.getFramePredictions(imageBitmap, model, config, 1 - task.hostSettings.strictness);
+      const rawPredictions = await this.getFramePredictions(
+        imageBitmap,
+        model,
+        config,
+        1 - task.hostSettings.strictness,
+      );
+
+      // 3.1. Apply edge bounding box correction
+      const predictions = edgeBoundingBoxCorrection(rawPredictions, imageWidth, imageHeight);
 
       // 4. Create result
       const processingTimeMs = Date.now() - startTime;
