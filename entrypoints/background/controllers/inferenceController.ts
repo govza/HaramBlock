@@ -2,7 +2,7 @@ import { type BridgeMessage } from 'webext-bridge';
 import { onMessage } from 'webext-bridge/background';
 
 import { type HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
-import { type InferenceService } from '@/entrypoints/background/services/inferenceService';
+import { type InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import { logger } from '@/utils/logger';
 import { type IImageWithMetadata } from '@/utils/types';
 
@@ -12,7 +12,7 @@ import { type IImageWithMetadata } from '@/utils/types';
  */
 export class InferenceController {
   constructor(
-    private readonly orchestrationService: InferenceService,
+    private readonly orchestrationService: InferenceOrchestrationService,
     private readonly hostSettingsService: HostSettingsService,
   ) {}
 

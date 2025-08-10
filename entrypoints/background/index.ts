@@ -12,7 +12,7 @@ import {
   ImageProcessorService,
   PredictionService,
   QueueService,
-  InferenceService,
+  InferenceOrchestrationService,
 } from '@/entrypoints/background/services';
 import { logger } from '@/utils/logger';
 
@@ -30,7 +30,7 @@ export default defineBackground(() => {
 
   const tabEventListener = new TabEventListener();
 
-  const inferenceService = new InferenceService(
+  const inferenceService = new InferenceOrchestrationService(
     queueService,
     predictionService,
     predictionCacheService,
