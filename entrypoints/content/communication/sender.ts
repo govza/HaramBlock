@@ -1,15 +1,11 @@
 import { sendMessage } from 'webext-bridge/content-script';
 
-import { logger } from '@/utils/logger';
+import { logger, extractUrlId } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction, type IImageWithMetadata } from '@/utils/types';
 
 /**
  * Communication sender module for HaramBlock content script
  */
-
-// ============================================================================
-// HOST SETTINGS COMMUNICATION
-// ============================================================================
 
 /**
  * Request host settings from background script
@@ -24,10 +20,6 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
     return undefined;
   }
 }
-
-// ============================================================================
-// PREDICTION CACHE COMMUNICATION
-// ============================================================================
 
 /**
  * Request cached predictions for a hostname from background script
@@ -44,10 +36,6 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
   }
 }
 
-// ============================================================================
-// AI INFERENCE COMMUNICATION
-// ============================================================================
-
 /**
  * Queue images for AI processing in background script
  * @param hostname - The hostname for these images
@@ -56,6 +44,10 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
  */
 export async function queueImagesForInference(hostname: string, imageDatas: IImageWithMetadata[]): Promise<void> {
   try {
+    logger
+      .withTag('sender')
+      .debug(`Queueing images ${imageDatas.map(img => extractUrlId(img.src)).join(', ')} for inference`);
+
     await sendMessage(
       'POST_INFERENCE_IMAGES',
       {
@@ -64,16 +56,11 @@ export async function queueImagesForInference(hostname: string, imageDatas: IIma
       },
       'background',
     );
-    logger.withTag('sender').debug(`Queued ${imageDatas.length} images for inference on ${hostname}`);
   } catch (error) {
     logger.withTag('Content').error('Failed to queue images for inference:', error);
     throw error;
   }
 }
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
 
 /**
  * Request both host settings and cached predictions in parallel

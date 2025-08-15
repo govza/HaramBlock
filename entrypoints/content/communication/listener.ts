@@ -1,15 +1,12 @@
 import { onMessage } from 'webext-bridge/content-script';
 
+import { logger, extractUrlId } from '@/utils/logger';
 import { type IImagePrediction } from '@/utils/types';
 
 /**
  * Communication listener module for HaramBlock content script
  * Handles all inbound webext-bridge messages from background script
  */
-
-// ============================================================================
-// MESSAGE TYPES
-// ============================================================================
 
 export interface HostSettingsUpdateMessage {
   hostname: string;
@@ -19,10 +16,6 @@ export interface InferencePredictionsMessage {
   predictions: IImagePrediction[];
   hostname: string;
 }
-
-// ============================================================================
-// HOST SETTINGS LISTENERS
-// ============================================================================
 
 /**
  * Listen for host settings updates from background script
@@ -37,10 +30,6 @@ export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage
   });
 }
 
-// ============================================================================
-// AI INFERENCE LISTENERS
-// ============================================================================
-
 /**
  * Listen for AI prediction results from background script
  * @param callback - Function to call when predictions are received
@@ -49,14 +38,16 @@ export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage
 export function onInferencePredictions(callback: (data: InferencePredictionsMessage) => void): () => void {
   return onMessage('INFERENCE_PREDICTIONS', message => {
     if (message.data) {
+      logger.withTag('listener').debug(
+        'INFERENCE_PREDICTIONS:',
+        message.data.predictions.map(
+          pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
+        ),
+      );
       callback(message.data as unknown as InferencePredictionsMessage);
     }
   });
 }
-
-// ============================================================================
-// UTILITY LISTENERS
-// ============================================================================
 
 /**
  * Setup a filtered host settings listener that only triggers for specific hostname
@@ -88,10 +79,6 @@ export function onInferencePredictionsForHostname(
     }
   });
 }
-
-// ============================================================================
-// MULTI-LISTENER SETUP
-// ============================================================================
 
 /**
  * Setup multiple listeners at once with a single cleanup function
