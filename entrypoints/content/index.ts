@@ -1,11 +1,12 @@
-import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
-import { MediaProcessor } from '@/entrypoints/content/dom/MediaProcessor';
+import { MediaPipeline } from '@/entrypoints/content/core/MediaPipeline';
 import { useHostData } from '@/entrypoints/content/hooks/useHostData';
-import { injectGlobalHiding } from '@/entrypoints/content/presentation/styler';
+import {
+  injectGlobalHidingDomStyles,
+  injectPredictionDomStyles,
+} from '@/entrypoints/content/presentation/styleInjecting';
 import { logger } from '@/utils/logger';
 
-let currentProcessor: MediaProcessor | null = null;
-let inferenceCleanup: (() => void) | null = null;
+let stopPipeline: (() => void) | null = null;
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -13,41 +14,33 @@ export default defineContentScript({
   async main() {
     logger.withTag('content').debug('Starting content script initialization...');
     // Prevents cached images from being displayed before DOMContentLoaded
-    const hideInitStyle = injectGlobalHiding();
+    const hideInitStyle = injectGlobalHidingDomStyles();
+    // Injects styles for predictions
+    injectPredictionDomStyles();
+
     try {
-      // Use the unified hook to get both settings and cached predictions
+      // Get host settings and cached predictions
       const hostData = await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
         // Clean up existing instances
-        if (currentProcessor) {
-          currentProcessor.stop();
-        }
-        if (inferenceCleanup) {
-          inferenceCleanup();
-          inferenceCleanup = null;
+        if (stopPipeline) {
+          stopPipeline();
+          stopPipeline = null;
         }
 
         if (hostSettings.policy !== 'whitelist') {
-          // Create new processor with settings and cached predictions
-          currentProcessor = new MediaProcessor(hostSettings, cachedPredictions);
-
-          // Set up inference results listener
-          inferenceCleanup = onInferencePredictions(data => {
-            if (currentProcessor) {
-              currentProcessor.handleInferenceResults(data.predictions);
-            }
+          const pipeline = new MediaPipeline({
+            hostSettings,
           });
+          pipeline.seedCachedPredictions(cachedPredictions);
 
           const startProcessing = () => {
-            if (currentProcessor) {
-              currentProcessor.start(document, () => {
-                hideInitStyle.remove();
-              });
-            }
+            stopPipeline = pipeline.start(document);
+            hideInitStyle.remove();
           };
 
           // Run after DOMContentLoaded event if the document is still loading
           if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', startProcessing);
+            document.addEventListener('DOMContentLoaded', startProcessing, { once: true });
           } else {
             startProcessing();
           }
@@ -58,12 +51,7 @@ export default defineContentScript({
 
       // Cleanup on page unload
       globalThis.addEventListener('beforeunload', () => {
-        if (currentProcessor) {
-          currentProcessor.stop();
-        }
-        if (inferenceCleanup) {
-          inferenceCleanup();
-        }
+        if (stopPipeline) stopPipeline();
         hostData.cleanup();
       });
     } catch (error) {

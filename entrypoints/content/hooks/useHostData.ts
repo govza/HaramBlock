@@ -1,7 +1,7 @@
 import { onHostSettingsUpdatedForHostname } from '@/entrypoints/content/communication/listener';
 import { requestHostData } from '@/entrypoints/content/communication/sender';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { logger } from '@/utils/logger';
+import { logger, extractUrlId } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 /**
@@ -29,9 +29,12 @@ export async function useHostData(
     predictions: IImagePrediction[];
   }> => {
     const hostData = await requestHostData(effectiveHostname);
-    logger
-      .withTag('useHostData')
-      .debug('Fetched data: host settings: ', hostData.settings, 'cached predictions: ', hostData.predictions);
+    logger.withTag('useHostData').debug(
+      'Fetched data: host settings: ',
+      hostData.settings,
+      'cached predictions: ',
+      hostData.predictions.map(pred => extractUrlId(pred.src)),
+    );
     return hostData;
   };
 

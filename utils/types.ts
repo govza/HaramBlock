@@ -9,11 +9,7 @@ export interface IHostSettings {
   outline: OutlineType;
   policy: HostPolicy;
   strictness: number;
-  // Media processing configuration
   minSize: { width: number; height: number };
-  batchThrottleMs: number;
-  mutationThrottleMs: number;
-  observedAttributes: string[];
 }
 
 export interface IElementPrediction {
