@@ -9,6 +9,11 @@ export interface IHostSettings {
   outline: OutlineType;
   policy: HostPolicy;
   strictness: number;
+  // Media processing configuration
+  minSize: { width: number; height: number };
+  batchThrottleMs: number;
+  mutationThrottleMs: number;
+  observedAttributes: string[];
 }
 
 export interface IElementPrediction {
@@ -21,7 +26,7 @@ export interface IElementPrediction {
     width: number;
     height: number;
   };
-  polygon: Array<{ x: number; y: number }>;
+  masks: number[][];
 }
 
 export interface IImageMetadata {
@@ -57,6 +62,13 @@ export interface ICacheMetadata {
   contentLength?: number; // Size of the image in bytes
 }
 
+export interface IMaskTransform {
+  imageScaleInModel: number; // How image was scaled to fit 160x160
+  modelOffsetX: number; // X padding in model space
+  modelOffsetY: number; // Y padding in model space
+  version?: number; // Cache version for schema migrations
+}
+
 export interface IImagePrediction {
   hostname: string;
   src: string;
@@ -65,6 +77,7 @@ export interface IImagePrediction {
   predictions: IElementPrediction[];
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
+  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
 }
 
 export interface YamlMetadata {
