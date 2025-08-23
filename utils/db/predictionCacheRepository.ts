@@ -1,13 +1,9 @@
 import { BaseRepository } from '@/utils/db/baseRepository';
 import { predictionsDb } from '@/utils/db/db';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { logger } from '@/utils/logger';
 import { type IImagePrediction } from '@/utils/types';
 
 const isCacheDisabled = import.meta.env.MODE === 'nocache';
-if (isCacheDisabled) {
-  logger.withTag('predictionCacheRepository').info('Prediction cache is disabled');
-}
 
 /**
  * Repository for managing prediction cache records

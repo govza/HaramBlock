@@ -94,11 +94,6 @@ export class InferenceOrchestrationService {
   }
 
   private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
-    if (!predictions || predictions.length === 0 || !predictions.some(p => p.predictions.length !== 0)) {
-      logger.withTag('inferenceOrchestrationService').warn('No predictions to send to content script');
-      return;
-    }
-
     try {
       await sendMessage('INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
 

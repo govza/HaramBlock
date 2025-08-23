@@ -28,10 +28,12 @@ export class InferenceController {
    * @param message - The incoming message containing images and hostname
    */
   public async handleInferenceRequest(
-    message: BridgeMessage<{
-      hostname: string;
-      imageDatas: IImageWithMetadata[];
-    }>,
+    message: BridgeMessage<
+      {
+        hostname: string;
+        imageDatas: IImageWithMetadata[];
+      } & Record<string, any>
+    >,
   ): Promise<void> {
     const { hostname, imageDatas } = message.data;
     const { tabId } = message.sender;

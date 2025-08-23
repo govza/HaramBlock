@@ -9,4 +9,5 @@ export const defaultHostSettings: IHostSettings = {
   outline: 'segment',
   policy: 'process',
   strictness: 0.8,
+  minSize: { width: 50, height: 50 },
 };

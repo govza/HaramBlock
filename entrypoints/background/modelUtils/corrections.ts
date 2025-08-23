@@ -19,7 +19,7 @@ export function edgeBoundingBoxCorrection(
   const edgeThresholdY = imageHeight * edgeThreshold;
 
   return predictions.map(prediction => {
-    const { boundingBox, polygon } = prediction;
+    const { boundingBox } = prediction;
 
     // Correct bounding box
     const originalRight = boundingBox.x + boundingBox.width;
@@ -41,7 +41,6 @@ export function edgeBoundingBoxCorrection(
     return {
       ...prediction,
       boundingBox: correctedBoundingBox,
-      polygon,
     };
   });
 }

@@ -1,12 +1,13 @@
 import * as tf from '@tensorflow/tfjs';
 
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
-import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
 import { type ModelLoaderService, type ImageProcessorService } from '@/entrypoints/background/services';
 import { createCacheMetadataFromImageMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
-import { type IElementPrediction, type IImagePrediction, type Metadata } from '@/utils/types';
+import { type IElementPrediction, type IImagePrediction, type IMaskTransform, type Metadata } from '@/utils/types';
+
+import type { InferenceTask } from '@/entrypoints/background/modelUtils/types';
 
 export class PredictionError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -26,17 +27,12 @@ export class PredictionService {
     const startTime = Date.now();
 
     try {
-      logger.withTag('predictionService').debug(`Processing inference task ${task.id}...`);
-
-      // 1. Load the model and get config
       const model = await this.modelLoaderService.loadModelAsync();
       const config = this.modelLoaderService.getModelConfig();
 
-      // 2. Load and preprocess the image
       const imageBitmap = await this.imageProcessor.loadImageBitmap(task.imageSrc);
       const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
-      // 3. Run inference through integrated prediction processing
       const rawPredictions = await this.getFramePredictions(
         imageBitmap,
         model,
@@ -44,15 +40,14 @@ export class PredictionService {
         1 - task.hostSettings.strictness,
       );
 
-      // 3.1. Apply edge bounding box correction
       const predictions = edgeBoundingBoxCorrection(rawPredictions, imageWidth, imageHeight);
-
-      // 4. Create result
       const processingTimeMs = Date.now() - startTime;
       const timestamp = Date.now();
 
-      // Create cache metadata from image metadata
       const cacheMetadata = createCacheMetadataFromImageMetadata(task.imageMetadata);
+
+      // Calculate mask transform parameters for caching
+      const maskTransform: IMaskTransform = this.calculateMaskTransform(imageWidth, imageHeight);
 
       const result: IImagePrediction = {
         hostname: getEffectiveHostname(task.hostname),
@@ -62,6 +57,7 @@ export class PredictionService {
         predictions,
         timestamp,
         cacheMetadata,
+        maskTransform,
       };
 
       logger
@@ -102,12 +98,9 @@ export class PredictionService {
         modelHeight,
       );
 
-      // Run model inference
-      // Suppress false warnings
       const originalWarn = console.warn;
       console.warn = () => {};
-
-      const result = (await model.executeAsync(input)) as tf.Tensor2D[];
+      const result = (await model.executeAsync(input)) as tf.Tensor[];
       console.warn = originalWarn;
 
       const predictions = await this.processSegmentationResults(
@@ -120,7 +113,6 @@ export class PredictionService {
         scoreThreshold,
       );
 
-      // Dispose tensors
       input.dispose();
       result.forEach(tensor => tensor.dispose());
 
@@ -132,7 +124,7 @@ export class PredictionService {
   }
 
   private async processSegmentationResults(
-    result: tf.Tensor2D[],
+    result: tf.Tensor[],
     config: Metadata,
     scaleX: number,
     scaleY: number,
@@ -141,20 +133,12 @@ export class PredictionService {
     scoreThreshold: number,
   ): Promise<IElementPrediction[]> {
     try {
-      if (!result || result.length < 3) {
-        logger.withTag('predictionService').error('Invalid model output: expected at least 3 tensors for segmentation');
-        return [];
+      if (result.length < 3 || !result[0] || !result[2]) {
+        throw new Error('Invalid segmentation model output: expected at least 3 tensors');
       }
 
-      // Extract tensors
-      if (!result[0] || !result[2]) {
-        logger.withTag('predictionService').error('Model output missing expected tensors for segmentation');
-        return [];
-      }
-      const detectionTensor = result[0].squeeze(); // Main detection tensor
-      const maskWeightTensor = result[2].squeeze(); // Segmentation weights/prototypes
-
-      // Filter detections based on score threshold (following working approach)
+      const detectionTensor = result[0].squeeze();
+      const maskWeightTensor = result[2].squeeze();
       const scoreSlice = detectionTensor.slice([0, 4], [-1, 1]).squeeze();
       const boxIndexes = scoreSlice.greater(scoreThreshold);
 
@@ -168,9 +152,6 @@ export class PredictionService {
         return [];
       }
 
-      // Extract segmentation coefficients
-      // In working code: vectors = filteredBbox.slice([0, 6], [-1, -1])
-      // This means segmentation coefficients start at position 6 (after x,y,w,h,score,class)
       const totalFeatures = filteredDetections.shape[1] || 0;
       const segmentationStartIndex = 6;
       const segmentationCoeffs = totalFeatures - segmentationStartIndex;
@@ -183,22 +164,11 @@ export class PredictionService {
         return [];
       }
 
-      // Get segmentation coefficients (vectors) from filtered detections - exactly like working code
       const vectors = filteredDetections.slice([0, segmentationStartIndex], [-1, -1]);
-
-      // Reshape mask weights to matrix format: [160*160, 32] (following working approach)
       const maskWeightReshaped = maskWeightTensor.reshape([160 * 160, segmentationCoeffs]);
-
-      // Transpose vectors for matrix multiplication
       const transponsedVectors = vectors.transpose([1, 0]);
-
-      // Verify shapes are compatible for matrix multiplication
       const maskWeightShapeForMatMul = maskWeightReshaped.shape;
       const transposedShape = transponsedVectors.shape;
-
-      logger
-        .withTag('predictionService')
-        .debug(`Matrix mult: [${maskWeightShapeForMatMul.join(', ')}] × [${transposedShape.join(', ')}]`);
 
       if (maskWeightShapeForMatMul[1] !== transposedShape[0]) {
         logger
@@ -213,91 +183,66 @@ export class PredictionService {
         return [];
       }
 
-      // Matrix multiplication: mask weights × vectors = probability maps
       const dotProduct = tf.matMul(maskWeightReshaped, transponsedVectors);
-
-      // Apply sigmoid and threshold (following working approach)
       const probabilityMap = dotProduct.sigmoid();
       const binaryMask = probabilityMap.greater(scoreThreshold);
       const masks = binaryMask.transpose([1, 0]).reshape([numFilteredDetections, 160, 160]);
 
-      // Extract predictions from filtered detections
       const predictions: IElementPrediction[] = [];
       const detectionsArray = (await filteredDetections.array()) as number[][];
-      // Note: masksArray could be used for more precise polygon extraction in the future
-      // const masksArray = await masks.array() as number[][][];
+
+      // Extract all mask arrays in parallel to avoid await in loop
+      const masksArray = (await masks.array()) as number[][][];
 
       for (let i = 0; i < numFilteredDetections; i++) {
-        const detection = detectionsArray[i];
-        if (!detection || detection.length < 6) continue;
+        const detectionArray = detectionsArray[i];
+        if (!detectionArray || detectionArray.length < 6) continue;
 
-        // Following working code structure: [x1, y1, x2, y2, score, class, ...coefficients]
-        const x1 = detection[0];
-        const y1 = detection[1];
-        const x2 = detection[2];
-        const y2 = detection[3];
-        const score = detection[4];
-        const labelFloat = detection[5];
-
-        // Type safety checks
+        const x1 = detectionArray[0];
+        const y1 = detectionArray[1];
+        const x2 = detectionArray[2];
+        const y2 = detectionArray[3];
+        const score = detectionArray[4];
+        const classLabel = detectionArray[5];
         if (
           typeof x1 !== 'number' ||
           typeof y1 !== 'number' ||
           typeof x2 !== 'number' ||
           typeof y2 !== 'number' ||
           typeof score !== 'number' ||
-          typeof labelFloat !== 'number'
+          typeof classLabel !== 'number'
         ) {
           continue;
         }
 
-        const labelIndex = Math.floor(labelFloat);
+        const labelIndex = Math.floor(classLabel);
         const className = config.names[labelIndex % Object.keys(config.names).length] || 'unknown';
 
-        // Filter out classes that are not in namesToCheck
         if (!config.namesToCheck.includes(className)) {
           continue;
         }
 
-        // Convert model coordinates back to original image coordinates
+        // Apply coordinate transform to bounding box
         const modelX1 = x1 - offsetX;
         const modelY1 = y1 - offsetY;
         const modelX2 = x2 - offsetX;
         const modelY2 = y2 - offsetY;
 
-        const upSampleBox: [number, number, number, number] = [
-          Math.floor(modelY1 * scaleY),
-          Math.floor(modelX1 * scaleX),
-          Math.round((modelY2 - modelY1) * scaleY),
-          Math.round((modelX2 - modelX1) * scaleX),
-        ];
-
-        // Create basic bounding box prediction (mask data could be used for more precise polygons)
         const prediction: IElementPrediction = {
           classId: labelIndex,
           className,
           probability: score,
           boundingBox: {
-            x: upSampleBox[1],
-            y: upSampleBox[0],
-            width: upSampleBox[3],
-            height: upSampleBox[2],
+            x: Math.floor(modelX1 * scaleX),
+            y: Math.floor(modelY1 * scaleY),
+            width: Math.round((modelX2 - modelX1) * scaleX),
+            height: Math.round((modelY2 - modelY1) * scaleY),
           },
-          polygon: [
-            { x: upSampleBox[1], y: upSampleBox[0] },
-            { x: upSampleBox[1] + upSampleBox[3], y: upSampleBox[0] },
-            {
-              x: upSampleBox[1] + upSampleBox[3],
-              y: upSampleBox[0] + upSampleBox[2],
-            },
-            { x: upSampleBox[1], y: upSampleBox[0] + upSampleBox[2] },
-          ],
+          masks: masksArray[i] || [],
         };
-
         predictions.push(prediction);
       }
 
-      // Dispose tensors
       scoreSlice.dispose();
       boxIndexes.dispose();
       filteredDetections.dispose();
@@ -314,5 +259,31 @@ export class PredictionService {
       logger.withTag('predictionService').error('Error in processSegmentationResults:', error);
       throw error;
     }
+  }
+
+  private calculateMaskTransform(originalWidth: number, originalHeight: number): IMaskTransform {
+    const modelSize = 160; // YOLOv11 segmentation uses 160x160
+    const imageAspect = originalWidth / originalHeight;
+
+    let imageScaleInModel: number;
+    let modelOffsetX = 0;
+    let modelOffsetY = 0;
+
+    if (imageAspect > 1) {
+      // Image is wider - fit to width, pad height
+      imageScaleInModel = modelSize / originalWidth;
+      modelOffsetY = (modelSize - originalHeight * imageScaleInModel) / 2;
+    } else {
+      // Image is taller or square - fit to height, pad width
+      imageScaleInModel = modelSize / originalHeight;
+      modelOffsetX = (modelSize - originalWidth * imageScaleInModel) / 2;
+    }
+
+    return {
+      imageScaleInModel,
+      modelOffsetX,
+      modelOffsetY,
+      version: 1, // Mark as new schema version
+    };
   }
 }

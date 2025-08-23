@@ -1,6 +1,6 @@
 import * as tf from '@tensorflow/tfjs';
 
-import { logger } from '@/utils/logger';
+import { logger, extractUrlId } from '@/utils/logger';
 
 export class ImageProcessorService {
   async loadImageBitmap(imageSrc: string): Promise<ImageBitmap> {
@@ -17,7 +17,7 @@ export class ImageProcessorService {
         throw new Error(`Unsupported image source type: ${imageSrc.substring(0, 20)}...`);
       }
 
-      logger.withTag('imageProcessorService').debug(`Successfully loaded image from: ${imageSrc.substring(0, 50)}...`);
+      logger.withTag('imageProcessorService').debug(`Successfully loaded image from: ${extractUrlId(imageSrc)}...`);
 
       return imageBitmap;
     } catch (error) {

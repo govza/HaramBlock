@@ -14,7 +14,6 @@ import {
   QueueService,
   InferenceOrchestrationService,
 } from '@/entrypoints/background/services';
-import { logger } from '@/utils/logger';
 
 export default defineBackground(() => {
   // Initialize core services (business logic layer)
@@ -56,6 +55,4 @@ export default defineBackground(() => {
 
   // Initialize services
   void modelLoaderService.initialize();
-
-  logger.withTag('background').debug('Background script initialized successfully.');
 });
