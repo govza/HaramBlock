@@ -15,6 +15,7 @@ interface MediaGroup {
 
 export class MediaStore {
   private groups = new Map<string, MediaGroup>();
+  private elementToSrc = new WeakMap<Element, string>();
 
   constructor() {}
 
@@ -39,16 +40,27 @@ export class MediaStore {
     const g = this.groups.get(src);
     if (!g || g.element !== el) return;
     this.groups.delete(src);
+    const mapped = this.elementToSrc.get(el);
+    if (mapped === src) this.elementToSrc.delete(el);
   }
 
   // Handled state: Image found in DOM and initial styles applied
   public markHandled(el: HTMLImageElement | HTMLVideoElement, currentSrc: string): void {
+    const prevSrc = this.elementToSrc.get(el);
+    if (prevSrc && prevSrc !== currentSrc) {
+      const prevGroup = this.groups.get(prevSrc);
+      if (prevGroup && prevGroup.element === el) {
+        this.groups.delete(prevSrc);
+      }
+    }
+
     const group = this.getOrCreateGroup(currentSrc, el);
     group.state = {
       ...group.state,
       lastHandledSrc: currentSrc,
       handled: true,
     };
+    this.elementToSrc.set(el, currentSrc);
   }
 
   public isHandled(el: HTMLImageElement | HTMLVideoElement, currentSrc: string): boolean {
