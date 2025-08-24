@@ -191,8 +191,7 @@ export class PredictionService {
       const predictions: IElementPrediction[] = [];
       const detectionsArray = (await filteredDetections.array()) as number[][];
 
-      // Extract all mask arrays in parallel to avoid await in loop
-      const masksArray = (await masks.array()) as number[][][];
+      // Extract mask arrays per detection to reduce peak memory usage
 
       for (let i = 0; i < numFilteredDetections; i++) {
         const detectionArray = detectionsArray[i];
@@ -228,6 +227,18 @@ export class PredictionService {
         const modelX2 = x2 - offsetX;
         const modelY2 = y2 - offsetY;
 
+        // Extract this detection's mask as number[][] to match IElementPrediction.masks
+        let maskArray: number[][] = [];
+        try {
+          const mask2d = masks.slice([i, 0, 0], [1, -1, -1]).squeeze();
+          const mask2dFloat = mask2d.toFloat();
+          maskArray = mask2dFloat.arraySync() as number[][];
+          mask2d.dispose();
+          mask2dFloat.dispose();
+        } catch (e) {
+          logger.withTag('predictionService').warn('Failed to materialize mask for detection', e);
+        }
+
         const prediction: IElementPrediction = {
           classId: labelIndex,
           className,
@@ -238,7 +249,7 @@ export class PredictionService {
             width: Math.round((modelX2 - modelX1) * scaleX),
             height: Math.round((modelY2 - modelY1) * scaleY),
           },
-          masks: masksArray[i] || [],
+          masks: maskArray,
         };
         predictions.push(prediction);
       }
