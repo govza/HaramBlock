@@ -79,7 +79,7 @@ export class MediaPipeline {
   private handleImages(images: HTMLImageElement[]): void {
     for (const image of images) {
       const src = image.currentSrc || image.src;
-      if (!src) return;
+      if (!src) continue;
       if (!this.store.isHandled(image, src)) {
         applyInitialImageStyling(image, this.opts.hostSettings);
         this.store.markHandled(image, src);
@@ -91,7 +91,7 @@ export class MediaPipeline {
   private handleVideos(videos: HTMLVideoElement[]): void {
     for (const video of videos) {
       const src = video.currentSrc || video.src;
-      if (!src) return;
+      if (!src) continue;
       if (!this.store.isHandled(video, src)) {
         this.store.markHandled(video, src);
         // TODO: handle video frames for inference
@@ -155,9 +155,15 @@ export class MediaPipeline {
         return;
       }
 
-      await applyPredictionsStyling(images, [pred], this.opts.hostSettings);
+      const matchingImages = images.filter(img => (img.currentSrc || img.src) === pred.src);
+      if (!matchingImages.length) {
+        logger.withTag('pipeline').debug(`Prediction src changed before styling applied: ${pred.src}`);
+        return;
+      }
+
+      await applyPredictionsStyling(matchingImages, [pred], this.opts.hostSettings);
       this.store.markProcessed(pred.src);
-      for (const image of images) {
+      for (const image of matchingImages) {
         removeInitialImageStyling(image);
       }
     };
