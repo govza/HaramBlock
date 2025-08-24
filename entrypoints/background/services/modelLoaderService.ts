@@ -6,8 +6,8 @@ import { logger } from '@/utils/logger';
 import type { Metadata, YamlMetadata } from '@/utils/types';
 
 export class ModelLoaderService {
-  private readonly MODEL_PATH = '/models/afeef-11m-segment/model.json';
-  private readonly METADATA_PATH = '/models/afeef-11m-segment/metadata.yaml';
+  private readonly MODEL_PATH = '/models/afeef-11m-segment-int8/model.json';
+  private readonly METADATA_PATH = '/models/afeef-11m-segment-int8/metadata.yaml';
 
   private model: tf.GraphModel | null = null;
   private config: Metadata = {
@@ -18,7 +18,7 @@ export class ModelLoaderService {
 
     // Values that are fixed and do not change
     outputShape: [160, 160, 32],
-    namesToCheck: ['person', 'zfa', 'zma'],
+    namesToCheck: ['zfa', 'zma'],
   };
 
   private async loadMetadata(): Promise<void> {

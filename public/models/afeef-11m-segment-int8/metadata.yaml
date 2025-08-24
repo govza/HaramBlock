@@ -1,9 +1,9 @@
-description: Ultralytics YOLO11n-seg model trained on d:\dev\projects\ab\model\afeef\datasets\coco-afeef-yolo\dataset.yaml
-author: Ultralytics
-date: '2025-08-24T16:40:55.250151'
-version: 8.3.171
-license: AGPL-3.0 License (https://ultralytics.com/license)
-docs: https://docs.ultralytics.com
+description: Segmentation model trained on custom coco dataset
+author: 
+date: '2023-08-24T17:41:39.400215'
+version: 1.0.171
+license:
+docs:
 stride: 32
 task: segment
 batch: 1
