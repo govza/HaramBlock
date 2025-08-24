@@ -6,8 +6,8 @@ import { logger } from '@/utils/logger';
 import type { Metadata, YamlMetadata } from '@/utils/types';
 
 export class ModelLoaderService {
-  private readonly MODEL_PATH = '/models/afeef-11s-segment/model.json';
-  private readonly METADATA_PATH = '/models/afeef-11s-segment/metadata.yaml';
+  private readonly MODEL_PATH = '/models/afeef-11m-segment/model.json';
+  private readonly METADATA_PATH = '/models/afeef-11m-segment/metadata.yaml';
 
   private model: tf.GraphModel | null = null;
   private config: Metadata = {
