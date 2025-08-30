@@ -3,25 +3,45 @@ import * as tf from '@tensorflow/tfjs';
 import { logger, extractUrlId } from '@/utils/logger';
 
 export class ImageProcessorService {
-  async loadImageBitmap(imageSrc: string): Promise<ImageBitmap> {
+  async loadImageBitmap(imageSrc: string): Promise<{
+    imageBitmap: ImageBitmap;
+    fetchTime: number;
+    bitmapTime: number;
+  }> {
     try {
-      const imageBitmap = await this.loadImage(imageSrc);
-      logger.withTag('imageProcessorService').debug(`Successfully loaded image from: ${extractUrlId(imageSrc)}...`);
-      return imageBitmap;
+      const fetchStartTime = Date.now();
+      const blob = await this.fetchImageBlob(imageSrc);
+      const fetchTime = Date.now() - fetchStartTime;
+
+      const bitmapStartTime = Date.now();
+      const imageBitmap = await this.createBitmapFromBlob(blob);
+      const bitmapTime = Date.now() - bitmapStartTime;
+
+      logger
+        .withTag('imageProcessorService')
+        .debug(
+          `Successfully loaded image from: ${extractUrlId(imageSrc)}... (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms)`,
+        );
+
+      return { imageBitmap, fetchTime, bitmapTime };
     } catch (error) {
       logger.withTag('imageProcessorService').error('Failed to load image:', error);
       throw new Error(`Failed to load image from ${imageSrc.substring(0, 50)}...`, { cause: error });
     }
   }
 
-  private async loadImage(imageSrc: string): Promise<ImageBitmap> {
-    logger.withTag('imageProcessorService').debug('Loading image');
+  private async fetchImageBlob(imageSrc: string): Promise<Blob> {
+    logger.withTag('imageProcessorService').debug('Fetching image');
 
     const response = await fetch(imageSrc, { cache: 'force-cache' });
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
     }
-    const blob = await response.blob();
+    return response.blob();
+  }
+
+  private async createBitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
+    logger.withTag('imageProcessorService').debug('Creating bitmap from blob');
     return createImageBitmap(blob);
   }
 

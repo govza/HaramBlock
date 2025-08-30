@@ -31,15 +31,17 @@ export class PredictionService {
       const model = this.model || (await this.modelLoaderService.loadModelAsync());
       const config = this.modelLoaderService.getModelConfig();
       // Prefer provided bitmap (from content via MessageChannel) to avoid refetch/decoding
-      const imageBitmap = await this.imageProcessor.loadImageBitmap(task.imageSrc);
+      const { imageBitmap, fetchTime, bitmapTime } = await this.imageProcessor.loadImageBitmap(task.imageSrc);
       const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
+      const inferenceStartTime = Date.now();
       const rawPredictions = await this.getFramePredictions(
         imageBitmap,
         model,
         config,
         1 - task.hostSettings.strictness,
       );
+      const inferenceTime = Date.now() - inferenceStartTime;
 
       const predictions = edgeBoundingBoxCorrection(rawPredictions, imageWidth, imageHeight);
       const processingTimeMs = Date.now() - startTime;
@@ -59,12 +61,17 @@ export class PredictionService {
         timestamp,
         cacheMetadata,
         maskTransform,
+        processingTime: {
+          fetchTime,
+          bitmapTime,
+          inferenceTime,
+        },
       };
 
       logger
         .withTag('predictionService')
         .info(
-          `Completed inference task for ${extractUrlId(task.imageSrc)} in ${processingTimeMs}ms with ${predictions.length} predictions`,
+          `Completed inference task for ${extractUrlId(task.imageSrc)} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
         );
 
       return result;
