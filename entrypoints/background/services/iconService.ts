@@ -21,7 +21,7 @@ export class IconService {
     try {
       const hostSettings = await this.hostSettingService.getHostSettings(hostname);
       const iconPaths = getIconPaths(hostSettings.policy);
-      await browser.action.setIcon({ tabId, path: iconPaths });
+      await (browser.action ?? browser.browserAction).setIcon({ tabId, path: iconPaths });
     } catch (error) {
       logger.withTag('iconService').error('Error updating toolbar icon for hostname:', hostname, error);
     }
