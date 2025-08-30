@@ -1,5 +1,5 @@
 import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
-import { queueImagesForInference } from '@/entrypoints/content/communication/sender';
+import { requestImageInference } from '@/entrypoints/content/communication/sender';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { MediaStore } from '@/entrypoints/content/core/MediaStore';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
@@ -111,9 +111,9 @@ export class MediaPipeline {
         return;
       }
 
-      await queueImagesForInference(this.opts.hostSettings.hostname, [{ src }]);
+      await requestImageInference(this.opts.hostSettings.hostname, image);
       this.store.markSentForInference(src);
-      logger.withTag('pipeline').debug(`Sent image ${src} for inference`);
+      logger.withTag('pipeline').debug(`Sent image ${extractUrlId(src)} for inference`);
     };
 
     if (image.complete && image.naturalWidth > 0) {
@@ -143,7 +143,7 @@ export class MediaPipeline {
         images = this.findImagesBySourceInDom(pred.src);
         logger
           .withTag('pipeline')
-          .debug(`Store lookup failed for ${pred.src}, found ${images.length} images via DOM fallback`);
+          .debug(`Store lookup failed for ${extractUrlId(pred.src)}, found ${images.length} images via DOM fallback`);
 
         for (const image of images) {
           this.store.markHandled(image, pred.src);
@@ -151,7 +151,7 @@ export class MediaPipeline {
       }
 
       if (!images.length) {
-        logger.withTag('pipeline').debug(`No images found for prediction src: ${pred.src}`);
+        logger.withTag('pipeline').debug(`No images found for prediction src: ${extractUrlId(pred.src)}`);
         return;
       }
 

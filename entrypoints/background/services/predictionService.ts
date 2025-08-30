@@ -18,6 +18,7 @@ export class PredictionError extends Error {
 }
 
 export class PredictionService {
+  model: tf.GraphModel | null = null;
   constructor(
     private modelLoaderService: ModelLoaderService,
     private imageProcessor: ImageProcessorService,
@@ -27,9 +28,9 @@ export class PredictionService {
     const startTime = Date.now();
 
     try {
-      const model = await this.modelLoaderService.loadModelAsync();
+      const model = this.model || (await this.modelLoaderService.loadModelAsync());
       const config = this.modelLoaderService.getModelConfig();
-
+      // Prefer provided bitmap (from content via MessageChannel) to avoid refetch/decoding
       const imageBitmap = await this.imageProcessor.loadImageBitmap(task.imageSrc);
       const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
@@ -62,7 +63,9 @@ export class PredictionService {
 
       logger
         .withTag('predictionService')
-        .info(`Completed inference task ${task.id} in ${processingTimeMs}ms with ${predictions.length} predictions`);
+        .info(
+          `Completed inference task for ${extractUrlId(task.imageSrc)} in ${processingTimeMs}ms with ${predictions.length} predictions`,
+        );
 
       return result;
     } catch (error) {
