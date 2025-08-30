@@ -76,6 +76,11 @@ export interface IImagePrediction {
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
+  processingTime: {
+    fetchTime: number; // Image fetching duration in milliseconds
+    bitmapTime: number; // Bitmap creation duration in milliseconds
+    inferenceTime: number; // Model inference duration in milliseconds
+  };
 }
 
 export interface YamlMetadata {
