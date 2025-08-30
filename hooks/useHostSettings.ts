@@ -49,7 +49,7 @@ export function useHostSettings(hostname: string) {
           // Setting global policy icon
           if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
             const iconPaths = getIconPaths(currentSettings.policy);
-            await browser.action.setIcon({
+            await (browser.action ?? browser.browserAction).setIcon({
               tabId: activeTab.id,
               path: iconPaths,
             });
@@ -61,14 +61,14 @@ export function useHostSettings(hostname: string) {
             const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
             const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
             const iconPaths = getIconPaths(tabSettings.policy);
-            await browser.action.setIcon({
+            await (browser.action ?? browser.browserAction).setIcon({
               tabId: activeTab.id,
               path: iconPaths,
             });
           } else {
             // Not global policy, set currentSettings icon
             const iconPaths = getIconPaths(currentSettings.policy);
-            await browser.action.setIcon({
+            await (browser.action ?? browser.browserAction).setIcon({
               tabId: activeTab.id,
               path: iconPaths,
             });
@@ -103,7 +103,7 @@ export function useHostSettings(hostname: string) {
         // Setting global policy icon
         if (currentSettings.isGlobal && currentSettings.policy !== 'process') {
           const iconPaths = getIconPaths(currentSettings.policy);
-          await browser.action.setIcon({
+          await (browser.action ?? browser.browserAction).setIcon({
             tabId: activeTab.id,
             path: iconPaths,
           });
@@ -115,14 +115,14 @@ export function useHostSettings(hostname: string) {
           const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
           const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
           const iconPaths = getIconPaths(tabSettings.policy);
-          await browser.action.setIcon({
+          await (browser.action ?? browser.browserAction).setIcon({
             tabId: activeTab.id,
             path: iconPaths,
           });
         } else {
           // Not global policy, set currentSettings icon
           const iconPaths = getIconPaths(currentSettings.policy);
-          await browser.action.setIcon({
+          await (browser.action ?? browser.browserAction).setIcon({
             tabId: activeTab.id,
             path: iconPaths,
           });
