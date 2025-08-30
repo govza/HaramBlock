@@ -37,8 +37,10 @@ export interface IImageMetadata {
 
 export interface IImageWithMetadata {
   src: string;
-  metadata?: IImageMetadata;
-  [key: string]: string | IImageMetadata | undefined;
+  width: number;
+  height: number;
+  metadata: IImageMetadata;
+  [key: string]: string | number | IImageMetadata;
 }
 
 export interface ICacheMetadata {

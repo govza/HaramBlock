@@ -1,7 +1,7 @@
 import { sendMessage } from 'webext-bridge/content-script';
 
-import { logger, extractUrlId } from '@/utils/logger';
-import { type IHostSettings, type IImagePrediction, type IImageWithMetadata } from '@/utils/types';
+import { logger } from '@/utils/logger';
+import { type IHostSettings, type IImagePrediction, type IImageMetadata, type IImageWithMetadata } from '@/utils/types';
 
 /**
  * Communication sender module for HaramBlock content script
@@ -16,7 +16,7 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
   try {
     return await sendMessage('GET_HOST_SETTINGS', { hostname }, 'background');
   } catch (error) {
-    logger.withTag('Content').error('Failed to request host settings:', error);
+    logger.withTag('sender').error('Failed to request host settings:', error);
     return undefined;
   }
 }
@@ -31,7 +31,7 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
     const result = await sendMessage('GET_HOSTNAME_IMAGE_PREDICTION_CACHE', { hostname }, 'background');
     return result || [];
   } catch (error) {
-    logger.withTag('Content').error('Failed to request cached predictions:', error);
+    logger.withTag('sender').error('Failed to request cached predictions:', error);
     return [];
   }
 }
@@ -39,27 +39,29 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 /**
  * Queue images for AI processing in background script
  * @param hostname - The hostname for these images
- * @param imageDatas - Array of image data with metadata to process
+ * @param image - Image element to process
  * @returns Promise that resolves when images are queued
  */
-export async function queueImagesForInference(hostname: string, imageDatas: IImageWithMetadata[]): Promise<void> {
-  try {
-    logger
-      .withTag('sender')
-      .debug(`Queueing images ${imageDatas.map(img => extractUrlId(img.src)).join(', ')} for inference`);
+export async function requestImageInference(hostname: string, image: HTMLImageElement): Promise<void> {
+  const metadata = {
+    width: image.naturalWidth || image.width || undefined,
+    height: image.naturalHeight || image.height || undefined,
+    contentType: image.dataset.contentType || undefined,
+    contentLength: image.dataset.contentLength ? parseInt(image.dataset.contentLength) : undefined,
+    lastModified: image.dataset.lastModified || undefined,
+    cacheControl: image.dataset.cacheControl || undefined,
+    etag: image.dataset.etag || undefined,
+    expires: image.dataset.expires || undefined,
+  } as IImageMetadata;
 
-    await sendMessage(
-      'POST_INFERENCE_IMAGES',
-      {
-        hostname,
-        imageDatas,
-      },
-      'background',
-    );
-  } catch (error) {
-    logger.withTag('Content').error('Failed to queue images for inference:', error);
-    throw error;
-  }
+  const imageData: IImageWithMetadata = {
+    src: image.currentSrc || image.src,
+    width: image.naturalWidth || image.width || 0,
+    height: image.naturalHeight || image.height || 0,
+    metadata,
+  };
+
+  await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');
 }
 
 /**
@@ -82,7 +84,7 @@ export async function requestHostData(hostname: string): Promise<{
       predictions,
     };
   } catch (error) {
-    logger.withTag('Content').error('Failed to request host data:', error);
+    logger.withTag('sender').error('Failed to request host data:', error);
     return {
       settings: undefined,
       predictions: [],

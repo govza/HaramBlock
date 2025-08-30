@@ -24,7 +24,7 @@ export class InferenceOrchestrationService {
     hostname: string,
     tabId: number,
     hostSettings: IHostSettings,
-    imageMetadata?: IImageMetadata,
+    imageMetadata: IImageMetadata,
   ): Promise<string> {
     const taskId = crypto.randomUUID();
 
@@ -63,7 +63,7 @@ export class InferenceOrchestrationService {
       imageMetadata,
     };
 
-    logger.withTag('inferenceOrchestrationService').debug(`Scheduling inference task ${task.id} for ${hostname}`);
+    logger.withTag('inferenceOrchestrationService').debug(`Scheduling src inference task for ${hostname}`);
 
     // Add to queue (fire-and-forget for immediate response)
     this.queueService.enqueue(task).catch(error => {
