@@ -16,6 +16,7 @@ export class ImageProcessorService {
 
   private async loadImage(imageSrc: string): Promise<ImageBitmap> {
     logger.withTag('imageProcessorService').debug('Loading image');
+
     const response = await fetch(imageSrc, { cache: 'force-cache' });
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
@@ -70,22 +71,42 @@ export class ImageProcessorService {
 
   /**
    * Converts ImageBitmap to TensorFlow tensor with proper preprocessing
+   * using TF ops (no canvas). Maintains aspect ratio via letterboxing
+   * to match the model's expected [width, height].
    * @param imageBitmap The image to convert
    * @param imgsz Target size [width, height] from YOLO metadata
-   * @returns TensorFlow tensor ready for model inference
+   * @returns TensorFlow tensor [1, height, width, 3] normalized to [0,1]
    */
   tensorFromImageBitmap(imageBitmap: ImageBitmap, imgsz: [number, number]): tf.Tensor4D {
-    // Convert to canvas first
-    const canvas = this.convertImageToCanvas(imageBitmap, imgsz);
+    const [modelW, modelH] = imgsz;
 
-    // Convert canvas to tensor - OffscreenCanvas is supported in newer TensorFlow.js versions
-    const imageTensor = tf.browser
-      .fromPixels(canvas as unknown as HTMLCanvasElement)
-      .toFloat()
-      .div(tf.scalar(255.0)); // Normalize to [0, 1]
+    return tf.tidy(() => {
+      // 1) Create tensor directly from ImageBitmap and normalize
+      const img: tf.Tensor3D = tf.browser.fromPixels(imageBitmap).toFloat().div(255);
 
-    // Add batch dimension
-    return imageTensor.expandDims(0);
+      const [h, w] = img.shape;
+      const scale = Math.min(modelW / w, modelH / h);
+      const newW = Math.max(1, Math.round(w * scale));
+      const newH = Math.max(1, Math.round(h * scale));
+
+      // 2) Aspect-preserving resize
+      const resized: tf.Tensor3D = tf.image.resizeBilinear(img, [newH, newW], true);
+
+      // 3) Letterbox to target size with black padding
+      const padLeft = Math.floor((modelW - newW) / 2);
+      const padRight = modelW - newW - padLeft;
+      const padTop = Math.floor((modelH - newH) / 2);
+      const padBottom = modelH - newH - padTop;
+
+      const padded: tf.Tensor3D = tf.pad(resized, [
+        [padTop, padBottom],
+        [padLeft, padRight],
+        [0, 0],
+      ]);
+
+      // 4) Add batch dimension
+      return padded.expandDims(0);
+    });
   }
 
   /**
