@@ -5,20 +5,8 @@ import { logger, extractUrlId } from '@/utils/logger';
 export class ImageProcessorService {
   async loadImageBitmap(imageSrc: string): Promise<ImageBitmap> {
     try {
-      let imageBitmap: ImageBitmap;
-
-      if (imageSrc.startsWith('blob:')) {
-        imageBitmap = await this.loadBlobImage(imageSrc);
-      } else if (imageSrc.startsWith('data:')) {
-        imageBitmap = await this.loadDataUrlImage(imageSrc);
-      } else if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
-        imageBitmap = await this.loadUrlImage(imageSrc);
-      } else {
-        throw new Error(`Unsupported image source type: ${imageSrc.substring(0, 20)}...`);
-      }
-
+      const imageBitmap = await this.loadImage(imageSrc);
       logger.withTag('imageProcessorService').debug(`Successfully loaded image from: ${extractUrlId(imageSrc)}...`);
-
       return imageBitmap;
     } catch (error) {
       logger.withTag('imageProcessorService').error('Failed to load image:', error);
@@ -26,30 +14,11 @@ export class ImageProcessorService {
     }
   }
 
-  private async loadBlobImage(blobUrl: string): Promise<ImageBitmap> {
-    logger.withTag('imageProcessorService').debug('Loading blob image');
-    const response = await fetch(blobUrl);
+  private async loadImage(imageSrc: string): Promise<ImageBitmap> {
+    logger.withTag('imageProcessorService').debug('Loading image');
+    const response = await fetch(imageSrc, { cache: 'force-cache' });
     if (!response.ok) {
-      throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
-    }
-    const blob = await response.blob();
-    return createImageBitmap(blob);
-  }
-
-  private async loadDataUrlImage(dataUrl: string): Promise<ImageBitmap> {
-    logger.withTag('imageProcessorService').debug('Loading data URL image');
-    const response = await fetch(dataUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch data URL: ${response.status} ${response.statusText}`);
-    }
-    const blob = await response.blob();
-    return createImageBitmap(blob);
-  }
-
-  private async loadUrlImage(url: string): Promise<ImageBitmap> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
     }
     const blob = await response.blob();
     return createImageBitmap(blob);
