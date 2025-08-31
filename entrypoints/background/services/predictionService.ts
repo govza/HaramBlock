@@ -35,12 +35,9 @@ export class PredictionService {
       const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
       const inferenceStartTime = Date.now();
-      const rawPredictions = await this.getFramePredictions(
-        imageBitmap,
-        model,
-        config,
-        1 - task.hostSettings.strictness,
-      );
+      const rawThreshold = 1 - task.hostSettings.strictness;
+      const scoreThreshold = Math.min(0.9, Math.max(0.05, rawThreshold));
+      const rawPredictions = await this.getFramePredictions(imageBitmap, model, config, scoreThreshold);
       const inferenceTime = Date.now() - inferenceStartTime;
 
       const predictions = edgeBoundingBoxCorrection(rawPredictions, imageWidth, imageHeight);
@@ -175,7 +172,9 @@ export class PredictionService {
       }
 
       const vectors = filteredDetections.slice([0, segmentationStartIndex], [-1, -1]);
-      const maskWeightReshaped = maskWeightTensor.reshape([160 * 160, segmentationCoeffs]);
+      const outH = config.outputShape[0];
+      const outW = config.outputShape[1];
+      const maskWeightReshaped = maskWeightTensor.reshape([outH * outW, segmentationCoeffs]);
       const transponsedVectors = vectors.transpose([1, 0]);
       const maskWeightShapeForMatMul = maskWeightReshaped.shape;
       const transposedShape = transponsedVectors.shape;
@@ -196,10 +195,11 @@ export class PredictionService {
       const dotProduct = tf.matMul(maskWeightReshaped, transponsedVectors);
       const probabilityMap = dotProduct.sigmoid();
       const binaryMask = probabilityMap.greater(scoreThreshold);
-      const masks = binaryMask.transpose([1, 0]).reshape([numFilteredDetections, 160, 160]);
+      const masks = binaryMask.transpose([1, 0]).reshape([numFilteredDetections, outH, outW]);
 
       const predictions: IElementPrediction[] = [];
       const detectionsArray = (await filteredDetections.array()) as number[][];
+      const masksArr = (await masks.array()) as number[][][]; // [N, H, W]
 
       // Extract mask arrays per detection to reduce peak memory usage
 
@@ -237,17 +237,7 @@ export class PredictionService {
         const modelX2 = x2 - offsetX;
         const modelY2 = y2 - offsetY;
 
-        // Extract this detection's mask as number[][] to match IElementPrediction.masks
-        let maskArray: number[][] = [];
-        try {
-          const mask2d = masks.slice([i, 0, 0], [1, -1, -1]).squeeze();
-          const mask2dFloat = mask2d.toFloat();
-          maskArray = mask2dFloat.arraySync() as number[][];
-          mask2d.dispose();
-          mask2dFloat.dispose();
-        } catch (e) {
-          logger.withTag('predictionService').warn('Failed to materialize mask for detection', e);
-        }
+        const maskArray = masksArr[i] as number[][];
 
         const prediction: IElementPrediction = {
           classId: labelIndex,
