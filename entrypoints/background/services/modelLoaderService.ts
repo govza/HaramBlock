@@ -42,8 +42,9 @@ export class ModelLoaderService {
   }
 
   public async initialize(): Promise<void> {
-    // Load the model
+    // Initialize TF backend (prefer WebGPU, fallback to WebGL), then load the model
     try {
+      await this.setupBackend();
       await this.loadModelAsync();
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await this.warmupModel(this.model!);
@@ -60,6 +61,48 @@ export class ModelLoaderService {
       .info(
         `Metadata loaded successfully: ${Object.keys(this.config.names).length} classes, stride: ${this.config.stride}, input shape: ${this.config.imgsz.join('x')}`,
       );
+  }
+
+  private async setupBackend(): Promise<void> {
+    try {
+      // Dynamically register backends if available
+      try {
+        await import('@tensorflow/tfjs-backend-webgpu');
+      } catch {
+        /* empty */
+      }
+      try {
+        await import('@tensorflow/tfjs-backend-webgl');
+      } catch {
+        /* empty */
+      }
+
+      // WebGL performance flags (no CPU forwarding, allow packing, prefer FP16)
+      try {
+        tf.env().set('WEBGL_CPU_FORWARD', false as unknown as number);
+        tf.env().set('WEBGL_PACK', true as unknown as number);
+        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true as unknown as number);
+      } catch {
+        /* empty */
+      }
+
+      await tf.ready();
+
+      // Try WebGPU first if registered
+      try {
+        await tf.setBackend('webgpu');
+      } catch {
+        /* empty */
+      }
+      if (tf.getBackend() !== 'webgpu') {
+        // Fallback to WebGL
+        await tf.setBackend('webgl');
+      }
+
+      logger.withTag('modelLoaderService').info(`TensorFlow backend: ${tf.getBackend()}`);
+    } catch (e) {
+      logger.withTag('modelLoaderService').warn('Failed to configure preferred backend, using default.', e);
+    }
   }
 
   public async loadModelAsync(): Promise<tf.GraphModel> {
