@@ -26,13 +26,13 @@ export interface IElementPrediction {
 }
 
 export interface IImageMetadata {
-  contentType?: string;
-  contentLength?: number;
-  lastModified?: string;
-  cacheControl?: string;
-  etag?: string;
-  expires?: string;
-  [key: string]: string | number | undefined;
+  contentType: string | null;
+  contentLength: number | null;
+  lastModified: string | null;
+  cacheControl: string | null;
+  etag: string | null;
+  expires: string | null;
+  [key: string]: string | number | null;
 }
 
 export interface IImageWithMetadata {
