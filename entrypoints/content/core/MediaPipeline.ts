@@ -5,7 +5,7 @@ import { MediaStore } from '@/entrypoints/content/core/MediaStore';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import { defaultHostSettings } from '@/utils/db/constants';
-import { logger } from '@/utils/logger';
+import { extractUrlId, logger } from '@/utils/logger';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -111,9 +111,14 @@ export class MediaPipeline {
         return;
       }
 
-      await requestImageInference(this.opts.hostSettings.hostname, image);
-      this.store.markSentForInference(src);
-      logger.withTag('pipeline').debug(`Sent image ${extractUrlId(src)} for inference`);
+      try {
+        await requestImageInference(this.opts.hostSettings.hostname, image);
+        this.store.markSentForInference(src);
+        logger.withTag('pipeline').debug(`Sent image ${extractUrlId(src)} for inference`);
+      } catch (error) {
+        logger.withTag('pipeline').error(`Failed to send image ${extractUrlId(src)} for inference:`, error);
+        this.store.markProcessed(src);
+      }
     };
 
     if (image.complete && image.naturalWidth > 0) {

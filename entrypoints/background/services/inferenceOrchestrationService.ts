@@ -5,7 +5,7 @@ import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
 import { type PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
 import { type PredictionService } from '@/entrypoints/background/services/predictionService';
 import { type QueueService } from '@/entrypoints/background/services/queueService';
-import { logger } from '@/utils/logger';
+import { logger, extractUrlId } from '@/utils/logger';
 import { type IImagePrediction, type IHostSettings, type IImageMetadata } from '@/utils/types';
 
 export class InferenceOrchestrationService {
