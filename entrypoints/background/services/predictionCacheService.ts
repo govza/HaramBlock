@@ -10,7 +10,12 @@ export class PredictionCacheService {
   private repository: PredictionCacheRepository;
 
   constructor() {
-    this.repository = new PredictionCacheRepository();
+    try {
+      this.repository = new PredictionCacheRepository();
+    } catch {
+      logger.withTag('predictionCacheService').error('Failed to initialize PredictionCacheRepository');
+      throw new Error('Failed to initialize PredictionCacheRepository');
+    }
   }
   /**
    * Cache predictions ensuring uniqueness by src URL
