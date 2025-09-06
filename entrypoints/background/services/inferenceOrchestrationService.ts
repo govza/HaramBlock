@@ -73,6 +73,63 @@ export class InferenceOrchestrationService {
     return task.id;
   }
 
+  //src, bitmap, hostname, tabId, hostSettings, metadata
+  async scheduleBitmapInferenceTask(
+    imageSrc: string,
+    bitmap: ImageBitmap,
+    hostname: string,
+    tabId: number,
+    hostSettings: IHostSettings,
+    imageMetadata: IImageMetadata,
+  ): Promise<string> {
+    const taskId = crypto.randomUUID();
+
+    // Check cache first to avoid expensive processing
+    try {
+      const cachedPredictions = await this.predictionCacheService.getCachedPredictionsBySrc(imageSrc);
+
+      if (cachedPredictions && cachedPredictions.length > 0) {
+        // Maybe we have image cached on different hostname (cdn, etc.)
+        logger.withTag('inferenceOrchestrationService').debug(`Cache hit for ${imageSrc} on src`);
+        // Save cache as hostname key as well
+        await this.predictionCacheService.cachePredictions(
+          cachedPredictions.map(prediction => ({
+            ...prediction,
+            hostname,
+          })),
+        );
+        await this.sendPredictionsToContent(cachedPredictions, tabId);
+        return taskId;
+      }
+    } catch (error) {
+      logger
+        .withTag('inferenceOrchestrationService')
+        .warn(`Cache lookup failed for ${imageSrc}, proceeding with inference:`, error);
+    }
+
+    // No cache hit, create inference task
+    const task: InferenceTask = {
+      id: taskId,
+      imageSrc,
+      hostname,
+      priority: this.calculatePriority(tabId),
+      createdAt: new Date(),
+      tabId,
+      hostSettings,
+      imageMetadata,
+      bitmap,
+    };
+
+    logger.withTag('inferenceOrchestrationService').debug(`Scheduling inference bitmap task for ${hostname}`);
+
+    // Add to queue (fire-and-forget for immediate response)
+    this.queueService.enqueue(task).catch(error => {
+      logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task ${task.id}:`, error);
+    });
+
+    return task.id;
+  }
+
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       try {

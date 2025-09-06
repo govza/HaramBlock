@@ -8,7 +8,8 @@ export interface InferenceTask {
   createdAt: Date;
   tabId: number;
   hostSettings: IHostSettings;
-  imageMetadata?: IImageMetadata;
+  imageMetadata: IImageMetadata;
+  bitmap?: ImageBitmap;
 }
 
 export enum ProcessingStatus {

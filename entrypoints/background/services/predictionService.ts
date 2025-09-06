@@ -30,8 +30,27 @@ export class PredictionService {
     try {
       const model = this.model || (await this.modelLoaderService.loadModelAsync());
       const config = this.modelLoaderService.getModelConfig();
+
       // Prefer provided bitmap (from content via MessageChannel) to avoid refetch/decoding
-      const { imageBitmap, fetchTime, bitmapTime } = await this.imageProcessor.loadImageBitmap(task.imageSrc);
+      let imageBitmap: ImageBitmap;
+      let fetchTime: number;
+      let bitmapTime: number;
+
+      if (task.bitmap) {
+        imageBitmap = task.bitmap;
+        fetchTime = 0;
+        bitmapTime = 0;
+      } else {
+        const {
+          imageBitmap: loadedBitmap,
+          fetchTime: loadFetchTime,
+          bitmapTime: loadBitmapTime,
+        } = await this.imageProcessor.loadImageBitmap(task.imageSrc);
+        imageBitmap = loadedBitmap;
+        fetchTime = loadFetchTime;
+        bitmapTime = loadBitmapTime;
+      }
+
       const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
 
       const inferenceStartTime = Date.now();
