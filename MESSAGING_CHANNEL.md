@@ -107,3 +107,59 @@ Recommended content helper wrapper (future):
 - Restrict `postMessage` target to `url.origin` instead of `'*'` when sending the port to the
   iframe.
 - Only expose minimal web‑accessible resources required by this flow.
+
+## Next Steps
+
+1. Background routing to services (next):
+   - Route messages coming over a tunnel `MessagePort` to the appropriate service (e.g., inference
+     orchestration).
+   - Define a minimal protocol (action/id/payload) for requests and results over the port.
+   - Suggested actions to add:
+     - `PROCESS_IMAGE`: payload includes `src`, `metadata`, optional `ImageBitmap` as transferable;
+       response returns prediction result.
+     - `CANCEL_TASK`: cancel by `id`.
+     - `CACHE_GET` / `CACHE_PUT`: interact with prediction cache for the hostname.
+
+2. Content helper hardening (non‑blocking):
+   - Use `iframe.src = url.toString()` instead of mutating `contentWindow.location.href`.
+   - Post the channel to the iframe using `url.origin` instead of `'*'`.
+   - Optionally call `mc.port1.start()` when using `addEventListener('message', ...)`.
+   - Fix minor typos in comments ("transferables").
+
+3. Manifest polish (optional):
+   - Add `use_dynamic_url: true` to the `web_accessible_resources` entry if desired.
+
+4. Orchestration integration:
+   - Decide where heavy work lives (background vs. offscreen document vs. dedicated worker started
+     by the SW).
+   - If needed, keep control messages on `chrome.runtime` and heavy payloads on the `MessagePort`.
+
+5. Content `sendCommand` helper (nice‑to‑have):
+   - Mirror the pattern from external references to correlate replies by `id` and simplify usage at
+     call sites.
+
+## How to Add a New Action
+
+1. Define types in `utils/messaging/channelTypes.ts`:
+   - Example: `export type ProcessImageAction = 'PROCESS_IMAGE';`
+   - Add `type` aliases for request/response payloads if needed.
+2. Implement routing in `entrypoints/background/controllers/messageChannelController.ts`:
+   - Extend `handleRequest(...)` switch with a case for the new action.
+   - Call into the appropriate service(s) and respond with a `ChannelResponse` using the same `id`.
+3. From content, send a `ChannelRequest` over the returned `MessagePort`.
+   - If using a `sendCommand` helper, await the resolved result by `id`.
+
+## Testing Plan
+
+- Handshake test: Verify content resolves after injected page posts to SW and SW ACKs back.
+- Roundtrip test: Post a small message over the port and assert a typed response.
+- Transferables test: Send an `ImageBitmap` or `ArrayBuffer` and validate processing on the
+  background side.
+- SW lifecycle: Simulate SW restart; confirm re‑establishment logic works as expected.
+
+## References
+
+- Internal: `entrypoints/content/communication/message-channel.ts`, `public/message-channel.*`,
+  `entrypoints/background/events/keepAlive.ts`
+- External pattern: Similar to the approach used in public examples that bridge a content
+  MessageChannel through a web‑accessible page to the extension SW.
