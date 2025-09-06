@@ -1,3 +1,4 @@
+import { initializeMessageChannel } from '@/entrypoints/content/communication/messageChannel';
 import { MediaPipeline } from '@/entrypoints/content/core/MediaPipeline';
 import { useHostData } from '@/entrypoints/content/hooks/useHostData';
 import {
@@ -17,6 +18,7 @@ export default defineContentScript({
     const hideInitStyle = injectGlobalHidingDomStyles();
     // Injects styles for predictions
     injectPredictionDomStyles();
+    await initializeMessageChannel();
 
     try {
       // Get host settings and cached predictions

@@ -15,5 +15,11 @@ export default defineConfig({
     default_locale: 'en',
     permissions: ['storage', 'tabs', 'activeTab', 'scripting'],
     options_page: 'options.html',
+    web_accessible_resources: [
+      {
+        resources: ['message-channel.html', 'message-channel.js'],
+        matches: ['<all_urls>'],
+      },
+    ],
   },
 });
