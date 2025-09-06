@@ -45,7 +45,7 @@ export default defineBackground(() => {
   const iconController = new IconController();
   const predictionCacheController = new PredictionCacheController();
   const inferenceController = new InferenceController(inferenceService, hostSettingsService);
-  const messageChannelController = new MessageChannelController();
+  const messageChannelController = new MessageChannelController(hostSettingsService, inferenceService);
 
   // Initialize all event listeners and controllers
   iconEventListener.initialize();

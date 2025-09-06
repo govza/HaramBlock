@@ -1,7 +1,12 @@
 import { sendMessage } from 'webext-bridge/content-script';
 
+import { messageChannel } from '@/entrypoints/content/communication/messageChannel';
 import { logger } from '@/utils/logger';
-import { type IHostSettings, type IImagePrediction, type IImageMetadata, type IImageWithMetadata } from '@/utils/types';
+
+import type { ChannelRequest, ProcessImageAction, IImageWithBitmap } from '@/utils/messaging/channelTypes';
+import type { IHostSettings, IImagePrediction, IImageMetadata, IImageWithMetadata } from '@/utils/types';
+
+const MODEL_RESIZE = { width: 160, height: 160 } as const;
 
 /**
  * Communication sender module for HaramBlock content script
@@ -37,6 +42,56 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 }
 
 /**
+ * Send image for inference using MessageChannel (transferables when possible)
+ * Thin wrapper to allow branching from queueImagesForInference.
+ */
+async function sendImageForInferenceUsingChannel(
+  hostname: string,
+  image: HTMLImageElement,
+  metadata: IImageMetadata,
+): Promise<void> {
+  const port = await messageChannel(() => {});
+  let img = image;
+  try {
+    const src = image.currentSrc || image.src;
+    const naturalWidth = image.naturalWidth || image.width;
+    const naturalHeight = image.naturalHeight || image.height;
+
+    img = await loadImage(src, metadata);
+
+    // Resize to model-preprocessing-friendly size (kept small for bandwidth)
+    const bitmap = await createImageBitmap(img, {
+      resizeWidth: MODEL_RESIZE.width,
+      resizeHeight: MODEL_RESIZE.height,
+    });
+
+    // Create payload for PROCESS_IMAGE action
+    const payload: IImageWithBitmap = {
+      src,
+      width: naturalWidth,
+      height: naturalHeight,
+      bitmap,
+      hostname,
+      tabId: browser.devtools?.inspectedWindow?.tabId || 0,
+      metadata,
+    };
+
+    // Wrap in ChannelRequest format
+    const request: ChannelRequest<ProcessImageAction, IImageWithBitmap> = {
+      id: crypto.randomUUID(),
+      type: 'request',
+      action: 'PROCESS_IMAGE',
+      payload,
+    };
+
+    port.postMessage(request, [bitmap]);
+  } catch (error) {
+    logger.withTag('sender').error('Failed to prepare image for inference:', error);
+    throw error;
+  }
+}
+
+/**
  * Queue images for AI processing in background script
  * @param hostname - The hostname for these images
  * @param image - Image element to process
@@ -60,6 +115,18 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
     height: image.naturalHeight || image.height || 0,
     metadata,
   };
+
+  // Attempt to use MessageChannel with transferables
+  try {
+    await sendImageForInferenceUsingChannel(hostname, image, metadata);
+    logger.withTag('sender').debug(`Queued image ${extractUrlId(imageData.src)} via channel`);
+    return;
+  } catch (error) {
+    logger.withTag('sender').warn('Falling back to bridge messaging for image inference:', error);
+  }
+
+  // Fallback to webext-bridge messaging
+  logger.withTag('sender').debug(`Queueing image ${extractUrlId(imageData.src)} via bridge`);
 
   await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');
 }
@@ -90,4 +157,22 @@ export async function requestHostData(hostname: string): Promise<{
       predictions: [],
     };
   }
+}
+
+function loadImage(src: string, metadata: IImageMetadata): Promise<HTMLImageElement> {
+  const { width, height } = metadata;
+
+  let image: HTMLImageElement;
+  if (width && height) {
+    image = new Image(Number(width), Number(height));
+  } else {
+    image = new Image();
+  }
+  image.crossOrigin = 'anonymous';
+  image.src = src;
+
+  return new Promise((resolve, reject) => {
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+  });
 }

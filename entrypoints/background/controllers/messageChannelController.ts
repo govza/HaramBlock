@@ -4,7 +4,12 @@ import {
   type ChannelRequest,
   type ChannelResponse,
   type ChannelReady,
+  type ProcessImageAction,
+  type IImageWithBitmap,
 } from '@/utils/messaging/channelTypes';
+
+import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
+import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 
 /**
  * Handles establishing a direct messageChannelController tunnel from content via an injected
@@ -15,6 +20,11 @@ import {
  */
 export class MessageChannelController {
   private readonly ports = new Map<string, MessagePort>();
+
+  constructor(
+    private readonly hostSettingsService: HostSettingsService,
+    private readonly orchestrationService: InferenceOrchestrationService,
+  ) {}
 
   public initialize(): void {
     // Listen for messages sent to the service worker global (from the injected page)
@@ -76,8 +86,11 @@ export class MessageChannelController {
   };
 
   private handleRequest(secret: string, req: ChannelRequest): void {
-    // Minimal demo routing; extend with real actions (e.g., inference)
     switch (req.action) {
+      case 'PROCESS_IMAGE': {
+        void this.handleProcessImage(secret, req as ChannelRequest<ProcessImageAction, IImageWithBitmap>);
+        break;
+      }
       default: {
         const res: ChannelResponse<string, never> = {
           id: req.id,
@@ -88,6 +101,74 @@ export class MessageChannelController {
         };
         this.send(secret, res);
       }
+    }
+  }
+
+  private async handleProcessImage(
+    secret: string,
+    req: ChannelRequest<ProcessImageAction, IImageWithBitmap>,
+  ): Promise<void> {
+    const { hostname, src, bitmap, metadata, tabId: requestTabId } = req.payload;
+
+    // Validate input
+    if (!hostname) {
+      logger.withTag('messageChannelController').error('Hostname is required for inference request');
+      this.sendErrorResponse(secret, req.id, 'Hostname is required');
+      return;
+    }
+
+    if (!src || !src.trim()) {
+      logger.withTag('messageChannelController').error('Image src is required for inference request');
+      this.sendErrorResponse(secret, req.id, 'Image src is required');
+      return;
+    }
+
+    // Use provided tabId or fall back to active tab
+    const tabId = requestTabId || (await this.getActiveTabId());
+    if (!tabId) {
+      logger.withTag('messageChannelController').error('Unable to determine tab ID for inference response');
+      this.sendErrorResponse(secret, req.id, 'Unable to determine tab ID');
+      return;
+    }
+
+    try {
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+      await this.orchestrationService.scheduleBitmapInferenceTask(src, bitmap, hostname, tabId, hostSettings, metadata);
+
+      // Send success response
+      const res: ChannelResponse<ProcessImageAction, { processed: boolean }> = {
+        id: req.id,
+        type: 'response',
+        action: 'PROCESS_IMAGE-result',
+        success: true,
+        payload: { processed: true },
+      };
+
+      this.send(secret, res);
+    } catch (error) {
+      logger.withTag('messageChannelController').error('Failed to process image:', error);
+      this.sendErrorResponse(secret, req.id, error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  private sendErrorResponse(secret: string, requestId: string, errorMessage: string): void {
+    const res: ChannelResponse<ProcessImageAction, never> = {
+      id: requestId,
+      type: 'response',
+      action: 'PROCESS_IMAGE-result',
+      success: false,
+      error: errorMessage,
+    };
+    this.send(secret, res);
+  }
+
+  private async getActiveTabId(): Promise<number | undefined> {
+    try {
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      return tabs[0]?.id;
+    } catch (error) {
+      logger.withTag('messageChannelController').error('Failed to get active tab:', error);
+      return undefined;
     }
   }
 

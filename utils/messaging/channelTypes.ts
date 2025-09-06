@@ -1,5 +1,7 @@
 // Typed protocol for MessageChannel traffic between content and background.
 
+import type { IImageMetadata } from '@/utils/types';
+
 export type ChannelId = string;
 
 export interface ChannelRequest<TAction extends string = string, TPayload = unknown> {
@@ -45,3 +47,20 @@ export interface ChannelReady {
 export function isChannelReady(msg: unknown): msg is ChannelReady {
   return typeof msg === 'object' && msg !== null && (msg as Record<string, unknown>).type === 'READY';
 }
+
+// Action types
+export type ProcessImageAction = 'PROCESS_IMAGE';
+
+// Image with bitmap for transferable over MessageChannel
+export interface IImageWithBitmap {
+  src: string;
+  width: number;
+  height: number;
+  metadata: IImageMetadata;
+  hostname: string;
+  tabId: number;
+  bitmap: ImageBitmap;
+}
+
+// Use IImageWithBitmap as payload for PROCESS_IMAGE action
+export type ProcessImagePayload = IImageWithBitmap;
