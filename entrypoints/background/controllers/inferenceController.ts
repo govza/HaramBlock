@@ -55,7 +55,13 @@ export class InferenceController {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
 
       // Schedule inference task for image
-      await this.orchestrationService.scheduleInferenceTask(src, hostname, tabId, hostSettings, metadata);
+      await this.orchestrationService.scheduleInferenceTask({
+        input: { kind: 'src', imageSrc: src },
+        hostname,
+        tabId,
+        hostSettings,
+        imageMetadata: metadata,
+      });
     } catch (error) {
       logger.withTag('inferenceController').error('Failed to get host settings for hostname:', hostname, error);
     }

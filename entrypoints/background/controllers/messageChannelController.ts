@@ -9,7 +9,10 @@ import {
 } from '@/utils/messaging/channelTypes';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
-import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type {
+  InferenceOrchestrationService,
+  ScheduleArgs,
+} from '@/entrypoints/background/services/inferenceOrchestrationService';
 
 /**
  * Handles establishing a direct messageChannelController tunnel from content via an injected
@@ -81,7 +84,6 @@ export class MessageChannelController {
       return;
     }
 
-    // For now, just log non-request messages
     logger.withTag('messageChannelController').log('Received non-request message (secret=', secret, '):', data);
   };
 
@@ -108,7 +110,7 @@ export class MessageChannelController {
     secret: string,
     req: ChannelRequest<ProcessImageAction, IImageWithBitmap>,
   ): Promise<void> {
-    const { hostname, src, bitmap, metadata, tabId: requestTabId } = req.payload;
+    const { hostname, src, bitmap, metadata, tabId: requestTabId, width, height } = req.payload;
 
     // Validate input
     if (!hostname) {
@@ -133,7 +135,14 @@ export class MessageChannelController {
 
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
-      await this.orchestrationService.scheduleBitmapInferenceTask(src, bitmap, hostname, tabId, hostSettings, metadata);
+      const task: ScheduleArgs = {
+        input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
+        hostname,
+        tabId,
+        hostSettings,
+        imageMetadata: metadata,
+      };
+      await this.orchestrationService.scheduleInferenceTask(task);
 
       // Send success response
       const res: ChannelResponse<ProcessImageAction, { processed: boolean }> = {

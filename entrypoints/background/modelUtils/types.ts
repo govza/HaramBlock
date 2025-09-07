@@ -1,6 +1,6 @@
 import { type IHostSettings, type IImageMetadata } from '@/utils/types';
 
-export interface InferenceTask {
+interface InferenceTaskBase {
   id: string;
   imageSrc: string;
   hostname: string;
@@ -9,8 +9,21 @@ export interface InferenceTask {
   tabId: number;
   hostSettings: IHostSettings;
   imageMetadata: IImageMetadata;
-  bitmap?: ImageBitmap;
 }
+
+export type InferenceTask = InferenceTaskBase &
+  (
+    | {
+        bitmap: ImageBitmap;
+        originalWidth: number;
+        originalHeight: number;
+      }
+    | {
+        bitmap?: undefined;
+        originalWidth?: undefined;
+        originalHeight?: undefined;
+      }
+  );
 
 export enum ProcessingStatus {
   QUEUED = 'queued',
