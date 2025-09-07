@@ -1,7 +1,6 @@
 import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
 import { requestImageInference } from '@/entrypoints/content/communication/sender';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
-import { MediaStore } from '@/entrypoints/content/core/MediaStore';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import { defaultHostSettings } from '@/utils/db/constants';
@@ -11,8 +10,9 @@ import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
 export class MediaPipeline {
   private readonly dom: DomObserver;
-  private readonly store: MediaStore;
   private unsubscribeFns: Array<() => void> = [];
+  // Cache predictions per src so we can avoid re-sending
+  private predictionsCache = new Map<string, IImagePrediction>();
 
   constructor(private readonly opts: { hostSettings: IHostSettings }) {
     this.dom = new DomObserver({
@@ -20,11 +20,12 @@ export class MediaPipeline {
       onMediaRemoved: elements => this.onMediaRemoved(elements),
       onAttributesChanged: elements => this.onAttributesChanged(elements),
     });
-    this.store = new MediaStore();
   }
 
   seedCachedPredictions(preds: IImagePrediction[]): void {
-    this.store.seedPredictions(preds);
+    // Seed local cache and try to apply immediately to any matching DOM elements
+    preds.forEach(p => this.predictionsCache.set(p.src, p));
+    void this.applyPredictionsToDom(preds);
   }
 
   start(root: Node = document.body): () => void {
@@ -40,7 +41,6 @@ export class MediaPipeline {
     this.dom.stop();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
-    this.store.clear();
   }
 
   private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
@@ -63,26 +63,17 @@ export class MediaPipeline {
   }
 
   private onMediaRemoved(elements: HTMLElement[]): void {
-    for (const node of elements) {
-      if (node.tagName === 'IMG') {
-        const img = node as HTMLImageElement;
-        const src = img.currentSrc || img.src;
-        if (src) this.store.removeElementBySource(src, img);
-      } else if (node.tagName === 'VIDEO') {
-        const vid = node as HTMLVideoElement;
-        const src = vid.currentSrc || vid.src;
-        if (src) this.store.removeElementBySource(src, vid);
-      }
-    }
+    // No-op: state tracking moved to DOM dataset attributes
+    void elements;
   }
 
   private handleImages(images: HTMLImageElement[]): void {
     for (const image of images) {
       const src = image.currentSrc || image.src;
       if (!src) continue;
-      if (!this.store.isHandled(image, src)) {
+      if (!this.isHandled(image, src)) {
         applyInitialImageStyling(image, this.opts.hostSettings);
-        this.store.markHandled(image, src);
+        this.markHandled(image, src);
         this.queueForInference(image);
       }
     }
@@ -92,8 +83,8 @@ export class MediaPipeline {
     for (const video of videos) {
       const src = video.currentSrc || video.src;
       if (!src) continue;
-      if (!this.store.isHandled(video, src)) {
-        this.store.markHandled(video, src);
+      if (!this.isHandled(video, src)) {
+        this.markHandled(video, src);
         // TODO: handle video frames for inference
       }
     }
@@ -102,22 +93,32 @@ export class MediaPipeline {
   private queueForInference(image: HTMLImageElement): void {
     const trySendForInference = async () => {
       const src = image.currentSrc || image.src;
-      if (!src || this.store.isSentForInference(src)) return;
+      if (!src) return;
+
+      // Check for cached predictions first
+      const cachedPrediction = this.predictionsCache.get(src);
+      if (cachedPrediction) {
+        await this.applyPredictionsToDom([cachedPrediction]);
+        return;
+      }
+
+      if (this.isSrcSentForInference(src)) return;
 
       const minW = this.opts.hostSettings.minSize?.width ?? defaultHostSettings.minSize.width;
       const minH = this.opts.hostSettings.minSize?.height ?? defaultHostSettings.minSize.height;
       if (image.width < minW || image.height < minH) {
-        this.store.markProcessed(src);
+        // Mark as processed to skip future attempts for this src on this element
+        this.markProcessed(image, src);
         return;
       }
 
       try {
         await requestImageInference(this.opts.hostSettings.hostname, image);
-        this.store.markSentForInference(src);
+        this.markSentForInference(image, src);
         logger.withTag('pipeline').debug(`Sent image ${extractUrlId(src)} for inference`);
       } catch (error) {
         logger.withTag('pipeline').error(`Failed to send image ${extractUrlId(src)} for inference:`, error);
-        this.store.markProcessed(src);
+        this.markProcessed(image, src);
       }
     };
 
@@ -135,25 +136,15 @@ export class MediaPipeline {
   // Called when predictions are received from the background script
   private onPredictions(preds: IImagePrediction[]): void {
     if (!preds || preds.length === 0) return;
-    this.store.upsertPredictions(preds);
+    // Update cache and apply styles
+    preds.forEach(p => this.predictionsCache.set(p.src, p));
     void this.applyPredictionsToDom(preds);
   }
 
   private async applyPredictionsToDom(preds: IImagePrediction[]): Promise<void> {
     const processPrediction = async (pred: IImagePrediction): Promise<void> => {
-      let images = this.store.getImagesBySource(pred.src);
-
-      // If no images found in store, fallback to DOM search (handles lazy loading src changes)
-      if (!images.length) {
-        images = this.findImagesBySourceInDom(pred.src);
-        logger
-          .withTag('pipeline')
-          .debug(`Store lookup failed for ${extractUrlId(pred.src)}, found ${images.length} images via DOM fallback`);
-
-        for (const image of images) {
-          this.store.markHandled(image, pred.src);
-        }
-      }
+      // Main method: find images in DOM by src
+      const images = this.findImagesBySourceInDom(pred.src);
 
       if (!images.length) {
         logger.withTag('pipeline').debug(`No images found for prediction src: ${extractUrlId(pred.src)}`);
@@ -167,8 +158,8 @@ export class MediaPipeline {
       }
 
       await applyPredictionsStyling(matchingImages, [pred], this.opts.hostSettings);
-      this.store.markProcessed(pred.src);
       for (const image of matchingImages) {
+        this.markProcessed(image, pred.src);
         removeInitialImageStyling(image);
       }
     };
@@ -188,5 +179,39 @@ export class MediaPipeline {
     }
 
     return images;
+  }
+
+  // === DOM dataset state helpers ===
+  private isHandled(el: HTMLImageElement | HTMLVideoElement, src: string): boolean {
+    // Ensure we only consider current src
+    return el.dataset.hbSrc === src && el.dataset.hbHandled === '1';
+  }
+
+  private markHandled(el: HTMLImageElement | HTMLVideoElement, src: string): void {
+    el.dataset.hbSrc = src;
+    el.dataset.hbHandled = '1';
+    // Reset per-src flags on new src
+    el.dataset.hbSent = '0';
+    el.dataset.hbProcessed = '0';
+  }
+
+  private markSentForInference(el: HTMLImageElement | HTMLVideoElement, src: string): void {
+    if (el.dataset.hbSrc !== src) el.dataset.hbSrc = src;
+    el.dataset.hbSent = '1';
+  }
+
+  private markProcessed(el: HTMLImageElement | HTMLVideoElement, src: string): void {
+    if (el.dataset.hbSrc !== src) el.dataset.hbSrc = src;
+    el.dataset.hbProcessed = '1';
+  }
+
+  private isSrcSentForInference(src: string): boolean {
+    // Deduplicate sends across identical srcs by scanning existing elements
+    const imgs = document.querySelectorAll('img');
+    for (const img of imgs) {
+      const cur = img.currentSrc || img.src;
+      if (cur === src && img.dataset.hbSent === '1') return true;
+    }
+    return false;
   }
 }
