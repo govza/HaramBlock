@@ -6,8 +6,6 @@ import { logger } from '@/utils/logger';
 import type { ChannelRequest, ProcessImageAction, IImageWithBitmap } from '@/utils/messaging/channelTypes';
 import type { IHostSettings, IImagePrediction, IImageMetadata, IImageWithMetadata } from '@/utils/types';
 
-const MODEL_RESIZE = { width: 160, height: 160 } as const;
-
 /**
  * Communication sender module for HaramBlock content script
  */
@@ -59,11 +57,9 @@ async function sendImageForInferenceUsingChannel(
 
     img = await loadImage(src, metadata);
 
-    // Resize to model-preprocessing-friendly size (kept small for bandwidth)
-    const bitmap = await createImageBitmap(img, {
-      resizeWidth: MODEL_RESIZE.width,
-      resizeHeight: MODEL_RESIZE.height,
-    });
+    // Create a bitmap at natural resolution to avoid aspect distortion.
+    // Background will handle aspect-preserving letterboxing to 640x640.
+    const bitmap = await createImageBitmap(img);
 
     // Create payload for PROCESS_IMAGE action
     const payload: IImageWithBitmap = {
