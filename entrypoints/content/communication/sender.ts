@@ -115,14 +115,10 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
   // Attempt to use MessageChannel with transferables
   try {
     await sendImageForInferenceUsingChannel(hostname, image, metadata);
-    logger.withTag('sender').debug(`Queued image ${extractUrlId(imageData.src)} via channel`);
     return;
-  } catch (error) {
-    logger.withTag('sender').warn('Falling back to bridge messaging for image inference:', error);
+  } catch {
+    // Fallback to webext-bridge below
   }
-
-  // Fallback to webext-bridge messaging
-  logger.withTag('sender').debug(`Queueing image ${extractUrlId(imageData.src)} via bridge`);
 
   await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');
 }

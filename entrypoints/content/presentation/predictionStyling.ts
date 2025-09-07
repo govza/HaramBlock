@@ -10,9 +10,11 @@ export const applyPredictionsStyling = (
 ): Promise<void> => {
   const promises: Promise<void>[] = [];
 
+  const predictionMap = new Map(predictions.map(p => [p.src, p]));
+
   for (const image of images) {
     const imageSrc = image.currentSrc || image.src;
-    const imagePrediction = predictions.find(p => p.src === imageSrc);
+    const imagePrediction = predictionMap.get(imageSrc);
 
     logger.withTag('predictionStyling').debug('Processing image', {
       imageSrc: extractUrlId(imageSrc),
