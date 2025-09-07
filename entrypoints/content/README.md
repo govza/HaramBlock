@@ -198,6 +198,89 @@ Advanced segmentation-based visual overlays using canvas and mask data.
 - Adaptive sampling and bounds checking for performance
 - Alpha masking technique preserving original image colors with pixelation
 
+## Image Scaling and Letterboxing
+
+This section documents how bounding boxes and segmentation masks are mapped from model space back to
+the on‑screen image when the `<img>` element is resized, letterboxed, or uses CSS `object-fit`.
+
+### Terms and Spaces
+
+- Original image space: intrinsic pixels (`naturalWidth` × `naturalHeight`).
+- Model input space: letterboxed model input (e.g., 640×640) and model output mask grid (e.g.,
+  160×160).
+- Page element box: the rendered CSS box of the `<img>` (`getBoundingClientRect`).
+- Content rect: the actually visible image pixels inside the `<img>` box after `object-fit` and
+  `object-position` are applied.
+
+### Background: Letterboxing Transform
+
+During preprocessing, the original image is scaled to fit the model input with letterboxing. We
+compute and cache a transform that can map from model output grid coordinates back to original image
+pixels:
+
+- `calculateScaleFactors(originalW, originalH, modelW, modelH)` returns:
+  - `offsetX, offsetY`: padding (in grid units) around the scaled image inside the model/grid.
+  - `scaleX = originalW / scaledW`, `scaleY = originalH / scaledH`: convert from grid coords (after
+    removing offset) into original image pixel coords.
+
+For segmentation, the same transform is calculated against the model output grid (e.g., 160×160), so
+offsets and scales are expressed in “grid cells”.
+
+### Content-Side Mapping Flow
+
+Shared utilities in `imageLayout.ts` encapsulate the mapping:
+
+- `computeRenderedContentRect(image, imageRect?)`:
+  - Computes the inner content rectangle (offsets + size) of the visible image inside the `<img>`
+    box.
+  - Supports `object-fit: fill | contain | cover | none | scale-down` and `object-position`.
+
+- `maskGridSrcRect(maskTransform, originalW, originalH)`:
+  - Returns the sub-rectangle within the mask grid that corresponds to valid image pixels (excludes
+    letterbox padding).
+  - `srcX = offsetX`, `srcY = offsetY`, `srcW = originalW / scaleX`, `srcH = originalH / scaleY`.
+
+- `displayScaleFromOriginal(originalW, originalH, contentW, contentH)`:
+  - Linear scale factors from original image pixel space to the on‑screen content rect.
+
+### Bounding Boxes (`presentation/boundingBox.ts`)
+
+1. Read `imageRect = getBoundingClientRect()` and `contentRect = computeRenderedContentRect(...)`.
+2. Compute `scaleX = contentRect.width / originalWidth` and
+   `scaleY = contentRect.height / originalHeight`.
+3. For each prediction bounding box (already in original pixel coords), place and size the overlay
+   as:
+   - `left = (imageRect.left - parentRect.left) + contentRect.offsetX + x * scaleX`
+   - `top = (imageRect.top - parentRect.top) + contentRect.offsetY + y * scaleY`
+   - `width = width * scaleX`, `height = height * scaleY`
+4. Clip to the visible intersection with the image’s parent for robustness.
+
+### Segmentation Masks (`presentation/maskOverlays.ts`)
+
+1. Create a single canvas overlay sized to the `<img>` element box.
+2. Compute `contentRect = computeRenderedContentRect(...)` and draw the pixelated image only within
+   that rect (leaving the rest transparent).
+3. Build a temporary `maskGrid` canvas the size of the model output grid (e.g., 160×160):
+   - For each detection’s binary mask, OR cells above threshold, but only if the corresponding
+     original pixel lies inside the detection’s bounding box. This uses the inverse of the letterbox
+     transform:
+     - `imgX = (gridX - offsetX) * scaleX`
+     - `imgY = (gridY - offsetY) * scaleY`
+     - Keep if `imgX,imgY` within both the original image bounds and the detection’s bbox.
+4. Crop the valid mask sub-rect using `maskGridSrcRect(maskTransform, originalW, originalH)` and
+   draw it into the overlay at `contentRect` with `imageSmoothingEnabled = false` for crisp pixels.
+5. Composite the scaled mask with the pixelated image using `destination-in` so the mosaic applies
+   only to masked pixels.
+
+### Why This Works
+
+- Bounding boxes are defined in original image pixels; we scale them purely by the ratio between the
+  content rect and the original size.
+- Segmentation masks are defined in the model’s output grid; we crop out the letterbox padding, then
+  scale the remaining grid to exactly the visible content rect.
+- Using the same content rect for both ensures masks and boxes stay aligned even when
+  `width < naturalWidth` or when `object-fit` introduces padding/cropping.
+
 **Styling Strategy:** The module implements a two-stage filtering approach:
 
 1. **Immediate Protection:** Basic blur styling applied instantly when images are detected

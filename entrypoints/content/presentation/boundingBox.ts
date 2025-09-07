@@ -1,4 +1,6 @@
-import { type IElementPrediction, type IImagePrediction } from '@/utils/types';
+import { computeRenderedContentRect } from '@/entrypoints/content/presentation/imageLayout';
+
+import type { IElementPrediction, IImagePrediction } from '@/utils/types';
 
 export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?: IImagePrediction): void => {
   const predictions = imagePrediction?.predictions || [];
@@ -17,6 +19,7 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
     removeBlurBoxOverlays(image);
 
     const imageRect = image.getBoundingClientRect();
+    const contentRect = computeRenderedContentRect(image, imageRect);
     const parentRect = parent.getBoundingClientRect();
 
     // Calculate the visible intersection of image and parent
@@ -28,15 +31,15 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
     // Check if image is actually visible
     if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return;
 
-    const imageOffsetX = imageRect.left - parentRect.left;
-    const imageOffsetY = imageRect.top - parentRect.top;
+    const imageOffsetX = imageRect.left - parentRect.left + contentRect.offsetX;
+    const imageOffsetY = imageRect.top - parentRect.top + contentRect.offsetY;
 
     // Use stored image dimensions if available, otherwise fall back to natural dimensions
     const originalWidth = imagePrediction?.imageWidth ?? image.naturalWidth;
     const originalHeight = imagePrediction?.imageHeight ?? image.naturalHeight;
 
-    const scaleX = imageRect.width / originalWidth;
-    const scaleY = imageRect.height / originalHeight;
+    const scaleX = contentRect.width / originalWidth;
+    const scaleY = contentRect.height / originalHeight;
 
     predictions.forEach((prediction: IElementPrediction) => {
       const { x, y, width, height } = prediction.boundingBox;
