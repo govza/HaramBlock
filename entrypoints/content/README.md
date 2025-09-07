@@ -31,29 +31,20 @@ The main content script entry point that orchestrates the entire media filtering
 
 ### DOM Processing (`core/`)
 
-#### `core/MediaStore.ts`
+#### Direct DOM State Tracking
 
-Unified state management for media elements and AI predictions, keyed by media source URL.
-Consolidates multiple DOM elements that point to the same `src` and prevents duplicate processing.
+State management moved from centralized MediaStore to direct DOM element dataset attributes. This
+provides simpler state tracking and eliminates the complexity of element-to-group mappings.
 
 **Key Features:**
 
-- Groups elements by source URL with processing state tracking
-- Manages cached AI predictions per source
-- Tracks styling and AI processing state per element group
-- Provides element lifecycle management (add/remove by source)
-- Supports seeding with cached predictions and upserting new ones
-- Maintains proper state flow: handled → sentForInference → processed
-- `upsertPredictions()` correctly marks predictions as processed without affecting sentForInference
-  state
-- **State tracking methods**: `markHandled()`, `markSentForInference()`, `markProcessed()` with
-  corresponding `isHandled()`, `isSentForInference()`, `isProcessed()` checks
-- **Dynamic src handling**: Automatically moves DOM elements between groups when their `src`
-  attribute changes (e.g., Vue reactive updates)
-- **Element-to-group tracking**: Uses WeakMap to track which group each DOM element belongs to for
-  efficient cleanup
-- **Prevents flickering**: Ensures predictions only apply to DOM elements that still match the
-  prediction source
+- **Dataset-based state tracking**: Uses `data-hb-*` attributes on DOM elements directly
+- **Per-element source tracking**: `data-hb-src` tracks current processed source URL
+- **Processing flags**: `data-hb-handled`, `data-hb-sent`, `data-hb-processed` for state management
+- **Dynamic src handling**: Automatically clears flags when element `src` attribute changes
+- **Memory efficient**: No WeakMap or centralized storage needed
+- **Prevents duplicate processing**: State flags prevent redundant inference requests per element
+- **Source change detection**: Compares `data-hb-src` with current element source to detect changes
 
 #### `core/DomObserver.ts`
 
@@ -77,7 +68,7 @@ The main orchestrator that combines DOM observation with AI-powered content anal
 **Key Features:**
 
 - Uses `DomObserver` for DOM change detection
-- Manages media elements through `MediaStore` for state consolidation
+- Manages media elements through direct DOM dataset attributes for state tracking
 - Applies immediate protective styling based on policy (blacklist/whitelist)
 - Handles cached predictions instantly, queues uncached images for AI processing
 - Tracks AI processing per source URL to prevent duplicate inference requests
@@ -293,13 +284,18 @@ Shared utilities in `imageLayout.ts` encapsulate the mapping:
 classDiagram
   class MediaPipeline {
     -dom: DomObserver
-    -store: MediaStore
+    -predictionsCache: Map~string, IImagePrediction~
     -unsubscribeFns: Array~function~
-    -processedForAI: Set~string~
     +seedCachedPredictions(preds: IImagePrediction[]): void
     +start(root: Node): function
     +stop(): void
-    +receivePredictionsForTests(preds: IImagePrediction[]): void
+    -handleImages(images: HTMLImageElement[]): void
+    -queueForInference(image: HTMLImageElement): void
+    -findImagesBySourceInDom(src: string): HTMLImageElement[]
+    -isHandled(el: HTMLElement, src: string): boolean
+    -markHandled(el: HTMLElement, src: string): void
+    -markSentForInference(el: HTMLElement, src: string): void
+    -markProcessed(el: HTMLElement, src: string): void
   }
 
   class DomObserver {
@@ -310,21 +306,13 @@ classDiagram
     -scanExistingElements(root: Node): void
   }
 
-  class MediaStore {
-    -groups: Map~string, MediaGroup~
-    -elementToGroup: WeakMap~HTMLElement, string~
-    +removeElementBySource(src: string, el: HTMLElement): void
-    +markHandled(el: HTMLElement, src: string): void
+  class DOMStateTracker {
+    <<interface>>
     +isHandled(el: HTMLElement, src: string): boolean
-    +markSentForInference(src: string): void
-    +isSentForInference(src: string): boolean
-    +markProcessed(src: string): void
-    +isProcessed(src: string): boolean
-    +getImagesBySource(src: string): HTMLImageElement[]
-    +getPrediction(src: string): IImagePrediction | undefined
-    +seedPredictions(preds: IImagePrediction[]): void
-    +upsertPredictions(preds: IImagePrediction[]): void
-    +clear(): void
+    +markHandled(el: HTMLElement, src: string): void
+    +markSentForInference(el: HTMLElement, src: string): void
+    +markProcessed(el: HTMLElement, src: string): void
+    +clearOverlaysOnSourceChange(el: HTMLElement): void
   }
 
   class HostDataHook {
@@ -359,7 +347,7 @@ classDiagram
   }
 
   MediaPipeline --> DomObserver : uses
-  MediaPipeline --> MediaStore : uses
+  MediaPipeline --> DOMStateTracker : implements
   MediaPipeline --> InitialStylingModule : applies via
   MediaPipeline --> PredictionStylingModule : applies via
   MediaPipeline --> CommunicationModule : uses
@@ -388,12 +376,13 @@ classDiagram
    - Whitelist policy: Skip processing entirely
    - Default policy: Check for cached predictions first, then apply initial protective styling using
      `applyInitialImageStyling()`
-   - Elements are marked as handled using `markHandled()` to prevent duplicate processing
+   - Elements are marked as handled using DOM dataset attributes to prevent duplicate processing
 
 4. **Dynamic Source Handling:**
    - When `onAttributesChanged` detects `src` changes (e.g., Vue reactive updates):
-     - Element is automatically moved between MediaStore groups via `markHandled()`
-     - New `src` is queued for AI inference if not cached via `queueForInference()`
+     - Previous overlays are cleared using `clearMaskOverlay()` and `clearBlurBoxOverlay()`
+     - Dataset flags are reset: `data-hb-handled`, `data-hb-sent`, `data-hb-processed`
+     - New `src` is stored in `data-hb-src` and queued for AI inference if not cached
      - Prevents orphaned predictions from affecting wrong elements
 
 5. **AI Processing Queue:**
@@ -404,33 +393,34 @@ classDiagram
    - Sources are marked as sent for inference using `markSentForInference()`
 
 6. **State Management:**
-   - `MediaStore` groups elements by source URL and tracks processing state
-   - **Element-to-group tracking**: WeakMap ensures each element belongs to only one group
-   - Prevents duplicate styling and AI processing per source using state flags
-   - Maintains element lifecycle via `markHandled()` and `removeElementBySource()`
-   - **Automatic cleanup**: Removes empty groups when elements are moved
+   - **Direct DOM tracking**: Elements store state directly in dataset attributes
+   - **Per-element state flags**: `data-hb-handled`, `data-hb-sent`, `data-hb-processed` prevent
+     duplicate work
+   - **Source tracking**: `data-hb-src` stores currently processed source URL
+   - **Automatic cleanup**: No centralized storage means no manual cleanup needed
+   - **Memory efficient**: State lives on DOM elements, garbage collected automatically
 
 7. **Result Application (Anti-Flickering):**
    - AI predictions arrive via communication listener in `onPredictions()`
-   - `MediaStore` is updated with new predictions via `upsertPredictions()`
+   - Local predictions cache is updated with new results
    - **Async styling application**: `applyPredictionsStyling()` uses `requestAnimationFrame` for
      proper timing
-   - **Only applies to matching elements**: `getImagesBySource()` returns elements that still match
-     the prediction source
+   - **Only applies to matching elements**: `findImagesBySourceInDom()` returns elements that still
+     match the prediction source
    - Initial protective styling is removed via `removeInitialImageStyling()` ONLY after overlays are
      positioned
-   - Sources are marked as processed using `markProcessed()` to prevent re-styling
+   - Elements are marked as processed using dataset attributes to prevent re-styling
 
 8. **Cleanup:**
-   - On page unload, `DomObserver` disconnects via `stop()` and `MediaStore` clears via `clear()`
+   - On page unload, `DomObserver` disconnects via `stop()`
    - Prediction listeners are unsubscribed via stored cleanup functions
-   - WeakMap references are automatically garbage collected
+   - DOM dataset attributes are automatically cleaned up with elements
 
 ## Performance Considerations
 
 - **Direct Callback Processing:** Eliminated event bus overhead with direct callback interface
-- **Source-Based Grouping:** `MediaStore` groups elements by source URL to process duplicate media
-  efficiently
+- **Direct DOM State Tracking:** Elements store processing state directly avoiding centralized state
+  management overhead
 - **Processing State Tracking:** Uses state flags (`handled`, `sentForInference`, `processed`) to
   prevent duplicate work per source
 - **State-Based Deduplication:** Uses `isSentForInference()` checks to prevent duplicate inference
@@ -439,13 +429,13 @@ classDiagram
 - **Cached Predictions:** Previously analyzed images skip AI processing and are styled immediately
 - **Parallel Data Fetching:** Settings and predictions are fetched simultaneously during
   initialization
-- **Minimal DOM Queries:** Element grouping reduces the need for repeated DOM traversals
-- **WeakMap Efficiency:** Element-to-group tracking uses WeakMap for automatic garbage collection
+- **Efficient DOM Queries:** `findImagesBySourceInDom()` queries DOM only when predictions arrive
+- **No Memory Overhead:** Direct dataset storage eliminates need for centralized maps or WeakMaps
 - **RequestAnimationFrame Batching:** Overlay creation is batched using `requestAnimationFrame` for
   smooth rendering
 - **Parallel Prediction Processing:** Multiple predictions are processed concurrently using
   `Promise.all()`
-- **Empty Group Cleanup:** Automatically removes unused groups to prevent memory leaks
+- **Automatic Memory Management:** Dataset attributes are garbage collected with DOM elements
 
 ## Error Handling
 
