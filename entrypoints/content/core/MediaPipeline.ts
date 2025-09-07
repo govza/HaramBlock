@@ -1,7 +1,9 @@
 import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
 import { requestImageInference } from '@/entrypoints/content/communication/sender';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
+import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
+import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import { defaultHostSettings } from '@/utils/db/constants';
 import { extractUrlId, logger } from '@/utils/logger';
@@ -55,6 +57,18 @@ export class MediaPipeline {
       const tag = el.tagName;
       if (tag === 'IMG') {
         const img = el as HTMLImageElement;
+        // If src changed compared to our tracked dataset, clear overlays from previous src
+        const currentSrc = img.currentSrc || img.src;
+        if (img.dataset.hbSrc && img.dataset.hbSrc !== currentSrc) {
+          clearMaskOverlay(img);
+          clearBlurBoxOverlay(img);
+          removeInitialImageStyling(img);
+          // Clear handled flags so we reprocess new src
+          delete img.dataset.hbHandled;
+          delete img.dataset.hbSent;
+          delete img.dataset.hbProcessed;
+          img.dataset.hbSrc = currentSrc;
+        }
         this.handleImages([img]);
       } else if (tag === 'VIDEO') {
         this.handleVideos([el as HTMLVideoElement]);
@@ -152,6 +166,17 @@ export class MediaPipeline {
       const matchingImages = images.filter(img => (img.currentSrc || img.src) === pred.src);
       if (!matchingImages.length) {
         logger.withTag('pipeline').debug(`Prediction src changed before styling applied: ${pred.src}`);
+        return;
+      }
+
+      // If this prediction has no detections, ensure overlays are cleared
+      if (!pred.predictions || pred.predictions.length === 0) {
+        for (const image of matchingImages) {
+          clearMaskOverlay(image);
+          clearBlurBoxOverlay(image);
+          removeInitialImageStyling(image);
+          this.markProcessed(image, pred.src);
+        }
         return;
       }
 

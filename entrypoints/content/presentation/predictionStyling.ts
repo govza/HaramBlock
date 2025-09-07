@@ -8,16 +8,11 @@ export const applyPredictionsStyling = (
   predictions: IImagePrediction[],
   hostSettings: IHostSettings,
 ): Promise<void> => {
-  const predictionMap = new Map<string, IImagePrediction>();
-  predictions.forEach(prediction => {
-    predictionMap.set(prediction.src, prediction);
-  });
-
   const promises: Promise<void>[] = [];
 
   for (const image of images) {
     const imageSrc = image.currentSrc || image.src;
-    const imagePrediction = predictionMap.get(imageSrc);
+    const imagePrediction = predictions.find(p => p.src === imageSrc);
 
     logger.withTag('predictionStyling').debug('Processing image', {
       imageSrc: extractUrlId(imageSrc),
