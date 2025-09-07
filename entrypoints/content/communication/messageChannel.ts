@@ -55,10 +55,8 @@ export async function messageChannel(onMessage: (e: MessageEvent) => void): Prom
 
 export const initializeMessageChannel = async (): Promise<void> => {
   try {
-    await messageChannel(e => {
-      logger.withTag('messageChannel').debug('Message from background via tunnel:', e.data);
-    });
-  } catch (e) {
-    logger.withTag('messageChannel').error('Failed to establish message channel tunnel:', e);
+    await messageChannel(() => {});
+  } catch {
+    // no-op
   }
 };

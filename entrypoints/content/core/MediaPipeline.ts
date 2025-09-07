@@ -109,6 +109,11 @@ export class MediaPipeline {
       const src = image.currentSrc || image.src;
       if (!src) return;
 
+      // Check if already sent for inference
+      if (this.isSentForInference(image, src)) {
+        return;
+      }
+
       // Check for cached predictions first
       const cachedPrediction = this.predictionsCache.get(src);
       if (cachedPrediction) {
@@ -221,6 +226,10 @@ export class MediaPipeline {
   private markSentForInference(el: HTMLImageElement | HTMLVideoElement, src: string): void {
     if (el.dataset.hbSrc !== src) el.dataset.hbSrc = src;
     el.dataset.hbSent = '1';
+  }
+
+  private isSentForInference(el: HTMLImageElement | HTMLVideoElement, src: string): boolean {
+    return el.dataset.hbSrc === src && el.dataset.hbSent === '1';
   }
 
   private markProcessed(el: HTMLImageElement | HTMLVideoElement, src: string): void {
