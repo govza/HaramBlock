@@ -102,8 +102,6 @@ export class MediaPipeline {
         return;
       }
 
-      if (this.isSrcSentForInference(src)) return;
-
       const minW = this.opts.hostSettings.minSize?.width ?? defaultHostSettings.minSize.width;
       const minH = this.opts.hostSettings.minSize?.height ?? defaultHostSettings.minSize.height;
       if (image.width < minW || image.height < minH) {
@@ -203,15 +201,5 @@ export class MediaPipeline {
   private markProcessed(el: HTMLImageElement | HTMLVideoElement, src: string): void {
     if (el.dataset.hbSrc !== src) el.dataset.hbSrc = src;
     el.dataset.hbProcessed = '1';
-  }
-
-  private isSrcSentForInference(src: string): boolean {
-    // Deduplicate sends across identical srcs by scanning existing elements
-    const imgs = document.querySelectorAll('img');
-    for (const img of imgs) {
-      const cur = img.currentSrc || img.src;
-      if (cur === src && img.dataset.hbSent === '1') return true;
-    }
-    return false;
   }
 }
