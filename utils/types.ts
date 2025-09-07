@@ -60,11 +60,12 @@ export interface ICacheMetadata {
   contentLength?: number; // Size of the image in bytes
 }
 
+// How the image was transformed to fit the model input size
 export interface IMaskTransform {
-  imageScaleInModel: number; // How image was scaled to fit 160x160
-  modelOffsetX: number; // X padding in model space
-  modelOffsetY: number; // Y padding in model space
-  version?: number; // Cache version for schema migrations
+  scaleX: number; // Scale factor in X direction
+  scaleY: number; // Scale factor in Y direction
+  offsetX: number; // Offset in X direction
+  offsetY: number; // Offset in Y direction
 }
 
 export interface IImagePrediction {

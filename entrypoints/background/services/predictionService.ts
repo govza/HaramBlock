@@ -1,13 +1,14 @@
 import * as tf from '@tensorflow/tfjs';
 
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
-import { type ModelLoaderService, type ImageProcessorService } from '@/entrypoints/background/services';
+import { calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
 import { createCacheMetadataFromImageMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { logger } from '@/utils/logger';
-import { type IElementPrediction, type IImagePrediction, type IMaskTransform, type Metadata } from '@/utils/types';
+import { logger, extractUrlId } from '@/utils/logger';
 
 import type { InferenceTask } from '@/entrypoints/background/modelUtils/types';
+import type { ModelLoaderService, ImageProcessorService } from '@/entrypoints/background/services';
+import type { IElementPrediction, IImagePrediction, IMaskTransform, Metadata } from '@/utils/types';
 
 export class PredictionError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -51,22 +52,36 @@ export class PredictionService {
         bitmapTime = loadBitmapTime;
       }
 
-      const { width: imageWidth, height: imageHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
-
       const inferenceStartTime = Date.now();
       const rawThreshold = 1 - task.hostSettings.strictness;
       const scoreThreshold = Math.min(0.9, Math.max(0.05, rawThreshold));
-      const rawPredictions = await this.getFramePredictions(imageBitmap, model, config, scoreThreshold);
+
+      const imageWidth = task.originalWidth || imageBitmap.width;
+      const imageHeight = task.originalHeight || imageBitmap.height;
+
+      const rawPredictions = await this.getFramePredictions(
+        imageBitmap,
+        model,
+        config,
+        scoreThreshold,
+        imageWidth,
+        imageHeight,
+      );
       const inferenceTime = Date.now() - inferenceStartTime;
 
-      const predictions = edgeBoundingBoxCorrection(rawPredictions, imageWidth, imageHeight);
+      const predictions = edgeBoundingBoxCorrection(rawPredictions, imageBitmap.width, imageBitmap.height);
       const processingTimeMs = Date.now() - startTime;
       const timestamp = Date.now();
 
       const cacheMetadata = createCacheMetadataFromImageMetadata(task.imageMetadata);
 
-      // Calculate mask transform parameters for caching
-      const maskTransform: IMaskTransform = this.calculateMaskTransform(imageWidth, imageHeight);
+      // Calculate mask transform parameters in mask-grid space (outputShape H/W)
+      const maskTransform: IMaskTransform = calculateScaleFactors(
+        imageWidth,
+        imageHeight,
+        config.outputShape[0],
+        config.outputShape[1],
+      );
 
       const result: IImagePrediction = {
         hostname: getEffectiveHostname(task.hostname),
@@ -111,13 +126,16 @@ export class PredictionService {
     model: tf.GraphModel,
     config: Metadata,
     scoreThreshold: number,
+    originalWidth: number,
+    originalHeight: number,
   ): Promise<IElementPrediction[]> {
     const [modelHeight, modelWidth] = config.imgsz;
 
     try {
-      const { width: originalWidth, height: originalHeight } = this.imageProcessor.getImageDimensions(imageBitmap);
+      // Prepare model input
       const input = this.imageProcessor.tensorFromImageBitmap(imageBitmap, [modelWidth, modelHeight]);
-      const { scaleX, scaleY, offsetX, offsetY } = this.imageProcessor.calculateScaleFactors(
+      // Compute letterbox factors relative to the natural/original image dimensions
+      const { scaleX, scaleY, offsetX, offsetY } = calculateScaleFactors(
         originalWidth,
         originalHeight,
         modelWidth,
@@ -128,6 +146,12 @@ export class PredictionService {
       console.warn = () => {};
       const result = (await model.executeAsync(input)) as tf.Tensor[];
       console.warn = originalWarn;
+
+      logger
+        .withTag('predictionService')
+        .debug(
+          `Model execution completed. Output tensors: ${result.length}, shapes: ${result.map(t => `[${t.shape.join(',')}]`).join(', ')}`,
+        );
 
       const predictions = await this.processSegmentationResults(
         result,
@@ -166,12 +190,18 @@ export class PredictionService {
       const detectionTensor = result[0].squeeze();
       const maskWeightTensor = result[2].squeeze();
       const scoreSlice = detectionTensor.slice([0, 4], [-1, 1]).squeeze();
+
       const boxIndexes = scoreSlice.greater(scoreThreshold);
 
       const filteredDetections = await tf.booleanMaskAsync(detectionTensor, boxIndexes);
       const numFilteredDetections = filteredDetections.shape[0];
 
+      logger
+        .withTag('predictionService')
+        .debug(`Found ${numFilteredDetections} detections above score threshold ${scoreThreshold}`);
+
       if (numFilteredDetections === 0) {
+        logger.withTag('predictionService').debug('No detections found above score threshold, returning empty results');
         scoreSlice.dispose();
         boxIndexes.dispose();
         filteredDetections.dispose();
@@ -213,7 +243,9 @@ export class PredictionService {
 
       const dotProduct = tf.matMul(maskWeightReshaped, transponsedVectors);
       const probabilityMap = dotProduct.sigmoid();
-      const binaryMask = probabilityMap.greater(scoreThreshold);
+      // Use a fixed mask threshold; detection score is not an appropriate mask cutoff
+      const maskThreshold = 0.5;
+      const binaryMask = probabilityMap.greater(maskThreshold);
       const masks = binaryMask.transpose([1, 0]).reshape([numFilteredDetections, outH, outW]);
 
       const predictions: IElementPrediction[] = [];
@@ -247,6 +279,11 @@ export class PredictionService {
         const className = config.names[labelIndex % Object.keys(config.names).length] || 'unknown';
 
         if (!config.namesToCheck.includes(className)) {
+          logger
+            .withTag('predictionService')
+            .debug(
+              `Skipping prediction with class '${className}' (not in namesToCheck: ${config.namesToCheck.join(', ')})`,
+            );
           continue;
         }
 
@@ -284,36 +321,14 @@ export class PredictionService {
       binaryMask.dispose();
       masks.dispose();
 
+      logger
+        .withTag('predictionService')
+        .debug(`Processed ${numFilteredDetections} detections, returning ${predictions.length} valid predictions`);
+
       return predictions;
     } catch (error) {
       logger.withTag('predictionService').error('Error in processSegmentationResults:', error);
       throw error;
     }
-  }
-
-  private calculateMaskTransform(originalWidth: number, originalHeight: number): IMaskTransform {
-    const modelSize = 160; // YOLOv11 segmentation uses 160x160
-    const imageAspect = originalWidth / originalHeight;
-
-    let imageScaleInModel: number;
-    let modelOffsetX = 0;
-    let modelOffsetY = 0;
-
-    if (imageAspect > 1) {
-      // Image is wider - fit to width, pad height
-      imageScaleInModel = modelSize / originalWidth;
-      modelOffsetY = (modelSize - originalHeight * imageScaleInModel) / 2;
-    } else {
-      // Image is taller or square - fit to height, pad width
-      imageScaleInModel = modelSize / originalHeight;
-      modelOffsetX = (modelSize - originalWidth * imageScaleInModel) / 2;
-    }
-
-    return {
-      imageScaleInModel,
-      modelOffsetX,
-      modelOffsetY,
-      version: 1, // Mark as new schema version
-    };
   }
 }

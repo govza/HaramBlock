@@ -62,15 +62,19 @@ export class ImageProcessorService {
    * @param imgsz Target size [width, height] from YOLO metadata
    * @returns Canvas element ready for TensorFlow processing
    */
-  convertImageToCanvas(imageBitmap: ImageBitmap, imgsz: [number, number]): OffscreenCanvas {
+  convertImageToCanvas(
+    imageBitmap: ImageBitmap,
+    originalSize: [number, number],
+    imgsz: [number, number],
+  ): OffscreenCanvas {
     const canvas = new OffscreenCanvas(imgsz[0], imgsz[1]);
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Canvas context is not available');
     }
 
-    const originalWidth = imageBitmap.width;
-    const originalHeight = imageBitmap.height;
+    const originalWidth = originalSize[0] || imageBitmap.width;
+    const originalHeight = originalSize[1] || imageBitmap.height;
 
     const scale = Math.min(imgsz[0] / originalWidth, imgsz[1] / originalHeight);
 
@@ -127,35 +131,5 @@ export class ImageProcessorService {
       // 4) Add batch dimension
       return padded.expandDims(0);
     });
-  }
-
-  /**
-   * Calculate scale factors for converting model outputs back to original image coordinates
-   * @param originalWidth Original image width
-   * @param originalHeight Original image height
-   * @param modelWidth Model input width
-   * @param modelHeight Model input height
-   * @returns Scale factors and offsets for coordinate conversion
-   */
-  calculateScaleFactors(
-    originalWidth: number,
-    originalHeight: number,
-    modelWidth: number,
-    modelHeight: number,
-  ): { scaleX: number; scaleY: number; offsetX: number; offsetY: number } {
-    const scale = Math.min(modelWidth / originalWidth, modelHeight / originalHeight);
-
-    const scaledWidth = originalWidth * scale;
-    const scaledHeight = originalHeight * scale;
-
-    const offsetX = (modelWidth - scaledWidth) / 2;
-    const offsetY = (modelHeight - scaledHeight) / 2;
-
-    return {
-      scaleX: originalWidth / scaledWidth,
-      scaleY: originalHeight / scaledHeight,
-      offsetX,
-      offsetY,
-    };
   }
 }
