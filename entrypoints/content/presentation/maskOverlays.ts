@@ -39,6 +39,8 @@ export const createMaskOverlays = (
       imageComplete: image.complete,
       imageNaturalWidth: image.naturalWidth,
     });
+    // If there is an existing overlay for this image, ensure it's cleared when predictions are missing
+    clearMaskOverlay(image);
     return;
   }
 
@@ -53,8 +55,13 @@ export const createMaskOverlays = (
   const existingState = imageStates.get(image);
   if (existingState && !existingState.destroyed) {
     // Update stored prediction and re-render
-    if (imagePrediction) existingState.currentPrediction = imagePrediction;
-    updateOverlayForImage(image, existingState);
+    if (imagePrediction && imagePrediction.predictions.length) {
+      existingState.currentPrediction = imagePrediction;
+      updateOverlayForImage(image, existingState);
+    } else {
+      // No predictions anymore: clear overlay
+      clearMaskOverlay(image);
+    }
     return;
   }
 
@@ -428,7 +435,10 @@ const setupImageObservers = (image: HTMLImageElement, state: ImageOverlayState):
 
 function updateOverlayForImage(image: HTMLImageElement, state: ImageOverlayState): void {
   const imagePrediction = state.currentPrediction;
-  if (!imagePrediction || !imagePrediction.predictions.length) return;
+  if (!imagePrediction || !imagePrediction.predictions.length) {
+    clearMaskOverlay(image);
+    return;
+  }
   const parent = image.parentElement;
   if (!parent || state.destroyed) return;
 
@@ -470,3 +480,38 @@ function updateOverlayForImage(image: HTMLImageElement, state: ImageOverlayState
     contentRect.height,
   );
 }
+
+export const clearMaskOverlay = (image: HTMLImageElement): void => {
+  const state = imageStates.get(image);
+  if (state) {
+    try {
+      state.resizeObserver.disconnect();
+    } catch {
+      // no-op
+    }
+    try {
+      state.cleanupObserver.disconnect();
+    } catch {
+      // no-op
+    }
+    if (state.viewportHandler) {
+      globalThis.removeEventListener('resize', state.viewportHandler);
+      globalThis.removeEventListener('scroll', state.viewportHandler);
+      state.viewportHandler = undefined;
+    }
+    state.destroyed = true;
+    if (state.overlay.parentElement) state.overlay.remove();
+    imageStates.delete(image);
+  } else {
+    // Fallback: remove any stale overlay elements
+    const parent = image.parentElement;
+    if (parent) {
+      const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
+      existingOverlays.forEach(overlay => overlay.remove());
+    }
+  }
+};
+
+export const hasMaskOverlay = (image: HTMLImageElement): boolean => {
+  return imageStates.has(image);
+};
