@@ -4,7 +4,7 @@ import { t } from '@/utils/i18n';
 import { logger } from '@/utils/logger';
 
 export const Overview = () => {
-  const { hostSettings, hostSettingsRepository, predictionCacheRepository, isLoading } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, imageCacheRepository, isLoading } = useHostDataContext();
 
   const isStrictnessDisabled = hostSettings.policy !== 'process';
 
@@ -19,7 +19,7 @@ export const Overview = () => {
   const handleStrictnessChange = async (newStrictness: number) => {
     try {
       await hostSettingsRepository.setStrictness(hostSettings.hostname, newStrictness);
-      await predictionCacheRepository.deleteByHostname(hostSettings.hostname);
+      await imageCacheRepository.deleteByHostname(hostSettings.hostname);
     } catch (error) {
       logger.withTag('Overview').error('Failed to update strictness:', error);
     }

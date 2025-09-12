@@ -1,17 +1,17 @@
 import { BaseRepository } from '@/utils/db/baseRepository';
-import { predictionsDb } from '@/utils/db/db';
+import { imageDb } from '@/utils/db/db';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { type IImagePrediction } from '@/utils/types';
 
 const isCacheDisabled = import.meta.env.MODE === 'nocache';
 
 /**
- * Repository for managing prediction cache records
- * Provides database operations specific to prediction cache
+ * Repository for managing image prediction cache records
+ * Provides database operations specific to image prediction cache
  */
-export class PredictionCacheRepository extends BaseRepository<IImagePrediction, string> {
+export class ImageCacheRepository extends BaseRepository<IImagePrediction, string> {
   constructor() {
-    super(predictionsDb.predictions);
+    super(imageDb.predictions);
   }
 
   /**
@@ -148,10 +148,10 @@ export class PredictionCacheRepository extends BaseRepository<IImagePrediction, 
 
     try {
       if (prediction.src) {
-        await predictionsDb.predictions.put(prediction);
+        await imageDb.predictions.put(prediction);
         return prediction.src;
       } else {
-        const src = await predictionsDb.predictions.add(prediction);
+        const src = await imageDb.predictions.add(prediction);
         return src;
       }
     } catch (error) {

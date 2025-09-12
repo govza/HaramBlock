@@ -1,6 +1,6 @@
 export { IconService } from '@/entrypoints/background/services/iconService';
 export { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
-export { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
+export { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 export { ModelLoaderService } from '@/entrypoints/background/services/modelLoaderService';
 export { ImageProcessorService } from '@/entrypoints/background/services/imageProcessorService';
 export { PredictionService } from '@/entrypoints/background/services/predictionService';

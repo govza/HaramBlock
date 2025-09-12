@@ -1,15 +1,15 @@
 import { type BridgeMessage } from 'webext-bridge';
 import { onMessage } from 'webext-bridge/background';
 
-import { PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
+import { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import { logger } from '@/utils/logger';
 import { type IImagePrediction } from '@/utils/types';
 
-export class PredictionCacheController {
-  private readonly predictionCacheService: PredictionCacheService;
+export class ImageCacheController {
+  private readonly imageCacheService: ImageCacheService;
 
   constructor() {
-    this.predictionCacheService = new PredictionCacheService();
+    this.imageCacheService = new ImageCacheService();
   }
 
   /**
@@ -34,16 +34,16 @@ export class PredictionCacheController {
     }
 
     try {
-      const cachedPredictions = await this.predictionCacheService.getCachedPredictionsByHostname(hostname);
+      const cachedPredictions = await this.imageCacheService.getCachedPredictionsByHostname(hostname);
       if (cachedPredictions.length > 0) {
         logger
-          .withTag('predictionCacheController')
+          .withTag('imageCacheController')
           .log(`Retrieved ${cachedPredictions.length} cached predictions for hostname: ${hostname}`);
       }
       return cachedPredictions;
     } catch (error) {
       logger
-        .withTag('predictionCacheController')
+        .withTag('imageCacheController')
         .error('Error retrieving cached predictions for hostname:', hostname, error);
       throw error;
     }
