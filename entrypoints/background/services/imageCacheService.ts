@@ -1,20 +1,20 @@
-import { PredictionCacheRepository } from '@/utils/db/predictionCacheRepository';
+import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 import { logger } from '@/utils/logger';
 import { type IImagePrediction } from '@/utils/types';
 
 /**
- * PredictionCacheService handles business logic for prediction cache
- * Coordinates between controllers and data layer for cached predictions
+ * ImageCacheService handles business logic for image prediction cache
+ * Coordinates between controllers and data layer for cached image predictions
  */
-export class PredictionCacheService {
-  private repository: PredictionCacheRepository;
+export class ImageCacheService {
+  private repository: ImageCacheRepository;
 
   constructor() {
     try {
-      this.repository = new PredictionCacheRepository();
+      this.repository = new ImageCacheRepository();
     } catch {
-      logger.withTag('predictionCacheService').error('Failed to initialize PredictionCacheRepository');
-      throw new Error('Failed to initialize PredictionCacheRepository');
+      logger.withTag('imageCacheService').error('Failed to initialize ImageCacheRepository');
+      throw new Error('Failed to initialize ImageCacheRepository');
     }
   }
   /**
@@ -32,7 +32,7 @@ export class PredictionCacheService {
 
       await Promise.all(cachePromises);
     } catch (error) {
-      logger.withTag('predictionCacheService').error('Error caching predictions:', error);
+      logger.withTag('imageCacheService').error('Error caching predictions:', error);
       throw error;
     }
   }
@@ -63,20 +63,18 @@ export class PredictionCacheService {
               await this.repository.savePrediction(updatedPrediction);
             } catch (error) {
               logger
-                .withTag('predictionCacheService')
+                .withTag('imageCacheService')
                 .warn('Failed to update access time for prediction:', prediction.src, error);
             }
           }),
         ).catch(error => {
-          logger.withTag('predictionCacheService').warn('Background access time update failed:', error);
+          logger.withTag('imageCacheService').warn('Background access time update failed:', error);
         });
       }
 
       return predictionsToReturn;
     } catch (error) {
-      logger
-        .withTag('predictionCacheService')
-        .error('Error retrieving cached predictions for hostname:', hostname, error);
+      logger.withTag('imageCacheService').error('Error retrieving cached predictions for hostname:', hostname, error);
       throw error;
     }
   }
@@ -91,7 +89,7 @@ export class PredictionCacheService {
       const predictions = await this.repository.findBySrc(src);
       return predictions;
     } catch (error) {
-      logger.withTag('predictionCacheService').error('Error retrieving cached prediction by src:', src, error);
+      logger.withTag('imageCacheService').error('Error retrieving cached prediction by src:', src, error);
       throw error;
     }
   }

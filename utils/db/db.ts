@@ -26,18 +26,18 @@ hostSettingsDb.on('populate', () => {
 });
 
 /**
- * PredictionsDatabase - Dexie database for prediction records
- * Stores predictions with metadata like hostname, timestamp, and image dimensions
+ * ImageDatabase - Dexie database for image prediction records
+ * Stores image predictions with metadata like hostname, timestamp, and dimensions
  */
-export class PredictionsDatabase extends Dexie {
+export class ImageDatabase extends Dexie {
   predictions!: Table<IImagePrediction, string>;
 
   constructor() {
-    super('PredictionDatabase');
+    super('ImageDatabase');
     this.version(1).stores({
       predictions: '&src, hostname, timestamp', // Primary key is src, with hostname and timestamp as secondary keys
     });
   }
 }
 
-export const predictionsDb = new PredictionsDatabase();
+export const imageDb = new ImageDatabase();

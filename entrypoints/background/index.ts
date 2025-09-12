@@ -1,7 +1,7 @@
 import {
   HostSettingsController,
   IconController,
-  PredictionCacheController,
+  ImageCacheController,
   InferenceController,
   MessageChannelController,
 } from '@/entrypoints/background/controllers';
@@ -9,7 +9,7 @@ import { IconEventListener, TabEventListener } from '@/entrypoints/background/ev
 import {
   HostSettingsService,
   ModelLoaderService,
-  PredictionCacheService,
+  ImageCacheService,
   ImageProcessorService,
   PredictionService,
   QueueService,
@@ -20,7 +20,7 @@ export default defineBackground(() => {
   // Initialize core services (business logic layer)
   const hostSettingsService = new HostSettingsService();
   const modelLoaderService = new ModelLoaderService();
-  const predictionCacheService = new PredictionCacheService();
+  const imageCacheService = new ImageCacheService();
 
   // Initialize new architecture services
   const imageProcessorService = new ImageProcessorService();
@@ -33,7 +33,7 @@ export default defineBackground(() => {
   const inferenceService = new InferenceOrchestrationService(
     queueService,
     predictionService,
-    predictionCacheService,
+    imageCacheService,
     tabEventListener,
   );
 
@@ -43,7 +43,7 @@ export default defineBackground(() => {
   // Initialize controllers (message/request handling layer)
   const hostSettingsController = new HostSettingsController(hostSettingsService);
   const iconController = new IconController();
-  const predictionCacheController = new PredictionCacheController();
+  const imageCacheController = new ImageCacheController();
   const inferenceController = new InferenceController(inferenceService, hostSettingsService);
   const messageChannelController = new MessageChannelController(hostSettingsService, inferenceService);
 
@@ -52,7 +52,7 @@ export default defineBackground(() => {
   tabEventListener.initialize();
   hostSettingsController.initialize();
   iconController.initialize();
-  predictionCacheController.initialize();
+  imageCacheController.initialize();
   inferenceController.initialize();
   messageChannelController.initialize();
 

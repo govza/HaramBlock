@@ -2,7 +2,7 @@ import { sendMessage } from 'webext-bridge/background';
 
 import { type TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
-import { type PredictionCacheService } from '@/entrypoints/background/services/predictionCacheService';
+import { type ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import { type PredictionService } from '@/entrypoints/background/services/predictionService';
 import { type QueueService } from '@/entrypoints/background/services/queueService';
 import { logger, extractUrlId } from '@/utils/logger';
@@ -24,7 +24,7 @@ export class InferenceOrchestrationService {
   constructor(
     private queueService: QueueService,
     private processingService: PredictionService,
-    private predictionCacheService: PredictionCacheService,
+    private imageCacheService: ImageCacheService,
     private tabEventListener: TabEventListener,
   ) {
     this.setupEventHandlers();
@@ -38,13 +38,13 @@ export class InferenceOrchestrationService {
 
     // Check cache first to avoid expensive processing
     try {
-      const cachedPredictions = await this.predictionCacheService.getCachedPredictionsBySrc(imageSrc);
+      const cachedPredictions = await this.imageCacheService.getCachedPredictionsBySrc(imageSrc);
 
       if (cachedPredictions && cachedPredictions.length > 0) {
         // Maybe we have image cached on different hostname (cdn, etc.)
         logger.withTag('inferenceOrchestrationService').debug(`Cache hit for ${extractUrlId(imageSrc)} on src`);
         // Save cache as hostname key as well
-        await this.predictionCacheService.cachePredictions(
+        await this.imageCacheService.cachePredictions(
           cachedPredictions.map(prediction => ({
             ...prediction,
             hostname,
@@ -110,7 +110,7 @@ export class InferenceOrchestrationService {
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     try {
-      await this.predictionCacheService.cachePredictions([imagePrediction]);
+      await this.imageCacheService.cachePredictions([imagePrediction]);
       await this.sendPredictionsToContent([imagePrediction], task.tabId);
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error(`Error handling success for task ${task.id}:`, error);

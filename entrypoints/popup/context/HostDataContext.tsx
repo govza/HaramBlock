@@ -4,7 +4,7 @@ import { useHostname } from '@/hooks/useHostname';
 import { useHostSettings } from '@/hooks/useHostSettings';
 import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
 import { type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
-import { PredictionCacheRepository } from '@/utils/db/predictionCacheRepository';
+import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 
 import type { IHostSettings } from '@/utils/types';
 
@@ -14,7 +14,7 @@ type HostDataType = {
   isLoading: boolean;
   error?: string;
   hostSettingsRepository: HostSettingsRepository;
-  predictionCacheRepository: PredictionCacheRepository;
+  imageCacheRepository: ImageCacheRepository;
   switchToGlobal: () => void;
   switchToLocal: () => void;
   isGlobalMode: boolean;
@@ -25,7 +25,7 @@ const HostDataContext = createContext<HostDataType>({
   currentHostname: defaultGlobalKey,
   isLoading: false,
   hostSettingsRepository: {} as HostSettingsRepository,
-  predictionCacheRepository: {} as PredictionCacheRepository,
+  imageCacheRepository: {} as ImageCacheRepository,
   switchToGlobal: () => {},
   switchToLocal: () => {},
   isGlobalMode: false,
@@ -42,7 +42,7 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const currentHostname = isGlobalMode ? defaultGlobalKey : detectedHostname;
   const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
   const error = hostnameError;
-  const predictionCacheRepository = useMemo(() => new PredictionCacheRepository(), []);
+  const imageCacheRepository = useMemo(() => new ImageCacheRepository(), []);
 
   // Check global settings to enforce global mode if policy !== "process"
   useEffect(() => {
@@ -78,7 +78,7 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
         isLoading,
         error,
         hostSettingsRepository,
-        predictionCacheRepository,
+        imageCacheRepository,
         switchToGlobal,
         switchToLocal,
         isGlobalMode,

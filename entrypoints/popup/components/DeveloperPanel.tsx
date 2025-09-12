@@ -61,7 +61,7 @@ const calculateStats = (predictions: IImagePrediction[]): PredictionStats => {
 };
 
 export const DeveloperPanel = () => {
-  const { currentHostname, predictionCacheRepository } = useHostDataContext();
+  const { currentHostname, imageCacheRepository } = useHostDataContext();
   const [stats, setStats] = useState<PredictionStats | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
@@ -79,7 +79,7 @@ export const DeveloperPanel = () => {
       }
 
       try {
-        const predictions = await predictionCacheRepository.findValidByHostname(currentHostname);
+        const predictions = await imageCacheRepository.findValidByHostname(currentHostname);
         const calculatedStats = calculateStats(predictions);
         setStats(calculatedStats);
       } catch (error) {
@@ -101,7 +101,7 @@ export const DeveloperPanel = () => {
     }, 2000); // Refresh every 2 seconds
 
     return () => clearInterval(intervalId);
-  }, [currentHostname, predictionCacheRepository]);
+  }, [currentHostname, imageCacheRepository]);
 
   if (!stats && !isInitialLoading) return null;
 
