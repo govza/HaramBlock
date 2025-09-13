@@ -6,6 +6,7 @@ type BlurOverlayState = {
   resizeObserver: ResizeObserver | null;
   viewportHandler: (() => void) | null;
   currentPrediction: IImagePrediction | undefined;
+  parent: HTMLElement | null;
 };
 
 const blurStates = new WeakMap<HTMLImageElement, BlurOverlayState>();
@@ -23,8 +24,11 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
     parent.style.position = 'relative';
   }
 
-  const state = blurStates.get(image) ?? { resizeObserver: null, viewportHandler: null, currentPrediction: undefined };
+  const state =
+    blurStates.get(image) ??
+    ({ resizeObserver: null, viewportHandler: null, currentPrediction: undefined, parent: null } as BlurOverlayState);
   state.currentPrediction = imagePrediction;
+  state.parent = parent;
   blurStates.set(image, state);
 
   const render = () => {
@@ -92,7 +96,9 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
 };
 
 export const removeBlurBoxOverlays = (image: HTMLImageElement): void => {
-  const parent = image.parentElement;
+  // Prefer stored parent from state when available (works even if image is detached)
+  const state = blurStates.get(image);
+  const parent = state?.parent ?? image.parentElement;
   if (!parent) return;
   const blurBoxes = parent.querySelectorAll('.haramblock-blur-box');
   blurBoxes.forEach(box => box.remove());
@@ -110,7 +116,13 @@ export const clearBlurBoxOverlay = (image: HTMLImageElement): void => {
       globalThis.removeEventListener('resize', state.viewportHandler);
       globalThis.removeEventListener('scroll', state.viewportHandler);
     }
+    // Remove any existing blur boxes from the stored parent (if present)
+    if (state.parent) {
+      const blurBoxes = state.parent.querySelectorAll('.haramblock-blur-box');
+      blurBoxes.forEach(box => box.remove());
+    }
     blurStates.delete(image);
   }
+  // Fallback removal using current parent if available
   removeBlurBoxOverlays(image);
 };
