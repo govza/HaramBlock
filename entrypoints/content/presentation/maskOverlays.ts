@@ -360,7 +360,6 @@ const setupImageObservers = (image: HTMLImageElement, state: ImageOverlayState):
   }
   if (state.viewportHandler) {
     globalThis.removeEventListener('resize', state.viewportHandler);
-    globalThis.removeEventListener('scroll', state.viewportHandler);
     state.viewportHandler = undefined;
   }
 
@@ -399,7 +398,6 @@ const setupImageObservers = (image: HTMLImageElement, state: ImageOverlayState):
   // Viewport changes that can affect layout
   state.viewportHandler = () => scheduleUpdate();
   globalThis.addEventListener('resize', state.viewportHandler);
-  globalThis.addEventListener('scroll', state.viewportHandler, { passive: true } as AddEventListenerOptions);
 
   // Clean up when image is removed
   state.cleanupObserver = new MutationObserver(mutations => {
@@ -419,7 +417,6 @@ const setupImageObservers = (image: HTMLImageElement, state: ImageOverlayState):
           }
           if (state.viewportHandler) {
             globalThis.removeEventListener('resize', state.viewportHandler);
-            globalThis.removeEventListener('scroll', state.viewportHandler);
             state.viewportHandler = undefined;
           }
           imageStates.delete(image);
@@ -496,7 +493,6 @@ export const clearMaskOverlay = (image: HTMLImageElement): void => {
     }
     if (state.viewportHandler) {
       globalThis.removeEventListener('resize', state.viewportHandler);
-      globalThis.removeEventListener('scroll', state.viewportHandler);
       state.viewportHandler = undefined;
     }
     state.destroyed = true;
