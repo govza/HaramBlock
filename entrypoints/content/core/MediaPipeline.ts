@@ -119,9 +119,36 @@ export class MediaPipeline {
         return;
       }
 
+      // Wait for images to load before applying styling
+      const loadedImages = await Promise.all(
+        matchingImages.map(async img => {
+          if (img.complete && img.naturalWidth > 0) {
+            return img;
+          }
+
+          return new Promise<HTMLImageElement>(resolve => {
+            const handleLoad = () => {
+              img.removeEventListener('load', handleLoad);
+              img.removeEventListener('error', handleError);
+              resolve(img);
+            };
+
+            const handleError = () => {
+              img.removeEventListener('load', handleLoad);
+              img.removeEventListener('error', handleError);
+              logger.withTag('pipeline').debug(`Image failed to load: ${extractUrlId(pred.src)}`);
+              resolve(img); // Still resolve to allow cleanup
+            };
+
+            img.addEventListener('load', handleLoad);
+            img.addEventListener('error', handleError);
+          });
+        }),
+      );
+
       // If this prediction has no detections, ensure overlays are cleared
       if (!pred.predictions || pred.predictions.length === 0) {
-        for (const image of matchingImages) {
+        for (const image of loadedImages) {
           clearMaskOverlay(image);
           clearBlurBoxOverlay(image);
           removeInitialImageStyling(image);
@@ -130,8 +157,13 @@ export class MediaPipeline {
         return;
       }
 
-      await applyPredictionsStyling(matchingImages, [pred], this.opts.hostSettings);
-      for (const image of matchingImages) {
+      // Only apply styling to fully loaded images
+      const fullyLoadedImages = loadedImages.filter(img => img.complete && img.naturalWidth > 0);
+      if (fullyLoadedImages.length > 0) {
+        await applyPredictionsStyling(fullyLoadedImages, [pred], this.opts.hostSettings);
+      }
+
+      for (const image of loadedImages) {
         markProcessed(image, pred.src);
         removeInitialImageStyling(image);
       }
