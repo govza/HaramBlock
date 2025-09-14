@@ -6,23 +6,26 @@ import { applyPredictionsStyling } from '@/entrypoints/content/presentation/pred
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
-export async function applyPredictionsToDom(preds: IImagePrediction[], hostSettings: IHostSettings): Promise<void> {
+export async function applyPredictionsToDom(
+  preds: IImagePrediction[],
+  hostSettings: IHostSettings,
+  targetImages?: HTMLImageElement[],
+): Promise<void> {
   // Deduplicate by src to avoid re-applying overlays multiple times per batch
   const bySrc = new Map<string, IImagePrediction>();
   for (const p of preds) bySrc.set(p.src, p);
   const uniquePreds = Array.from(bySrc.values());
 
   const processPrediction = async (pred: IImagePrediction): Promise<void> => {
-    // Main method: find images in DOM by src
-    const images = findImagesBySourceInDom(pred.src);
+    // Use target images if provided, otherwise find by data attributes
+    const images = targetImages
+      ? targetImages.filter(img => (img.currentSrc || img.src) === pred.src)
+      : findImagesByDataSrc(pred.src);
     if (!images.length) return;
-
-    const matchingImages = images.filter(img => (img.currentSrc || img.src) === pred.src);
-    if (!matchingImages.length) return;
 
     // Wait for images to load before applying styling
     const loadedImages = await Promise.all(
-      matchingImages.map(async img => {
+      images.map(async img => {
         if (img.complete && img.naturalWidth > 0) {
           return img;
         }
@@ -72,16 +75,8 @@ export async function applyPredictionsToDom(preds: IImagePrediction[], hostSetti
   await Promise.all(uniquePreds.map(processPrediction));
 }
 
-function findImagesBySourceInDom(src: string): HTMLImageElement[] {
-  const images: HTMLImageElement[] = [];
-  const allImages = document.querySelectorAll('img');
-
-  for (const img of allImages) {
-    const imgSrc = img.currentSrc || img.src;
-    if (imgSrc === src) {
-      images.push(img);
-    }
-  }
-
-  return images;
+function findImagesByDataSrc(src: string): HTMLImageElement[] {
+  // Use CSS selector to find images with matching data-hb-src attribute
+  const selector = `img[data-hb-src="${CSS.escape(src)}"]`;
+  return Array.from(document.querySelectorAll<HTMLImageElement>(selector));
 }
