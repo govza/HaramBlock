@@ -49,12 +49,21 @@ export class MediaPipeline {
 
   private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
     if (images.length) {
-      handleImages(images, { hostSettings: this.opts.hostSettings, hasCachedPrediction: this.hasCachedPrediction });
       // Apply any cached predictions for newly seen images without resending.
-      const predsToApply = images
+      const cachedPredsToApply = images
         .map(img => this.imagePredictionsCache.get(img.currentSrc || img.src))
         .filter(Boolean) as IImagePrediction[];
-      if (predsToApply.length) void applyPredictionsToDom(predsToApply, this.opts.hostSettings);
+      if (cachedPredsToApply.length) void applyPredictionsToDom(cachedPredsToApply, this.opts.hostSettings);
+
+      // Handle images which are not in cachedPredsToApply
+      const unhandledImages = images.filter(img => {
+        const src = img.currentSrc || img.src;
+        return src && !this.imagePredictionsCache.has(src) && !isHandled(img, src);
+      });
+      handleImages(unhandledImages, {
+        hostSettings: this.opts.hostSettings,
+        hasCachedPrediction: this.hasCachedPrediction,
+      });
     }
     if (videos.length) this.handleVideos(videos);
   }
