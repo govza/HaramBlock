@@ -1,4 +1,4 @@
-import { markProcessed } from '@/entrypoints/content/handlers/status';
+import { markHandled, markProcessed } from '@/entrypoints/content/handlers/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
@@ -55,6 +55,7 @@ export async function applyPredictionsToDom(
         clearMaskOverlay(image);
         clearBlurBoxOverlay(image);
         removeInitialImageStyling(image);
+        markHandled(image, pred.src);
         markProcessed(image, pred.src);
       }
       return;

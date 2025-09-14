@@ -12,7 +12,7 @@ export interface HostSettingsUpdateMessage {
   hostname: string;
 }
 
-export interface InferencePredictionsMessage {
+export interface InferenceImagePredictionsMessage {
   predictions: IImagePrediction[];
   hostname: string;
 }
@@ -35,16 +35,16 @@ export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage
  * @param callback - Function to call when predictions are received
  * @returns Cleanup function to remove the listener
  */
-export function onInferencePredictions(callback: (data: InferencePredictionsMessage) => void): () => void {
-  return onMessage('INFERENCE_PREDICTIONS', message => {
+export function onImageInferenceResult(callback: (data: InferenceImagePredictionsMessage) => void): () => void {
+  return onMessage('INFERENCE_IMAGE_PREDICTIONS', message => {
     if (message.data) {
       logger.withTag('listener').debug(
-        'INFERENCE_PREDICTIONS:',
+        'INFERENCE_IMAGE_PREDICTIONS:',
         message.data.predictions.map(
           pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
         ),
       );
-      callback(message.data as unknown as InferencePredictionsMessage);
+      callback(message.data as unknown as InferenceImagePredictionsMessage);
     }
   });
 }
@@ -73,7 +73,7 @@ export function onInferencePredictionsForHostname(
   targetHostname: string,
   callback: (predictions: IImagePrediction[]) => void,
 ): () => void {
-  return onInferencePredictions(data => {
+  return onImageInferenceResult(data => {
     if (data.hostname === targetHostname) {
       callback(data.predictions);
     }
@@ -87,7 +87,7 @@ export function onInferencePredictionsForHostname(
  */
 export function setupListeners(listeners: {
   onHostSettingsUpdated?: (data: HostSettingsUpdateMessage) => void;
-  onInferencePredictions?: (data: InferencePredictionsMessage) => void;
+  onInferencePredictions?: (data: InferenceImagePredictionsMessage) => void;
 }): () => void {
   const cleanupFunctions: (() => void)[] = [];
 
@@ -96,7 +96,7 @@ export function setupListeners(listeners: {
   }
 
   if (listeners.onInferencePredictions) {
-    cleanupFunctions.push(onInferencePredictions(listeners.onInferencePredictions));
+    cleanupFunctions.push(onImageInferenceResult(listeners.onInferencePredictions));
   }
 
   // Return single cleanup function that calls all individual cleanup functions
