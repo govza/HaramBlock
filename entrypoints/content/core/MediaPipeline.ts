@@ -1,4 +1,4 @@
-import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
+import { onImageInferenceResult } from '@/entrypoints/content/communication/listener';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
@@ -15,8 +15,6 @@ export class MediaPipeline {
   private unsubscribeFns: Array<() => void> = [];
   // Cache predictions per src so we can avoid re-sending
   private imagePredictionsCache = new Map<string, IImagePrediction>();
-  // helper to pass into image handler functions
-  private readonly hasCachedPrediction = (src: string): boolean => this.imagePredictionsCache.has(src);
 
   constructor(private readonly opts: { hostSettings: IHostSettings }) {
     this.dom = new DomObserver({
@@ -33,8 +31,8 @@ export class MediaPipeline {
   }
 
   start(root: Node = document.body): () => void {
-    const unsubPreds = onInferencePredictions(data => this.onPredictions(data.predictions));
-    this.unsubscribeFns.push(unsubPreds);
+    const unsubImagePreds = onImageInferenceResult(data => this.onImagePredictions(data.predictions));
+    this.unsubscribeFns.push(unsubImagePreds);
 
     this.dom.start(root);
 
@@ -49,21 +47,7 @@ export class MediaPipeline {
 
   private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
     if (images.length) {
-      // Apply any cached predictions for newly seen images without resending.
-      const cachedPredsToApply = images
-        .map(img => this.imagePredictionsCache.get(img.currentSrc || img.src))
-        .filter(Boolean) as IImagePrediction[];
-      if (cachedPredsToApply.length) void applyPredictionsToDom(cachedPredsToApply, this.opts.hostSettings);
-
-      // Handle images which are not in cachedPredsToApply
-      const unhandledImages = images.filter(img => {
-        const src = img.currentSrc || img.src;
-        return src && !this.imagePredictionsCache.has(src) && !isHandled(img, src);
-      });
-      handleImages(unhandledImages, {
-        hostSettings: this.opts.hostSettings,
-        hasCachedPrediction: this.hasCachedPrediction,
-      });
+      handleImages(images, this.opts.hostSettings);
     }
     if (videos.length) this.handleVideos(videos);
   }
@@ -74,17 +58,12 @@ export class MediaPipeline {
       if (tag === 'IMG') {
         const img = el as HTMLImageElement;
 
-        handleImageAttributeChange(img, {
-          hostSettings: this.opts.hostSettings,
-          hasCachedPrediction: this.hasCachedPrediction,
-        });
-
-        // Apply cached predictions if available (debouncing now handled by DomObserver)
-        const currentSrc = img.currentSrc || img.src;
-        const cached = currentSrc ? this.imagePredictionsCache.get(currentSrc) : undefined;
-
-        if (cached) {
-          void applyPredictionsToDom([cached], this.opts.hostSettings, [img]);
+        // Apply cached predictions if available
+        const cachedPredsToApply = this.imagePredictionsCache.get(img.currentSrc || img.src);
+        if (cachedPredsToApply) {
+          void applyPredictionsToDom([cachedPredsToApply], this.opts.hostSettings, [img]);
+        } else {
+          handleImageAttributeChange(img, this.opts.hostSettings);
         }
       } else if (tag === 'VIDEO') {
         this.handleVideos([el as HTMLVideoElement]);
@@ -103,8 +82,8 @@ export class MediaPipeline {
     }
   }
 
-  // Called when predictions are received from the background script
-  private onPredictions(preds: IImagePrediction[]): void {
+  // Called when image predictions are received from the background script
+  private onImagePredictions(preds: IImagePrediction[]): void {
     if (!preds || preds.length === 0) return;
     // Update cache and apply styles
     preds.forEach(p => this.imagePredictionsCache.set(p.src, p));

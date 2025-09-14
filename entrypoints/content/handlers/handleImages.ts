@@ -14,24 +14,19 @@ import { extractUrlId, logger } from '@/utils/logger';
 
 import type { IHostSettings } from '@/utils/types';
 
-type Deps = {
-  hostSettings: IHostSettings;
-  hasCachedPrediction: (src: string) => boolean;
-};
-
-export function handleImages(images: HTMLImageElement[], deps: Deps): void {
+export function handleImages(images: HTMLImageElement[], hostSettings: IHostSettings): void {
   for (const image of images) {
     const src = image.currentSrc || image.src;
     if (!src) continue;
     if (!isHandled(image, src)) {
-      applyInitialImageStyling(image, deps.hostSettings);
+      applyInitialImageStyling(image, hostSettings);
       markHandled(image, src);
-      queueForInference(image, deps);
+      queueForInference(image, hostSettings);
     }
   }
 }
 
-export function handleImageAttributeChange(img: HTMLImageElement, deps: Deps): void {
+export function handleImageAttributeChange(img: HTMLImageElement, hostSettings: IHostSettings): void {
   const currentSrc = img.currentSrc || img.src;
   if (img.dataset.hbSrc && img.dataset.hbSrc !== currentSrc) {
     clearMaskOverlay(img);
@@ -42,10 +37,10 @@ export function handleImageAttributeChange(img: HTMLImageElement, deps: Deps): v
     delete img.dataset.hbProcessed;
     img.dataset.hbSrc = currentSrc;
   }
-  handleImages([img], deps);
+  handleImages([img], hostSettings);
 }
 
-function queueForInference(image: HTMLImageElement, deps: Deps): void {
+function queueForInference(image: HTMLImageElement, hostSettings: IHostSettings): void {
   const trySendForInference = async () => {
     const src = image.currentSrc || image.src;
     if (!src) return;
@@ -54,12 +49,8 @@ function queueForInference(image: HTMLImageElement, deps: Deps): void {
       return;
     }
 
-    // If we already have a cached prediction for this src, skip sending.
-    // MediaPipeline is responsible for applying cached predictions to DOM.
-    if (deps.hasCachedPrediction(src)) return;
-
-    const minW = deps.hostSettings.minSize?.width ?? defaultHostSettings.minSize.width;
-    const minH = deps.hostSettings.minSize?.height ?? defaultHostSettings.minSize.height;
+    const minW = hostSettings.minSize?.width ?? defaultHostSettings.minSize.width;
+    const minH = hostSettings.minSize?.height ?? defaultHostSettings.minSize.height;
     const w = image.naturalWidth || image.width;
     const h = image.naturalHeight || image.height;
     if (w < minW || h < minH) {
@@ -68,7 +59,7 @@ function queueForInference(image: HTMLImageElement, deps: Deps): void {
     }
 
     try {
-      await requestImageInference(deps.hostSettings.hostname, image);
+      await requestImageInference(hostSettings.hostname, image);
       markSentForInference(image, src);
       logger.withTag('pipeline').debug(`Sent image ${extractUrlId(src)} for inference`);
     } catch (error) {

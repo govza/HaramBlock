@@ -22,6 +22,6 @@ declare module 'webext-bridge' {
     POST_INFERENCE_IMAGES: ProtocolWithReturn<{ hostname: string; imageData: IImageWithMetadata }, void>;
 
     // Notify content scripts of inference predictions
-    INFERENCE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[] }, void>;
+    INFERENCE_IMAGE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[] }, void>;
   }
 }
