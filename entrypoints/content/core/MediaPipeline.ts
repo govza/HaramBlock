@@ -75,7 +75,7 @@ export class MediaPipeline {
         const cached = currentSrc ? this.imagePredictionsCache.get(currentSrc) : undefined;
 
         if (cached) {
-          void applyPredictionsToDom([cached], this.opts.hostSettings);
+          void applyPredictionsToDom([cached], this.opts.hostSettings, [img]);
         }
       } else if (tag === 'VIDEO') {
         this.handleVideos([el as HTMLVideoElement]);
