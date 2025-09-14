@@ -3,10 +3,13 @@ export interface DomObserverConfig {
   onMediaRemoved: (elements: HTMLElement[]) => void;
   onAttributesChanged: (elements: HTMLElement[]) => void;
   rescanInterval?: number; // ms - periodic rescan for missed elements
+  attributeChangeDebounce?: number; // ms - debounce delay for attribute changes (default: 10)
 }
 
 export class DomObserver {
   private observer: MutationObserver | null = null;
+  private attributeChangeTimeout: ReturnType<typeof setTimeout> | null = null;
+  private pendingAttributeChanges = new Set<HTMLElement>();
 
   constructor(private config: DomObserverConfig) {}
 
@@ -20,7 +23,6 @@ export class DomObserver {
       const addedImages: HTMLImageElement[] = [];
       const addedVideos: HTMLVideoElement[] = [];
       const removedElements: HTMLElement[] = [];
-      const changedElements: HTMLElement[] = [];
 
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
@@ -60,7 +62,7 @@ export class DomObserver {
         } else if (mutation.type === 'attributes') {
           const target = mutation.target as HTMLElement;
           if (target.tagName === 'IMG' || target.tagName === 'VIDEO') {
-            changedElements.push(target);
+            this.pendingAttributeChanges.add(target);
           }
         }
       }
@@ -73,8 +75,9 @@ export class DomObserver {
         this.config.onMediaRemoved(removedElements);
       }
 
-      if (changedElements.length > 0) {
-        this.config.onAttributesChanged(changedElements);
+      // Debounce attribute changes to handle SPA/React carousel updates
+      if (this.pendingAttributeChanges.size > 0) {
+        this.scheduleAttributeChangeCallback();
       }
     });
 
@@ -92,6 +95,28 @@ export class DomObserver {
       this.observer.disconnect();
       this.observer = null;
     }
+    if (this.attributeChangeTimeout) {
+      clearTimeout(this.attributeChangeTimeout);
+      this.attributeChangeTimeout = null;
+    }
+    this.pendingAttributeChanges.clear();
+  }
+
+  private scheduleAttributeChangeCallback(): void {
+    if (this.attributeChangeTimeout) {
+      clearTimeout(this.attributeChangeTimeout);
+    }
+
+    const debounceMs = this.config.attributeChangeDebounce ?? 10;
+    this.attributeChangeTimeout = setTimeout(() => {
+      const elements = Array.from(this.pendingAttributeChanges);
+      this.pendingAttributeChanges.clear();
+      this.attributeChangeTimeout = null;
+
+      if (elements.length > 0) {
+        this.config.onAttributesChanged(elements);
+      }
+    }, debounceMs);
   }
 
   private scanExistingElements(root: Node): void {
