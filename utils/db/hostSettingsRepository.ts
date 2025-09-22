@@ -3,7 +3,7 @@ import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
-import type { IHostSettings, MaskType, OutlineType, HostPolicy } from '@/utils/types';
+import type { IHostSettings, OutlineType, HostPolicy } from '@/utils/types';
 
 /**
  * Repository for managing host settings records
@@ -89,19 +89,6 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   async setOutline(hostname: string, outlineVariant: OutlineType): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.outline = outlineVariant;
-    await this.saveSettings(settings);
-    return settings;
-  }
-
-  /**
-   * Set mask types for hostname
-   * @param hostname - The hostname to update
-   * @param maskArray - Array of mask types to set
-   * @returns Updated host settings
-   */
-  async setMask(hostname: string, maskArray: MaskType[]): Promise<IHostSettings> {
-    const settings = await this.findByHostname(hostname);
-    settings.masks = maskArray;
     await this.saveSettings(settings);
     return settings;
   }

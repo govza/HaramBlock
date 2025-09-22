@@ -4,7 +4,7 @@ export const defaultGlobalKey = 'global';
 
 export const defaultHostSettings: IHostSettings = {
   hostname: defaultGlobalKey,
-  masks: ['blur'],
+  masking: { blur: true },
   isGlobal: true,
   outline: 'segment',
   policy: 'process',

@@ -19,13 +19,12 @@ export const applyPredictionsStyling = (
     logger.withTag('predictionStyling').debug('Processing image', {
       imageSrc: extractUrlId(imageSrc),
       hasImagePrediction: Boolean(imagePrediction),
-      maskSettings: hostSettings.masks,
-      includesBlur: hostSettings.masks.includes('blur'),
+      masking: hostSettings.masking,
       outline: hostSettings.outline,
       policy: hostSettings.policy,
     });
 
-    if (imagePrediction && hostSettings.masks.includes('blur')) {
+    if (imagePrediction && hostSettings.masking.blur) {
       const overlayPromise = new Promise<void>(resolve => {
         requestAnimationFrame(() => {
           logger.withTag('predictionStyling').debug('Creating overlay', {

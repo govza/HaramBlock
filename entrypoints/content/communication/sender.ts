@@ -15,12 +15,16 @@ import type { IHostSettings, IImagePrediction, IImageMetadata, IImageWithMetadat
  * @param hostname - The hostname to get settings for
  * @returns Promise resolving to host settings or undefined
  */
-export async function requestHostSettings(hostname: string): Promise<IHostSettings | undefined> {
+export async function requestHostSettings(hostname: string): Promise<IHostSettings> {
   try {
-    return await sendMessage('GET_HOST_SETTINGS', { hostname }, 'background');
+    const result = await sendMessage('GET_HOST_SETTINGS', { hostname }, 'background');
+    if (!result) {
+      throw new Error('No host settings returned from background script');
+    }
+    return result;
   } catch (error) {
     logger.withTag('sender').error('Failed to request host settings:', error);
-    return undefined;
+    throw error;
   }
 }
 
@@ -129,7 +133,7 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
  * @returns Promise resolving to object with settings and predictions
  */
 export async function requestHostData(hostname: string): Promise<{
-  settings: IHostSettings | undefined;
+  settings: IHostSettings;
   predictions: IImagePrediction[];
 }> {
   try {
@@ -144,10 +148,7 @@ export async function requestHostData(hostname: string): Promise<{
     };
   } catch (error) {
     logger.withTag('sender').error('Failed to request host data:', error);
-    return {
-      settings: undefined,
-      predictions: [],
-    };
+    throw error;
   }
 }
 

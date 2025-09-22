@@ -8,10 +8,7 @@ export const removeInitialImageStyling = (image: HTMLImageElement): void => {
 export const applyInitialImageStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {
   if (hostSettings.policy === 'blacklist') {
     image.classList.add('haramblock-blacklist');
-  } else {
-    const { masks } = hostSettings;
-    if (masks.includes('blur')) {
-      image.classList.add('haramblock-initial-blur');
-    }
+  } else if (hostSettings.masking.blur) {
+    image.classList.add('haramblock-initial-blur');
   }
 };
