@@ -26,14 +26,8 @@ export const CustomSettings = () => {
   const isDifferentFromGlobal = (host: IHostSettings, field: keyof IHostSettings): boolean => {
     if (!globalSettings || host.hostname === defaultGlobalKey) return false;
 
-    if (field === 'masks') {
-      const hostMasksSet = new Set(host.masks);
-      const globalMasksSet = new Set(globalSettings.masks);
-      if (hostMasksSet.size !== globalMasksSet.size) return true;
-      for (const mask of hostMasksSet) {
-        if (!globalMasksSet.has(mask)) return true;
-      }
-      return false;
+    if (field === 'masking') {
+      return JSON.stringify(host.masking) !== JSON.stringify(globalSettings.masking);
     }
 
     return host[field] !== globalSettings[field];
@@ -104,7 +98,7 @@ export const CustomSettings = () => {
                 <tr>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('Common.hostname')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Policy.title')}</th>
-                  <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Masks.title')}</th>
+                  <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Masking.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Outline.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Strictness.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('Common.actions')}</th>
@@ -142,20 +136,11 @@ export const CustomSettings = () => {
                         {t(`HostSettings.Policy.${host.policy}`)}
                       </span>
                     </td>
-                    <td className={`px-6 py-4 ${getHighlightClass(host, 'masks')}`}>
+                    <td className={`px-6 py-4 ${getHighlightClass(host, 'masking')}`}>
                       <div className='flex flex-wrap gap-1'>
-                        {host.masks.length > 0 ? (
-                          host.masks.map(mask => (
-                            <span
-                              key={mask}
-                              className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'
-                            >
-                              {t(`HostSettings.Masks.${mask}`)}
-                            </span>
-                          ))
-                        ) : (
-                          <span className='text-text-muted text-xs'>{t('HostSettings.Masks.none')}</span>
-                        )}
+                        <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
+                          {t(`HostSettings.Masking.blur.${host.masking.blur}`)}
+                        </span>
                       </div>
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'outline')}`}>

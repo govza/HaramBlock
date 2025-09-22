@@ -11,21 +11,21 @@ import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 export async function useHostData(
   onDataUpdate?: (data: { settings: IHostSettings; predictions: IImagePrediction[] }) => void,
 ): Promise<{
-  settings: IHostSettings | undefined;
+  settings: IHostSettings;
   predictions: IImagePrediction[];
   isLoading: () => boolean;
   refresh: () => Promise<void>;
   cleanup: () => void;
 }> {
   const { hostname } = globalThis.location;
-  let settings: IHostSettings | undefined;
+  let settings: IHostSettings;
   let predictions: IImagePrediction[] = [];
   let isLoading = true;
   const effectiveHostname = getEffectiveHostname(hostname);
 
   // Function to fetch both settings and predictions from background
   const fetchData = async (): Promise<{
-    settings: IHostSettings | undefined;
+    settings: IHostSettings;
     predictions: IImagePrediction[];
   }> => {
     const hostData = await requestHostData(effectiveHostname);
@@ -46,8 +46,8 @@ export async function useHostData(
     ({ predictions } = data);
     isLoading = false;
 
-    // Call the update callback if provided and settings are available
-    if (onDataUpdate && settings) {
+    // Call the update callback if provided
+    if (onDataUpdate) {
       onDataUpdate({ settings, predictions });
     }
   };

@@ -9,7 +9,7 @@ import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
 import { logger } from '@/utils/logger';
 
-import type { MaskType, OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
+import type { OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
 
 /**
  * Reactive hook for HostSettings data management
@@ -194,12 +194,6 @@ export function useHostSettings(hostname: string) {
           },
           setOutline: async (hostname: string, outlineVariant: OutlineType) => {
             const result = await target.setOutline(hostname, outlineVariant);
-            await updateIcon();
-            await notifyContentScripts();
-            return result;
-          },
-          setMask: async (hostname: string, maskArray: MaskType[]) => {
-            const result = await target.setMask(hostname, maskArray);
             await updateIcon();
             await notifyContentScripts();
             return result;

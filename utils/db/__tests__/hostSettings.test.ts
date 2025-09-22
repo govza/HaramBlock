@@ -41,7 +41,7 @@ const TEST_HOSTNAME = 'example.com';
 const STANDARD_SETTINGS: IHostSettings = {
   hostname: TEST_HOSTNAME,
   isGlobal: false,
-  masks: ['blur'],
+  masking: { blur: true },
   outline: 'bbox',
   policy: 'whitelist',
   strictness: 0.8,
@@ -51,7 +51,7 @@ const STANDARD_SETTINGS: IHostSettings = {
 const GLOBAL_SETTINGS: IHostSettings = {
   hostname: defaultGlobalKey,
   isGlobal: true,
-  masks: ['blur'],
+  masking: { blur: true },
   outline: 'segment',
   policy: 'process',
   strictness: 0.8,
@@ -164,7 +164,7 @@ describe('HostSettingsRepository', () => {
       await repository.create({
         hostname: TEST_HOSTNAME,
         isGlobal: false,
-        masks: [],
+        masking: { blur: false },
         outline: 'bbox',
         policy: 'whitelist',
         strictness: 0,
@@ -174,7 +174,7 @@ describe('HostSettingsRepository', () => {
       expect(mockAdd).toHaveBeenCalledWith({
         hostname: TEST_HOSTNAME,
         isGlobal: false,
-        masks: [],
+        masking: { blur: false },
         outline: 'bbox',
         policy: 'whitelist',
         strictness: 0,

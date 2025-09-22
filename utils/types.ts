@@ -1,11 +1,10 @@
 export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
-export type MaskType = 'blur' | 'pixelate';
 export type OutlineType = 'bbox' | 'segment' | 'full';
 
 export interface IHostSettings {
   hostname: string;
   isGlobal: boolean;
-  masks: MaskType[];
+  masking: { blur: boolean };
   outline: OutlineType;
   policy: HostPolicy;
   strictness: number;
