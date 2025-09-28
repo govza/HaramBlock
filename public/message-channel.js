@@ -10,9 +10,11 @@ window.onmessage = e => {
     window.onmessage = null;
     // once the self.onmessage event listener is set up in the service worker
     // we pass it the MessagePort object from the content script
-    navigator.serviceWorker.ready.then(swr => {
-      // include the secret so the SW can associate this port with the tab
-      swr.active.postMessage({ type: 'PORT_READY', secret }, [e.ports[0]]);
-    });
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.ready.then(swr => {
+        // include the secret so the SW can associate this port with the tab
+        swr.active.postMessage({ type: 'PORT_READY', secret }, [e.ports[0]]);
+      });
+    }
   }
 };
