@@ -6,9 +6,9 @@ import { createCacheMetadataFromImageMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger, extractUrlId } from '@/utils/logger';
 
-import type { InferenceTask } from '@/entrypoints/background/modelUtils/types';
 import type { ModelLoaderService, ImageProcessorService } from '@/entrypoints/background/services';
 import type { IElementPrediction, IImagePrediction, IMaskTransform, Metadata } from '@/utils/types';
+import type { InferenceTask } from '@/utils/types/model';
 
 export class PredictionError extends Error {
   constructor(message: string, cause?: unknown) {

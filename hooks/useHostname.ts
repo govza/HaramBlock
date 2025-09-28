@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-import { defaultGlobalKey } from '@/utils/db/constants';
+import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 import { extractHostnameFromUrl } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 
@@ -9,7 +9,7 @@ import { logger } from '@/utils/logger';
  * Handles auto-detection of current tab hostname
  */
 export function useHostname() {
-  const [detectedHostname, setDetectedHostname] = useState<string>(defaultGlobalKey);
+  const [detectedHostname, setDetectedHostname] = useState<string>(DEFAULT_GLOBAL_KEY);
   const [error, setError] = useState<string | null>(null);
 
   // Auto-detect current hostname from active tab
@@ -23,7 +23,7 @@ export function useHostname() {
         const urlFromTab = tabs[0]?.url;
         if (urlFromTab) {
           const currentHostname = extractHostnameFromUrl(urlFromTab);
-          setDetectedHostname(currentHostname || defaultGlobalKey);
+          setDetectedHostname(currentHostname || DEFAULT_GLOBAL_KEY);
         }
       } catch (error) {
         setError('Error fetching current tab URL');

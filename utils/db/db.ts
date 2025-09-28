@@ -1,7 +1,8 @@
 import Dexie, { type Table } from 'dexie';
 
-import { defaultHostSettings } from '@/utils/db/constants';
-import { type IHostSettings, type IImagePrediction } from '@/utils/types';
+import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
+
+import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
 /**
  * HostSettingsDatabase - Dexie database for host settings
@@ -22,7 +23,7 @@ export const hostSettingsDb = new HostSettingsDatabase();
 
 hostSettingsDb.on('populate', () => {
   // Initialize with default global settings
-  void hostSettingsDb.hostSettings.add(defaultHostSettings);
+  void hostSettingsDb.hostSettings.add(DEFAULT_HOST_SETTINGS);
 });
 
 /**

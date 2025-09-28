@@ -1,12 +1,12 @@
 import { sendMessage } from 'webext-bridge/background';
 
-import { type TabEventListener } from '@/entrypoints/background/events/tabEventListener';
-import { type InferenceTask } from '@/entrypoints/background/modelUtils/types';
-import { type ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
-import { type PredictionService } from '@/entrypoints/background/services/predictionService';
-import { type QueueService } from '@/entrypoints/background/services/queueService';
 import { logger, extractUrlId } from '@/utils/logger';
-import { type IImagePrediction, type IHostSettings, type IImageMetadata } from '@/utils/types';
+
+import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
+import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
+import type { PredictionService } from '@/entrypoints/background/services/predictionService';
+import type { QueueService } from '@/entrypoints/background/services/queueService';
+import type { IImagePrediction, IHostSettings, IImageMetadata, InferenceTask } from '@/utils/types';
 
 export type InferenceInput =
   | { kind: 'src'; imageSrc: string }

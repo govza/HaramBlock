@@ -1,4 +1,4 @@
-import { type CoordinateTransform, type ModelDetection } from '@/entrypoints/background/modelUtils/types';
+import { type CoordinateTransform, type ModelDetection } from '@/utils/types';
 
 /**
  * Calculate bounding box coordinates from YOLO detection data

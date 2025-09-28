@@ -1,12 +1,12 @@
 import { useCallback } from 'react';
 
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
-import { defaultGlobalKey } from '@/utils/db/constants';
+import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 import { t } from '@/utils/i18n';
 
 export const Header = () => {
   const { hostSettings, hostSettingsRepository } = useHostDataContext();
-  const isGlobalSettings = hostSettings.hostname === defaultGlobalKey;
+  const isGlobalSettings = hostSettings.hostname === DEFAULT_GLOBAL_KEY;
 
   const togglePolicy = useCallback(() => {
     void hostSettingsRepository.togglePolicy(hostSettings.hostname);
@@ -50,7 +50,7 @@ export const Header = () => {
   return (
     <div className={`flex w-full items-center p-2 ${isGlobalSettings ? 'bg-danger-bg' : 'bg-secondary'}`}>
       <p className='w-full truncate text-center text-lg'>
-        {isGlobalSettings ? t(defaultGlobalKey) : hostSettings.hostname}
+        {isGlobalSettings ? t(DEFAULT_GLOBAL_KEY) : hostSettings.hostname}
       </p>
       <button onClick={togglePolicy} className='cursor-pointer'>
         <svg className='inline-block h-[2em] w-auto fill-current px-1' viewBox='0 0 24 24'>

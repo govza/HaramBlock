@@ -1,5 +1,5 @@
+import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { BaseRepository } from '@/utils/db/baseRepository';
-import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
 import { hostSettingsDb } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
@@ -25,7 +25,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     return stored
       ? stored
       : {
-          ...defaultHostSettings,
+          ...DEFAULT_HOST_SETTINGS,
           hostname: effectiveHostname,
           isGlobal: isGlobalPage(effectiveHostname),
         };
@@ -39,7 +39,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   async createHostSettings(settings: Partial<IHostSettings> & { hostname: string }): Promise<IHostSettings> {
     const effectiveHostname = getEffectiveHostname(settings.hostname);
     const hostSettings: IHostSettings = {
-      ...defaultHostSettings,
+      ...DEFAULT_HOST_SETTINGS,
       ...settings,
       hostname: effectiveHostname,
       isGlobal: isGlobalPage(effectiveHostname),
@@ -128,8 +128,8 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     const effectiveHostname = getEffectiveHostname(hostname);
 
     // Special case: reset global settings instead of deleting
-    if (effectiveHostname === defaultGlobalKey) {
-      await this.saveSettings(defaultHostSettings);
+    if (effectiveHostname === DEFAULT_GLOBAL_KEY) {
+      await this.saveSettings(DEFAULT_HOST_SETTINGS);
       return;
     }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
+import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { type IHostSettings } from '@/utils/types';
 
@@ -49,7 +49,7 @@ const STANDARD_SETTINGS: IHostSettings = {
 };
 
 const GLOBAL_SETTINGS: IHostSettings = {
-  hostname: defaultGlobalKey,
+  hostname: DEFAULT_GLOBAL_KEY,
   isGlobal: true,
   masking: { blur: true },
   outline: 'segment',
@@ -65,8 +65,8 @@ describe('HostSettingsRepository', () => {
     vi.clearAllMocks();
     repository = new HostSettingsRepository();
     // Set up default mocks
-    mockGetEffectiveHostname.mockImplementation(hostname => hostname || defaultGlobalKey);
-    mockIsGlobalPage.mockImplementation(hostname => hostname === defaultGlobalKey);
+    mockGetEffectiveHostname.mockImplementation(hostname => hostname || DEFAULT_GLOBAL_KEY);
+    mockIsGlobalPage.mockImplementation(hostname => hostname === DEFAULT_GLOBAL_KEY);
   });
 
   afterEach(() => {
@@ -136,11 +136,11 @@ describe('HostSettingsRepository', () => {
 
     it('should handle global pages correctly', async () => {
       mockGet.mockResolvedValue(GLOBAL_SETTINGS);
-      mockGetEffectiveHostname.mockReturnValue(defaultGlobalKey);
+      mockGetEffectiveHostname.mockReturnValue(DEFAULT_GLOBAL_KEY);
       mockIsGlobalPage.mockReturnValue(true);
 
       const hostSettings = await repository.findByHostname('chrome://newtab');
-      expect(mockGet).toHaveBeenCalledWith(defaultGlobalKey);
+      expect(mockGet).toHaveBeenCalledWith(DEFAULT_GLOBAL_KEY);
       expect(hostSettings.isGlobal).toBe(true);
     });
 
@@ -151,7 +151,7 @@ describe('HostSettingsRepository', () => {
 
       const hostSettings = await repository.findByHostname(TEST_HOSTNAME);
       expect(hostSettings.hostname).toBe(TEST_HOSTNAME);
-      expect(hostSettings.policy).toBe(defaultHostSettings.policy);
+      expect(hostSettings.policy).toBe(DEFAULT_HOST_SETTINGS.policy);
     });
   });
 
@@ -195,24 +195,24 @@ describe('HostSettingsRepository', () => {
     });
 
     it('should reset global settings instead of deleting', async () => {
-      mockGetEffectiveHostname.mockReturnValue(defaultGlobalKey);
-      mockPut.mockResolvedValue(defaultGlobalKey);
+      mockGetEffectiveHostname.mockReturnValue(DEFAULT_GLOBAL_KEY);
+      mockPut.mockResolvedValue(DEFAULT_GLOBAL_KEY);
 
-      await repository.delete(defaultGlobalKey);
+      await repository.delete(DEFAULT_GLOBAL_KEY);
 
-      expect(mockPut).toHaveBeenCalledWith(defaultHostSettings);
+      expect(mockPut).toHaveBeenCalledWith(DEFAULT_HOST_SETTINGS);
       expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('should reset global settings for any hostname that maps to global', async () => {
       // Test that chrome:// URLs get mapped to global and reset
-      mockGetEffectiveHostname.mockReturnValue(defaultGlobalKey);
-      mockPut.mockResolvedValue(defaultGlobalKey);
+      mockGetEffectiveHostname.mockReturnValue(DEFAULT_GLOBAL_KEY);
+      mockPut.mockResolvedValue(DEFAULT_GLOBAL_KEY);
 
       await repository.delete('chrome://newtab');
 
       expect(mockGetEffectiveHostname).toHaveBeenCalledWith('chrome://newtab');
-      expect(mockPut).toHaveBeenCalledWith(defaultHostSettings);
+      expect(mockPut).toHaveBeenCalledWith(DEFAULT_HOST_SETTINGS);
       expect(mockDelete).not.toHaveBeenCalled();
     });
   });
