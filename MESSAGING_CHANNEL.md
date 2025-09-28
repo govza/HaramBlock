@@ -40,10 +40,10 @@ To make messages easy to route and safe to evolve, the channel uses a small type
 
 Helpers and type guards live in:
 
-- `utils/messaging/channelTypes.ts`
-  - `ChannelRequest`, `ChannelResponse`, `ChannelMessage`
-  - `isChannelRequest`, `isChannelResponse`
-  - Control init message: `ChannelReady` (`{ type: 'READY' }`)
+- `utils/types/messaging.ts`
+  - `ChannelRequest`, `ChannelResponse`, `ChannelMessage`, `ChannelReady`
+- `utils/messaging/channel.ts`
+  - `isChannelRequest`, `isChannelResponse`, `isChannelReady`
 
 ## Files
 
@@ -140,7 +140,8 @@ Recommended content helper wrapper (future):
 
 ## How to Add a New Action
 
-1. Define types in `utils/messaging/channelTypes.ts`:
+1. Define types in `utils/types/messaging.ts` (and update guards in `utils/messaging/channel.ts` if
+   needed):
    - Example: `export type ProcessImageAction = 'PROCESS_IMAGE';`
    - Add `type` aliases for request/response payloads if needed.
 2. Implement routing in `entrypoints/background/controllers/messageChannelController.ts`:

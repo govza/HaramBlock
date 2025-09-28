@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
-import { defaultGlobalKey } from '@/utils/db/constants';
+import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 import { t } from '@/utils/i18n';
 import { logger } from '@/utils/logger';
 
@@ -24,7 +24,7 @@ export const CustomSettings = () => {
   };
 
   const isDifferentFromGlobal = (host: IHostSettings, field: keyof IHostSettings): boolean => {
-    if (!globalSettings || host.hostname === defaultGlobalKey) return false;
+    if (!globalSettings || host.hostname === DEFAULT_GLOBAL_KEY) return false;
 
     if (field === 'masking') {
       return JSON.stringify(host.masking) !== JSON.stringify(globalSettings.masking);
@@ -43,7 +43,7 @@ export const CustomSettings = () => {
 
       try {
         const hosts = await hostSettingsRepository.findAll();
-        const globalHost = await hostSettingsRepository.findByHostname(defaultGlobalKey);
+        const globalHost = await hostSettingsRepository.findByHostname(DEFAULT_GLOBAL_KEY);
 
         setAllHosts(hosts);
         setGlobalSettings(globalHost);
@@ -61,13 +61,13 @@ export const CustomSettings = () => {
     try {
       await hostSettingsRepository.delete(hostname);
 
-      if (hostname === defaultGlobalKey) {
+      if (hostname === DEFAULT_GLOBAL_KEY) {
         // If global settings were reset, fetch the updated global settings
-        const updatedGlobalSettings = await hostSettingsRepository.findByHostname(defaultGlobalKey);
+        const updatedGlobalSettings = await hostSettingsRepository.findByHostname(DEFAULT_GLOBAL_KEY);
         setGlobalSettings(updatedGlobalSettings);
 
         // Update the hosts list to reflect the reset global settings
-        setAllHosts(prev => prev.map(host => (host.hostname === defaultGlobalKey ? updatedGlobalSettings : host)));
+        setAllHosts(prev => prev.map(host => (host.hostname === DEFAULT_GLOBAL_KEY ? updatedGlobalSettings : host)));
       } else {
         setAllHosts(prev => prev.filter(host => host.hostname !== hostname));
       }
@@ -112,9 +112,9 @@ export const CustomSettings = () => {
                   >
                     <td className='px-6 py-4'>
                       <div className='flex items-center'>
-                        {host.hostname === defaultGlobalKey ? (
+                        {host.hostname === DEFAULT_GLOBAL_KEY ? (
                           <span className='text-text-secondary max-w-xs truncate block' title={host.hostname}>
-                            {t(defaultGlobalKey)}
+                            {t(DEFAULT_GLOBAL_KEY)}
                           </span>
                         ) : (
                           <a

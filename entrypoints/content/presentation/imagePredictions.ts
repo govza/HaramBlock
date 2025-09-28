@@ -6,7 +6,7 @@ import { applyPredictionsStyling } from '@/entrypoints/content/presentation/pred
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
-export async function applyPredictionsToDom(
+export async function applyImagePredictionsToDom(
   preds: IImagePrediction[],
   hostSettings: IHostSettings,
   targetImages?: HTMLImageElement[],

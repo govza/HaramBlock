@@ -1,4 +1,5 @@
-import { type IHostSettings, type IImageMetadata } from '@/utils/types';
+import type { IHostSettings } from '@/utils/types/host';
+import type { IImageMetadata } from '@/utils/types/media';
 
 interface InferenceTaskBase {
   id: string;
@@ -33,7 +34,7 @@ export enum ProcessingStatus {
 }
 
 /**
- * Represents the coordinate transformation parameters for converting model coordinates to image coordinates
+ * Represents the coordinate transformation parameters for converting model coordinates to image coordinates.
  */
 export interface CoordinateTransform {
   scaleX: number;
@@ -43,7 +44,7 @@ export interface CoordinateTransform {
 }
 
 /**
- * Represents raw detection data from the ML model
+ * Represents raw detection data from the ML model.
  */
 export interface RawDetection {
   x1: number;
@@ -56,8 +57,8 @@ export interface RawDetection {
 }
 
 /**
- * Raw detection data extracted from model detection tensor
- * Corresponds to pred[:, :4] (bounding boxes), pred[:, 4:6] (score, class), and pred[:, 6:] (segmentation coefficients)
+ * Raw detection data extracted from model detection tensor.
+ * Corresponds to pred[:, :4] (bounding boxes), pred[:, 4:6] (score, class), and pred[:, 6:] (segmentation coefficients).
  */
 export interface ModelDetection {
   /** Bounding box coordinates in model space */
@@ -71,4 +72,30 @@ export interface ModelDetection {
   classLabel: number;
   /** Segmentation coefficients for mask generation (corresponds to pred[:, 6:]) */
   segmentationCoefficients: number[];
+}
+
+export interface YamlMetadata {
+  names: { [key: number]: string };
+  stride: number;
+  imgsz: [number, number];
+
+  description?: string;
+  author?: string;
+  date?: string;
+  version?: string;
+  license?: string;
+  docs?: string;
+  batch?: number;
+
+  args?: {
+    batch: number;
+    half: boolean;
+    int8: boolean;
+    nms: boolean;
+  };
+}
+
+export interface Metadata extends YamlMetadata {
+  outputShape: [number, number, number];
+  namesToCheck: string[];
 }

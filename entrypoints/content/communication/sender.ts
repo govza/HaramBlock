@@ -3,8 +3,15 @@ import { sendMessage } from 'webext-bridge/content-script';
 import { messageChannel } from '@/entrypoints/content/communication/messageChannel';
 import { logger } from '@/utils/logger';
 
-import type { ChannelRequest, ProcessImageAction, IImageWithBitmap } from '@/utils/messaging/channelTypes';
-import type { IHostSettings, IImagePrediction, IImageMetadata, IImageWithMetadata } from '@/utils/types';
+import type {
+  IHostSettings,
+  IImagePrediction,
+  IImageMetadata,
+  IImageWithMetadata,
+  ChannelRequest,
+  ProcessImageAction,
+  IImageWithBitmap,
+} from '@/utils/types';
 
 /**
  * Communication sender module for HaramBlock content script

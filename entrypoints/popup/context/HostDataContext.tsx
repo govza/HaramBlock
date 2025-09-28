@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useMemo, type ReactNode
 
 import { useHostname } from '@/hooks/useHostname';
 import { useHostSettings } from '@/hooks/useHostSettings';
-import { defaultGlobalKey, defaultHostSettings } from '@/utils/db/constants';
+import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 
@@ -21,8 +21,8 @@ type HostDataType = {
 };
 
 const HostDataContext = createContext<HostDataType>({
-  hostSettings: defaultHostSettings,
-  currentHostname: defaultGlobalKey,
+  hostSettings: DEFAULT_HOST_SETTINGS,
+  currentHostname: DEFAULT_GLOBAL_KEY,
   isLoading: false,
   hostSettingsRepository: {} as HostSettingsRepository,
   imageCacheRepository: {} as ImageCacheRepository,
@@ -39,7 +39,7 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const { currentHostname: detectedHostname, error: hostnameError } = useHostname();
   const [isGlobalMode, setIsGlobalMode] = useState(false);
 
-  const currentHostname = isGlobalMode ? defaultGlobalKey : detectedHostname;
+  const currentHostname = isGlobalMode ? DEFAULT_GLOBAL_KEY : detectedHostname;
   const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
   const error = hostnameError;
   const imageCacheRepository = useMemo(() => new ImageCacheRepository(), []);
@@ -48,7 +48,7 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   useEffect(() => {
     const checkGlobalSettings = async () => {
       try {
-        const globalSettings = await hostSettingsRepository.findByHostname(defaultGlobalKey);
+        const globalSettings = await hostSettingsRepository.findByHostname(DEFAULT_GLOBAL_KEY);
 
         if (globalSettings.policy !== 'process') {
           setIsGlobalMode(true);

@@ -1,18 +1,18 @@
 import { logger } from '@/utils/logger';
-import {
-  isChannelRequest,
-  type ChannelRequest,
-  type ChannelResponse,
-  type ChannelReady,
-  type ProcessImageAction,
-  type IImageWithBitmap,
-} from '@/utils/messaging/channelTypes';
+import { isChannelRequest } from '@/utils/messaging/channel';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type {
   InferenceOrchestrationService,
   ScheduleArgs,
 } from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type {
+  ChannelReady,
+  ChannelRequest,
+  ChannelResponse,
+  IImageWithBitmap,
+  ProcessImageAction,
+} from '@/utils/types';
 
 /**
  * Handles establishing a direct messageChannelController tunnel from content via an injected

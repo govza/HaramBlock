@@ -1,4 +1,4 @@
-import { defaultGlobalKey } from '@/utils/db/constants';
+import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 
 /**
  * Normalize a hostname to the effective hostname used for database storage
@@ -9,7 +9,7 @@ import { defaultGlobalKey } from '@/utils/db/constants';
  */
 export function normalizeHostname(hostname: string | null | undefined): string {
   if (!hostname || hostname.trim() === '') {
-    return defaultGlobalKey;
+    return DEFAULT_GLOBAL_KEY;
   }
 
   // Remove www. prefix for consistency
@@ -36,7 +36,7 @@ export function extractHostnameFromUrl(url: string | null | undefined): string |
       url.startsWith('moz-extension://') ||
       url.startsWith('about:')
     ) {
-      return defaultGlobalKey;
+      return DEFAULT_GLOBAL_KEY;
     }
 
     // Handle regular URLs
@@ -54,7 +54,7 @@ export function extractHostnameFromUrl(url: string | null | undefined): string |
  * @returns True if it's a global page
  */
 export function isGlobalPage(hostname: string | null | undefined): boolean {
-  return normalizeHostname(hostname) === defaultGlobalKey;
+  return normalizeHostname(hostname) === DEFAULT_GLOBAL_KEY;
 }
 
 /**
@@ -67,7 +67,7 @@ export function isGlobalPage(hostname: string | null | undefined): boolean {
 export function getEffectiveHostname(hostname: string | null | undefined): string {
   // If it looks like a URL, extract the hostname first
   if (hostname && (hostname.includes('://') || hostname.startsWith('about:'))) {
-    return extractHostnameFromUrl(hostname) || defaultGlobalKey;
+    return extractHostnameFromUrl(hostname) || DEFAULT_GLOBAL_KEY;
   }
 
   // Otherwise treat it as a hostname

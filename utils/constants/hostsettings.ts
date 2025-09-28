@@ -1,9 +1,9 @@
 import type { IHostSettings } from '@/utils/types';
 
-export const defaultGlobalKey = 'global';
+export const DEFAULT_GLOBAL_KEY = 'global';
 
-export const defaultHostSettings: IHostSettings = {
-  hostname: defaultGlobalKey,
+export const DEFAULT_HOST_SETTINGS: IHostSettings = {
+  hostname: DEFAULT_GLOBAL_KEY,
   masking: { blur: true },
   isGlobal: true,
   outline: 'segment',

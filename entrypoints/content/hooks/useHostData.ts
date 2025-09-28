@@ -1,5 +1,6 @@
 import { onHostSettingsUpdatedForHostname } from '@/entrypoints/content/communication/listener';
 import { requestHostData } from '@/entrypoints/content/communication/sender';
+import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger, extractUrlId } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
@@ -18,10 +19,10 @@ export async function useHostData(
   cleanup: () => void;
 }> {
   const { hostname } = globalThis.location;
-  let settings: IHostSettings;
+  const effectiveHostname = getEffectiveHostname(hostname);
+  let settings: IHostSettings = { ...DEFAULT_HOST_SETTINGS, hostname: effectiveHostname, isGlobal: false };
   let predictions: IImagePrediction[] = [];
   let isLoading = true;
-  const effectiveHostname = getEffectiveHostname(hostname);
 
   // Function to fetch both settings and predictions from background
   const fetchData = async (): Promise<{

@@ -25,7 +25,7 @@ export const createMaskOverlays = (
   skipObserverSetup = false,
 ): void => {
   logger.withTag('maskOverlay').debug('createMaskOverlays called', {
-    hasImagePrediction: imagePrediction,
+    hasImagePrediction: Boolean(imagePrediction),
     predictionsLength: imagePrediction?.predictions.length || 0,
     imageComplete: image.complete,
     imageNaturalWidth: image.naturalWidth,
@@ -34,10 +34,11 @@ export const createMaskOverlays = (
 
   if (!imagePrediction || !imagePrediction.predictions.length || !image.complete || image.naturalWidth === 0) {
     logger.withTag('maskOverlay').debug('Early return from createMaskOverlays', {
-      hasImagePrediction: imagePrediction,
+      hasImagePrediction: Boolean(imagePrediction),
       predictionsLength: imagePrediction?.predictions.length || 0,
       imageComplete: image.complete,
       imageNaturalWidth: image.naturalWidth,
+      imageSrc: extractUrlId(image.src || image.currentSrc),
     });
     // If there is an existing overlay for this image, ensure it's cleared when predictions are missing
     clearMaskOverlay(image);

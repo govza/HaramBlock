@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useCallback } from 'react';
 import { sendMessage } from 'webext-bridge/popup';
 
-import { defaultHostSettings } from '@/utils/db/constants';
+import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { hostSettingsDb } from '@/utils/db/db';
 import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
@@ -41,7 +41,7 @@ export function useHostSettings(hostname: string) {
 
         if (activeTab?.id) {
           const currentSettings = {
-            ...defaultHostSettings,
+            ...DEFAULT_HOST_SETTINGS,
             hostname: effectiveHostname,
             isGlobal: isGlobalPage(effectiveHostname),
             policy,
@@ -59,7 +59,7 @@ export function useHostSettings(hostname: string) {
           else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
             const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
             const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
-            const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
+            const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || DEFAULT_HOST_SETTINGS;
             const iconPaths = getIconPaths(tabSettings.policy);
             await (browser.action ?? browser.browserAction).setIcon({
               tabId: activeTab.id,
@@ -95,7 +95,7 @@ export function useHostSettings(hostname: string) {
       if (activeTab?.id) {
         // Get current host settings to determine policy
         const currentSettings = hostSettingsData || {
-          ...defaultHostSettings,
+          ...DEFAULT_HOST_SETTINGS,
           hostname: effectiveHostname,
           isGlobal: isGlobalPage(effectiveHostname),
         };
@@ -113,7 +113,7 @@ export function useHostSettings(hostname: string) {
         else if (currentSettings.isGlobal && currentSettings.policy === 'process') {
           const hostnameOfTheTab = new URL(activeTab.url || '').hostname;
           const effectiveTabHostname = getEffectiveHostname(hostnameOfTheTab);
-          const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || defaultHostSettings;
+          const tabSettings = (await hostSettingsDb.hostSettings.get(effectiveTabHostname)) || DEFAULT_HOST_SETTINGS;
           const iconPaths = getIconPaths(tabSettings.policy);
           await (browser.action ?? browser.browserAction).setIcon({
             tabId: activeTab.id,
@@ -225,7 +225,7 @@ export function useHostSettings(hostname: string) {
   return {
     // Main settings - return plain settings without methods
     hostSettings: hostSettingsData || {
-      ...defaultHostSettings,
+      ...DEFAULT_HOST_SETTINGS,
       hostname: effectiveHostname,
       isGlobal: isGlobalPage(effectiveHostname),
     },

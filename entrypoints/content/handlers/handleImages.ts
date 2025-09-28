@@ -9,7 +9,7 @@ import {
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
-import { defaultHostSettings } from '@/utils/db/constants';
+import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { extractUrlId, logger } from '@/utils/logger';
 
 import type { IHostSettings } from '@/utils/types';
@@ -49,8 +49,8 @@ function queueForInference(image: HTMLImageElement, hostSettings: IHostSettings)
       return;
     }
 
-    const minW = hostSettings.minSize?.width ?? defaultHostSettings.minSize.width;
-    const minH = hostSettings.minSize?.height ?? defaultHostSettings.minSize.height;
+    const minW = hostSettings.minSize?.width ?? DEFAULT_HOST_SETTINGS.minSize.width;
+    const minH = hostSettings.minSize?.height ?? DEFAULT_HOST_SETTINGS.minSize.height;
     const w = image.naturalWidth || image.width;
     const h = image.naturalHeight || image.height;
     if (w < minW || h < minH) {

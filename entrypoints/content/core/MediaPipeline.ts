@@ -2,8 +2,8 @@ import { onImageInferenceResult } from '@/entrypoints/content/communication/list
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
-import { applyPredictionsToDom } from '@/entrypoints/content/handlers/handlePredictions';
 import { isHandled, markHandled } from '@/entrypoints/content/handlers/status';
+import { applyImagePredictionsToDom } from '@/entrypoints/content/presentation/imagePredictions';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -27,7 +27,7 @@ export class MediaPipeline {
   seedCachedPredictions(preds: IImagePrediction[]): void {
     // Seed local cache and try to apply immediately to any matching DOM elements
     preds.forEach(p => this.imagePredictionsCache.set(p.src, p));
-    void applyPredictionsToDom(preds, this.opts.hostSettings);
+    void applyImagePredictionsToDom(preds, this.opts.hostSettings);
   }
 
   start(root: Node = document.body): () => void {
@@ -61,7 +61,7 @@ export class MediaPipeline {
         // Apply cached predictions if available
         const cachedPredsToApply = this.imagePredictionsCache.get(img.currentSrc || img.src);
         if (cachedPredsToApply) {
-          void applyPredictionsToDom([cachedPredsToApply], this.opts.hostSettings, [img]);
+          void applyImagePredictionsToDom([cachedPredsToApply], this.opts.hostSettings, [img]);
         } else {
           handleImageAttributeChange(img, this.opts.hostSettings);
         }
@@ -87,6 +87,6 @@ export class MediaPipeline {
     if (!preds || preds.length === 0) return;
     // Update cache and apply styles
     preds.forEach(p => this.imagePredictionsCache.set(p.src, p));
-    void applyPredictionsToDom(preds, this.opts.hostSettings);
+    void applyImagePredictionsToDom(preds, this.opts.hostSettings);
   }
 }

@@ -29,7 +29,7 @@ powered by `dexie-react-hooks`.
 
 ```typescript
 import Dexie from 'dexie';
-import { defaultHostSettings, IHostSettings } from './HostSettings';
+import { DEFAULT_HOST_SETTINGS, IHostSettings } from './HostSettings';
 
 export class HostSettingsDatabase extends Dexie {
   hostSettings!: Dexie.Table<IHostSettings, string>;
@@ -40,7 +40,7 @@ export class HostSettingsDatabase extends Dexie {
 }
 export const hostSettingsDb = new HostSettingsDatabase();
 hostSettingsDb.on('populate', () => {
-  hostSettingsDb.hostSettings.add(defaultHostSettings);
+  hostSettingsDb.hostSettings.add(DEFAULT_HOST_SETTINGS);
 });
 ```
 
