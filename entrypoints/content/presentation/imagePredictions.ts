@@ -1,4 +1,4 @@
-import { markHandled, markProcessed } from '@/entrypoints/content/handlers/status';
+import { markHandled, markProcessed } from '@/entrypoints/content/core/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';

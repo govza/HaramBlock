@@ -5,7 +5,7 @@ import {
   markSentForInference,
   isSentForInference,
   markProcessed,
-} from '@/entrypoints/content/handlers/status';
+} from '@/entrypoints/content/core/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';

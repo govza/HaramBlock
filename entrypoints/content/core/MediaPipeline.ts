@@ -1,8 +1,8 @@
 import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
+import { isHandled, markHandled } from '@/entrypoints/content/core/status';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
-import { isHandled, markHandled } from '@/entrypoints/content/handlers/status';
 import { applyImagePredictionsToDom } from '@/entrypoints/content/presentation/imagePredictions';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
