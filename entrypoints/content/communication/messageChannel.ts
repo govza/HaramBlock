@@ -53,10 +53,44 @@ export async function messageChannel(onMessage: (e: MessageEvent) => void): Prom
   return mc.port1;
 }
 
+// Cached MessagePort for reuse across multiple sends
+let cachedPort: MessagePort | null = null;
+let channelInitialized = false;
+
 export const initializeMessageChannel = async (): Promise<void> => {
   try {
-    await messageChannel(() => {});
+    // Add timeout for Firefox compatibility (no service worker support)
+    const timeoutPromise = new Promise<MessagePort | null>(resolve => {
+      setTimeout(() => resolve(null), 2000);
+    });
+
+    const channelPromise = messageChannel(() => {});
+
+    // Race between channel initialization and timeout
+    const port = await Promise.race([channelPromise, timeoutPromise]);
+
+    if (port) {
+      cachedPort = port;
+      channelInitialized = true;
+    }
   } catch {
-    // no-op
+    // no-op - will fallback to webext-bridge
+  } finally {
+    channelInitialized = true;
   }
+};
+
+/**
+ * Get the cached MessagePort if available
+ * Returns null if MessageChannel is not available (e.g., Firefox)
+ */
+export const getMessagePort = (): MessagePort | null => {
+  return cachedPort;
+};
+
+/**
+ * Check if MessageChannel initialization has been attempted
+ */
+export const isMessageChannelReady = (): boolean => {
+  return channelInitialized;
 };

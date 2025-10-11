@@ -1,6 +1,6 @@
 import { sendMessage } from 'webext-bridge/content-script';
 
-import { messageChannel } from '@/entrypoints/content/communication/messageChannel';
+import { getMessagePort } from '@/entrypoints/content/communication/messageChannel';
 import { logger } from '@/utils/logger';
 
 import type {
@@ -60,11 +60,11 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
  * Thin wrapper to allow branching from queueImagesForInference.
  */
 async function sendImageForInferenceUsingChannel(
+  port: MessagePort,
   hostname: string,
   image: HTMLImageElement,
   metadata: IImageMetadata,
 ): Promise<void> {
-  const port = await messageChannel(() => {});
   let img = image;
   try {
     const src = image.currentSrc || image.src;
@@ -130,11 +130,16 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
 
   // Attempt to use MessageChannel with transferables (unless disabled)
   if (!isMessageChannelDisabled) {
-    try {
-      await sendImageForInferenceUsingChannel(hostname, image, metadata);
-      return;
-    } catch {
-      // Fallback to webext-bridge below
+    const port = getMessagePort();
+    if (port) {
+      try {
+        logger.withTag('sender').info(`Attempting to send via MessageChannel for ${imageData.src.substring(0, 50)}...`);
+        await sendImageForInferenceUsingChannel(port, hostname, image, metadata);
+        return;
+      } catch (error) {
+        logger.withTag('sender').warn(`MessageChannel failed, falling back to webext-bridge:`, error);
+        // Fallback to webext-bridge below
+      }
     }
   }
 
