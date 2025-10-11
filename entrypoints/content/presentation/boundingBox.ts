@@ -51,8 +51,8 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
     const imageOffsetX = imageRect.left - parentRect.left + contentRect.offsetX;
     const imageOffsetY = imageRect.top - parentRect.top + contentRect.offsetY;
 
-    const originalWidth = pred.imageWidth ?? image.naturalWidth;
-    const originalHeight = pred.imageHeight ?? image.naturalHeight;
+    const originalWidth = pred.width ?? image.naturalWidth;
+    const originalHeight = pred.height ?? image.naturalHeight;
     const scaleX = contentRect.width / originalWidth;
     const scaleY = contentRect.height / originalHeight;
 

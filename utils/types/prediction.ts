@@ -36,15 +36,19 @@ export interface IMaskTransform {
   offsetY: number; // Offset in Y direction
 }
 
-export interface IImagePrediction {
+// Base prediction interface with common fields
+export interface IBasePrediction {
   hostname: string;
-  src: string;
-  imageWidth: number;
-  imageHeight: number;
+  src: string; // URL of the media image or video frame blob
+  width: number; // Media width
+  height: number; // Media height
   predictions: IElementPrediction[];
   timestamp: number; // When the prediction was made
-  cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
+  cacheMetadata: ICacheMetadata;
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
+}
+
+export interface IImagePrediction extends IBasePrediction {
   processingTime: {
     fetchTime: number; // Image fetching duration in milliseconds
     bitmapTime: number; // Bitmap creation duration in milliseconds
@@ -61,23 +65,5 @@ export interface IVideoFramePrediction {
     frameExtractionTime: number; // Time to extract frame from video in milliseconds
     bitmapTime: number; // Bitmap creation duration in milliseconds
     inferenceTime: number; // Model inference duration in milliseconds
-  };
-}
-
-export interface IVideoPrediction {
-  hostname: string;
-  src: string; // Original video source URL
-  videoWidth: number;
-  videoHeight: number;
-  duration: number; // Video duration in seconds
-  frameRate: number; // Frames per second
-  frames: IVideoFramePrediction[]; // Predictions for sampled frames
-  sampleInterval: number; // Interval between sampled frames in seconds
-  timestamp: number; // When the prediction was made
-  cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
-  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
-  processingTime: {
-    fetchTime: number; // Video metadata fetching duration in milliseconds
-    totalInferenceTime: number; // Total inference time for all frames in milliseconds
   };
 }

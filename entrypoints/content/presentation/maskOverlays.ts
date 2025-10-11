@@ -86,8 +86,8 @@ export const createMaskOverlays = (
       image,
       allMasks,
       imagePrediction.maskTransform,
-      imagePrediction.imageWidth,
-      imagePrediction.imageHeight,
+      imagePrediction.width,
+      imagePrediction.height,
     );
 
     // Set up observers for this image (only on initial setup)
@@ -467,8 +467,8 @@ function updateOverlayForImage(image: HTMLImageElement, state: ImageOverlayState
     state.ctx,
     allMasks,
     imagePrediction.maskTransform,
-    imagePrediction.imageWidth,
-    imagePrediction.imageHeight,
+    imagePrediction.width,
+    imagePrediction.height,
     imageRect.width,
     imageRect.height,
     image,

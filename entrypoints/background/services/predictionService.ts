@@ -86,8 +86,8 @@ export class PredictionService {
       const result: IImagePrediction = {
         hostname: getEffectiveHostname(task.hostname),
         src: task.imageSrc,
-        imageWidth,
-        imageHeight,
+        width: imageWidth,
+        height: imageHeight,
         predictions,
         timestamp,
         cacheMetadata,
