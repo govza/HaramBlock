@@ -18,6 +18,11 @@ import type {
  */
 
 /**
+ * Feature flag to disable MessageChannel and force sendMessage usage
+ */
+const isMessageChannelDisabled = import.meta.env.MODE === 'no-channel';
+
+/**
  * Request host settings from background script
  * @param hostname - The hostname to get settings for
  * @returns Promise resolving to host settings or undefined
@@ -123,12 +128,14 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
     metadata,
   };
 
-  // Attempt to use MessageChannel with transferables
-  try {
-    await sendImageForInferenceUsingChannel(hostname, image, metadata);
-    return;
-  } catch {
-    // Fallback to webext-bridge below
+  // Attempt to use MessageChannel with transferables (unless disabled)
+  if (!isMessageChannelDisabled) {
+    try {
+      await sendImageForInferenceUsingChannel(hostname, image, metadata);
+      return;
+    } catch {
+      // Fallback to webext-bridge below
+    }
   }
 
   await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');

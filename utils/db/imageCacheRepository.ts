@@ -3,7 +3,7 @@ import { imageDb } from '@/utils/db/db';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { type IImagePrediction } from '@/utils/types';
 
-const isCacheDisabled = import.meta.env.MODE === 'nocache';
+const isCacheDisabled = import.meta.env.MODE === 'no-cache';
 
 /**
  * Repository for managing image prediction cache records
