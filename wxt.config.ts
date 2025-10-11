@@ -11,6 +11,7 @@ export default defineConfig({
       plugins: [toUtf8(), tailwindcss()],
     }) as WxtViteConfig,
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
+  manifestVersion: 3,
   manifest: {
     default_locale: 'en',
     permissions: ['storage', 'tabs', 'activeTab', 'scripting'],
