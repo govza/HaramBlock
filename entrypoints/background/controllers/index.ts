@@ -3,3 +3,4 @@ export { IconController } from '@/entrypoints/background/controllers/iconControl
 export { ImageCacheController } from '@/entrypoints/background/controllers/imageCacheController';
 export { InferenceController } from '@/entrypoints/background/controllers/inferenceController';
 export { MessageChannelController } from '@/entrypoints/background/controllers/messageChannelController';
+export { GetCurrentTabIdController } from '@/entrypoints/background/controllers/getCurrentTabIdController';

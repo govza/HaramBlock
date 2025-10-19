@@ -71,6 +71,7 @@ async function sendImageForInferenceUsingChannel(
   image: HTMLImageElement,
   metadata: IImageMetadata,
 ): Promise<void> {
+  const tabId = await sendMessage('GET_CURRENT_TAB_ID', 'get', 'background');
   let img = image;
   try {
     const src = image.currentSrc || image.src;
@@ -92,7 +93,7 @@ async function sendImageForInferenceUsingChannel(
       height: naturalHeight,
       bitmap,
       hostname,
-      tabId: browser.devtools?.inspectedWindow?.tabId || 0,
+      tabId,
       metadata,
     };
 

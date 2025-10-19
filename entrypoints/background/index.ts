@@ -4,6 +4,7 @@ import {
   ImageCacheController,
   InferenceController,
   MessageChannelController,
+  GetCurrentTabIdController,
 } from '@/entrypoints/background/controllers';
 import { IconEventListener, TabEventListener } from '@/entrypoints/background/events';
 import {
@@ -48,6 +49,7 @@ export default defineBackground({
     const imageCacheController = new ImageCacheController(imageCacheService);
     const inferenceController = new InferenceController(inferenceService, hostSettingsService);
     const messageChannelController = new MessageChannelController(hostSettingsService, inferenceService);
+    const getCurrentTabIdController = new GetCurrentTabIdController();
 
     // Initialize all event listeners and controllers
     iconEventListener.initialize();
@@ -57,6 +59,7 @@ export default defineBackground({
     imageCacheController.initialize();
     inferenceController.initialize();
     messageChannelController.initialize();
+    getCurrentTabIdController.initialize();
 
     // Initialize services
     void modelLoaderService.initialize();

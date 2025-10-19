@@ -26,6 +26,12 @@ declare module 'webext-bridge' {
     UPDATE_ICON: ProtocolWithReturn<{ hostname: string }, void>;
     // #endregion
 
+    // #region Tab
+    // GET /current-tab-id - Get current tab ID
+    // string parameter is unused, requited by webext-bridge typing
+    GET_CURRENT_TAB_ID: ProtocolWithReturn<string, number>;
+    // #endregion
+
     // #region Images
     // GET /images?hostname=X - Get cached predictions
     GET_HOSTNAME_IMAGE_PREDICTION_CACHE: ProtocolWithReturn<{ hostname: string }, IImagePrediction[]>;
