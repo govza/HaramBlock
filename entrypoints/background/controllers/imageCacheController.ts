@@ -1,15 +1,15 @@
 import { type BridgeMessage } from 'webext-bridge';
 import { onMessage } from 'webext-bridge/background';
 
-import { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
+import { type ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import { logger } from '@/utils/logger';
 import { type IImagePrediction } from '@/utils/types';
 
 export class ImageCacheController {
   private readonly imageCacheService: ImageCacheService;
 
-  constructor() {
-    this.imageCacheService = new ImageCacheService();
+  constructor(imageCacheService: ImageCacheService) {
+    this.imageCacheService = imageCacheService;
   }
 
   /**

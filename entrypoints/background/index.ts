@@ -45,7 +45,7 @@ export default defineBackground({
     // Initialize controllers (message/request handling layer)
     const hostSettingsController = new HostSettingsController(hostSettingsService);
     const iconController = new IconController();
-    const imageCacheController = new ImageCacheController();
+    const imageCacheController = new ImageCacheController(imageCacheService);
     const inferenceController = new InferenceController(inferenceService, hostSettingsService);
     const messageChannelController = new MessageChannelController(hostSettingsService, inferenceService);
 
