@@ -1,11 +1,12 @@
-import { onImagePredictions } from '@/entrypoints/content/communication/listener';
+import { onImagePredictions, onFramePredictions } from '@/entrypoints/content/communication/listener';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
 import { handleVideos } from '@/entrypoints/content/handlers/handleVideos';
 import { applyImagePredictionsToDom } from '@/entrypoints/content/presentation/imagePredictions';
+import { logger } from '@/utils/logger';
 
-import type { IHostSettings, IImagePrediction } from '@/utils/types';
+import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/types';
 
 /**
  * MediaPipeline handles image detection, inference requests, and prediction application.
@@ -32,7 +33,8 @@ export class MediaPipeline {
 
   start(root: Node = document.body): () => void {
     const unsubImagePreds = onImagePredictions(data => this.onImagePredictions(data.predictions));
-    this.unsubscribeFns.push(unsubImagePreds);
+    const unsubFramePreds = onFramePredictions(data => this.onFramePredictions(data.predictions));
+    this.unsubscribeFns.push(unsubImagePreds, unsubFramePreds);
 
     this.dom.start(root);
 
@@ -79,5 +81,13 @@ export class MediaPipeline {
     // Update cache and apply styles
     preds.forEach(p => this.imagePredictionsCache.set(p.src, p));
     void applyImagePredictionsToDom(preds, this.opts.hostSettings);
+  }
+
+  // Called when frame predictions are received from the background script
+  private onFramePredictions(preds: IFramePrediction[]): void {
+    if (!preds || preds.length === 0) return;
+    // TODO: Apply frame predictions to video elements
+    // For now, just log them to verify they're being received
+    logger.log('Received frame predictions:', preds);
   }
 }

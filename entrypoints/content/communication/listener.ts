@@ -43,7 +43,7 @@ export function onImagePredictions(callback: (data: { predictions: IImagePredict
 /**
  * Listen for frame predictions from background script
  */
-export function onFrameInferenceResult(callback: (data: { predictions: IFramePrediction[] }) => void): () => void {
+export function onFramePredictions(callback: (data: { predictions: IFramePrediction[] }) => void): () => void {
   return onMessage('ON_FRAME_PREDICTIONS', message => {
     if (message.data) {
       logger.withTag('listener').debug(
@@ -77,6 +77,7 @@ export function onHostSettingsUpdatedForHostname(targetHostname: string, callbac
 export function setupListeners(listeners: {
   onHostSettingsUpdated?: (data: { hostname: string }) => void;
   onImagePredictions?: (data: { predictions: IImagePrediction[] }) => void;
+  onFramePredictions?: (data: { predictions: IFramePrediction[] }) => void;
 }): () => void {
   const cleanupFunctions: (() => void)[] = [];
 
@@ -86,6 +87,10 @@ export function setupListeners(listeners: {
 
   if (listeners.onImagePredictions) {
     cleanupFunctions.push(onImagePredictions(listeners.onImagePredictions));
+  }
+
+  if (listeners.onFramePredictions) {
+    cleanupFunctions.push(onFramePredictions(listeners.onFramePredictions));
   }
 
   // Return single cleanup function that calls all individual cleanup functions
