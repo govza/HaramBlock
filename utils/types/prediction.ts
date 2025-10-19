@@ -36,19 +36,15 @@ export interface IMaskTransform {
   offsetY: number; // Offset in Y direction
 }
 
-// Base prediction interface with common fields
-export interface IBasePrediction {
+export interface IImagePrediction {
   hostname: string;
-  src: string; // URL of the media image or video frame blob
   width: number; // Media width
   height: number; // Media height
+  src: string; // URL of the media image
   predictions: IElementPrediction[];
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata;
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
-}
-
-export interface IImagePrediction extends IBasePrediction {
   processingTime: {
     fetchTime: number; // Image fetching duration in milliseconds
     bitmapTime: number; // Bitmap creation duration in milliseconds

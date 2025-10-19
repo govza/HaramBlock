@@ -11,6 +11,7 @@ import type {
   ChannelRequest,
   ChannelResponse,
   IImageWithBitmap,
+  IFrameWithBitmap,
   ProcessImageAction,
 } from '@/utils/types';
 
@@ -90,7 +91,10 @@ export class MessageChannelController {
   private handleRequest(secret: string, req: ChannelRequest): void {
     switch (req.action) {
       case 'PROCESS_IMAGE': {
-        void this.handleProcessImage(secret, req as ChannelRequest<ProcessImageAction, IImageWithBitmap>);
+        void this.handleProcessImage(
+          secret,
+          req as ChannelRequest<ProcessImageAction, IImageWithBitmap | IFrameWithBitmap>,
+        );
         break;
       }
       default: {
@@ -108,7 +112,7 @@ export class MessageChannelController {
 
   private async handleProcessImage(
     secret: string,
-    req: ChannelRequest<ProcessImageAction, IImageWithBitmap>,
+    req: ChannelRequest<ProcessImageAction, IImageWithBitmap | IFrameWithBitmap>,
   ): Promise<void> {
     const { hostname, src, bitmap, metadata, tabId: requestTabId, width, height } = req.payload;
 
@@ -135,13 +139,38 @@ export class MessageChannelController {
 
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
-      const task: ScheduleArgs = {
-        input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
-        hostname,
-        tabId,
-        hostSettings,
-        imageMetadata: metadata,
-      };
+
+      // Discriminate between image and frame based on the 'media' field
+      const task: ScheduleArgs =
+        req.payload.media === 'frame'
+          ? {
+              kind: 'frame',
+              input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
+              hostname,
+              tabId,
+              hostSettings,
+              frameMetadata: {
+                media: 'frame',
+                transport: 'serializable',
+                src,
+                width,
+                height,
+                metadata,
+                sessionId: (req.payload).sessionId,
+                videoUrl: (req.payload).videoUrl,
+                frameIndex: (req.payload).frameIndex,
+                timestampSec: (req.payload).timestampSec,
+              },
+            }
+          : {
+              kind: 'image',
+              input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
+              hostname,
+              tabId,
+              hostSettings,
+              imageMetadata: metadata,
+            };
+
       await this.orchestrationService.scheduleInferenceTask(task);
 
       // Send success response

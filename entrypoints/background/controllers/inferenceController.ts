@@ -21,14 +21,15 @@ export class InferenceController {
    * Initialize message listeners (API)
    */
   public initialize(): void {
-    onMessage('POST_INFERENCE_IMAGES', this.handleInferenceRequest.bind(this));
+    // POST /images - Process image (fallback path when MessageChannel is unavailable)
+    onMessage('POST_IMAGE', this.handlePostImage.bind(this));
   }
 
   /**
-   * Handle inference request from content script
+   * POST /images - Process image with AI model
    * @param message - The incoming message containing images and hostname
    */
-  public async handleInferenceRequest(
+  private async handlePostImage(
     message: BridgeMessage<{ hostname: string; imageData: IImageWithMetadata }>,
   ): Promise<void> {
     const { hostname } = message.data;
@@ -56,6 +57,7 @@ export class InferenceController {
 
       // Schedule inference task for image
       await this.orchestrationService.scheduleInferenceTask({
+        kind: 'image',
         input: { kind: 'src', imageSrc: src },
         hostname,
         tabId,

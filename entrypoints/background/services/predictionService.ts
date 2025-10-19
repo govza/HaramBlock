@@ -8,7 +8,7 @@ import { logger, extractUrlId } from '@/utils/logger';
 
 import type { ModelLoaderService, ImageProcessorService } from '@/entrypoints/background/services';
 import type { IElementPrediction, IImagePrediction, IMaskTransform, Metadata } from '@/utils/types';
-import type { InferenceTask } from '@/utils/types/model';
+import type { InferenceTask, ImageInferenceTask } from '@/utils/types/model';
 
 export class PredictionError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -26,6 +26,10 @@ export class PredictionService {
   ) {}
 
   async processInferenceTask(task: InferenceTask): Promise<IImagePrediction> {
+    return this.processImageInferenceTask(task);
+  }
+
+  private async processImageInferenceTask(task: ImageInferenceTask): Promise<IImagePrediction> {
     const startTime = Date.now();
 
     try {
@@ -102,13 +106,15 @@ export class PredictionService {
       logger
         .withTag('predictionService')
         .info(
-          `Completed inference task for ${extractUrlId(task.imageSrc)} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
+          `Completed image inference task for ${extractUrlId(task.imageSrc)} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
         );
 
       return result;
     } catch (error) {
-      logger.withTag('predictionService').error(`Failed to process task ${task.id}:`, error);
-      throw new PredictionError(`Failed to process task ${task.id}`, error);
+      logger
+        .withTag('predictionService')
+        .error(`Failed to process image task for ${extractUrlId(task.imageSrc)}:`, error);
+      throw new PredictionError(`Failed to process image task for ${extractUrlId(task.imageSrc)}`, error);
     }
   }
 

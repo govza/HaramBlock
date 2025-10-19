@@ -6,19 +6,24 @@ import type { TabEventListener } from '@/entrypoints/background/events/tabEventL
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { PredictionService } from '@/entrypoints/background/services/predictionService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
-import type { IImagePrediction, IHostSettings, IImageMetadata, InferenceTask } from '@/utils/types';
+import type { IImagePrediction, IHostSettings, IImageMetadata, InferenceTask, ImageInferenceTask } from '@/utils/types';
 
 export type InferenceInput =
   | { kind: 'src'; imageSrc: string }
   | { kind: 'bitmap'; imageSrc: string; bitmap: ImageBitmap; originalWidth: number; originalHeight: number };
 
-export type ScheduleArgs = {
+// Schedule arguments for image inference
+export type ScheduleImageArgs = {
+  kind: 'image';
   input: InferenceInput;
   hostname: string;
   tabId: number;
   hostSettings: IHostSettings;
   imageMetadata: IImageMetadata;
 };
+
+// Union of all schedule types (currently only image)
+export type ScheduleArgs = ScheduleImageArgs;
 
 export class InferenceOrchestrationService {
   constructor(
@@ -31,9 +36,8 @@ export class InferenceOrchestrationService {
     this.setupTabActivationHandler();
   }
 
-  async scheduleInferenceTask(args: ScheduleArgs): Promise<string> {
+  async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
     const { input, hostname, tabId, hostSettings, imageMetadata } = args;
-    const taskId = crypto.randomUUID();
     const { imageSrc } = input;
 
     // Check cache first to avoid expensive processing
@@ -51,7 +55,7 @@ export class InferenceOrchestrationService {
           })),
         );
         await this.sendPredictionsToContent(cachedPredictions, tabId);
-        return taskId;
+        return Promise.resolve();
       }
     } catch (error) {
       logger
@@ -63,7 +67,7 @@ export class InferenceOrchestrationService {
     const task: InferenceTask =
       input.kind === 'bitmap'
         ? {
-            id: taskId,
+            kind: 'image',
             imageSrc,
             hostname,
             priority: this.calculatePriority(tabId),
@@ -76,7 +80,7 @@ export class InferenceOrchestrationService {
             originalHeight: input.originalHeight,
           }
         : {
-            id: taskId,
+            kind: 'image',
             imageSrc,
             hostname,
             priority: this.calculatePriority(tabId),
@@ -86,15 +90,18 @@ export class InferenceOrchestrationService {
             imageMetadata,
           };
 
-    const taskType = input.kind === 'bitmap' ? 'bitmap' : 'src';
-    logger.withTag('inferenceOrchestrationService').debug(`Scheduling ${taskType} inference task for ${hostname}`);
+    logger
+      .withTag('inferenceOrchestrationService')
+      .debug(`Scheduling ${input.kind} image inference task for ${hostname}`);
 
     // Add to queue (fire-and-forget for immediate response)
     this.queueService.enqueue(task).catch(error => {
-      logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task ${task.id}:`, error);
+      logger
+        .withTag('inferenceOrchestrationService')
+        .error(`Failed to enqueue image task for ${extractUrlId(imageSrc)}:`, error);
     });
 
-    return task.id;
+    return Promise.resolve();
   }
 
   private setupEventHandlers(): void {
@@ -103,20 +110,27 @@ export class InferenceOrchestrationService {
         const imagePrediction = await this.processingService.processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
       } catch (error) {
-        logger.withTag('inferenceOrchestrationService').error(`Error processing task ${task.id}:`, error);
+        logger
+          .withTag('inferenceOrchestrationService')
+          .error(`Error processing image ${extractUrlId(task.imageSrc)}:`, error);
       }
     });
   }
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     try {
-      await this.imageCacheService.cachePredictions([imagePrediction]);
-      await this.sendPredictionsToContent([imagePrediction], task.tabId);
+      await this.handleSuccessForImage(task, imagePrediction);
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error(`Error handling success for task ${task.id}:`, error);
+      logger
+        .withTag('inferenceOrchestrationService')
+        .error(`Error handling success for image ${extractUrlId(task.imageSrc)}:`, error);
     }
   }
 
+  private async handleSuccessForImage(task: ImageInferenceTask, imagePrediction: IImagePrediction): Promise<void> {
+    await this.imageCacheService.cachePredictions([imagePrediction]);
+    await this.sendPredictionsToContent([imagePrediction], task.tabId);
+  }
   private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
     try {
       await sendMessage('ON_INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });

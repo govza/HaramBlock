@@ -79,6 +79,8 @@ async function sendImageForInferenceUsingChannel(
 
     // Create payload for PROCESS_IMAGE action
     const payload: IImageWithBitmap = {
+      media: 'image',
+      transport: 'transferable',
       src,
       width: naturalWidth,
       height: naturalHeight,
@@ -110,18 +112,18 @@ async function sendImageForInferenceUsingChannel(
  * @returns Promise that resolves when images are queued
  */
 export async function requestImageInference(hostname: string, image: HTMLImageElement): Promise<void> {
-  const metadata = {
-    width: image.naturalWidth || image.width || undefined,
-    height: image.naturalHeight || image.height || undefined,
-    contentType: image.dataset.contentType || undefined,
-    contentLength: image.dataset.contentLength ? parseInt(image.dataset.contentLength) : undefined,
-    lastModified: image.dataset.lastModified || undefined,
-    cacheControl: image.dataset.cacheControl || undefined,
-    etag: image.dataset.etag || undefined,
-    expires: image.dataset.expires || undefined,
-  } as IImageMetadata;
+  const metadata: IImageMetadata = {
+    contentType: image.dataset.contentType || null,
+    contentLength: image.dataset.contentLength ? parseInt(image.dataset.contentLength) : null,
+    lastModified: image.dataset.lastModified || null,
+    cacheControl: image.dataset.cacheControl || null,
+    etag: image.dataset.etag || null,
+    expires: image.dataset.expires || null,
+  };
 
   const imageData: IImageWithMetadata = {
+    media: 'image',
+    transport: 'serializable',
     src: image.currentSrc || image.src,
     width: image.naturalWidth || image.width || 0,
     height: image.naturalHeight || image.height || 0,
@@ -143,7 +145,7 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
     }
   }
 
-  await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');
+  await sendMessage('POST_IMAGE', { hostname, imageData }, 'background');
 }
 
 /**
@@ -171,15 +173,8 @@ export async function requestHostData(hostname: string): Promise<{
   }
 }
 
-function loadImage(src: string, metadata: IImageMetadata): Promise<HTMLImageElement> {
-  const { width, height } = metadata;
-
-  let image: HTMLImageElement;
-  if (width && height) {
-    image = new Image(Number(width), Number(height));
-  } else {
-    image = new Image();
-  }
+function loadImage(src: string, _metadata: IImageMetadata): Promise<HTMLImageElement> {
+  const image = new Image();
   image.crossOrigin = 'anonymous';
   image.src = src;
 

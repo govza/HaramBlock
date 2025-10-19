@@ -1,19 +1,20 @@
 import type { IHostSettings } from '@/utils/types/host';
 import type { IImageMetadata } from '@/utils/types/media';
 
-interface InferenceTaskBase {
-  id: string;
+interface InferenceTaskCommon {
   imageSrc: string;
   hostname: string;
   priority: number;
   createdAt: Date;
   tabId: number;
   hostSettings: IHostSettings;
-  imageMetadata: IImageMetadata;
 }
 
-export type InferenceTask = InferenceTaskBase &
-  (
+// Image inference task (with or without pre-decoded bitmap)
+export type ImageInferenceTask = InferenceTaskCommon & {
+  kind: 'image';
+  imageMetadata: IImageMetadata;
+} & (
     | {
         bitmap: ImageBitmap;
         originalWidth: number;
@@ -25,6 +26,9 @@ export type InferenceTask = InferenceTaskBase &
         originalHeight?: undefined;
       }
   );
+
+// Union of all inference task types (currently only image)
+export type InferenceTask = ImageInferenceTask;
 
 export enum ProcessingStatus {
   QUEUED = 'queued',
