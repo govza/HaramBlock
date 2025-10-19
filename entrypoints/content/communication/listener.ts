@@ -1,7 +1,7 @@
 import { onMessage } from 'webext-bridge/content-script';
 
 import { logger, extractUrlId } from '@/utils/logger';
-import { type IImagePrediction } from '@/utils/types';
+import { type IImagePrediction, type IFramePrediction } from '@/utils/types';
 
 /**
  * Communication listener module for HaramBlock content script
@@ -15,6 +15,10 @@ export interface HostSettingsUpdateMessage {
 export interface InferenceImagePredictionsMessage {
   predictions: IImagePrediction[];
   hostname: string;
+}
+
+export interface InferenceFramePredictionsMessage {
+  predictions: IFramePrediction[];
 }
 
 /**
@@ -45,6 +49,21 @@ export function onInferencePredictions(callback: (data: InferenceImagePrediction
         ),
       );
       callback(message.data as unknown as InferenceImagePredictionsMessage);
+    }
+  });
+}
+
+/**
+ * Listen for frame predictions from background script
+ */
+export function onFrameInferenceResult(callback: (data: InferenceFramePredictionsMessage) => void): () => void {
+  return onMessage('ON_FRAME_PREDICTIONS', message => {
+    if (message.data) {
+      logger.withTag('listener').debug(
+        'ON_FRAME_PREDICTIONS:',
+        message.data.predictions.map(pred => `${pred.sessionId}#${pred.frameIndex}@${pred.timestamp.toFixed(2)}`),
+      );
+      callback(message.data as unknown as InferenceFramePredictionsMessage);
     }
   });
 }

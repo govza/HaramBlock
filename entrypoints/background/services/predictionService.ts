@@ -8,7 +8,7 @@ import { logger, extractUrlId } from '@/utils/logger';
 
 import type { ModelLoaderService, ImageProcessorService } from '@/entrypoints/background/services';
 import type { IElementPrediction, IImagePrediction, IMaskTransform, Metadata } from '@/utils/types';
-import type { InferenceTask, ImageInferenceTask } from '@/utils/types/model';
+import type { InferenceTask, ImageInferenceTask, FrameInferenceTask } from '@/utils/types/model';
 
 export class PredictionError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -26,7 +26,13 @@ export class PredictionService {
   ) {}
 
   async processInferenceTask(task: InferenceTask): Promise<IImagePrediction> {
-    return this.processImageInferenceTask(task);
+    if (task.kind === 'image') {
+      return this.processImageInferenceTask(task);
+    } else if (task.kind === 'frame') {
+      return this.processFrameInferenceTask(task);
+    } else {
+      throw new PredictionError(`Unknown task kind: ${(task as { kind?: string }).kind}`);
+    }
   }
 
   private async processImageInferenceTask(task: ImageInferenceTask): Promise<IImagePrediction> {
@@ -40,11 +46,15 @@ export class PredictionService {
       let imageBitmap: ImageBitmap;
       let fetchTime: number;
       let bitmapTime: number;
+      let imageWidth: number;
+      let imageHeight: number;
 
-      if (task.bitmap) {
+      if (task.transport === 'transferable') {
         imageBitmap = task.bitmap;
         fetchTime = 0;
         bitmapTime = 0;
+        imageWidth = task.originalWidth;
+        imageHeight = task.originalHeight;
       } else {
         const {
           imageBitmap: loadedBitmap,
@@ -54,14 +64,13 @@ export class PredictionService {
         imageBitmap = loadedBitmap;
         fetchTime = loadFetchTime;
         bitmapTime = loadBitmapTime;
+        imageWidth = imageBitmap.width;
+        imageHeight = imageBitmap.height;
       }
 
       const inferenceStartTime = Date.now();
       const rawThreshold = 1 - task.hostSettings.strictness;
       const scoreThreshold = Math.min(0.9, Math.max(0.05, rawThreshold));
-
-      const imageWidth = task.originalWidth || imageBitmap.width;
-      const imageHeight = task.originalHeight || imageBitmap.height;
 
       const rawPredictions = await this.getFramePredictions(
         imageBitmap,
@@ -115,6 +124,105 @@ export class PredictionService {
         .withTag('predictionService')
         .error(`Failed to process image task for ${extractUrlId(task.imageSrc)}:`, error);
       throw new PredictionError(`Failed to process image task for ${extractUrlId(task.imageSrc)}`, error);
+    }
+  }
+
+  private async processFrameInferenceTask(task: FrameInferenceTask): Promise<IImagePrediction> {
+    const startTime = Date.now();
+
+    try {
+      const model = this.model || (await this.modelLoaderService.loadModelAsync());
+      const config = this.modelLoaderService.getModelConfig();
+
+      // Prefer provided bitmap (from content via MessageChannel) to avoid refetch/decoding
+      let imageBitmap: ImageBitmap;
+      let fetchTime: number;
+      let bitmapTime: number;
+      let imageWidth: number;
+      let imageHeight: number;
+
+      if (task.transport === 'transferable') {
+        imageBitmap = task.bitmap;
+        fetchTime = 0;
+        bitmapTime = 0;
+        imageWidth = task.originalWidth;
+        imageHeight = task.originalHeight;
+      } else {
+        const {
+          imageBitmap: loadedBitmap,
+          fetchTime: loadFetchTime,
+          bitmapTime: loadBitmapTime,
+        } = await this.imageProcessor.loadImageBitmap(task.imageSrc);
+        imageBitmap = loadedBitmap;
+        fetchTime = loadFetchTime;
+        bitmapTime = loadBitmapTime;
+        imageWidth = imageBitmap.width;
+        imageHeight = imageBitmap.height;
+      }
+
+      const inferenceStartTime = Date.now();
+      const rawThreshold = 1 - task.hostSettings.strictness;
+      const scoreThreshold = Math.min(0.9, Math.max(0.05, rawThreshold));
+
+      const rawPredictions = await this.getFramePredictions(
+        imageBitmap,
+        model,
+        config,
+        scoreThreshold,
+        imageWidth,
+        imageHeight,
+      );
+      const inferenceTime = Date.now() - inferenceStartTime;
+
+      const predictions = edgeBoundingBoxCorrection(rawPredictions, imageBitmap.width, imageBitmap.height);
+      const processingTimeMs = Date.now() - startTime;
+      const timestamp = Date.now();
+
+      // Video frames use metadata from frameMetadata
+      const cacheMetadata = createCacheMetadataFromImageMetadata(task.frameMetadata.metadata);
+
+      // Calculate mask transform parameters in mask-grid space (outputShape H/W)
+      const maskTransform: IMaskTransform = calculateScaleFactors(
+        imageWidth,
+        imageHeight,
+        config.outputShape[0],
+        config.outputShape[1],
+      );
+
+      const result: IImagePrediction = {
+        hostname: getEffectiveHostname(task.hostname),
+        src: task.imageSrc,
+        width: imageWidth,
+        height: imageHeight,
+        predictions,
+        timestamp,
+        cacheMetadata,
+        maskTransform,
+        processingTime: {
+          fetchTime,
+          bitmapTime,
+          inferenceTime,
+        },
+      };
+
+      logger
+        .withTag('predictionService')
+        .info(
+          `Completed video frame inference task for ${extractUrlId(task.frameMetadata.videoUrl)} frame ${task.frameMetadata.frameIndex} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
+        );
+
+      return result;
+    } catch (error) {
+      logger
+        .withTag('predictionService')
+        .error(
+          `Failed to process video frame task for ${extractUrlId(task.frameMetadata.videoUrl)} frame ${task.frameMetadata.frameIndex}:`,
+          error,
+        );
+      throw new PredictionError(
+        `Failed to process video frame ${task.frameMetadata.frameIndex} for ${extractUrlId(task.frameMetadata.videoUrl)}`,
+        error,
+      );
     }
   }
 
@@ -285,11 +393,6 @@ export class PredictionService {
         const className = config.names[labelIndex % Object.keys(config.names).length] || 'unknown';
 
         if (!config.namesToCheck.includes(className)) {
-          logger
-            .withTag('predictionService')
-            .debug(
-              `Skipping prediction with class '${className}' (not in namesToCheck: ${config.namesToCheck.join(', ')})`,
-            );
           continue;
         }
 

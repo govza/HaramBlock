@@ -52,13 +52,20 @@ export interface IImagePrediction {
   };
 }
 
-export interface IVideoFramePrediction {
+export interface IFramePrediction {
+  sessionId: string; // Stable ID to group frames for the same <video>
+  hostname: string; // Effective hostname
+  width: number; // Frame media width
+  height: number; // Frame media height
   frameIndex: number; // Frame number in the video
-  timestamp: number; // Frame timestamp in seconds
   videoUrl: string; // Original video source URL (used for DOM element matching)
-  predictions: IElementPrediction[]; // Object predictions for this frame
+  src: string; // URL of the media blob image
+  predictions: IElementPrediction[];
+  timestamp: number; // When the prediction was made
+  cacheMetadata: ICacheMetadata;
+  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
   processingTime: {
-    frameExtractionTime: number; // Time to extract frame from video in milliseconds
+    fetchTime: number; // Frame extraction duration in milliseconds
     bitmapTime: number; // Bitmap creation duration in milliseconds
     inferenceTime: number; // Model inference duration in milliseconds
   };

@@ -4,7 +4,7 @@ import { logger, extractUrlId } from '@/utils/logger';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
-import type { IImageWithMetadata } from '@/utils/types';
+import type { IImageWithMetadata, IFrameWithMetadata, IVideo } from '@/utils/types';
 import type { BridgeMessage } from 'webext-bridge';
 
 /**
@@ -23,6 +23,10 @@ export class InferenceController {
   public initialize(): void {
     // POST /images - Process image (fallback path when MessageChannel is unavailable)
     onMessage('POST_IMAGE', this.handlePostImage.bind(this));
+    // POST /videos - Start video session
+    onMessage('POST_VIDEO', this.handlePostVideo.bind(this));
+    // POST /videos/{id}/frames - Process video frame
+    onMessage('POST_FRAME', this.handlePostFrame.bind(this));
   }
 
   /**
@@ -67,5 +71,89 @@ export class InferenceController {
     } catch (error) {
       logger.withTag('inferenceController').error('Failed to get host settings for hostname:', hostname, error);
     }
+  }
+
+  /**
+   * POST /videos/{id}/frames - Process individual video frame
+   * @param message - The incoming message containing frame data and hostname
+   */
+  private async handlePostFrame(
+    message: BridgeMessage<{ hostname: string; frameData: IFrameWithMetadata }>,
+  ): Promise<void> {
+    const { hostname, frameData } = message.data;
+    const { tabId } = message.sender;
+
+    // Validate input
+    if (!hostname) {
+      logger.withTag('inferenceController').error('Hostname is required for video frame inference request');
+      return;
+    }
+
+    if (!tabId) {
+      logger.withTag('inferenceController').error('Tab ID is required to send results back to content script');
+      return;
+    }
+
+    if (!frameData) {
+      logger.withTag('inferenceController').error('Frame data is required for video frame inference request');
+      return;
+    }
+
+    logger
+      .withTag('inferenceController')
+      .debug(
+        `Received video frame (session=${frameData.sessionId || 'n/a'}) for ${extractUrlId(
+          frameData.videoUrl,
+        )} #${frameData.frameIndex} from ${hostname}`,
+      );
+
+    try {
+      // Get host settings
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+
+      // Schedule inference task for this frame
+      await this.orchestrationService.scheduleInferenceTask({
+        kind: 'frame',
+        input: { kind: 'src', imageSrc: frameData.src },
+        hostname,
+        tabId,
+        hostSettings,
+        frameMetadata: frameData,
+      });
+
+      logger
+        .withTag('inferenceController')
+        .debug(`Successfully processed video frame ${frameData.frameIndex} for ${extractUrlId(frameData.videoUrl)}`);
+    } catch (error) {
+      logger.withTag('inferenceController').error(`Failed to process video frame ${frameData.frameIndex}:`, error);
+    } finally {
+      // Clean up the blob URL from content script
+      try {
+        globalThis.URL?.revokeObjectURL?.(frameData.src);
+      } catch (error) {
+        logger.withTag('inferenceController').warn('Failed to revoke blob URL:', error);
+      }
+    }
+  }
+
+  /**
+   * POST /videos - Start video session
+   */
+  private handlePostVideo(
+    message: BridgeMessage<{ hostname: string; video: Extract<IVideo, { type: 'start' }> }>,
+  ): void {
+    const { hostname } = message.data;
+    const { video } = message.data;
+    const { tabId } = message.sender;
+
+    logger
+      .withTag('inferenceController')
+      .log(
+        `POST /videos: sessionId=${video.sessionId} tab=${tabId} hostname=${hostname} url=${extractUrlId(video.videoUrl)} (${video.width}x${video.height})`,
+      );
+
+    // TODO: Initialize video session tracking
+    // - Store session metadata
+    // - Prepare frame aggregation
   }
 }

@@ -6,7 +6,14 @@ import type { TabEventListener } from '@/entrypoints/background/events/tabEventL
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { PredictionService } from '@/entrypoints/background/services/predictionService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
-import type { IImagePrediction, IHostSettings, IImageMetadata, InferenceTask, ImageInferenceTask } from '@/utils/types';
+import type {
+  IImagePrediction,
+  IHostSettings,
+  IImageMetadata,
+  IFramePrediction,
+  IFrameWithMetadata,
+} from '@/utils/types';
+import type { InferenceTask, ImageInferenceTask, FrameInferenceTask } from '@/utils/types/model';
 
 export type InferenceInput =
   | { kind: 'src'; imageSrc: string }
@@ -22,8 +29,17 @@ export type ScheduleImageArgs = {
   imageMetadata: IImageMetadata;
 };
 
-// Union of all schedule types (currently only image)
-export type ScheduleArgs = ScheduleImageArgs;
+// Schedule arguments for frame inference
+export type ScheduleFrameArgs = {
+  kind: 'frame';
+  input: InferenceInput;
+  hostname: string;
+  tabId: number;
+  hostSettings: IHostSettings;
+  frameMetadata: IFrameWithMetadata;
+};
+
+export type ScheduleArgs = ScheduleImageArgs | ScheduleFrameArgs;
 
 export class InferenceOrchestrationService {
   constructor(
@@ -37,6 +53,18 @@ export class InferenceOrchestrationService {
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
+    if (args.kind === 'image') {
+      return this.scheduleImageInferenceTask(args);
+    } else if (args.kind === 'frame') {
+      return this.scheduleFrameInferenceTask(args);
+    } else {
+      const errorMsg = `Unknown task kind: ${(args as { kind?: string }).kind}`;
+      logger.withTag('inferenceOrchestrationService').error(errorMsg);
+      return Promise.reject(new Error(errorMsg));
+    }
+  }
+
+  private async scheduleImageInferenceTask(args: ScheduleImageArgs): Promise<void> {
     const { input, hostname, tabId, hostSettings, imageMetadata } = args;
     const { imageSrc } = input;
 
@@ -68,6 +96,7 @@ export class InferenceOrchestrationService {
       input.kind === 'bitmap'
         ? {
             kind: 'image',
+            transport: 'transferable',
             imageSrc,
             hostname,
             priority: this.calculatePriority(tabId),
@@ -81,6 +110,7 @@ export class InferenceOrchestrationService {
           }
         : {
             kind: 'image',
+            transport: 'serializable',
             imageSrc,
             hostname,
             priority: this.calculatePriority(tabId),
@@ -104,6 +134,53 @@ export class InferenceOrchestrationService {
     return Promise.resolve();
   }
 
+  private async scheduleFrameInferenceTask(args: ScheduleFrameArgs): Promise<void> {
+    const { input, hostname, tabId, hostSettings, frameMetadata } = args;
+    const { imageSrc } = input;
+
+    // Create frame inference task without cache check (frames are not cached)
+    const task: FrameInferenceTask =
+      input.kind === 'bitmap'
+        ? {
+            kind: 'frame',
+            transport: 'transferable',
+            imageSrc,
+            hostname,
+            priority: this.calculatePriority(tabId),
+            createdAt: new Date(),
+            tabId,
+            hostSettings,
+            frameMetadata,
+            bitmap: input.bitmap,
+            originalWidth: input.originalWidth,
+            originalHeight: input.originalHeight,
+          }
+        : {
+            kind: 'frame',
+            transport: 'serializable',
+            imageSrc,
+            hostname,
+            priority: this.calculatePriority(tabId),
+            createdAt: new Date(),
+            tabId,
+            hostSettings,
+            frameMetadata,
+          };
+
+    logger
+      .withTag('inferenceOrchestrationService')
+      .debug(`Scheduling ${input.kind} frame inference task for ${hostname}`);
+
+    // Add to queue (fire-and-forget for immediate response)
+    this.queueService.enqueue(task).catch(error => {
+      logger
+        .withTag('inferenceOrchestrationService')
+        .error(`Failed to enqueue frame task for ${extractUrlId(imageSrc)}:`, error);
+    });
+
+    return Promise.resolve();
+  }
+
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       try {
@@ -119,11 +196,15 @@ export class InferenceOrchestrationService {
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     try {
-      await this.handleSuccessForImage(task, imagePrediction);
+      if (task.kind === 'image') {
+        await this.handleSuccessForImage(task, imagePrediction);
+      } else if (task.kind === 'frame') {
+        await this.handleSuccessForFrame(task, imagePrediction);
+      }
     } catch (error) {
       logger
         .withTag('inferenceOrchestrationService')
-        .error(`Error handling success for image ${extractUrlId(task.imageSrc)}:`, error);
+        .error(`Error handling success for ${task.kind} ${extractUrlId(task.imageSrc)}:`, error);
     }
   }
 
@@ -131,6 +212,37 @@ export class InferenceOrchestrationService {
     await this.imageCacheService.cachePredictions([imagePrediction]);
     await this.sendPredictionsToContent([imagePrediction], task.tabId);
   }
+
+  private async handleSuccessForFrame(task: FrameInferenceTask, imagePrediction: IImagePrediction): Promise<void> {
+    const framePrediction = this.createFramePrediction(task, imagePrediction);
+    await this.sendFramePredictionsToContent([framePrediction], task.tabId);
+  }
+
+  private createFramePrediction(task: FrameInferenceTask, imagePrediction: IImagePrediction): IFramePrediction {
+    const { frameMetadata } = task;
+
+    return {
+      // Base fields
+      sessionId: frameMetadata.sessionId,
+      hostname: imagePrediction.hostname,
+      width: imagePrediction.width,
+      height: imagePrediction.height,
+      frameIndex: frameMetadata.frameIndex,
+      videoUrl: frameMetadata.videoUrl, // Actual video URL (for DOM matching)
+      src: task.imageSrc, // Blob URL of the extracted frame (for inference)
+      predictions: imagePrediction.predictions,
+      timestamp: frameMetadata.timestampSec,
+      cacheMetadata: imagePrediction.cacheMetadata,
+      maskTransform: imagePrediction.maskTransform,
+      // Processing times aligned with IFramePrediction
+      processingTime: {
+        fetchTime: imagePrediction.processingTime.fetchTime,
+        bitmapTime: imagePrediction.processingTime.bitmapTime,
+        inferenceTime: imagePrediction.processingTime.inferenceTime,
+      },
+    };
+  }
+
   private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
     try {
       await sendMessage('ON_INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
@@ -140,6 +252,20 @@ export class InferenceOrchestrationService {
         .debug(`Sent ${predictions.length} predictions to content script (tab ${tabId})`);
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error('Error sending predictions to content script:', error);
+    }
+  }
+
+  private async sendFramePredictionsToContent(predictions: IFramePrediction[], tabId: number): Promise<void> {
+    try {
+      await sendMessage('ON_FRAME_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
+
+      logger
+        .withTag('inferenceOrchestrationService')
+        .debug(`Sent ${predictions.length} frame predictions to content script (tab ${tabId})`);
+    } catch (error) {
+      logger
+        .withTag('inferenceOrchestrationService')
+        .error('Error sending frame predictions to content script:', error);
     }
   }
 

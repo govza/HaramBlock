@@ -11,6 +11,8 @@ import type {
   ChannelRequest,
   ProcessImageAction,
   IImageWithBitmap,
+  IFrameWithMetadata,
+  IVideo,
 } from '@/utils/types';
 
 /**
@@ -47,7 +49,11 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
  */
 export async function requestCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
   try {
-    const result = await sendMessage('GET_HOSTNAME_IMAGE_PREDICTION_CACHE', { hostname }, 'background');
+    const result = (await sendMessage(
+      'GET_HOSTNAME_IMAGE_PREDICTION_CACHE',
+      { hostname },
+      'background',
+    )) as unknown as IImagePrediction[];
     return result || [];
   } catch (error) {
     logger.withTag('sender').error('Failed to request cached predictions:', error);
@@ -71,7 +77,7 @@ async function sendImageForInferenceUsingChannel(
     const naturalWidth = image.naturalWidth || image.width;
     const naturalHeight = image.naturalHeight || image.height;
 
-    img = await loadImage(src, metadata);
+    img = await loadImage(src);
 
     // Create a bitmap at natural resolution to avoid aspect distortion.
     // Background will handle aspect-preserving letterboxing to 640x640.
@@ -149,6 +155,29 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
 }
 
 /**
+ * POST /videos - Start video session
+ */
+export async function createVideo(video: Extract<IVideo, { type: 'start' }>): Promise<void> {
+  try {
+    await sendMessage('POST_VIDEO', video, 'background');
+  } catch (error) {
+    logger.withTag('sender').warn('Failed to create video:', error);
+  }
+}
+
+/**
+ * POST /videos/{id}/frames - Process individual video frame
+ */
+export async function createFrame(hostname: string, frameData: IFrameWithMetadata): Promise<void> {
+  try {
+    await sendMessage('POST_FRAME', { hostname, frameData }, 'background');
+  } catch (error) {
+    logger.withTag('sender').error('Failed to create frame:', error);
+    throw error;
+  }
+}
+
+/**
  * Request both host settings and cached predictions in parallel
  * @param hostname - The hostname to get data for
  * @returns Promise resolving to object with settings and predictions
@@ -173,7 +202,7 @@ export async function requestHostData(hostname: string): Promise<{
   }
 }
 
-function loadImage(src: string, _metadata: IImageMetadata): Promise<HTMLImageElement> {
+function loadImage(src: string): Promise<HTMLImageElement> {
   const image = new Image();
   image.crossOrigin = 'anonymous';
   image.src = src;
