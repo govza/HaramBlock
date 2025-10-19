@@ -1,8 +1,8 @@
 import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
-import { isHandled, markHandled } from '@/entrypoints/content/core/status';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
+import { handleVideos } from '@/entrypoints/content/handlers/handleVideos';
 import { applyImagePredictionsToDom } from '@/entrypoints/content/presentation/imagePredictions';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
@@ -49,7 +49,9 @@ export class MediaPipeline {
     if (images.length) {
       handleImages(images, this.opts.hostSettings);
     }
-    if (videos.length) this.handleVideos(videos);
+    if (videos.length) {
+      handleVideos(videos, this.opts.hostSettings);
+    }
   }
 
   private onAttributesChanged(elements: HTMLElement[]): void {
@@ -66,18 +68,7 @@ export class MediaPipeline {
           handleImageAttributeChange(img, this.opts.hostSettings);
         }
       } else if (tag === 'VIDEO') {
-        this.handleVideos([el as HTMLVideoElement]);
-      }
-    }
-  }
-
-  private handleVideos(videos: HTMLVideoElement[]): void {
-    for (const video of videos) {
-      const src = video.currentSrc || video.src;
-      if (!src) continue;
-      if (!isHandled(video, src)) {
-        markHandled(video, src);
-        // TODO: handle video frames for inference
+        handleVideos([el as HTMLVideoElement], this.opts.hostSettings);
       }
     }
   }
