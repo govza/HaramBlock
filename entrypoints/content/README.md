@@ -90,7 +90,7 @@ Handles all inbound messages from the background script using webext-bridge.
 **Message Types:**
 
 - `ON_HOST_SETTINGS_UPDATED` - Notifies when host settings change
-- `ON_INFERENCE_PREDICTIONS` - Delivers AI prediction results
+- `ON_IMAGE_PREDICTIONS` - Delivers AI prediction results
 
 **Key Features:**
 

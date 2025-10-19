@@ -38,7 +38,7 @@ declare module 'webext-bridge' {
     // POST /images - Process image
     POST_IMAGE: ProtocolWithReturn<{ hostname: string; imageData: IImageWithMetadata }, void>;
     // Notify content scripts of inference predictions
-    ON_INFERENCE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[] }, void>;
+    ON_IMAGE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[] }, void>;
     // #endregion
 
     // #region Videos
