@@ -19,7 +19,7 @@ export class IconController {
    * Initialize message listeners (API)
    */
   public initialize(): void {
-    onMessage('UPDATE_ICON', this.updateIcon.bind(this));
+    onMessage('PUT_ICON', this.updateIcon.bind(this));
   }
 
   /**

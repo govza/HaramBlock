@@ -153,7 +153,7 @@ export function useHostSettings(hostname: string) {
         const notifications = relevantTabs.map(tab => {
           if (tab.id) {
             return sendMessage(
-              'HOST_SETTINGS_UPDATED',
+              'ON_HOST_SETTINGS_UPDATED',
               { hostname: effectiveHostname },
               `content-script@${tab.id}`,
             ).catch(error => {

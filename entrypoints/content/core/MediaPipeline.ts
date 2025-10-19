@@ -1,4 +1,4 @@
-import { onImageInferenceResult } from '@/entrypoints/content/communication/listener';
+import { onInferencePredictions } from '@/entrypoints/content/communication/listener';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
@@ -31,7 +31,7 @@ export class MediaPipeline {
   }
 
   start(root: Node = document.body): () => void {
-    const unsubImagePreds = onImageInferenceResult(data => this.onImagePredictions(data.predictions));
+    const unsubImagePreds = onInferencePredictions(data => this.onImagePredictions(data.predictions));
     this.unsubscribeFns.push(unsubImagePreds);
 
     this.dom.start(root);

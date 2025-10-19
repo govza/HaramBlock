@@ -119,7 +119,7 @@ export class InferenceOrchestrationService {
 
   private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
     try {
-      await sendMessage('INFERENCE_IMAGE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
+      await sendMessage('ON_INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
 
       logger
         .withTag('inferenceOrchestrationService')
