@@ -1,5 +1,5 @@
 import type { IHostSettings } from '@/utils/types/host';
-import type { IImageMetadata } from '@/utils/types/media';
+import type { IImageMetadata, IFrameWithMetadata } from '@/utils/types/media';
 
 interface InferenceTaskCommon {
   imageSrc: string;
@@ -16,19 +16,33 @@ export type ImageInferenceTask = InferenceTaskCommon & {
   imageMetadata: IImageMetadata;
 } & (
     | {
+        transport: 'serializable';
+      }
+    | {
+        transport: 'transferable';
         bitmap: ImageBitmap;
         originalWidth: number;
         originalHeight: number;
       }
+  );
+
+// Frame inference task (for video frames)
+export type FrameInferenceTask = InferenceTaskCommon & {
+  kind: 'frame';
+  frameMetadata: IFrameWithMetadata;
+} & (
     | {
-        bitmap?: undefined;
-        originalWidth?: undefined;
-        originalHeight?: undefined;
+        transport: 'serializable';
+      }
+    | {
+        transport: 'transferable';
+        bitmap: ImageBitmap;
+        originalWidth: number;
+        originalHeight: number;
       }
   );
 
-// Union of all inference task types (currently only image)
-export type InferenceTask = ImageInferenceTask;
+export type InferenceTask = ImageInferenceTask | FrameInferenceTask;
 
 export enum ProcessingStatus {
   QUEUED = 'queued',
