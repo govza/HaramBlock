@@ -4,7 +4,7 @@ import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
 import { handleVideos } from '@/entrypoints/content/handlers/handleVideos';
 import { applyImagePredictionsToDom } from '@/entrypoints/content/presentation/imagePredictions';
-import { logger } from '@/utils/logger';
+import { applyFramePredictionsToDom } from '@/entrypoints/content/presentation/videoPredictions';
 
 import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/types';
 
@@ -86,8 +86,6 @@ export class MediaPipeline {
   // Called when frame predictions are received from the background script
   private onFramePredictions(preds: IFramePrediction[]): void {
     if (!preds || preds.length === 0) return;
-    // TODO: Apply frame predictions to video elements
-    // For now, just log them to verify they're being received
-    logger.log('Received frame predictions:', preds);
+    void applyFramePredictionsToDom(preds, this.opts.hostSettings);
   }
 }
