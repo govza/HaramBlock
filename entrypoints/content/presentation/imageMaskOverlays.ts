@@ -19,7 +19,7 @@ interface ImageOverlayState {
 
 const imageStates = new WeakMap<HTMLImageElement, ImageOverlayState>();
 
-export const createMaskOverlays = (
+export const createImageMaskOverlays = (
   image: HTMLImageElement,
   imagePrediction?: IImagePrediction,
   skipObserverSetup = false,
@@ -41,7 +41,7 @@ export const createMaskOverlays = (
       imageSrc: extractUrlId(image.src || image.currentSrc),
     });
     // If there is an existing overlay for this image, ensure it's cleared when predictions are missing
-    clearMaskOverlay(image);
+    clearImageMaskOverlay(image);
     return;
   }
 
@@ -61,13 +61,13 @@ export const createMaskOverlays = (
       updateOverlayForImage(image, existingState);
     } else {
       // No predictions anymore: clear overlay
-      clearMaskOverlay(image);
+      clearImageMaskOverlay(image);
     }
     return;
   }
 
   // Remove legacy overlays created by older runs (one-time cleanup)
-  removeExistingOverlays(parent);
+  removeExistingImageOverlays(parent);
 
   // Collect all masks and bounding boxes for single overlay
   const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
@@ -82,7 +82,7 @@ export const createMaskOverlays = (
 
   // Create single overlay for all masks
   if (allMasks.length > 0) {
-    const state = createSingleMaskOverlay(
+    const state = createSingleImageMaskOverlay(
       image,
       allMasks,
       imagePrediction.maskTransform,
@@ -98,12 +98,12 @@ export const createMaskOverlays = (
   }
 };
 
-const removeExistingOverlays = (parent: HTMLElement): void => {
+const removeExistingImageOverlays = (parent: HTMLElement): void => {
   const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
   existingOverlays.forEach(overlay => overlay.remove());
 };
 
-const createSingleMaskOverlay = (
+const createSingleImageMaskOverlay = (
   image: HTMLImageElement,
   allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[],
   maskTransform: IMaskTransform,
@@ -434,7 +434,7 @@ const setupImageObservers = (image: HTMLImageElement, state: ImageOverlayState):
 function updateOverlayForImage(image: HTMLImageElement, state: ImageOverlayState): void {
   const imagePrediction = state.currentPrediction;
   if (!imagePrediction || !imagePrediction.predictions.length) {
-    clearMaskOverlay(image);
+    clearImageMaskOverlay(image);
     return;
   }
   const parent = image.parentElement;
@@ -479,7 +479,7 @@ function updateOverlayForImage(image: HTMLImageElement, state: ImageOverlayState
   );
 }
 
-export const clearMaskOverlay = (image: HTMLImageElement): void => {
+export const clearImageMaskOverlay = (image: HTMLImageElement): void => {
   const state = imageStates.get(image);
   if (state) {
     try {

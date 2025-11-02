@@ -7,8 +7,8 @@ import {
   markProcessed,
 } from '@/entrypoints/content/core/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
+import { clearImageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlays';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
-import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { extractUrlId, logger } from '@/utils/logger';
 
@@ -29,7 +29,7 @@ export function handleImages(images: HTMLImageElement[], hostSettings: IHostSett
 export function handleImageAttributeChange(img: HTMLImageElement, hostSettings: IHostSettings): void {
   const currentSrc = img.currentSrc || img.src;
   if (img.dataset.hbSrc && img.dataset.hbSrc !== currentSrc) {
-    clearMaskOverlay(img);
+    clearImageMaskOverlay(img);
     clearBlurBoxOverlay(img);
     removeInitialImageStyling(img);
     delete img.dataset.hbHandled;
