@@ -156,10 +156,10 @@ export class MessageChannelController {
                 width,
                 height,
                 metadata,
-                sessionId: (req.payload).sessionId,
-                videoUrl: (req.payload).videoUrl,
-                frameIndex: (req.payload).frameIndex,
-                timestampSec: (req.payload).timestampSec,
+                sessionId: req.payload.sessionId,
+                videoUrl: req.payload.videoUrl,
+                frameIndex: req.payload.frameIndex,
+                timestampSec: req.payload.timestampSec,
               },
             }
           : {
