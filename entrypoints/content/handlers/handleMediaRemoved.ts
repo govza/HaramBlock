@@ -1,6 +1,6 @@
 import { disposeVideoSession } from '@/entrypoints/content/handlers/handleVideos';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
-import { clearImageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlays';
+import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 
 export const handleMediaRemoved = (elements: HTMLElement[]): void => {
@@ -14,7 +14,7 @@ export const handleMediaRemoved = (elements: HTMLElement[]): void => {
 const cleanupMediaElement = (el: HTMLImageElement | HTMLVideoElement): void => {
   if (el.tagName === 'IMG') {
     const img = el as HTMLImageElement;
-    clearImageMaskOverlay(img);
+    imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
     removeInitialImageStyling(img);
   } else if (el.tagName === 'VIDEO') {

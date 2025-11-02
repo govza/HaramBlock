@@ -8,20 +8,29 @@ export interface ContentRect {
 }
 
 /**
- * Compute the actually rendered content rectangle of an <img> inside its element box,
+ * Compute the actually rendered content rectangle of an <img> or <video> inside its element box,
  * respecting object-fit and object-position. Offsets are relative to the element box.
  */
-export function computeRenderedContentRect(image: HTMLImageElement, imageRect?: DOMRect): ContentRect {
-  const naturalW = image.naturalWidth || image.width;
-  const naturalH = image.naturalHeight || image.height;
-  const rect = imageRect ?? image.getBoundingClientRect();
+export function computeRenderedContentRect(
+  element: HTMLImageElement | HTMLVideoElement,
+  imageRect?: DOMRect,
+): ContentRect {
+  const naturalW =
+    element instanceof HTMLVideoElement
+      ? element.videoWidth || element.clientWidth
+      : element.naturalWidth || element.width;
+  const naturalH =
+    element instanceof HTMLVideoElement
+      ? element.videoHeight || element.clientHeight
+      : element.naturalHeight || element.height;
+  const rect = imageRect ?? element.getBoundingClientRect();
   const boxW = rect.width;
   const boxH = rect.height;
   if (!naturalW || !naturalH || !boxW || !boxH) {
     return { offsetX: 0, offsetY: 0, width: boxW, height: boxH };
   }
 
-  const style = getComputedStyle(image);
+  const style = getComputedStyle(element);
   const fit = (style.objectFit || 'fill').toLowerCase();
   const pos = (style.objectPosition || '50% 50%').trim().split(' ');
 
