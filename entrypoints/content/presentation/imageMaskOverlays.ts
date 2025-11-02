@@ -293,11 +293,10 @@ const renderUnifiedCanvasMask = (
   mg.clearRect(0, 0, gridW, gridH);
   mg.fillStyle = 'rgba(0,0,0,1)';
 
-  const { scaleX, scaleY, offsetX, offsetY } = maskTransform;
   const maskThreshold = 0.5;
 
-  // Merge masks into grid by OR-ing cells that pass threshold and bbox
-  for (const { masks, boundingBox } of allMasks) {
+  // Merge masks into grid by OR-ing cells that pass threshold
+  for (const { masks } of allMasks) {
     const mh = masks.length;
     const mw = masks[0]?.length || 0;
     if (mw !== gridW || mh !== gridH) continue;
@@ -309,16 +308,8 @@ const renderUnifiedCanvasMask = (
         const v = row[x];
         if (typeof v !== 'number' || v <= maskThreshold) continue;
 
-        const imgX = (x - offsetX) * scaleX;
-        const imgY = (y - offsetY) * scaleY;
-        if (
-          imgX >= boundingBox.x &&
-          imgX <= boundingBox.x + boundingBox.width &&
-          imgY >= boundingBox.y &&
-          imgY <= boundingBox.y + boundingBox.height
-        ) {
-          mg.fillRect(x, y, 1, 1);
-        }
+        // Mask value is above threshold, fill this pixel
+        mg.fillRect(x, y, 1, 1);
       }
     }
   }
