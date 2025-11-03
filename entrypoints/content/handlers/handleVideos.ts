@@ -1,7 +1,7 @@
 import { isHandled, markHandled } from '@/entrypoints/content/core/status';
 import { applyInitialVideoStyling, removeInitialVideoStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { handleVideoPlayback, releaseVideoPlayback } from '@/entrypoints/content/video/playback';
-import { queueThumbnailForInference } from '@/entrypoints/content/video/thumbnail';
+import { queueThumbnailForInference, cleanupThumbnailBlobUrls } from '@/entrypoints/content/video/thumbnail';
 import { DEFAULT_VIDEO_CONFIG } from '@/utils/constants/video';
 
 import type { IHostSettings } from '@/utils/types';
@@ -42,6 +42,7 @@ export function handleVideoAttributeChange(video: HTMLVideoElement, hostSettings
     // Clear all tracking when src changes
     removeInitialVideoStyling(video);
     releaseVideoPlayback(video);
+    cleanupThumbnailBlobUrls(video);
     delete video.dataset.hbHandled;
     delete video.dataset.hbSent;
     delete video.dataset.hbProcessed;
@@ -84,4 +85,5 @@ export function disposeVideoSession(video: HTMLVideoElement): void {
     playbackListeners.delete(video);
   }
   releaseVideoPlayback(video);
+  cleanupThumbnailBlobUrls(video);
 }
