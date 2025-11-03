@@ -2,7 +2,7 @@
  * Configuration for video frame processing loop.
  * Controls how video frames are extracted, analyzed, and filtered.
  */
-export interface VideoFrameLoopConfig {
+export type VideoFrameLoopConfig = {
   /**
    * Interval between frame captures in milliseconds.
    * Higher values reduce CPU usage but may miss fast-changing content.
@@ -47,7 +47,7 @@ export interface VideoFrameLoopConfig {
    * @default 7
    */
   maxSendFps?: number;
-}
+};
 
 /**
  * Default configuration for video frame processing.

@@ -1,3 +1,5 @@
+import type { VideoFrameLoopConfig } from '@/utils/constants/video';
+
 // #region IMAGE TYPES
 export type IImageMetadata = {
   contentType: string | null;
@@ -35,15 +37,6 @@ export type IImageWithBitmap = {
   TransferFields;
 
 // #region VIDEO TYPES
-export type VideoFrameLoopConfig = {
-  frameInterval: number;
-  maxErrors: number;
-  enableTemporalSmoothing: boolean;
-  positiveThreshold: number;
-  negativeThreshold: number;
-  maxSendFps?: number;
-};
-
 type FrameFields = {
   sessionId: string; // Stable ID for a single <video> session
   videoUrl: string; // Original video source URL from the DOM
