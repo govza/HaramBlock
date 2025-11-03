@@ -77,11 +77,7 @@ async function processThumbnailPredictions(
             height: framePred.height,
             hostname: hostSettings.hostname,
             timestamp: Date.now(),
-            cacheMetadata: {
-              contentType: 'video/thumbnail',
-              createdAt: Date.now(),
-              accessedAt: Date.now(),
-            },
+            cacheMetadata: framePred.cacheMetadata,
             maskTransform: framePred.maskTransform,
             processingTime: {
               bitmapTime: framePred.processingTime.bitmapTime,
@@ -166,11 +162,7 @@ async function processRegularFramePredictions(
           height: framePred.height,
           hostname: hostSettings.hostname,
           timestamp: Date.now(),
-          cacheMetadata: {
-            contentType: 'video/frame',
-            createdAt: Date.now(),
-            accessedAt: Date.now(),
-          },
+          cacheMetadata: framePred.cacheMetadata,
           maskTransform: framePred.maskTransform,
           processingTime: {
             bitmapTime: framePred.processingTime.bitmapTime,

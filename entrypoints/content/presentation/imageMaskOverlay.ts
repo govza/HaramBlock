@@ -47,13 +47,8 @@ class ImageMaskOverlay implements IMediaOverlay<HTMLImageElement> {
     const existingState = this.imageStates.get(image);
     if (existingState && !existingState.destroyed) {
       // Update stored prediction and re-render
-      if (imagePrediction && imagePrediction.predictions.length) {
-        existingState.currentPrediction = imagePrediction;
-        this.updateOverlayForImage(image, existingState);
-      } else {
-        // No predictions anymore: clear overlay
-        this.clearMaskOverlay(image);
-      }
+      existingState.currentPrediction = imagePrediction;
+      this.updateOverlayForImage(image, existingState);
       return;
     }
 

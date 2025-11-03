@@ -179,6 +179,8 @@ export class PredictionService {
       const timestamp = Date.now();
 
       // Video frames use metadata from frameMetadata
+      // Note: Although the function is named for images, video frames use metadata from frameMetadata (which contains IImageMetadata)
+      // to construct ICacheMetadata. This is intentional and safe, as the types are compatible.
       const cacheMetadata = createCacheMetadataFromImageMetadata(task.frameMetadata.metadata);
 
       // Calculate mask transform parameters in mask-grid space (outputShape H/W)
