@@ -190,21 +190,19 @@ export class VideoFrameProcessor {
       return;
     }
 
-    try {
-      await this.sendSample(
-        this.video,
-        bitmap,
-        this.hostname,
-        {
-          kind: 'frame',
-          frameIndex: this.frameIndex,
-          timestampSec: this.video.currentTime,
-        },
-        this.sessionId,
-      );
-    } finally {
-      bitmap.close();
-    }
+    // sendSample takes ownership of the bitmap and handles cleanup
+    // DO NOT close the bitmap here - it's either transferred or closed by sendSample
+    await this.sendSample(
+      this.video,
+      bitmap,
+      this.hostname,
+      {
+        kind: 'frame',
+        frameIndex: this.frameIndex,
+        timestampSec: this.video.currentTime,
+      },
+      this.sessionId,
+    );
 
     this.frameIndex += 1;
     this.video.dataset.hbFrameCount = this.frameIndex.toString();

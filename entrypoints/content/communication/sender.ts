@@ -65,6 +65,7 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 /**
  * Send image for inference using MessageChannel (transferables when possible)
  * Thin wrapper to allow branching from queueImagesForInference.
+ * Takes ownership of the created bitmap and handles its lifecycle.
  */
 async function sendImageForInferenceUsingChannel(
   port: MessagePort,
@@ -74,6 +75,8 @@ async function sendImageForInferenceUsingChannel(
 ): Promise<void> {
   const tabId = await sendMessage('GET_CURRENT_TAB_ID', 'get', 'background');
   let img = image;
+  let bitmap: ImageBitmap | null = null;
+
   try {
     const src = image.currentSrc || image.src;
     const naturalWidth = image.naturalWidth || image.width;
@@ -83,7 +86,7 @@ async function sendImageForInferenceUsingChannel(
 
     // Create a bitmap at natural resolution to avoid aspect distortion.
     // Background will handle aspect-preserving letterboxing to 640x640.
-    const bitmap = await createImageBitmap(img);
+    bitmap = await createImageBitmap(img);
 
     // Create payload for PROCESS_IMAGE action
     const payload: IImageWithBitmap = {
@@ -107,7 +110,16 @@ async function sendImageForInferenceUsingChannel(
     };
 
     port.postMessage(request, [bitmap]);
+    // Bitmap ownership transferred - no cleanup needed
   } catch (error) {
+    // Ensure bitmap is closed if transfer fails
+    if (bitmap) {
+      try {
+        bitmap.close();
+      } catch {
+        // Bitmap may already be closed or detached - ignore
+      }
+    }
     logger.withTag('sender').error('Failed to prepare image for inference:', error);
     throw error;
   }
@@ -174,6 +186,13 @@ export async function requestVideoInference(
 /**
  * Request video frame inference using MessageChannel with an ImageBitmap (preferred path).
  * Falls back to bridge messaging if channel setup or send fails.
+ *
+ * IMPORTANT: This function takes ownership of the bitmap and handles its lifecycle:
+ * - If MessageChannel succeeds: bitmap is transferred (ownership moves to background)
+ * - If fallback is used: bitmap is closed after conversion to blob
+ * - If both fail: bitmap is closed before throwing error
+ *
+ * Caller should NOT close the bitmap after calling this function.
  */
 export async function requestVideoFrameInference(args: {
   hostname: string;
@@ -236,14 +255,17 @@ export async function requestVideoFrameInference(args: {
         };
 
         port.postMessage(request, [bitmap]);
+        // Bitmap ownership transferred - no cleanup needed
         return;
       } catch (err) {
         logger.withTag('sender').warn('Channel send for video frame failed, falling back:', err);
+        // Bitmap NOT transferred due to error - will be cleaned up in fallback or final catch
       }
     }
   }
 
   // Fallback: convert bitmap to Blob and use bridge message
+  // Bitmap must be cleaned up here since it was NOT transferred
   try {
     // Only create a blob for the fallback bridge path.
     const off = new OffscreenCanvas(width, height);
@@ -252,6 +274,10 @@ export async function requestVideoFrameInference(args: {
     ctx.drawImage(bitmap, 0, 0, width, height);
     const blob = await off.convertToBlob({ type: 'image/webp', quality: 0.7 });
     const blobSrc = frameSrc && frameSrc.trim().length > 0 ? frameSrc : URL.createObjectURL(blob);
+
+    // Close bitmap after successful conversion since it's no longer needed
+    bitmap.close();
+
     const frameData: IFrameWithMetadata = {
       media: 'frame',
       transport: 'serializable',
@@ -267,6 +293,12 @@ export async function requestVideoFrameInference(args: {
 
     await sendMessage('POST_FRAME', { hostname, frameData }, 'background');
   } catch (error) {
+    // Ensure bitmap is closed if fallback fails
+    try {
+      bitmap.close();
+    } catch {
+      // Bitmap may already be closed or detached - ignore
+    }
     logger.withTag('sender').error('Failed to send video frame for inference:', error);
     throw error;
   }
