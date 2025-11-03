@@ -75,8 +75,6 @@ async function processThumbnailPredictions(
             predictions,
             width: framePred.width,
             height: framePred.height,
-            imageWidth: framePred.width,
-            imageHeight: framePred.height,
             hostname: hostSettings.hostname,
             timestamp: Date.now(),
             cacheMetadata: {
@@ -166,8 +164,6 @@ async function processRegularFramePredictions(
           predictions: framePred.predictions,
           width: framePred.width,
           height: framePred.height,
-          imageWidth: framePred.width,
-          imageHeight: framePred.height,
           hostname: hostSettings.hostname,
           timestamp: Date.now(),
           cacheMetadata: {
