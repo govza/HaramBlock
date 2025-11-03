@@ -35,7 +35,7 @@
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": ["prettier --write", "eslint --fix"],
-    "*.{json,md,css}": ["prettier --write"]
+    "*.{json,md,css,html}": ["prettier --write"]
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
