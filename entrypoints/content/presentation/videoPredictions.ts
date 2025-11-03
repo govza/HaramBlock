@@ -96,9 +96,8 @@ async function processThumbnailPredictions(
             // Use dedicated video overlay system for segmentation
             await videoMaskOverlays.createMaskOverlay(video, imagePrediction);
           } else if (hostSettings.outline === 'bbox' && hostSettings.masking.blur) {
-            // Use existing bbox system (convert to image-like for compatibility)
-            const videoAsImage = convertVideoToImageLike(video);
-            await applyPredictionsStyling([videoAsImage], [imagePrediction], hostSettings);
+            // Use bbox system with video element directly (no conversion needed)
+            await applyPredictionsStyling([video], [imagePrediction], hostSettings);
           } else {
             logger.withTag('videoPredictions').warn('No styling applied - conditions not met:', {
               outline: hostSettings.outline,
@@ -190,9 +189,8 @@ async function processRegularFramePredictions(
           // rather than poster, but for now use the same system
           await videoMaskOverlays.createMaskOverlay(video, imagePrediction);
         } else if (hostSettings.outline === 'bbox' && hostSettings.masking.blur) {
-          // Use existing bbox system (convert to image-like for compatibility)
-          const videoAsImage = convertVideoToImageLike(video);
-          await applyPredictionsStyling([videoAsImage], [imagePrediction], hostSettings);
+          // Use bbox system with video element directly (no conversion needed)
+          await applyPredictionsStyling([video], [imagePrediction], hostSettings);
         }
 
         markProcessed(video, videoSrc);
@@ -206,33 +204,6 @@ async function processRegularFramePredictions(
 
 function getVideoSource(video: HTMLVideoElement, fallbackSrc: string): string {
   return video.dataset.hbSrc || video.currentSrc || video.src || fallbackSrc;
-}
-
-function convertVideoToImageLike(video: HTMLVideoElement): HTMLImageElement {
-  const videoAsImage = video as unknown as HTMLImageElement;
-
-  if (!Object.getOwnPropertyDescriptor(videoAsImage, 'naturalWidth')) {
-    Object.defineProperty(videoAsImage, 'naturalWidth', {
-      get: () => video.videoWidth || video.clientWidth || 0,
-      configurable: true,
-    });
-  }
-
-  if (!Object.getOwnPropertyDescriptor(videoAsImage, 'naturalHeight')) {
-    Object.defineProperty(videoAsImage, 'naturalHeight', {
-      get: () => video.videoHeight || video.clientHeight || 0,
-      configurable: true,
-    });
-  }
-
-  if (!Object.getOwnPropertyDescriptor(videoAsImage, 'complete')) {
-    Object.defineProperty(videoAsImage, 'complete', {
-      get: () => video.readyState >= 3,
-      configurable: true,
-    });
-  }
-
-  return videoAsImage;
 }
 
 function findVideosForThumbnailPrediction(src: string): HTMLVideoElement[] {
