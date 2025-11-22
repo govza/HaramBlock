@@ -2,4 +2,4 @@ export { HostSettingsController } from '@/entrypoints/background/controllers/hos
 export { IconController } from '@/entrypoints/background/controllers/iconController';
 export { ImageCacheController } from '@/entrypoints/background/controllers/imageCacheController';
 export { InferenceController } from '@/entrypoints/background/controllers/inferenceController';
-export { MessageChannelController } from '@/entrypoints/background/controllers/messageChannelController';
+export { GetCurrentTabIdController } from '@/entrypoints/background/controllers/getCurrentTabIdController';
