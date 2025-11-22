@@ -30,7 +30,7 @@ export const injectPredictionDomStyles = () => {
   styleElement.textContent = `
     .haramblock-blur-box {
       position: absolute;
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(15px);
       ${import.meta.env.DEV ? 'border: 2px solid red;' : ''}
       pointer-events: none;
       z-index: 5;

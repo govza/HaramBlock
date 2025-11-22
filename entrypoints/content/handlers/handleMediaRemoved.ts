@@ -1,6 +1,6 @@
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
+import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
-import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
 
 export const handleMediaRemoved = (elements: HTMLElement[]): void => {
   for (const el of elements) {
@@ -13,7 +13,7 @@ export const handleMediaRemoved = (elements: HTMLElement[]): void => {
 const cleanupMediaElement = (el: HTMLImageElement | HTMLVideoElement): void => {
   if (el.tagName === 'IMG') {
     const img = el as HTMLImageElement;
-    clearMaskOverlay(img);
+    imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
     removeInitialImageStyling(img);
   }

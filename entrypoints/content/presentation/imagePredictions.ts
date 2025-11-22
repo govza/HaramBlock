@@ -1,7 +1,7 @@
-import { markHandled, markProcessed } from '@/entrypoints/content/handlers/status';
+import { markHandled, markProcessed } from '@/entrypoints/content/core/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
+import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
-import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
@@ -52,7 +52,7 @@ export async function applyImagePredictionsToDom(
     // If this prediction has no detections, ensure overlays are cleared
     if (!pred.predictions || pred.predictions.length === 0) {
       for (const image of loadedImages) {
-        clearMaskOverlay(image);
+        imageMaskOverlay.clearMaskOverlay(image);
         clearBlurBoxOverlay(image);
         removeInitialImageStyling(image);
         markHandled(image, pred.src);
