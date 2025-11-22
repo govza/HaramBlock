@@ -133,17 +133,17 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
     const port = getMessagePort();
     if (port) {
       try {
-        logger.withTag('sender').info(`Attempting to send via MessageChannel for ${imageData.src.substring(0, 50)}...`);
         await sendImageForInferenceUsingChannel(port, hostname, image, metadata);
+        logger.withTag('sender').debug(`Sent via MessageChannel (transferable bitmap)`);
         return;
       } catch (error) {
         logger.withTag('sender').warn(`MessageChannel failed, falling back to webext-bridge:`, error);
-        // Fallback to webext-bridge below
       }
     }
   }
 
   await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');
+  logger.withTag('sender').debug(`Sent via webext-bridge (src only)`);
 }
 
 /**
