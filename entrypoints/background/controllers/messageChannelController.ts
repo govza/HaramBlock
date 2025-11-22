@@ -2,10 +2,7 @@ import { logger } from '@/utils/logger';
 import { isChannelRequest } from '@/utils/messaging/channel';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
-import type {
-  InferenceOrchestrationService,
-  ScheduleArgs,
-} from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type {
   ChannelReady,
   ChannelRequest,
@@ -135,14 +132,13 @@ export class MessageChannelController {
 
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
-      const task: ScheduleArgs = {
+      await this.orchestrationService.scheduleInferenceTask({
         input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
         hostname,
         tabId,
         hostSettings,
         imageMetadata: metadata,
-      };
-      await this.orchestrationService.scheduleInferenceTask(task);
+      });
 
       // Send success response
       const res: ChannelResponse<ProcessImageAction, { processed: boolean }> = {

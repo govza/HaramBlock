@@ -1,8 +1,7 @@
 import type { IHostSettings } from '@/utils/types/host';
 import type { IImageMetadata } from '@/utils/types/media';
 
-interface InferenceTaskBase {
-  id: string;
+export interface InferenceTask {
   imageSrc: string;
   hostname: string;
   priority: number;
@@ -10,21 +9,12 @@ interface InferenceTaskBase {
   tabId: number;
   hostSettings: IHostSettings;
   imageMetadata: IImageMetadata;
+  /** Optional pre-loaded bitmap (from MessageChannel transferable) */
+  bitmap?: ImageBitmap;
+  /** Original image dimensions (when bitmap is provided) */
+  originalWidth?: number;
+  originalHeight?: number;
 }
-
-export type InferenceTask = InferenceTaskBase &
-  (
-    | {
-        bitmap: ImageBitmap;
-        originalWidth: number;
-        originalHeight: number;
-      }
-    | {
-        bitmap?: undefined;
-        originalWidth?: undefined;
-        originalHeight?: undefined;
-      }
-  );
 
 export enum ProcessingStatus {
   QUEUED = 'queued',

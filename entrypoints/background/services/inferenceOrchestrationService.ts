@@ -1,10 +1,10 @@
 import { sendMessage } from 'webext-bridge/background';
 
+import { processInferenceTask } from '@/utils/inference';
 import { logger, extractUrlId } from '@/utils/logger';
 
 import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
-import type { PredictionService } from '@/entrypoints/background/services/predictionService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
 import type { IImagePrediction, IHostSettings, IImageMetadata, InferenceTask } from '@/utils/types';
 
@@ -23,7 +23,6 @@ export type ScheduleArgs = {
 export class InferenceOrchestrationService {
   constructor(
     private queueService: QueueService,
-    private processingService: PredictionService,
     private imageCacheService: ImageCacheService,
     private tabEventListener: TabEventListener,
   ) {
@@ -31,9 +30,8 @@ export class InferenceOrchestrationService {
     this.setupTabActivationHandler();
   }
 
-  async scheduleInferenceTask(args: ScheduleArgs): Promise<string> {
+  async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
     const { input, hostname, tabId, hostSettings, imageMetadata } = args;
-    const taskId = crypto.randomUUID();
     const { imageSrc } = input;
 
     // Check cache first to avoid expensive processing
@@ -51,7 +49,7 @@ export class InferenceOrchestrationService {
           })),
         );
         await this.sendPredictionsToContent(cachedPredictions, tabId);
-        return taskId;
+        return;
       }
     } catch (error) {
       logger
@@ -63,7 +61,6 @@ export class InferenceOrchestrationService {
     const task: InferenceTask =
       input.kind === 'bitmap'
         ? {
-            id: taskId,
             imageSrc,
             hostname,
             priority: this.calculatePriority(tabId),
@@ -76,7 +73,6 @@ export class InferenceOrchestrationService {
             originalHeight: input.originalHeight,
           }
         : {
-            id: taskId,
             imageSrc,
             hostname,
             priority: this.calculatePriority(tabId),
@@ -91,19 +87,21 @@ export class InferenceOrchestrationService {
 
     // Add to queue (fire-and-forget for immediate response)
     this.queueService.enqueue(task).catch(error => {
-      logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task ${task.id}:`, error);
+      logger
+        .withTag('inferenceOrchestrationService')
+        .error(`Failed to enqueue task for ${extractUrlId(imageSrc)}:`, error);
     });
-
-    return task.id;
   }
 
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       try {
-        const imagePrediction = await this.processingService.processInferenceTask(task);
+        const imagePrediction = await processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
       } catch (error) {
-        logger.withTag('inferenceOrchestrationService').error(`Error processing task ${task.id}:`, error);
+        logger
+          .withTag('inferenceOrchestrationService')
+          .error(`Error processing image ${extractUrlId(task.imageSrc)}:`, error);
       }
     });
   }
@@ -113,13 +111,15 @@ export class InferenceOrchestrationService {
       await this.imageCacheService.cachePredictions([imagePrediction]);
       await this.sendPredictionsToContent([imagePrediction], task.tabId);
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error(`Error handling success for task ${task.id}:`, error);
+      logger
+        .withTag('inferenceOrchestrationService')
+        .error(`Error handling success for ${extractUrlId(task.imageSrc)}:`, error);
     }
   }
 
   private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
     try {
-      await sendMessage('ON_INFERENCE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
+      await sendMessage('ON_IMAGE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
 
       logger
         .withTag('inferenceOrchestrationService')
