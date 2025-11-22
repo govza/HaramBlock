@@ -18,28 +18,23 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     const model = modelLoader.getModel() || (await modelLoader.loadModel());
     const config = modelLoader.getModelConfig();
 
-    // Prefer provided bitmap (from content via MessageChannel) to avoid refetch/decoding
+    // Use provided bitmap (from MessageChannel) or fetch from URL
     let imageBitmap: ImageBitmap;
-    let fetchTime: number;
-    let bitmapTime: number;
+    let fetchTime = 0;
+    let bitmapTime = 0;
     let imageWidth: number;
     let imageHeight: number;
 
-    if (task.transport === 'transferable') {
+    if (task.bitmap) {
+      // Use pre-loaded bitmap (zero-copy transfer from content script)
       imageBitmap = task.bitmap;
-      fetchTime = 0;
-      bitmapTime = 0;
-      imageWidth = task.originalWidth;
-      imageHeight = task.originalHeight;
+      imageWidth = task.originalWidth || imageBitmap.width;
+      imageHeight = task.originalHeight || imageBitmap.height;
+      logger.withTag('prediction').debug(`Using pre-loaded bitmap for ${extractUrlId(task.imageSrc)}`);
     } else {
-      const {
-        imageBitmap: loadedBitmap,
-        fetchTime: loadFetchTime,
-        bitmapTime: loadBitmapTime,
-      } = await imageProcessor.loadImageBitmap(task.imageSrc);
-      imageBitmap = loadedBitmap;
-      fetchTime = loadFetchTime;
-      bitmapTime = loadBitmapTime;
+      // Fetch and decode image
+      const loaded = await imageProcessor.loadImageBitmap(task.imageSrc);
+      ({ imageBitmap, fetchTime, bitmapTime } = loaded);
       imageWidth = imageBitmap.width;
       imageHeight = imageBitmap.height;
     }

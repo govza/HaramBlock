@@ -39,8 +39,8 @@ export interface IMaskTransform {
 export interface IImagePrediction {
   hostname: string;
   src: string;
-  imageWidth: number;
-  imageHeight: number;
+  width: number;
+  height: number;
   predictions: IElementPrediction[];
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata; // HTTP cache and metadata information

@@ -23,6 +23,6 @@ declare module 'webext-bridge' {
     ON_HOST_SETTINGS_UPDATED: ProtocolWithReturn<{ hostname: string }, void>;
 
     // Notify content scripts of inference predictions
-    ON_INFERENCE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[] }, void>;
+    ON_IMAGE_PREDICTIONS: ProtocolWithReturn<{ predictions: IImagePrediction[] }, void>;
   }
 }
