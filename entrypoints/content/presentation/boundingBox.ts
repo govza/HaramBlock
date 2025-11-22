@@ -9,14 +9,39 @@ type BlurOverlayState = {
   parent: HTMLElement | null;
 };
 
-const blurStates = new WeakMap<HTMLImageElement, BlurOverlayState>();
+const blurStates = new WeakMap<HTMLImageElement | HTMLVideoElement, BlurOverlayState>();
 
-export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?: IImagePrediction): void => {
-  const parent = image.parentElement;
+/**
+ * Helper to check if media element is ready for overlay rendering
+ */
+function isMediaReady(element: HTMLImageElement | HTMLVideoElement): boolean {
+  if (element instanceof HTMLImageElement) {
+    return element.complete && element.naturalWidth > 0;
+  } else {
+    return element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0;
+  }
+}
+
+/**
+ * Helper to get natural dimensions of media element
+ */
+function getNaturalDimensions(element: HTMLImageElement | HTMLVideoElement): { width: number; height: number } {
+  if (element instanceof HTMLImageElement) {
+    return { width: element.naturalWidth, height: element.naturalHeight };
+  } else {
+    return { width: element.videoWidth, height: element.videoHeight };
+  }
+}
+
+export const createBlurBoxOverlays = (
+  element: HTMLImageElement | HTMLVideoElement,
+  imagePrediction?: IImagePrediction,
+): void => {
+  const parent = element.parentElement;
   if (!parent) return;
 
-  if (!imagePrediction || !imagePrediction.predictions?.length || !image.complete || image.naturalWidth === 0) {
-    clearBlurBoxOverlay(image);
+  if (!imagePrediction || !imagePrediction.predictions?.length || !isMediaReady(element)) {
+    clearBlurBoxOverlay(element);
     return;
   }
 
@@ -25,41 +50,42 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
   }
 
   const state =
-    blurStates.get(image) ??
+    blurStates.get(element) ??
     ({ resizeObserver: null, viewportHandler: null, currentPrediction: undefined, parent: null } as BlurOverlayState);
   state.currentPrediction = imagePrediction;
   state.parent = parent;
-  blurStates.set(image, state);
+  blurStates.set(element, state);
 
   const render = () => {
     // Always use the latest prediction from state
-    const pred = blurStates.get(image)?.currentPrediction;
+    const pred = blurStates.get(element)?.currentPrediction;
     const predictions = pred?.predictions || [];
-    removeBlurBoxOverlays(image);
+    removeBlurBoxOverlays(element);
     if (!pred || !predictions.length) return;
 
-    const imageRect = image.getBoundingClientRect();
-    const contentRect = computeRenderedContentRect(image, imageRect);
+    const elementRect = element.getBoundingClientRect();
+    const contentRect = computeRenderedContentRect(element, elementRect);
     const parentRect = parent.getBoundingClientRect();
 
-    const visibleLeft = Math.max(imageRect.left, parentRect.left);
-    const visibleTop = Math.max(imageRect.top, parentRect.top);
-    const visibleRight = Math.min(imageRect.right, parentRect.right);
-    const visibleBottom = Math.min(imageRect.bottom, parentRect.bottom);
+    const visibleLeft = Math.max(elementRect.left, parentRect.left);
+    const visibleTop = Math.max(elementRect.top, parentRect.top);
+    const visibleRight = Math.min(elementRect.right, parentRect.right);
+    const visibleBottom = Math.min(elementRect.bottom, parentRect.bottom);
     if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return;
 
-    const imageOffsetX = imageRect.left - parentRect.left + contentRect.offsetX;
-    const imageOffsetY = imageRect.top - parentRect.top + contentRect.offsetY;
+    const elementOffsetX = elementRect.left - parentRect.left + contentRect.offsetX;
+    const elementOffsetY = elementRect.top - parentRect.top + contentRect.offsetY;
 
-    const originalWidth = pred.imageWidth ?? image.naturalWidth;
-    const originalHeight = pred.imageHeight ?? image.naturalHeight;
+    const { width: naturalWidth, height: naturalHeight } = getNaturalDimensions(element);
+    const originalWidth = pred.width ?? naturalWidth;
+    const originalHeight = pred.height ?? naturalHeight;
     const scaleX = contentRect.width / originalWidth;
     const scaleY = contentRect.height / originalHeight;
 
     predictions.forEach((prediction: IElementPrediction) => {
       const { x, y, width, height } = prediction.boundingBox;
-      const boxLeft = imageOffsetX + x * scaleX;
-      const boxTop = imageOffsetY + y * scaleY;
+      const boxLeft = elementOffsetX + x * scaleX;
+      const boxTop = elementOffsetY + y * scaleY;
       const boxWidth = width * scaleX;
       const boxHeight = height * scaleY;
 
@@ -83,10 +109,10 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
   // Initial render for current predictions
   render();
 
-  // Setup observers once per image
+  // Setup observers once per element
   if (!state.resizeObserver) {
     state.resizeObserver = new ResizeObserver(() => render());
-    state.resizeObserver.observe(image);
+    state.resizeObserver.observe(element);
   }
   if (!state.viewportHandler) {
     state.viewportHandler = () => render();
@@ -95,17 +121,17 @@ export const createBlurBoxOverlays = (image: HTMLImageElement, imagePrediction?:
   }
 };
 
-export const removeBlurBoxOverlays = (image: HTMLImageElement): void => {
-  // Prefer stored parent from state when available (works even if image is detached)
-  const state = blurStates.get(image);
-  const parent = state?.parent ?? image.parentElement;
+export const removeBlurBoxOverlays = (element: HTMLImageElement | HTMLVideoElement): void => {
+  // Prefer stored parent from state when available (works even if element is detached)
+  const state = blurStates.get(element);
+  const parent = state?.parent ?? element.parentElement;
   if (!parent) return;
   const blurBoxes = parent.querySelectorAll('.haramblock-blur-box');
   blurBoxes.forEach(box => box.remove());
 };
 
-export const clearBlurBoxOverlay = (image: HTMLImageElement): void => {
-  const state = blurStates.get(image);
+export const clearBlurBoxOverlay = (element: HTMLImageElement | HTMLVideoElement): void => {
+  const state = blurStates.get(element);
   if (state) {
     try {
       state.resizeObserver?.disconnect();
@@ -121,8 +147,8 @@ export const clearBlurBoxOverlay = (image: HTMLImageElement): void => {
       const blurBoxes = state.parent.querySelectorAll('.haramblock-blur-box');
       blurBoxes.forEach(box => box.remove());
     }
-    blurStates.delete(image);
+    blurStates.delete(element);
   }
   // Fallback removal using current parent if available
-  removeBlurBoxOverlays(image);
+  removeBlurBoxOverlays(element);
 };

@@ -5,10 +5,10 @@ import {
   markSentForInference,
   isSentForInference,
   markProcessed,
-} from '@/entrypoints/content/handlers/status';
+} from '@/entrypoints/content/core/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
+import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
-import { clearMaskOverlay } from '@/entrypoints/content/presentation/maskOverlays';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { extractUrlId, logger } from '@/utils/logger';
 
@@ -29,7 +29,7 @@ export function handleImages(images: HTMLImageElement[], hostSettings: IHostSett
 export function handleImageAttributeChange(img: HTMLImageElement, hostSettings: IHostSettings): void {
   const currentSrc = img.currentSrc || img.src;
   if (img.dataset.hbSrc && img.dataset.hbSrc !== currentSrc) {
-    clearMaskOverlay(img);
+    imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
     removeInitialImageStyling(img);
     delete img.dataset.hbHandled;
@@ -61,9 +61,8 @@ function queueForInference(image: HTMLImageElement, hostSettings: IHostSettings)
     try {
       await requestImageInference(hostSettings.hostname, image);
       markSentForInference(image, src);
-      logger.withTag('pipeline').debug(`Sent image ${extractUrlId(src)} for inference`);
     } catch (error) {
-      logger.withTag('pipeline').error(`Failed to send image ${extractUrlId(src)} for inference:`, error);
+      logger.withTag('handleImages').error(`Failed to send image ${extractUrlId(src)} for inference:`, error);
       markProcessed(image, src);
     }
   };

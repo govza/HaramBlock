@@ -1,5 +1,5 @@
 import { createBlurBoxOverlays } from '@/entrypoints/content/presentation/boundingBox';
-import { createMaskOverlays } from '@/entrypoints/content/presentation/maskOverlays';
+import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { logger, extractUrlId } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
@@ -35,7 +35,7 @@ export const applyPredictionsStyling = (
           if (hostSettings.outline === 'bbox') {
             createBlurBoxOverlays(image, imagePrediction);
           } else if (hostSettings.outline === 'segment') {
-            createMaskOverlays(image, imagePrediction);
+            imageMaskOverlay.createMaskOverlay(image, imagePrediction);
           }
           resolve();
         });

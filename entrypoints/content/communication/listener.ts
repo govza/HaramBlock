@@ -8,43 +8,34 @@ import { type IImagePrediction } from '@/utils/types';
  * Handles all inbound webext-bridge messages from background script
  */
 
-export interface HostSettingsUpdateMessage {
-  hostname: string;
-}
-
-export interface InferenceImagePredictionsMessage {
-  predictions: IImagePrediction[];
-  hostname: string;
-}
-
 /**
  * Listen for host settings updates from background script
  * @param callback - Function to call when settings are updated
  * @returns Cleanup function to remove the listener
  */
-export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage) => void): () => void {
+export function onHostSettingsUpdated(callback: (data: { hostname: string }) => void): () => void {
   return onMessage('ON_HOST_SETTINGS_UPDATED', message => {
     if (message.data) {
-      callback(message.data as HostSettingsUpdateMessage);
+      callback(message.data);
     }
   });
 }
 
 /**
- * Listen for AI prediction results from background script
+ * Listen for image predictions from background script
  * @param callback - Function to call when predictions are received
  * @returns Cleanup function to remove the listener
  */
-export function onInferencePredictions(callback: (data: InferenceImagePredictionsMessage) => void): () => void {
-  return onMessage('ON_INFERENCE_PREDICTIONS', message => {
+export function onImagePredictions(callback: (data: { predictions: IImagePrediction[] }) => void): () => void {
+  return onMessage('ON_IMAGE_PREDICTIONS', message => {
     if (message.data) {
       logger.withTag('listener').debug(
-        'ON_INFERENCE_PREDICTIONS:',
+        'ON_IMAGE_PREDICTIONS:',
         message.data.predictions.map(
           pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
         ),
       );
-      callback(message.data as unknown as InferenceImagePredictionsMessage);
+      callback(message.data);
     }
   });
 }
@@ -64,30 +55,13 @@ export function onHostSettingsUpdatedForHostname(targetHostname: string, callbac
 }
 
 /**
- * Setup a filtered inference predictions listener for specific hostname
- * @param targetHostname - The hostname to filter for
- * @param callback - Function to call when predictions for this hostname are received
- * @returns Cleanup function to remove the listener
- */
-export function onInferencePredictionsForHostname(
-  targetHostname: string,
-  callback: (predictions: IImagePrediction[]) => void,
-): () => void {
-  return onInferencePredictions(data => {
-    if (data.hostname === targetHostname) {
-      callback(data.predictions);
-    }
-  });
-}
-
-/**
- * Setup multiple listeners at once with a single cleanup function
- * @param listeners - Object containing listener configurations
+ * Helper to setup multiple listeners at once
+ * @param listeners - Object containing optional listener callbacks
  * @returns Single cleanup function that removes all listeners
  */
 export function setupListeners(listeners: {
-  onHostSettingsUpdated?: (data: HostSettingsUpdateMessage) => void;
-  onInferencePredictions?: (data: InferenceImagePredictionsMessage) => void;
+  onHostSettingsUpdated?: (data: { hostname: string }) => void;
+  onImagePredictions?: (data: { predictions: IImagePrediction[] }) => void;
 }): () => void {
   const cleanupFunctions: (() => void)[] = [];
 
@@ -95,8 +69,8 @@ export function setupListeners(listeners: {
     cleanupFunctions.push(onHostSettingsUpdated(listeners.onHostSettingsUpdated));
   }
 
-  if (listeners.onInferencePredictions) {
-    cleanupFunctions.push(onInferencePredictions(listeners.onInferencePredictions));
+  if (listeners.onImagePredictions) {
+    cleanupFunctions.push(onImagePredictions(listeners.onImagePredictions));
   }
 
   // Return single cleanup function that calls all individual cleanup functions
