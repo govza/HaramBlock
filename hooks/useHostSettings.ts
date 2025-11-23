@@ -1,6 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useCallback } from 'react';
-import { sendMessage } from 'webext-bridge/popup';
 
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { hostSettingsDb } from '@/utils/db/db';
@@ -8,6 +7,7 @@ import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
 import { logger } from '@/utils/logger';
+import { backgroundRpc } from '@/utils/messaging/popup';
 
 import type { OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
 
@@ -133,45 +133,11 @@ export function useHostSettings(hostname: string) {
     }
   }, [effectiveHostname, hostSettingsData]);
 
-  // Function to notify content scripts of settings changes
-  const notifyContentScripts = useCallback(async () => {
+  // Function to notify content scripts of settings changes via background RPC
+  const notifyContentScripts = useCallback(() => {
     if (effectiveHostname) {
       try {
-        // Get all tabs and find ones matching this hostname
-        const tabs = await browser.tabs.query({});
-        const relevantTabs = tabs.filter(tab => {
-          if (!tab.url) return false;
-          try {
-            const tabHostname = new URL(tab.url).hostname;
-            return getEffectiveHostname(tabHostname) === effectiveHostname;
-          } catch {
-            return false;
-          }
-        });
-
-        // Send message to all relevant content scripts
-        const notifications = relevantTabs.map(tab => {
-          if (tab.id) {
-            return sendMessage(
-              'ON_HOST_SETTINGS_UPDATED',
-              { hostname: effectiveHostname },
-              `content-script@${tab.id}`,
-            ).catch(error => {
-              // Ignore errors for tabs that might not have content script loaded
-              logger
-                .withTag('useHostSettings')
-                .warn(
-                  'Could not notify tab',
-                  tab.id,
-                  'of settings change:',
-                  error instanceof Error ? error.message : String(error),
-                );
-            });
-          }
-          return Promise.resolve();
-        });
-
-        await Promise.all(notifications);
+        backgroundRpc.notifyHostSettingsChanged(effectiveHostname);
       } catch (error) {
         logger.withTag('useHostSettings').error('Error notifying content scripts:', error);
       }
@@ -189,31 +155,31 @@ export function useHostSettings(hostname: string) {
           togglePolicy: async (hostname: string) => {
             const result = await target.togglePolicy(hostname);
             await updateIconFromPolicy(result.policy);
-            await notifyContentScripts();
+            notifyContentScripts();
             return result;
           },
           setOutline: async (hostname: string, outlineVariant: OutlineType) => {
             const result = await target.setOutline(hostname, outlineVariant);
             await updateIcon();
-            await notifyContentScripts();
+            notifyContentScripts();
             return result;
           },
           setStrictness: async (hostname: string, strictness: number) => {
             const result = await target.setStrictness(hostname, strictness);
             await updateIcon();
-            await notifyContentScripts();
+            notifyContentScripts();
             return result;
           },
           setPolicy: async (hostname: string, policy: HostPolicy) => {
             const result = await target.setPolicy(hostname, policy);
             await updateIcon();
-            await notifyContentScripts();
+            notifyContentScripts();
             return result;
           },
           saveSettings: async (settings: IHostSettings) => {
             await target.saveSettings(settings);
             await updateIcon();
-            await notifyContentScripts();
+            notifyContentScripts();
           },
         };
 

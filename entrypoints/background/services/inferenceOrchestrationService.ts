@@ -1,5 +1,3 @@
-import { sendMessage } from 'webext-bridge/background';
-
 import { processInferenceTask } from '@/utils/inference';
 import { logger, extractUrlId } from '@/utils/logger';
 
@@ -7,6 +5,8 @@ import type { TabEventListener } from '@/entrypoints/background/events/tabEventL
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
 import type { IImagePrediction, IHostSettings, IImageMetadata, InferenceTask } from '@/utils/types';
+
+type OnPredictionsCallback = (predictions: IImagePrediction[], hostname: string) => void;
 
 export type InferenceInput =
   | { kind: 'src'; imageSrc: string }
@@ -21,6 +21,8 @@ export type ScheduleArgs = {
 };
 
 export class InferenceOrchestrationService {
+  private onPredictionsCallback?: OnPredictionsCallback;
+
   constructor(
     private queueService: QueueService,
     private imageCacheService: ImageCacheService,
@@ -28,6 +30,10 @@ export class InferenceOrchestrationService {
   ) {
     this.setupEventHandlers();
     this.setupTabActivationHandler();
+  }
+
+  setOnPredictionsCallback(callback: OnPredictionsCallback): void {
+    this.onPredictionsCallback = callback;
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
@@ -48,7 +54,7 @@ export class InferenceOrchestrationService {
             hostname,
           })),
         );
-        await this.sendPredictionsToContent(cachedPredictions, tabId);
+        this.sendPredictionsToContent(cachedPredictions, hostname);
         return;
       }
     } catch (error) {
@@ -109,7 +115,7 @@ export class InferenceOrchestrationService {
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     try {
       await this.imageCacheService.cachePredictions([imagePrediction]);
-      await this.sendPredictionsToContent([imagePrediction], task.tabId);
+      this.sendPredictionsToContent([imagePrediction], task.hostname);
     } catch (error) {
       logger
         .withTag('inferenceOrchestrationService')
@@ -117,15 +123,15 @@ export class InferenceOrchestrationService {
     }
   }
 
-  private async sendPredictionsToContent(predictions: IImagePrediction[], tabId: number): Promise<void> {
+  private sendPredictionsToContent(predictions: IImagePrediction[], hostname: string): void {
     try {
-      await sendMessage('ON_IMAGE_PREDICTIONS', { predictions }, { context: 'content-script', tabId });
+      if (this.onPredictionsCallback) {
+        this.onPredictionsCallback(predictions, hostname);
+      }
 
-      logger
-        .withTag('inferenceOrchestrationService')
-        .debug(`Sent ${predictions.length} predictions to content script (tab ${tabId})`);
+      logger.withTag('inferenceOrchestrationService').debug(`Sent ${predictions.length} predictions via callback`);
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending predictions to content script:', error);
+      logger.withTag('inferenceOrchestrationService').error('Error sending predictions:', error);
     }
   }
 

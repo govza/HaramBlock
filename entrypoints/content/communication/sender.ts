@@ -1,7 +1,6 @@
-import { sendMessage } from 'webext-bridge/content-script';
-
 import { getMessagePort } from '@/entrypoints/content/communication/messageChannel';
-import { logger } from '@/utils/logger';
+import { logger, extractUrlId } from '@/utils/logger';
+import { backgroundRpc } from '@/utils/messaging/content';
 
 import type {
   IHostSettings,
@@ -18,7 +17,7 @@ import type {
  */
 
 /**
- * Feature flag to disable MessageChannel and force sendMessage usage
+ * Feature flag to disable MessageChannel and force RPC fallback
  */
 const isMessageChannelDisabled = import.meta.env.MODE === 'no-channel';
 
@@ -29,7 +28,7 @@ const isMessageChannelDisabled = import.meta.env.MODE === 'no-channel';
  */
 export async function requestHostSettings(hostname: string): Promise<IHostSettings> {
   try {
-    const result = await sendMessage('GET_HOST_SETTINGS', { hostname }, 'background');
+    const result = await backgroundRpc.getHostSettings(hostname);
     if (!result) {
       throw new Error('No host settings returned from background script');
     }
@@ -47,7 +46,7 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
  */
 export async function requestCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
   try {
-    const result = await sendMessage('GET_HOSTNAME_IMAGE_PREDICTION_CACHE', { hostname }, 'background');
+    const result = await backgroundRpc.getCachedPredictions(hostname);
     return result || [];
   } catch (error) {
     logger.withTag('sender').error('Failed to request cached predictions:', error);
@@ -133,17 +132,21 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
     const port = getMessagePort();
     if (port) {
       try {
+        logger.withTag('sender').info(`Attempting to send via MessageChannel for ${extractUrlId(imageData.src)}`);
         await sendImageForInferenceUsingChannel(port, hostname, image, metadata);
         logger.withTag('sender').debug(`Sent via MessageChannel (transferable bitmap)`);
         return;
       } catch (error) {
-        logger.withTag('sender').warn(`MessageChannel failed, falling back to webext-bridge:`, error);
+        logger.withTag('sender').warn(`MessageChannel failed, falling back to RPC:`, error);
+        // Fallback to RPC below
       }
     }
   }
 
-  await sendMessage('POST_INFERENCE_IMAGES', { hostname, imageData }, 'background');
-  logger.withTag('sender').debug(`Sent via webext-bridge (src only)`);
+  // Fallback: use RPC (tabId 0 means background will use sender context)
+  const tabId = browser.devtools?.inspectedWindow?.tabId || 0;
+  await backgroundRpc.postInferenceImage(hostname, tabId, imageData);
+  logger.withTag('sender').debug(`Sent via RPC (src only)`);
 }
 
 /**
