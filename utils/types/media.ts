@@ -16,13 +16,31 @@ export interface IImageWithMetadata {
   [key: string]: string | number | IImageMetadata;
 }
 
-// Image with bitmap for transferable over MessageChannel
-export interface IImageWithBitmap {
+// Base interface for image transfer payloads
+interface IImageTransferBase {
   src: string;
   width: number;
   height: number;
   metadata: IImageMetadata;
   hostname: string;
-  tabId: number;
+}
+
+// Chrome: Uses ImageBitmap via MessageChannel (zero-copy transfer)
+export interface IImageWithBitmap extends IImageTransferBase {
+  kind: 'bitmap';
   bitmap: ImageBitmap;
 }
+
+// Firefox: Uses Blob via browser.runtime (structured clone)
+export interface IImageWithBlob extends IImageTransferBase {
+  kind: 'blob';
+  blob: Blob;
+}
+
+// URL-only: Background fetches image (uses browser cache)
+export interface IImageWithUrl extends IImageTransferBase {
+  kind: 'url';
+}
+
+// Union type for cross-browser image transfer
+export type IImageTransfer = IImageWithBitmap | IImageWithBlob | IImageWithUrl;

@@ -1,4 +1,3 @@
-import { MessageChannelController } from '@/entrypoints/background/controllers';
 import { IconEventListener, TabEventListener } from '@/entrypoints/background/events';
 import {
   HostSettingsService,
@@ -9,7 +8,7 @@ import {
 } from '@/entrypoints/background/services';
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
-import { ProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
+import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
 
 export default defineBackground({
   type: 'module',
@@ -26,14 +25,16 @@ export default defineBackground({
     // Initialize event listeners (event handling layer)
     const iconEventListener = new IconEventListener();
 
-    // Initialize and provide BackgroundRpc via comctx (replaces controllers)
-    logger.withTag('background').log('Initializing BackgroundRpc...');
+    // Initialize and provide BackgroundRpc via comctx
+    // Uses CompositeProvideAdapter to handle both browser.runtime and MessageChannel transports
+    logger.withTag('background').log('Initializing BackgroundRpc with CompositeProvideAdapter...');
     const backgroundRpc = provideBackgroundRpc(
-      new ProvideAdapter(),
+      new CompositeProvideAdapter(),
       hostSettingsService,
       imageCacheService,
       inferenceService,
       iconService,
+      tabEventListener,
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 
@@ -42,13 +43,9 @@ export default defineBackground({
       backgroundRpc.emitInferencePredictions(predictions, hostname);
     });
 
-    // MessageChannel controller for transferables (kept separate from comctx)
-    const messageChannelController = new MessageChannelController(hostSettingsService, inferenceService);
-
-    // Initialize all event listeners and controllers
+    // Initialize all event listeners
     iconEventListener.initialize();
     tabEventListener.initialize();
-    messageChannelController.initialize();
 
     // Initialize inference library
     void initializeInference();

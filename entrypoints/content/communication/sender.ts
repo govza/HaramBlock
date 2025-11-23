@@ -1,25 +1,8 @@
-import { getMessagePort } from '@/entrypoints/content/communication/messageChannel';
+import { IMAGE_TRANSFER_KIND, type ImageTransferKind } from '@/utils/constants/environment';
 import { logger, extractUrlId } from '@/utils/logger';
-import { backgroundRpc } from '@/utils/messaging/content';
+import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 
-import type {
-  IHostSettings,
-  IImagePrediction,
-  IImageMetadata,
-  IImageWithMetadata,
-  ChannelRequest,
-  ProcessImageAction,
-  IImageWithBitmap,
-} from '@/utils/types';
-
-/**
- * Communication sender module for HaramBlock content script
- */
-
-/**
- * Feature flag to disable MessageChannel and force RPC fallback
- */
-const isMessageChannelDisabled = import.meta.env.MODE === 'no-channel';
+import type { IHostSettings, IImagePrediction, IImageMetadata, IImageTransfer } from '@/utils/types';
 
 /**
  * Request host settings from background script
@@ -55,49 +38,72 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 }
 
 /**
- * Send image for inference using MessageChannel (transferables when possible)
- * Thin wrapper to allow branching from queueImagesForInference.
+ * Resolve transfer kind with fallback.
+ * If 'bitmap' is requested but MessageChannel is not available, falls back to 'url'.
  */
-async function sendImageForInferenceUsingChannel(
-  port: MessagePort,
+async function resolveTransferKind(): Promise<ImageTransferKind> {
+  if (IMAGE_TRANSFER_KIND !== 'bitmap') {
+    return IMAGE_TRANSFER_KIND;
+  }
+
+  // bitmap requires MessageChannel - wait for it or fall back to url
+  const channelReady = await waitForMessageChannel();
+  if (!channelReady) {
+    logger.withTag('sender').warn('MessageChannel not available, falling back to URL transfer');
+    return 'url';
+  }
+  return 'bitmap';
+}
+
+/**
+ * Send image for inference using comctx RPC.
+ * Transfer kind is configured in environment.ts:
+ * - 'bitmap': Zero-copy ImageBitmap via MessageChannel (Chrome only)
+ * - 'blob': Blob via structured clone
+ * - 'url': URL only, background fetches from cache
+ *
+ * If 'bitmap' is configured but MessageChannel is unavailable, falls back to 'url'.
+ */
+async function sendImageForInference(
   hostname: string,
   image: HTMLImageElement,
   metadata: IImageMetadata,
 ): Promise<void> {
-  let img = image;
   try {
     const src = image.currentSrc || image.src;
-    const naturalWidth = image.naturalWidth || image.width;
-    const naturalHeight = image.naturalHeight || image.height;
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    const base = { src, width, height, hostname, metadata };
 
-    img = await loadImage(src, metadata);
+    const transferKind = await resolveTransferKind();
+    let payload: IImageTransfer;
 
-    // Create a bitmap at natural resolution to avoid aspect distortion.
-    // Background will handle aspect-preserving letterboxing to 640x640.
-    const bitmap = await createImageBitmap(img);
+    switch (transferKind) {
+      case 'bitmap': {
+        // Fetch and convert to ImageBitmap for zero-copy transfer
+        const response = await fetch(src);
+        const blob = await response.blob();
+        payload = { ...base, kind: 'bitmap', bitmap: await createImageBitmap(blob) };
+        break;
+      }
+      case 'blob': {
+        // Fetch and send as Blob (structured clone, ~25MB overhead)
+        const response = await fetch(src);
+        const blob = await response.blob();
+        payload = { ...base, kind: 'blob', blob };
+        break;
+      }
+      case 'url':
+        // Send URL only, background fetches from cache
+        payload = { ...base, kind: 'url' };
+        break;
+      default:
+        throw new Error(`Unsupported image transfer kind: ${transferKind as string}`);
+    }
 
-    // Create payload for PROCESS_IMAGE action
-    const payload: IImageWithBitmap = {
-      src,
-      width: naturalWidth,
-      height: naturalHeight,
-      bitmap,
-      hostname,
-      tabId: browser.devtools?.inspectedWindow?.tabId || 0,
-      metadata,
-    };
-
-    // Wrap in ChannelRequest format
-    const request: ChannelRequest<ProcessImageAction, IImageWithBitmap> = {
-      id: crypto.randomUUID(),
-      type: 'request',
-      action: 'PROCESS_IMAGE',
-      payload,
-    };
-
-    port.postMessage(request, [bitmap]);
+    await backgroundRpc.postInferenceImage(payload);
   } catch (error) {
-    logger.withTag('sender').error('Failed to prepare image for inference:', error);
+    logger.withTag('sender').error('Failed to send image for inference:', error);
     throw error;
   }
 }
@@ -120,33 +126,9 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
     expires: image.dataset.expires || undefined,
   } as IImageMetadata;
 
-  const imageData: IImageWithMetadata = {
-    src: image.currentSrc || image.src,
-    width: image.naturalWidth || image.width || 0,
-    height: image.naturalHeight || image.height || 0,
-    metadata,
-  };
-
-  // Attempt to use MessageChannel with transferables (unless disabled)
-  if (!isMessageChannelDisabled) {
-    const port = getMessagePort();
-    if (port) {
-      try {
-        logger.withTag('sender').info(`Attempting to send via MessageChannel for ${extractUrlId(imageData.src)}`);
-        await sendImageForInferenceUsingChannel(port, hostname, image, metadata);
-        logger.withTag('sender').debug(`Sent via MessageChannel (transferable bitmap)`);
-        return;
-      } catch (error) {
-        logger.withTag('sender').warn(`MessageChannel failed, falling back to RPC:`, error);
-        // Fallback to RPC below
-      }
-    }
-  }
-
-  // Fallback: use RPC (tabId 0 means background will use sender context)
-  const tabId = browser.devtools?.inspectedWindow?.tabId || 0;
-  await backgroundRpc.postInferenceImage(hostname, tabId, imageData);
-  logger.withTag('sender').debug(`Sent via RPC (src only)`);
+  const src = image.currentSrc || image.src;
+  logger.withTag('sender').info(`Sending image for inference: ${extractUrlId(src)}`);
+  await sendImageForInference(hostname, image, metadata);
 }
 
 /**
@@ -172,22 +154,4 @@ export async function requestHostData(hostname: string): Promise<{
     logger.withTag('sender').error('Failed to request host data:', error);
     throw error;
   }
-}
-
-function loadImage(src: string, metadata: IImageMetadata): Promise<HTMLImageElement> {
-  const { width, height } = metadata;
-
-  let image: HTMLImageElement;
-  if (width && height) {
-    image = new Image(Number(width), Number(height));
-  } else {
-    image = new Image();
-  }
-  image.crossOrigin = 'anonymous';
-  image.src = src;
-
-  return new Promise((resolve, reject) => {
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Failed to load image: ${src}`));
-  });
 }
