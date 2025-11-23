@@ -42,14 +42,14 @@
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",
     "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
     "@wxt-dev/i18n": "^0.2.4",
+    "comctx": "^1.4.3",
     "consola": "^3.4.2",
     "dexie": "^4.0.11",
     "dexie-react-hooks": "^1.1.7",
     "js-yaml": "^4.1.0",
     "p-queue": "^8.1.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "webext-bridge": "^6.0.1"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",

@@ -1,24 +1,28 @@
-import { onMessage } from 'webext-bridge/content-script';
-
 import { logger, extractUrlId } from '@/utils/logger';
+import { backgroundRpc } from '@/utils/messaging/content';
 import { type IImagePrediction } from '@/utils/types';
 
 /**
  * Communication listener module for HaramBlock content script
- * Handles all inbound webext-bridge messages from background script
+ * Handles subscription callbacks from background via RPC
  */
+
+type HostSettingsUpdateMessage = { hostname: string };
+type InferenceImagePredictionsMessage = { predictions: IImagePrediction[]; hostname: string };
 
 /**
  * Listen for host settings updates from background script
  * @param callback - Function to call when settings are updated
  * @returns Cleanup function to remove the listener
  */
-export function onHostSettingsUpdated(callback: (data: { hostname: string }) => void): () => void {
-  return onMessage('ON_HOST_SETTINGS_UPDATED', message => {
-    if (message.data) {
-      callback(message.data);
-    }
+export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage) => void): () => void {
+  const unsubscribe = backgroundRpc.onHostSettingsUpdated(hostname => {
+    callback({ hostname });
   });
+
+  return () => {
+    unsubscribe();
+  };
 }
 
 /**
@@ -26,18 +30,20 @@ export function onHostSettingsUpdated(callback: (data: { hostname: string }) => 
  * @param callback - Function to call when predictions are received
  * @returns Cleanup function to remove the listener
  */
-export function onImagePredictions(callback: (data: { predictions: IImagePrediction[] }) => void): () => void {
-  return onMessage('ON_IMAGE_PREDICTIONS', message => {
-    if (message.data) {
-      logger.withTag('listener').debug(
-        'ON_IMAGE_PREDICTIONS:',
-        message.data.predictions.map(
-          pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
-        ),
-      );
-      callback(message.data);
-    }
+export function onImagePredictions(callback: (data: InferenceImagePredictionsMessage) => void): () => void {
+  const unsubscribe = backgroundRpc.onInferencePredictions(data => {
+    logger.withTag('listener').debug(
+      'ON_INFERENCE_PREDICTIONS:',
+      data.predictions.map(
+        pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
+      ),
+    );
+    callback(data);
   });
+
+  return () => {
+    unsubscribe();
+  };
 }
 
 /**
@@ -60,8 +66,8 @@ export function onHostSettingsUpdatedForHostname(targetHostname: string, callbac
  * @returns Single cleanup function that removes all listeners
  */
 export function setupListeners(listeners: {
-  onHostSettingsUpdated?: (data: { hostname: string }) => void;
-  onImagePredictions?: (data: { predictions: IImagePrediction[] }) => void;
+  onHostSettingsUpdated?: (data: HostSettingsUpdateMessage) => void;
+  onImagePredictions?: (data: InferenceImagePredictionsMessage) => void;
 }): () => void {
   const cleanupFunctions: (() => void)[] = [];
 
