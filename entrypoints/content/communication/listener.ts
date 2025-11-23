@@ -5,6 +5,10 @@ import { type IImagePrediction } from '@/utils/types';
 /**
  * Communication listener module for HaramBlock content script
  * Handles subscription callbacks from background via RPC
+ *
+ * Uses a flag-based pattern to handle cleanup:
+ * - Immediately stops callback execution when unsubscribed
+ * - Cleans up background subscription when the promise resolves
  */
 
 type HostSettingsUpdateMessage = { hostname: string };
@@ -13,36 +17,78 @@ type InferenceImagePredictionsMessage = { predictions: IImagePrediction[]; hostn
 /**
  * Listen for host settings updates from background script
  * @param callback - Function to call when settings are updated
- * @returns Cleanup function to remove the listener
+ * @returns Cleanup function to stop receiving updates
  */
 export function onHostSettingsUpdated(callback: (data: HostSettingsUpdateMessage) => void): () => void {
-  const unsubscribe = backgroundRpc.onHostSettingsUpdated(hostname => {
-    callback({ hostname });
-  });
+  let isActive = true;
+  let subscriptionId: string | null = null;
+
+  // Subscribe - comctx wraps the callback and returns subscription ID as Promise
+  void (
+    backgroundRpc.onHostSettingsUpdated(hostname => {
+      if (isActive) {
+        callback({ hostname });
+      }
+    }) as unknown as Promise<string>
+  )
+    .then(id => {
+      subscriptionId = id;
+      // If already unsubscribed while waiting, clean up now
+      if (!isActive) {
+        void backgroundRpc.offHostSettingsUpdated(id);
+      }
+    })
+    .catch(error => {
+      logger.withTag('listener').error('Failed to subscribe to host settings updates:', error);
+    });
 
   return () => {
-    unsubscribe();
+    isActive = false;
+    if (subscriptionId) {
+      void backgroundRpc.offHostSettingsUpdated(subscriptionId);
+    }
   };
 }
 
 /**
  * Listen for image predictions from background script
  * @param callback - Function to call when predictions are received
- * @returns Cleanup function to remove the listener
+ * @returns Cleanup function to stop receiving predictions
  */
 export function onImagePredictions(callback: (data: InferenceImagePredictionsMessage) => void): () => void {
-  const unsubscribe = backgroundRpc.onInferencePredictions(data => {
-    logger.withTag('listener').debug(
-      'ON_INFERENCE_PREDICTIONS:',
-      data.predictions.map(
-        pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
-      ),
-    );
-    callback(data);
-  });
+  let isActive = true;
+  let subscriptionId: string | null = null;
+
+  // Subscribe - comctx wraps the callback and returns subscription ID as Promise
+  void (
+    backgroundRpc.onInferencePredictions(data => {
+      if (isActive) {
+        logger.withTag('listener').debug(
+          'onInferencePredictions:',
+          data.predictions.map(
+            pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
+          ),
+        );
+        callback(data);
+      }
+    }) as unknown as Promise<string>
+  )
+    .then(id => {
+      subscriptionId = id;
+      // If already unsubscribed while waiting, clean up now
+      if (!isActive) {
+        void backgroundRpc.offInferencePredictions(id);
+      }
+    })
+    .catch(error => {
+      logger.withTag('listener').error('Failed to subscribe to inference predictions:', error);
+    });
 
   return () => {
-    unsubscribe();
+    isActive = false;
+    if (subscriptionId) {
+      void backgroundRpc.offInferencePredictions(subscriptionId);
+    }
   };
 }
 

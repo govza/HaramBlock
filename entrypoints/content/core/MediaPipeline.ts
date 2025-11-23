@@ -31,7 +31,12 @@ export class MediaPipeline {
   }
 
   start(root: Node = document.body): () => void {
-    const unsubImagePreds = onImagePredictions(data => this.onImagePredictions(data.predictions));
+    // Filter predictions by hostname - prevents cross-tab pollution when multiple tabs are open
+    const unsubImagePreds = onImagePredictions(data => {
+      if (data.hostname === this.opts.hostSettings.hostname) {
+        this.onImagePredictions(data.predictions);
+      }
+    });
     this.unsubscribeFns.push(unsubImagePreds);
 
     this.dom.start(root);

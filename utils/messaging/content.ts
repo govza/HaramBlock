@@ -1,6 +1,33 @@
-import { injectBackgroundRpc, InjectAdapter } from '@/utils/messaging';
+import { logger } from '@/utils/logger';
+import { injectBackgroundRpc, HybridInjectAdapter } from '@/utils/messaging';
 
 /**
- * Singleton BackgroundRpc proxy for content scripts
+ * Singleton BackgroundRpc proxy for content scripts.
+ *
+ * Uses HybridInjectAdapter which routes messages based on transferable requirements:
+ * - Chrome + has transferables (ImageBitmap) → MessageChannel
+ * - Chrome + no transferables → browser.runtime
+ * - Firefox → always browser.runtime (structured clone handles blobs/bitmaps)
+ *
+ * URL is included in meta for all messages (via adapters), allowing background
+ * to query tabs by URL when needed - following the comctx pattern.
  */
-export const backgroundRpc = injectBackgroundRpc(new InjectAdapter('content'));
+logger.withTag('messaging').log('Using HybridInjectAdapter');
+const hybridAdapter = new HybridInjectAdapter();
+export const backgroundRpc = injectBackgroundRpc(hybridAdapter);
+
+/**
+ * Check if MessageChannel is available for transferables.
+ * Used by sender to decide between bitmap and url transfer kinds.
+ */
+export function isMessageChannelAvailable(): boolean {
+  return hybridAdapter.isChannelAvailable();
+}
+
+/**
+ * Wait for MessageChannel to be ready (with timeout).
+ * Returns true if ready, false if timeout.
+ */
+export function waitForMessageChannel(): Promise<boolean> {
+  return hybridAdapter.waitForChannel();
+}

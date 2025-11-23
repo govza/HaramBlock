@@ -1,7 +1,9 @@
 import { defineProxy } from 'comctx';
 
+import { USE_MESSAGE_CHANNEL } from '@/utils/constants';
 import { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 
+import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
@@ -9,6 +11,10 @@ import type { InferenceOrchestrationService } from '@/entrypoints/background/ser
 
 export { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 export { ProvideAdapter, InjectAdapter } from '@/utils/messaging/adapters/browserRuntimeAdapter';
+export { MessageChannelInjectAdapter } from '@/utils/messaging/adapters/messageChannelAdapter';
+export { MessageChannelProvideAdapter } from '@/utils/messaging/adapters/messageChannelProvideAdapter';
+export { CompositeProvideAdapter } from '@/utils/messaging/adapters/compositeProvideAdapter';
+export { HybridInjectAdapter } from '@/utils/messaging/adapters/hybridInjectAdapter';
 export type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 
 /**
@@ -22,6 +28,14 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
     imageCacheService: ImageCacheService,
     inferenceService: InferenceOrchestrationService,
     iconService: IconService,
-  ) => new BackgroundRpc(hostSettingsService, imageCacheService, inferenceService, iconService),
-  { namespace: '__haramblock__' },
+    tabEventListener: TabEventListener,
+  ) => new BackgroundRpc(hostSettingsService, imageCacheService, inferenceService, iconService, tabEventListener),
+  {
+    namespace: '__haramblock__',
+    // Chrome: Enable transferable extraction for MessageChannel (zero-copy ImageBitmap)
+    // Firefox: Disable - use structured clone which handles ImageBitmap natively
+    transfer: USE_MESSAGE_CHANNEL,
+    // Increase timeout to handle slow service worker wake-up + WebGL/model initialization
+    heartbeatTimeout: 15000,
+  },
 );

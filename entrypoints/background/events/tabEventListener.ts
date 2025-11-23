@@ -8,6 +8,14 @@ export class TabEventListener {
   private onTabActivatedCallback: ((tabId: number) => void) | null = null;
 
   public initialize(): void {
+    // Initialize with current active tab
+    void browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+      if (tabs[0]?.id && this.activeTabId === null) {
+        this.activeTabId = tabs[0].id;
+        logger.withTag('tabEventListener').debug(`Initialized with active tab: ${this.activeTabId}`);
+      }
+    });
+
     // Listen for tab activation changes
     browser.tabs.onActivated.addListener(activeInfo => {
       const previousActiveTabId = this.activeTabId;
