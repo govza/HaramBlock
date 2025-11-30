@@ -2,6 +2,7 @@ import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgpu';
 import { load } from 'js-yaml';
 
+import { IS_CHROME } from '@/utils/constants/environment';
 import { logger } from '@/utils/logger';
 
 import type { Metadata, YamlMetadata } from '@/utils/types';
@@ -39,6 +40,9 @@ async function loadMetadata(): Promise<void> {
 }
 
 async function setupBackend(): Promise<void> {
+  // Chrome: WebGPU (best performance), Firefox: WebGL (no WebGPU in service workers)
+  const backend = IS_CHROME ? 'webgpu' : 'webgl';
+  await tf.setBackend(backend);
   await tf.ready();
   logger.withTag('modelLoader').info(`TensorFlow backend: ${tf.getBackend()}`);
 }
