@@ -62,7 +62,7 @@ async function resolveTransferKind(): Promise<ImageTransferKind> {
  * - 'blob': Blob via structured clone
  * - 'url': URL only, background fetches from cache
  *
- * If 'bitmap' is configured but MessageChannel is unavailable, falls back to 'url'.
+ * If the configured transfer kind fails (missing MessageChannel or fetch/CORS errors), falls back to 'url'.
  */
 async function sendImageForInference(
   hostname: string,
@@ -76,32 +76,35 @@ async function sendImageForInference(
     const base = { src, width, height, hostname, metadata };
 
     const transferKind = await resolveTransferKind();
-    let payload: IImageTransfer;
+    let payload: IImageTransfer | null = null;
 
-    switch (transferKind) {
-      case 'bitmap': {
-        // Fetch and convert to ImageBitmap for zero-copy transfer
-        const response = await fetch(src);
-        const blob = await response.blob();
-        payload = { ...base, kind: 'bitmap', bitmap: await createImageBitmap(blob) };
-        break;
+    // Try the configured transfer kind first, fall back to URL on failure.
+    const fetchImageBlob = async (): Promise<Blob> => {
+      const response = await fetch(src, { cache: 'force-cache' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image (${response.status})`);
       }
-      case 'blob': {
-        // Fetch and send as Blob (structured clone, ~25MB overhead)
-        const response = await fetch(src);
-        const blob = await response.blob();
+      return response.blob();
+    };
+
+    if (transferKind === 'bitmap') {
+      try {
+        const bitmap = await createImageBitmap(await fetchImageBlob());
+        payload = { ...base, kind: 'bitmap', bitmap };
+      } catch (error) {
+        logger.withTag('sender').warn('Bitmap transfer failed, falling back to URL:', error);
+      }
+    } else if (transferKind === 'blob') {
+      try {
+        const blob = await fetchImageBlob();
         payload = { ...base, kind: 'blob', blob };
-        break;
+      } catch (error) {
+        logger.withTag('sender').warn('Blob transfer failed, falling back to URL:', error);
       }
-      case 'url':
-        // Send URL only, background fetches from cache
-        payload = { ...base, kind: 'url' };
-        break;
-      default:
-        throw new Error(`Unsupported image transfer kind: ${transferKind as string}`);
     }
 
-    await backgroundRpc.postInferenceImage(payload);
+    const finalPayload = payload ?? { ...base, kind: 'url' };
+    await backgroundRpc.postInferenceImage(finalPayload);
   } catch (error) {
     logger.withTag('sender').error('Failed to send image for inference:', error);
     throw error;
