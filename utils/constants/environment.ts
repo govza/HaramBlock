@@ -37,3 +37,18 @@ if (!VALID_TRANSFER_KINDS.includes(IMAGE_TRANSFER_KIND)) {
       `Valid options: ${VALID_TRANSFER_KINDS.join(', ')}`,
   );
 }
+
+// =============================================================================
+// Video Frame Transfer
+// =============================================================================
+
+// Video frames only support bitmap (Chrome) or blob (Firefox)
+// No URL option since frames are generated in content script, not fetchable from background
+export type VideoFrameTransferKind = 'bitmap' | 'blob';
+
+/**
+ * Video frame transfer kind for inference payloads.
+ * - 'bitmap': Zero-copy ImageBitmap via MessageChannel (Chrome only)
+ * - 'blob': Compressed WebP blob via structured clone (Firefox)
+ */
+export const VIDEO_FRAME_TRANSFER_KIND: VideoFrameTransferKind = IS_CHROME ? 'bitmap' : 'blob';
