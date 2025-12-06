@@ -27,6 +27,7 @@ export function createCacheMetadataFromMediaMetadata(mediaMetadata: IMediaMetada
     createdAt: now,
     accessedAt: now,
     maxAge: 0,
+    cacheControl: 'no-cache',
     contentType,
   };
 }

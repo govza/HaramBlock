@@ -251,9 +251,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     this.videoStates.set(video, state);
   }
 
-  private updateVideoOverlay(_video: HTMLVideoElement, _state: IMediaOverlayState): void {
-    const video = _video;
-    const state = _state;
+  private updateVideoOverlay(video: HTMLVideoElement, state: IMediaOverlayState): void {
     if (state.destroyed) return;
     const { currentPrediction: prediction } = state;
     if (!prediction || !prediction.predictions?.length) return;

@@ -74,7 +74,8 @@ export async function ensureCorsSafeSource(video: HTMLVideoElement): Promise<HTM
     if (cached.src !== actualSrc) {
       logger.withTag('frameCapture').debug('CORS video cache invalidated (src changed)');
       if (cached.corsVideo) {
-        cached.corsVideo.src = ''; // Release resources
+        cached.corsVideo.src = '';
+        cached.corsVideo.load(); // Force unload
       }
       corsVideoCache.delete(video);
     } else if (cached.corsVideo === null) {
@@ -110,6 +111,7 @@ export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   const cached = corsVideoCache.get(video);
   if (cached?.corsVideo) {
     cached.corsVideo.src = '';
+    cached.corsVideo.load(); // Force unload
   }
   corsVideoCache.delete(video);
 }
@@ -161,7 +163,7 @@ export async function waitForVideoReady(video: HTMLVideoElement): Promise<void> 
     return;
   }
 
-  await new Promise<void>((resolve, _reject) => {
+  await new Promise<void>(resolve => {
     const timeout = setTimeout(() => {
       cleanup();
       logger.withTag('frameCapture').warn('Timeout waiting for video metadata');
