@@ -1,8 +1,19 @@
-import { IMAGE_TRANSFER_KIND, type ImageTransferKind } from '@/utils/constants/environment';
+import {
+  IMAGE_TRANSFER_KIND,
+  VIDEO_FRAME_TRANSFER_KIND,
+  type ImageTransferKind,
+  type VideoFrameTransferKind,
+} from '@/utils/constants/environment';
 import { logger, extractUrlId } from '@/utils/logger';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 
-import type { IHostSettings, IImagePrediction, IImageMetadata, IImageTransfer } from '@/utils/types';
+import type {
+  IHostSettings,
+  IImagePrediction,
+  IImageMetadata,
+  IImageTransfer,
+  IVideoFrameTransfer,
+} from '@/utils/types';
 
 /**
  * Request host settings from background script
@@ -118,16 +129,15 @@ async function sendImageForInference(
  * @returns Promise that resolves when images are queued
  */
 export async function requestImageInference(hostname: string, image: HTMLImageElement): Promise<void> {
-  const metadata = {
-    width: image.naturalWidth || image.width || undefined,
-    height: image.naturalHeight || image.height || undefined,
-    contentType: image.dataset.contentType || undefined,
-    contentLength: image.dataset.contentLength ? parseInt(image.dataset.contentLength) : undefined,
-    lastModified: image.dataset.lastModified || undefined,
-    cacheControl: image.dataset.cacheControl || undefined,
-    etag: image.dataset.etag || undefined,
-    expires: image.dataset.expires || undefined,
-  } as IImageMetadata;
+  const metadata: IImageMetadata = {
+    kind: 'image',
+    contentType: image.dataset.contentType || null,
+    contentLength: image.dataset.contentLength ? parseInt(image.dataset.contentLength) : null,
+    lastModified: image.dataset.lastModified || null,
+    cacheControl: image.dataset.cacheControl || null,
+    etag: image.dataset.etag || null,
+    expires: image.dataset.expires || null,
+  };
 
   const src = image.currentSrc || image.src;
   logger.withTag('sender').info(`Sending image for inference: ${extractUrlId(src)}`);
@@ -155,6 +165,112 @@ export async function requestHostData(hostname: string): Promise<{
     };
   } catch (error) {
     logger.withTag('sender').error('Failed to request host data:', error);
+    throw error;
+  }
+}
+
+// =============================================================================
+// Video Frame Inference
+// =============================================================================
+
+/**
+ * Resolve video frame transfer kind with fallback.
+ * Chrome: 'bitmap' via MessageChannel (zero-copy)
+ * Firefox: 'blob' via structured clone (compressed WebP)
+ */
+async function resolveVideoFrameTransferKind(): Promise<VideoFrameTransferKind> {
+  if (VIDEO_FRAME_TRANSFER_KIND !== 'bitmap') {
+    return VIDEO_FRAME_TRANSFER_KIND;
+  }
+
+  // bitmap requires MessageChannel - wait for it or fall back to blob
+  const channelReady = await waitForMessageChannel();
+  if (!channelReady) {
+    logger.withTag('sender').warn('MessageChannel not available for video frame, falling back to blob');
+    return 'blob';
+  }
+  return 'bitmap';
+}
+
+/**
+ * Convert ImageBitmap to compressed WebP blob for Firefox transfer
+ */
+async function bitmapToCompressedBlob(bitmap: ImageBitmap): Promise<Blob> {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Failed to get 2D context for video frame compression');
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  return canvas.convertToBlob({ type: 'image/webp', quality: 0.85 });
+}
+
+export interface VideoFrameParams {
+  video: HTMLVideoElement;
+  bitmap: ImageBitmap;
+  hostname: string;
+  sessionId: string;
+  frameIndex: number; // -1 for thumbnail
+  timestampSec: number;
+}
+
+/**
+ * Send video frame for inference using comctx RPC.
+ * Chrome: Zero-copy ImageBitmap via MessageChannel
+ * Firefox: Compressed WebP blob via structured clone
+ */
+export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
+  const { video, bitmap, hostname, sessionId, frameIndex, timestampSec } = params;
+
+  try {
+    const videoUrl = video.currentSrc || video.src;
+    const originalWidth = video.videoWidth;
+    const originalHeight = video.videoHeight;
+
+    const base = {
+      videoUrl,
+      frameIndex,
+      timestampSec,
+      width: bitmap.width,
+      height: bitmap.height,
+      originalWidth,
+      originalHeight,
+      hostname,
+      sessionId,
+    };
+
+    const transferKind = await resolveVideoFrameTransferKind();
+    let payload: IVideoFrameTransfer;
+
+    switch (transferKind) {
+      case 'bitmap': {
+        // Chrome: Zero-copy transfer via MessageChannel
+        payload = { ...base, kind: 'bitmap', bitmap };
+        break;
+      }
+      case 'blob': {
+        // Firefox: Compress to WebP and structured clone
+        const blob = await bitmapToCompressedBlob(bitmap);
+        bitmap.close(); // Clean up original bitmap after compression
+        payload = { ...base, kind: 'blob', blob };
+        break;
+      }
+      default:
+        throw new Error(`Unsupported video frame transfer kind: ${transferKind as string}`);
+    }
+
+    const frameLabel = frameIndex === -1 ? 'thumbnail' : `frame ${frameIndex}`;
+    logger.withTag('sender').debug(`Sending video ${frameLabel} for inference: ${extractUrlId(videoUrl)}`);
+
+    await backgroundRpc.postInferenceVideoFrame(payload);
+  } catch (error) {
+    // Clean up bitmap on error if not already transferred/closed
+    try {
+      bitmap.close();
+    } catch {
+      // Already closed or transferred - ignore
+    }
+    logger.withTag('sender').error('Failed to send video frame for inference:', error);
     throw error;
   }
 }

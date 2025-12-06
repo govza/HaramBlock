@@ -22,3 +22,25 @@ export function markProcessed(el: HTMLImageElement | HTMLVideoElement, src: stri
   if (el.dataset.hbSrc !== src) el.dataset.hbSrc = src;
   el.dataset.hbProcessed = '1';
 }
+
+// =============================================================================
+// Video Thumbnail Status Tracking
+// =============================================================================
+
+export function markThumbnailSentForInference(video: HTMLVideoElement, src: string): void {
+  if (video.dataset.hbSrc !== src) video.dataset.hbSrc = src;
+  video.dataset.hbThumbnailSent = '1';
+}
+
+export function isThumbnailSentForInference(video: HTMLVideoElement, src: string): boolean {
+  return video.dataset.hbSrc === src && video.dataset.hbThumbnailSent === '1';
+}
+
+export function markThumbnailProcessed(video: HTMLVideoElement, src: string): void {
+  if (video.dataset.hbSrc !== src) video.dataset.hbSrc = src;
+  video.dataset.hbThumbnailProcessed = '1';
+}
+
+export function isThumbnailProcessed(video: HTMLVideoElement, src: string): boolean {
+  return video.dataset.hbSrc === src && video.dataset.hbThumbnailProcessed === '1';
+}
