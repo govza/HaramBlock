@@ -1,15 +1,17 @@
-import { onImagePredictions } from '@/entrypoints/content/communication/listener';
+import { onImagePredictions, onFramePredictions } from '@/entrypoints/content/communication/listener';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
-import { isHandled, markHandled } from '@/entrypoints/content/core/status';
 import { handleImages, handleImageAttributeChange } from '@/entrypoints/content/handlers/handleImages';
 import { handleMediaRemoved } from '@/entrypoints/content/handlers/handleMediaRemoved';
+import {
+  handleVideos,
+  handleVideoAttributeChange,
+  disposeVideoSession,
+} from '@/entrypoints/content/handlers/handleVideos';
 import { applyImagePredictionsToDom } from '@/entrypoints/content/presentation/imagePredictions';
+import { applyFramePredictionsToDom } from '@/entrypoints/content/presentation/videoPredictions';
 
-import type { IHostSettings, IImagePrediction } from '@/utils/types';
+import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/types';
 
-/**
- * MediaPipeline handles image detection, inference requests, and prediction application.
- */
 export class MediaPipeline {
   private readonly dom: DomObserver;
   private unsubscribeFns: Array<() => void> = [];
@@ -19,7 +21,7 @@ export class MediaPipeline {
   constructor(private readonly opts: { hostSettings: IHostSettings }) {
     this.dom = new DomObserver({
       onMediaAdded: (images, videos) => this.onMediaAdded(images, videos),
-      onMediaRemoved: elements => handleMediaRemoved(elements),
+      onMediaRemoved: elements => this.onMediaRemoved(elements),
       onAttributesChanged: elements => this.onAttributesChanged(elements),
     });
   }
@@ -31,14 +33,19 @@ export class MediaPipeline {
   }
 
   start(root: Node = document.body): () => void {
-    // Filter predictions by hostname - prevents cross-tab pollution when multiple tabs are open
     const unsubImagePreds = onImagePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
-        this.onImagePredictions(data.predictions);
+        this.handleImagePredictions(data.predictions);
       }
     });
-    this.unsubscribeFns.push(unsubImagePreds);
 
+    const unsubFramePreds = onFramePredictions(data => {
+      if (data.hostname === this.opts.hostSettings.hostname) {
+        this.handleFramePredictions(data.predictions);
+      }
+    });
+
+    this.unsubscribeFns.push(unsubImagePreds, unsubFramePreds);
     this.dom.start(root);
 
     return () => this.stop();
@@ -54,7 +61,19 @@ export class MediaPipeline {
     if (images.length) {
       handleImages(images, this.opts.hostSettings);
     }
-    if (videos.length) this.handleVideos(videos);
+    if (videos.length) {
+      handleVideos(videos, this.opts.hostSettings);
+    }
+  }
+
+  private onMediaRemoved(elements: HTMLElement[]): void {
+    // Clean up video sessions for removed videos
+    for (const el of elements) {
+      if (el.tagName === 'VIDEO') {
+        disposeVideoSession(el as HTMLVideoElement);
+      }
+    }
+    handleMediaRemoved(elements);
   }
 
   private onAttributesChanged(elements: HTMLElement[]): void {
@@ -71,27 +90,19 @@ export class MediaPipeline {
           handleImageAttributeChange(img, this.opts.hostSettings);
         }
       } else if (tag === 'VIDEO') {
-        this.handleVideos([el as HTMLVideoElement]);
+        handleVideoAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
       }
     }
   }
 
-  private handleVideos(videos: HTMLVideoElement[]): void {
-    for (const video of videos) {
-      const src = video.currentSrc || video.src;
-      if (!src) continue;
-      if (!isHandled(video, src)) {
-        markHandled(video, src);
-        // TODO: handle video frames for inference
-      }
-    }
-  }
-
-  // Called when image predictions are received from the background script
-  private onImagePredictions(preds: IImagePrediction[]): void {
+  private handleImagePredictions(preds: IImagePrediction[]): void {
     if (!preds || preds.length === 0) return;
-    // Update cache and apply styles
     preds.forEach(p => this.imagePredictionsCache.set(p.src, p));
     void applyImagePredictionsToDom(preds, this.opts.hostSettings);
+  }
+
+  private handleFramePredictions(preds: IFramePrediction[]): void {
+    if (!preds || preds.length === 0) return;
+    void applyFramePredictionsToDom(preds, this.opts.hostSettings);
   }
 }
