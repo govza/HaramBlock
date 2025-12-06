@@ -1,32 +1,32 @@
-import { type ICacheMetadata, type IImageMetadata } from '@/utils/types';
+import { type ICacheMetadata, type IMediaMetadata } from '@/utils/types';
 
-/**
- * Extract max-age value from Cache-Control header
- * @param cacheControl - Cache-Control header value
- * @returns max-age in seconds or null if not found
- */
 export function extractMaxAge(cacheControl: string): number | null {
   const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
   return maxAgeMatch && maxAgeMatch[1] ? parseInt(maxAgeMatch[1], 10) : null;
 }
 
-/**
- * Create cache metadata from image metadata
- * @param imageMetadata - Image metadata object
- * @returns Cache metadata object
- */
-export function createCacheMetadataFromImageMetadata(imageMetadata?: IImageMetadata): ICacheMetadata {
+export function createCacheMetadataFromMediaMetadata(mediaMetadata: IMediaMetadata): ICacheMetadata {
   const now = Date.now();
-  const cacheControlHeader = imageMetadata?.cacheControl;
-  const contentType = imageMetadata?.contentType ?? 'image/jpeg';
 
-  const maxAge = typeof cacheControlHeader === 'string' ? (extractMaxAge(cacheControlHeader) ?? 3600) : 3600;
+  if (mediaMetadata.kind === 'image') {
+    const cacheControlHeader = mediaMetadata.cacheControl;
+    const contentType = mediaMetadata.contentType ?? 'image/jpeg';
+    const maxAge = typeof cacheControlHeader === 'string' ? (extractMaxAge(cacheControlHeader) ?? 3600) : 3600;
 
+    return {
+      createdAt: now,
+      accessedAt: now,
+      maxAge,
+      cacheControl: cacheControlHeader || `max-age=${maxAge}`,
+      contentType,
+    };
+  }
+
+  const contentType = mediaMetadata.frameIndex === -1 ? 'video/thumbnail' : 'video/frame';
   return {
     createdAt: now,
     accessedAt: now,
-    maxAge,
-    cacheControl: cacheControlHeader || `max-age=${maxAge}`,
+    maxAge: 0,
     contentType,
   };
 }

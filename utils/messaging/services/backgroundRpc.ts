@@ -5,19 +5,26 @@ import type { HostSettingsService } from '@/entrypoints/background/services/host
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
-import type { IHostSettings, IImagePrediction, IImageTransfer } from '@/utils/types';
+import type {
+  IHostSettings,
+  IImagePrediction,
+  IFramePrediction,
+  IImageTransfer,
+  IVideoFrameTransfer,
+} from '@/utils/types';
 
 type HostSettingsCallback = (hostname: string) => void;
-type InferencePredictionsCallback = (data: { predictions: IImagePrediction[]; hostname: string }) => void;
+type ImagePredictionsCallback = (data: { predictions: IImagePrediction[]; hostname: string }) => void;
+type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostname: string }) => void;
 
 /**
  * BackgroundRpc consolidates all controller functionality into one RPC service
  * Provided by background, consumed by content scripts and popup
  */
 export class BackgroundRpc {
-  // Subscription callbacks
   private hostSettingsCallbacks = new Map<string, HostSettingsCallback>();
-  private inferencePredictionsCallbacks = new Map<string, InferencePredictionsCallback>();
+  private imagePredictionsCallbacks = new Map<string, ImagePredictionsCallback>();
+  private framePredictionsCallbacks = new Map<string, FramePredictionsCallback>();
 
   constructor(
     private hostSettingsService: HostSettingsService,
@@ -85,10 +92,9 @@ export class BackgroundRpc {
 
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+      const mediaMetadata = { ...metadata, kind: 'image' as const };
 
-      // Build inference input based on transfer kind
       if (imageData.kind === 'bitmap') {
-        // Chrome: Use pre-loaded bitmap (zero-copy from MessageChannel)
         await this.inferenceService.scheduleInferenceTask({
           input: {
             kind: 'bitmap',
@@ -100,30 +106,88 @@ export class BackgroundRpc {
           hostname,
           tabId,
           hostSettings,
-          imageMetadata: metadata,
+          mediaMetadata,
         });
       } else if (imageData.kind === 'blob') {
-        // Legacy blob path: convert to bitmap
         const bitmap = await createImageBitmap(imageData.blob);
         await this.inferenceService.scheduleInferenceTask({
           input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
           hostname,
           tabId,
           hostSettings,
-          imageMetadata: metadata,
+          mediaMetadata,
         });
       } else {
-        // Firefox URL path: let inference library fetch (uses browser cache, tracks timing)
         await this.inferenceService.scheduleInferenceTask({
           input: { kind: 'src', imageSrc: src },
           hostname,
           tabId,
           hostSettings,
-          imageMetadata: metadata,
+          mediaMetadata,
         });
       }
     } catch (error) {
       logger.withTag('backgroundRpc').error('Failed to schedule inference:', hostname, error);
+    }
+  }
+
+  /**
+   * Process video frame for inference.
+   * Chrome: Receives ImageBitmap as transferable via MessageChannel (zero-copy)
+   * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
+   *
+   * The inference library handles both bitmap and blob conversion internally.
+   */
+  async postInferenceVideoFrame(frameData: IVideoFrameTransfer): Promise<void> {
+    const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight } = frameData;
+
+    if (!hostname) {
+      logger.withTag('backgroundRpc').error('Hostname is required for video frame inference request');
+      return;
+    }
+
+    const frameLabel = frameIndex === -1 ? 'thumbnail' : `frame ${frameIndex}`;
+    logger.withTag('backgroundRpc').debug(`postInferenceVideoFrame: ${frameLabel}`, {
+      kind: frameData.kind,
+      hostname,
+      videoUrl: extractUrlId(videoUrl),
+      timestampSec,
+    });
+
+    // Resolve tab ID
+    let tabId = this.tabEventListener.getActiveTabId();
+    if (!tabId) {
+      const tabs = await browser.tabs.query({ url: `*://${hostname}/*` });
+      tabId = tabs[0]?.id ?? null;
+    }
+    if (!tabId) {
+      logger.withTag('backgroundRpc').warn('Could not resolve tab ID for video frame, using default priority');
+      tabId = -1;
+    }
+
+    try {
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+
+      const input =
+        frameData.kind === 'bitmap'
+          ? { kind: 'bitmap' as const, imageSrc: videoUrl, bitmap: frameData.bitmap, originalWidth, originalHeight }
+          : { kind: 'blob' as const, imageSrc: videoUrl, blob: frameData.blob, originalWidth, originalHeight };
+
+      await this.inferenceService.scheduleInferenceTask({
+        input,
+        hostname,
+        tabId,
+        hostSettings,
+        mediaMetadata: {
+          kind: 'frame',
+          videoUrl,
+          frameIndex,
+          sessionId: frameData.sessionId,
+          timestampSec,
+        },
+      });
+    } catch (error) {
+      logger.withTag('backgroundRpc').error('Failed to schedule video frame inference:', hostname, error);
     }
   }
 
@@ -162,23 +226,37 @@ export class BackgroundRpc {
     this.hostSettingsCallbacks.delete(subscriptionId);
   }
 
-  onInferencePredictions(callback: InferencePredictionsCallback): string {
+  onImagePredictions(callback: ImagePredictionsCallback): string {
     const id = crypto.randomUUID();
-    this.inferencePredictionsCallbacks.set(id, callback);
+    this.imagePredictionsCallbacks.set(id, callback);
     return id;
   }
 
-  offInferencePredictions(subscriptionId: string): void {
-    this.inferencePredictionsCallbacks.delete(subscriptionId);
+  offImagePredictions(subscriptionId: string): void {
+    this.imagePredictionsCallbacks.delete(subscriptionId);
   }
 
-  // ============ Emit Methods (called internally to push to subscribers) ============
+  onFramePredictions(callback: FramePredictionsCallback): string {
+    const id = crypto.randomUUID();
+    this.framePredictionsCallbacks.set(id, callback);
+    return id;
+  }
+
+  offFramePredictions(subscriptionId: string): void {
+    this.framePredictionsCallbacks.delete(subscriptionId);
+  }
+
+  // ============ Emit Methods ============
 
   emitHostSettingsUpdated(hostname: string): void {
     this.hostSettingsCallbacks.forEach(callback => callback(hostname));
   }
 
-  emitInferencePredictions(predictions: IImagePrediction[], hostname: string): void {
-    this.inferencePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+  emitImagePredictions(predictions: IImagePrediction[], hostname: string): void {
+    this.imagePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+  }
+
+  emitFramePredictions(predictions: IFramePrediction[], hostname: string): void {
+    this.framePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
   }
 }

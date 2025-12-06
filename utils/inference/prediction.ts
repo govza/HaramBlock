@@ -2,7 +2,7 @@ import * as tf from '@tensorflow/tfjs';
 
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
 import { calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
-import { createCacheMetadataFromImageMetadata } from '@/utils/cacheUtils';
+import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import * as imageProcessor from '@/utils/inference/imageProcessor';
 import * as modelLoader from '@/utils/inference/modelLoader';
@@ -18,7 +18,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     const model = modelLoader.getModel() || (await modelLoader.loadModel());
     const config = modelLoader.getModelConfig();
 
-    // Use provided bitmap (from MessageChannel) or fetch from URL
+    // Use provided bitmap/blob (from MessageChannel/structured clone) or fetch from URL
     let imageBitmap: ImageBitmap;
     let fetchTime = 0;
     let bitmapTime = 0;
@@ -26,13 +26,23 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     let imageHeight: number;
 
     if (task.bitmap) {
-      // Use pre-loaded bitmap (zero-copy transfer from content script)
+      // Use pre-loaded bitmap (zero-copy transfer from content script via MessageChannel)
       imageBitmap = task.bitmap;
       imageWidth = task.originalWidth || imageBitmap.width;
       imageHeight = task.originalHeight || imageBitmap.height;
       logger.withTag('prediction').debug(`Using pre-loaded bitmap for ${extractUrlId(task.imageSrc)}`);
+    } else if (task.blob) {
+      // Convert blob to bitmap (Firefox structured clone path)
+      const bitmapStartTime = Date.now();
+      imageBitmap = await createImageBitmap(task.blob);
+      bitmapTime = Date.now() - bitmapStartTime;
+      imageWidth = task.originalWidth || imageBitmap.width;
+      imageHeight = task.originalHeight || imageBitmap.height;
+      logger
+        .withTag('prediction')
+        .debug(`Created bitmap from blob for ${extractUrlId(task.imageSrc)} in ${bitmapTime}ms`);
     } else {
-      // Fetch and decode image
+      // Fetch and decode image from URL
       const loaded = await imageProcessor.loadImageBitmap(task.imageSrc);
       ({ imageBitmap, fetchTime, bitmapTime } = loaded);
       imageWidth = imageBitmap.width;
@@ -57,7 +67,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     const processingTimeMs = Date.now() - startTime;
     const timestamp = Date.now();
 
-    const cacheMetadata = createCacheMetadataFromImageMetadata(task.imageMetadata);
+    const cacheMetadata = createCacheMetadataFromMediaMetadata(task.mediaMetadata);
 
     // Calculate mask transform parameters in mask-grid space (outputShape H/W)
     const maskTransform: IMaskTransform = calculateScaleFactors(
