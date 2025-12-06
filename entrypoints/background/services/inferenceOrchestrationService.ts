@@ -4,7 +4,14 @@ import { logger, extractUrlId } from '@/utils/logger';
 import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
-import type { IImagePrediction, IFramePrediction, IHostSettings, IMediaMetadata, InferenceTask } from '@/utils/types';
+import type {
+  IImagePrediction,
+  IFramePrediction,
+  IFrameMetadata,
+  IHostSettings,
+  IMediaMetadata,
+  InferenceTask,
+} from '@/utils/types';
 
 type OnImagePredictionsCallback = (predictions: IImagePrediction[], hostname: string) => void;
 type OnFramePredictionsCallback = (predictions: IFramePrediction[], hostname: string) => void;
@@ -138,10 +145,7 @@ export class InferenceOrchestrationService {
     }
   }
 
-  private toFramePrediction(
-    imagePrediction: IImagePrediction,
-    frameMetadata: { videoUrl: string; frameIndex: number; sessionId: string; timestampSec: number },
-  ): IFramePrediction {
+  private toFramePrediction(imagePrediction: IImagePrediction, frameMetadata: IFrameMetadata): IFramePrediction {
     return {
       videoUrl: frameMetadata.videoUrl,
       src: imagePrediction.src,
