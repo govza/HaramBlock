@@ -14,34 +14,33 @@ export interface IMediaOverlayState {
   destroyed?: boolean;
   currentPrediction?: IImagePrediction;
   viewportHandler?: () => void;
+  posterImage?: HTMLImageElement;
+  corsVideo?: HTMLVideoElement;
 }
 
 /**
- * Module API contract for image overlay implementations.
+ * Module API contract for overlay implementations.
+ * Generic over the element type (HTMLImageElement or HTMLVideoElement).
  */
-export interface IMediaOverlay {
+export interface IMediaOverlay<T extends HTMLElement = HTMLImageElement> {
   /**
-   * Creates mask overlay for the given image element
-   * @param element - The image element
+   * Creates mask overlay for the given element
+   * @param element - The media element
    * @param prediction - Prediction data with masks
    * @param skipObserverSetup - Whether to skip setting up observers (default: false)
    */
-  createMaskOverlay: (
-    element: HTMLImageElement,
-    prediction?: IImagePrediction,
-    skipObserverSetup?: boolean,
-  ) => void | Promise<void>;
+  createMaskOverlay: (element: T, prediction?: IImagePrediction, skipObserverSetup?: boolean) => void | Promise<void>;
 
   /**
    * Clears/removes the mask overlay for the given element
-   * @param element - The image element
+   * @param element - The media element
    */
-  clearMaskOverlay: (element: HTMLImageElement) => void;
+  clearMaskOverlay: (element: T) => void;
 
   /**
    * Checks if the element has an active mask overlay
-   * @param element - The image element
+   * @param element - The media element
    * @returns true if overlay exists
    */
-  hasMaskOverlay: (element: HTMLImageElement) => boolean;
+  hasMaskOverlay: (element: T) => boolean;
 }
