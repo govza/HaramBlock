@@ -1,5 +1,5 @@
 import type { IHostSettings } from '@/utils/types/host';
-import type { IImageMetadata } from '@/utils/types/media';
+import type { IMediaMetadata } from '@/utils/types/media';
 
 export interface InferenceTask {
   imageSrc: string;
@@ -8,10 +8,12 @@ export interface InferenceTask {
   createdAt: Date;
   tabId: number;
   hostSettings: IHostSettings;
-  imageMetadata: IImageMetadata;
+  mediaMetadata: IMediaMetadata;
   /** Optional pre-loaded bitmap (from MessageChannel transferable) */
   bitmap?: ImageBitmap;
-  /** Original image dimensions (when bitmap is provided) */
+  /** Optional blob (from Firefox structured clone) - converted to bitmap by inference library */
+  blob?: Blob;
+  /** Original image dimensions (when bitmap or blob is provided) */
   originalWidth?: number;
   originalHeight?: number;
 }
