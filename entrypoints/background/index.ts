@@ -39,8 +39,11 @@ export default defineBackground({
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 
     // Wire up inference service to emit predictions via BackgroundRpc
-    inferenceService.setOnPredictionsCallback((predictions, hostname) => {
-      backgroundRpc.emitInferencePredictions(predictions, hostname);
+    inferenceService.setOnImagePredictionsCallback((predictions, hostname) => {
+      backgroundRpc.emitImagePredictions(predictions, hostname);
+    });
+    inferenceService.setOnFramePredictionsCallback((predictions, hostname) => {
+      backgroundRpc.emitFramePredictions(predictions, hostname);
     });
 
     // Initialize all event listeners
