@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { t } from '@/utils/i18n';
+
 export interface TabItem {
   id: string;
   label: string;
@@ -18,8 +20,8 @@ export function VerticalTabs({ items, activeTab, onTabChange, children }: Vertic
       <nav className='border-r border-border-primary bg-primary'>
         <div className='p-4 border-b border-border-primary'>
           <div className='flex items-center gap-3 mb-2'>
-            <img src='/logo.svg' alt='HaramBlock Logo' className='w-8 h-8' />
-            <h1 className='text-xl font-bold text-text-primary'>HaramBlock</h1>
+            <img src='/logo.svg' alt={t('Extension.name')} className='w-8 h-8' />
+            <h1 className='text-xl font-bold text-text-primary'>{t('Extension.name')}</h1>
           </div>
           <p className='text-sm text-text-muted'>Extension Options</p>
         </div>

@@ -13,6 +13,8 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   manifestVersion: 3,
   manifest: {
+    name: '__MSG_Extension_name__',
+    description: '__MSG_Extension_description__',
     default_locale: 'en',
     permissions: ['storage', 'tabs', 'activeTab', 'scripting'],
     options_page: 'options.html',
@@ -24,6 +26,9 @@ export default defineConfig({
     ],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    },
+    action: {
+      default_title: '__MSG_Extension_name__',
     },
   },
 });

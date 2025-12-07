@@ -1,6 +1,6 @@
 {
   "Extension": {
-    "description": "HaramBlock is a browser extension that blocks Haram content on the web.",
+    "description": "Haram Block is a browser extension that blocks Haram content on the web.",
     "name": "Haram Block"
   },
   "HostSettings": {
@@ -50,7 +50,7 @@
     "title": "Options"
   },
   "Permissions": {
-    "askPermission": "HaramBlock requires permission to access all websites",
+    "askPermission": "Haram Block requires permission to access all websites",
     "grantPermission": "Grant permission"
   },
   "About": {
