@@ -7,7 +7,13 @@ This project uses [Vitest](https://vitest.dev/) for unit testing, following the
 
 ```bash
 # Run tests once
-npm run test:unit
+pnpm test:unit
+```
+
+To run a single test file:
+
+```bash
+pnpm test:unit utils/db/__tests__/hostSettings.test.ts
 ```
 
 ## Test Setup

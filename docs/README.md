@@ -1,0 +1,28 @@
+# Documentation Index
+
+This folder contains developer-focused documentation for HaramBlock (architecture notes, internal
+APIs, and implementation details). If you’re a user, start with the project
+[`README.md`](../README.md).
+
+## Start Here
+
+- **Build / verify a release**: [SOURCE_CODE_REVIEW.md](SOURCE_CODE_REVIEW.md)
+- **Understand the overall architecture**:
+  - [CONTENT_SCRIPT.md](CONTENT_SCRIPT.md) (runs on webpages)
+  - [MESSAGING_CHANNEL.md](MESSAGING_CHANNEL.md) (content ↔ background transport)
+  - [REACTIVE_SETTINGS.md](REACTIVE_SETTINGS.md) (per-site settings storage + UI reactivity)
+- **Video filtering details**: [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
+- **Running tests**: [TESTING.md](TESTING.md)
+
+## Project Map (High Level)
+
+- **Content script**: `entrypoints/content/`
+  - Observes the DOM, queues inference, and applies masking styles.
+- **Background**: `entrypoints/background/` + `utils/messaging/services/`
+  - Runs inference orchestration, caching, and message routing.
+- **Popup UI**: `entrypoints/popup/`
+  - Per-site settings controls (policy, strictness, outline).
+- **Options UI**: `entrypoints/options/`
+  - Bulk/advanced settings views.
+- **Storage (IndexedDB)**: `utils/db/`
+  - Dexie database + repositories for settings and cached predictions.

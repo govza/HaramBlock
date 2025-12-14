@@ -1,19 +1,20 @@
 # Content Script Module
 
-This folder contains the HaramBlock content script that runs on web pages to detect, analyze, and
-filter media content. The content script is the main interface between the extension and the web
-page's DOM.
+The HaramBlock content script lives in `entrypoints/content/`. It runs on web pages to observe the
+DOM, queue inference, and apply masking styles to images and videos.
 
 ## Architecture Overview
 
 The content script follows a modular architecture with clear separation of concerns:
 
-- **Entry Point** (`index.ts`) - Main content script initialization and lifecycle management
+- **Entry Point** (`entrypoints/content/index.ts`) - Initialization and lifecycle management
 - **Core** (`core/`) - DOM observation, state registry, AI queueing, background bridge, prediction
   store, and orchestration
 - **Communication** (`communication/`) - Two-way messaging with the background script
-- **Hooks** (`hooks/`) - Reactive data management for host settings and predictions
+- **Hooks** (`hooks/`) - Content-script initialization helpers (settings + cached predictions)
 - **Presentation** (`presentation/`) - Visual styling, effects, and CSS injection
+- **Handlers** (`handlers/`) - Media-specific entrypoints (images/videos)
+- **Video** (`video/`) - Frame capture + playback loop utilities
 
 ## Module Descriptions
 
@@ -85,7 +86,7 @@ The main orchestrator that combines DOM observation with AI-powered content anal
 
 #### `listener.ts`
 
-Handles all inbound messages from the background script using webext-bridge.
+Handles all inbound messages from the background script using comctx.
 
 **Message Types:**
 
@@ -113,21 +114,20 @@ Manages all outbound communication to the background script.
 
 #### `useHostData.ts`
 
-Unified reactive hook for managing host settings and cached predictions.
+Unified initializer for fetching host settings and cached predictions from the background.
 
 **Key Features:**
 
 - Fetches both settings and predictions in parallel for efficiency
-- Automatically refreshes data when host settings change
 - Provides loading state and manual refresh capabilities
 - Handles hostname normalization using `getEffectiveHostname()`
-- Triggers page reload on settings changes to ensure clean state
+- Subscribes to host-settings updates and reloads the page to ensure a clean state
 
 **Return Interface:**
 
 ```typescript
 {
-  settings: IHostSettings | undefined;
+  settings: IHostSettings;
   predictions: IImagePrediction[];
   isLoading: () => boolean;
   refresh: () => Promise<void>;

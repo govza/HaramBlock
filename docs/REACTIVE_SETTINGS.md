@@ -1,232 +1,101 @@
-# Host Settings: IndexedDB Storage, Reactivity, and Hooks
+# Settings & Storage (HostSettings)
 
-This extension uses **Dexie** (a wrapper for IndexedDB) to store and manage per-host and global
-settings. All settings are accessed and updated reactively in your UI using custom React hooks
-powered by `dexie-react-hooks`.
+HaramBlock stores per-site and global settings in IndexedDB (via Dexie) and exposes them to the UI
+reactively (via `dexie-react-hooks`).
 
-## How HostSettings Work
+## What Is a HostSetting?
 
-### 1. Data Model
+For each “effective hostname”, HaramBlock stores an `IHostSettings` row. There is also a single
+global row keyed by `DEFAULT_GLOBAL_KEY` (used as defaults and for “global mode” in the UI).
 
-- **HostSettings** are objects representing configuration for a specific hostname or for global
-  defaults.
-- Each HostSettings object includes:
-  - `hostname`: The domain or 'global' for default settings
-  - `isGlobal`: Boolean, true for global settings
-  - `masks`: Array of mask types (e.g. 'blur', 'pixelate')
-  - `outline`: Outline type (e.g. 'bbox', 'segment')
-  - `policy`: Policy type ('whitelist', 'blacklist', 'process')
-  - `strictness`: Numeric value for filtering strictness
+## Data Model
 
-### 2. Storage: IndexedDB via Dexie
+Defined in `utils/types/host.ts`:
 
-- All HostSettings are stored in the browser's **IndexedDB** using the **Dexie** library.
-- Dexie provides a simple API for CRUD operations and schema management.
-- The database is initialized with a default global settings object.
-- Each HostSettings entry is keyed by its `hostname`.
+```ts
+export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
+export type OutlineType = 'bbox' | 'segment' | 'full';
 
-**Example Dexie setup:**
-
-```typescript
-import Dexie from 'dexie';
-import { DEFAULT_HOST_SETTINGS, IHostSettings } from './HostSettings';
-
-export class HostSettingsDatabase extends Dexie {
-  hostSettings!: Dexie.Table<IHostSettings, string>;
-  constructor() {
-    super('HostSettingsDatabase');
-    this.version(1).stores({ hostSettings: 'hostname' });
-  }
+export interface IHostSettings {
+  hostname: string;
+  isGlobal: boolean;
+  masking: { blur: boolean };
+  outline: OutlineType;
+  policy: HostPolicy;
+  strictness: number;
+  minSize: { width: number; height: number };
 }
-export const hostSettingsDb = new HostSettingsDatabase();
-hostSettingsDb.on('populate', () => {
-  hostSettingsDb.hostSettings.add(DEFAULT_HOST_SETTINGS);
-});
 ```
 
-### 3. Reactivity: Dexie + React Hooks
+- `policy`
+  - `whitelist`: don’t filter
+  - `blacklist`: filter everything (no inference)
+  - `process`: run inference and filter based on predictions
+- `outline`: how the masking is applied (`bbox`, `segment`, or `full`)
+- `masking.blur`: whether masking is enabled (if `false`, the UI is effectively “detection only”)
+- `strictness`: detection threshold (higher = stricter)
+- `minSize`: ignore very small media to reduce false positives and cost
 
-- **Reactivity** is achieved using `dexie-react-hooks`, specifically the `useLiveQuery` hook.
-- Any changes to HostSettings in IndexedDB automatically update all subscribed React components.
-- No manual refresh or polling is needed—UI updates instantly when data changes.
+## Hostname Normalization
 
-**Example reactive hook:**
+Hostnames are normalized with `getEffectiveHostname()` (`utils/hostnameUtil.ts`). This is the key
+used for settings lookup and for filtering prediction broadcasts.
 
-```typescript
-import { useLiveQuery } from 'dexie-react-hooks';
-import { hostSettingsDb } from './db';
+## Storage (IndexedDB via Dexie)
 
-const hostSettings = useLiveQuery(
-  () => hostSettingsDb.hostSettings.get('example.com'),
-  ['example.com']
-);
-```
+- Database: `utils/db/db.ts`
+- Table: `hostSettings` keyed by `hostname`
+- Initial populate: inserts default global settings on first run
 
-## Features
+## Repositories (Write APIs)
 
-## HostSettings React Hooks & Context
+Most UI code writes settings through repositories rather than calling Dexie directly:
 
-### Hooks
+- `HostSettingsRepository`: `utils/db/hostSettingsRepository.ts`
+- `ImageCacheRepository`: `utils/db/imageCacheRepository.ts` (cached inference results)
 
-The system now uses two focused hooks for better clarity and separation of concerns:
+## UI Reactivity (Popup / Options)
 
-- **`useHostname()`**
-  - **Hostname detection hook** for current tab hostname detection
-  - Automatically detects current tab hostname from the browser
-  - Returns current hostname and error state
-  - No parameters needed - always works in auto-detection mode
+The popup/options UIs use a small stack of hooks + context:
 
-- **`useHostSettings(hostname: string)`**
-  - **Settings data hook** for loading and managing HostSettings for a specific hostname
-  - Takes a hostname parameter (required) and loads settings for that hostname
-  - Returns reactive HostSettings object and loading state
-  - Automatically creates default settings if none exist
-  - All data is reactive and auto-updates when changed
+- `useHostname()`: `hooks/useHostname.ts` (current tab hostname detection)
+- `useHostSettings(hostname)`: `hooks/useHostSettings.ts`
+  - returns `{ hostSettings, hostSettingsRepository, isLoading }`
+- `HostDataProvider`: `entrypoints/popup/context/HostDataContext.tsx`
+  - combines hostname + settings and exposes:
+    - `hostSettings`, `currentHostname`, `hostSettingsRepository`, `imageCacheRepository`
+    - global/local mode helpers: `switchToGlobal()`, `switchToLocal()`, `isGlobalMode`
 
-### Context Provider
-
-- **`HostDataProvider`**
-  - Combines both hooks to provide a unified interface
-  - Uses `useHostname()` for hostname detection and `useHostSettings()` for data
-  - Wrap your app or popup in this provider to make host settings available everywhere
-  - All consumers update automatically when settings change
-
-**Context Properties:**
-
-- `hostSettings`: Current reactive host settings (automatically global or host-specific based on
-  hostname)
-- `currentHostname`: Current hostname being tracked
-- `isLoading`: Loading state indicator
-- `error`: Error message (if any)
-
-**Note:** Use `hostSettings.isGlobal` to check if the current settings are global or host-specific.
-
-### Usage Example
+Minimal usage:
 
 ```tsx
-import { HostDataProvider, useHostDataContext } from './context/HostDataContext';
+import { HostDataProvider, useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 
-function App() {
+export function App() {
   return (
     <HostDataProvider>
-      <YourComponent />
+      <Popup />
     </HostDataProvider>
   );
 }
 
-function YourComponent() {
-  const { hostSettings, currentHostname } = useHostDataContext();
+function Popup() {
+  const { hostSettings, hostSettingsRepository, isLoading } = useHostDataContext();
+  if (isLoading) return null;
   return (
-    <div>
-      <p>Current Host: {currentHostname}</p>
-      <p>Policy: {hostSettings.policy}</p>
-      <p>Is Global: {hostSettings.isGlobal ? 'Yes' : 'No'}</p>
-    </div>
+    <button onClick={() => void hostSettingsRepository.togglePolicy(hostSettings.hostname)}>
+      Toggle Policy
+    </button>
   );
 }
 ```
 
-## Usage Examples
+## Content Script Initialization (Non-React)
 
-### Basic Usage
+The content script is not a React app. On each page load it fetches the host settings and cached
+predictions from the background:
 
-```tsx
-import { HostDataProvider, useHostDataContext } from './context/HostDataContext';
+- `entrypoints/content/hooks/useHostData.ts`
 
-function App() {
-  return (
-    <HostDataProvider>
-      <YourComponent />
-    </HostDataProvider>
-  );
-}
-
-function YourComponent() {
-  const { hostSettings } = useHostDataContext();
-
-  const handleUpdate = async () => {
-    await hostSettings.togglePolicy();
-    // Component automatically re-renders - no manual refresh needed!
-  };
-
-  return (
-    <div>
-      <p>Current policy: {hostSettings.policy}</p>
-      <button onClick={handleUpdate}>Toggle Policy</button>
-    </div>
-  );
-}
-```
-
-### Advanced Usage
-
-```tsx
-import { HostDataProvider, useHostDataContext } from './context/HostDataContext';
-
-function App() {
-  return (
-    <HostDataProvider>
-      <YourComponent />
-    </HostDataProvider>
-  );
-}
-
-function YourComponent() {
-  const { hostSettings, currentHostname } = useHostDataContext();
-
-  return (
-    <div>
-      <p>Current Host: {currentHostname}</p>
-      <p>Using global settings: {hostSettings.isGlobal ? 'Yes' : 'No'}</p>
-      <p>Current policy: {hostSettings.policy}</p>
-    </div>
-  );
-}
-```
-
-### Direct Hook Usage
-
-```tsx
-import { useHostname } from '@/hooks/useHostname';
-import { useHostSettings } from '@/hooks/useHostSettings';
-
-// Using both hooks separately for maximum control
-function DetailedHostSettings() {
-  const { currentHostname } = useHostname();
-  const { hostSettings, isLoading } = useHostSettings(currentHostname);
-
-  if (isLoading) return <div>Loading...</div>;
-
-  return (
-    <div>
-      <p>Current hostname: {currentHostname}</p>
-      <p>Using global: {hostSettings.isGlobal ? 'Yes' : 'No'}</p>
-      <p>Settings policy: {hostSettings.policy}</p>
-    </div>
-  );
-}
-
-// Using just the settings hook for a specific hostname
-function SpecificHostSettings() {
-  const { hostSettings, isLoading } = useHostSettings('example.com');
-
-  if (isLoading) return <div>Loading...</div>;
-
-  return (
-    <div>
-      <p>Settings for example.com: {hostSettings.policy}</p>
-    </div>
-  );
-}
-```
-
-### Error Handling
-
-The reactive hooks handle errors gracefully and provide error states when needed. The `useLiveQuery`
-hook will return `undefined` while loading and the actual data when ready.
-
-## Dependencies
-
-- `dexie`: ^4.0.11
-- `dexie-react-hooks`: ^1.1.7
-- `react`: ^19.1.0
+It also subscribes to host-settings updates; when settings change, the page is reloaded so the
+content script restarts with a clean state.
