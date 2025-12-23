@@ -385,7 +385,7 @@ function renderVideoMask(
   const avgScale = (naturalToDisplayScaleX + naturalToDisplayScaleY) / 2;
 
   // Adjust block size based on the scaling to maintain consistent pixelation
-  const BLOCK_SIZE = Math.max(8, Math.min(dWidth, dHeight) / 25 / avgScale);
+  const BLOCK_SIZE = Math.max(8, Math.min(dWidth, dHeight) / 10 / avgScale);
 
   logger.withTag('videoOverlay').debug('Rendering video mask', {
     displaySize: { width: dWidth, height: dHeight },
