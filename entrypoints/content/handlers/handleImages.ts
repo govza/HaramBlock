@@ -9,16 +9,26 @@ import {
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
-import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { extractUrlId, logger } from '@/utils/logger';
 
 import type { IHostSettings } from '@/utils/types';
+
+function isBelowMinSize(image: HTMLImageElement, hostSettings: IHostSettings): boolean {
+  const w = image.naturalWidth || image.width;
+  const h = image.naturalHeight || image.height;
+  return w < hostSettings.minSize.width || h < hostSettings.minSize.height;
+}
 
 export function handleImages(images: HTMLImageElement[], hostSettings: IHostSettings): void {
   for (const image of images) {
     const src = image.currentSrc || image.src;
     if (!src) continue;
     if (!isHandled(image, src)) {
+      if (image.complete && image.naturalWidth > 0 && isBelowMinSize(image, hostSettings)) {
+        markHandled(image, src);
+        markProcessed(image, src);
+        continue;
+      }
       applyInitialImageStyling(image, hostSettings);
       markHandled(image, src);
       queueForInference(image, hostSettings);
@@ -49,11 +59,8 @@ function queueForInference(image: HTMLImageElement, hostSettings: IHostSettings)
       return;
     }
 
-    const minW = hostSettings.minSize?.width ?? DEFAULT_HOST_SETTINGS.minSize.width;
-    const minH = hostSettings.minSize?.height ?? DEFAULT_HOST_SETTINGS.minSize.height;
-    const w = image.naturalWidth || image.width;
-    const h = image.naturalHeight || image.height;
-    if (w < minW || h < minH) {
+    if (isBelowMinSize(image, hostSettings)) {
+      removeInitialImageStyling(image);
       markProcessed(image, src);
       return;
     }
