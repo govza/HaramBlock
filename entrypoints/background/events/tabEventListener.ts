@@ -1,11 +1,10 @@
 import { logger } from '@/utils/logger';
 
 /**
- * TabEventListener handles tab activation events and notifies inference orchestration
+ * TabEventListener tracks the active tab for priority calculation
  */
 export class TabEventListener {
   private activeTabId: number | null = null;
-  private onTabActivatedCallback: ((tabId: number) => void) | null = null;
 
   public initialize(): void {
     // Initialize with current active tab
@@ -22,16 +21,7 @@ export class TabEventListener {
       this.activeTabId = activeInfo.tabId;
 
       logger.withTag('tabEventListener').debug(`Tab activated: ${activeInfo.tabId} (previous: ${previousActiveTabId})`);
-
-      // Notify callback if registered
-      if (this.onTabActivatedCallback && previousActiveTabId !== this.activeTabId) {
-        this.onTabActivatedCallback(this.activeTabId);
-      }
     });
-  }
-
-  public setOnTabActivatedCallback(callback: (tabId: number) => void): void {
-    this.onTabActivatedCallback = callback;
   }
 
   public getActiveTabId(): number | null {

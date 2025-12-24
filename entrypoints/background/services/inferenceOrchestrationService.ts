@@ -39,7 +39,6 @@ export class InferenceOrchestrationService {
     private tabEventListener: TabEventListener,
   ) {
     this.setupEventHandlers();
-    this.setupTabActivationHandler();
   }
 
   setOnImagePredictionsCallback(callback: OnImagePredictionsCallback): void {
@@ -189,14 +188,6 @@ export class InferenceOrchestrationService {
     // Active tab gets highest priority, others get default
     const activeTabId = this.tabEventListener.getActiveTabId();
     return activeTabId === tabId ? 10 : 5;
-  }
-
-  private setupTabActivationHandler(): void {
-    this.tabEventListener.setOnTabActivatedCallback((activeTabId: number) => {
-      logger
-        .withTag('inferenceOrchestrationService')
-        .debug(`Active tab changed to ${activeTabId}, new tasks will get priority boost`);
-    });
   }
 
   // Public methods for monitoring
