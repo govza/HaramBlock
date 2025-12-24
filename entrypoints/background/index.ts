@@ -1,4 +1,4 @@
-import { IconEventListener, TabEventListener } from '@/entrypoints/background/events';
+import { IconEventListener } from '@/entrypoints/background/events';
 import {
   HostSettingsService,
   ImageCacheService,
@@ -18,9 +18,8 @@ export default defineBackground({
     const imageCacheService = new ImageCacheService();
     const iconService = new IconService();
     const queueService = new QueueService();
-    const tabEventListener = new TabEventListener();
 
-    const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService, tabEventListener);
+    const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
 
     // Initialize event listeners (event handling layer)
     const iconEventListener = new IconEventListener();
@@ -34,7 +33,6 @@ export default defineBackground({
       imageCacheService,
       inferenceService,
       iconService,
-      tabEventListener,
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 
@@ -48,7 +46,6 @@ export default defineBackground({
 
     // Initialize all event listeners
     iconEventListener.initialize();
-    tabEventListener.initialize();
 
     // Initialize inference library
     void initializeInference();

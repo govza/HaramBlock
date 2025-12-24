@@ -4,9 +4,7 @@ import type { IMediaMetadata } from '@/utils/types/media';
 export interface InferenceTask {
   imageSrc: string;
   hostname: string;
-  priority: number;
   createdAt: Date;
-  tabId: number;
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
   /** Optional pre-loaded bitmap (from MessageChannel transferable) */

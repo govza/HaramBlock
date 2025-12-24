@@ -3,7 +3,6 @@ import { defineProxy } from 'comctx';
 import { USE_MESSAGE_CHANNEL } from '@/utils/constants';
 import { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 
-import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
@@ -28,8 +27,7 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
     imageCacheService: ImageCacheService,
     inferenceService: InferenceOrchestrationService,
     iconService: IconService,
-    tabEventListener: TabEventListener,
-  ) => new BackgroundRpc(hostSettingsService, imageCacheService, inferenceService, iconService, tabEventListener),
+  ) => new BackgroundRpc(hostSettingsService, imageCacheService, inferenceService, iconService),
   {
     namespace: '__haramblock__',
     // Chrome: Enable transferable extraction for MessageChannel (zero-copy ImageBitmap)

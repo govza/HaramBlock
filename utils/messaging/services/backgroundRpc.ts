@@ -1,6 +1,5 @@
 import { logger, extractUrlId } from '@/utils/logger';
 
-import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
@@ -31,7 +30,6 @@ export class BackgroundRpc {
     private imageCacheService: ImageCacheService,
     private inferenceService: InferenceOrchestrationService,
     private iconService: IconService,
-    private tabEventListener: TabEventListener,
   ) {}
 
   // ============ Request-Response Methods (replaces controllers) ============
@@ -57,8 +55,6 @@ export class BackgroundRpc {
    * Process image for inference.
    * Chrome: Receives ImageBitmap as transferable via MessageChannel (zero-copy)
    * Firefox: Receives Blob via browser.runtime (structured clone), converts to ImageBitmap
-   *
-   * Tab ID is resolved by querying tabs matching the hostname (comctx pattern).
    */
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
     const { hostname, src, width, height, metadata } = imageData;
@@ -72,19 +68,6 @@ export class BackgroundRpc {
       kind: imageData?.kind,
       hostname,
     });
-
-    // Resolve tab ID by querying tabs with matching hostname (comctx pattern)
-    // Use cached active tab as fast path, fall back to querying by hostname
-    let tabId = this.tabEventListener.getActiveTabId();
-    if (!tabId) {
-      const tabs = await browser.tabs.query({ url: `*://${hostname}/*` });
-      tabId = tabs[0]?.id ?? null;
-    }
-    if (!tabId) {
-      // Use placeholder - predictions are broadcast to all subscribers anyway
-      logger.withTag('backgroundRpc').warn('Could not resolve tab ID, using default priority');
-      tabId = -1;
-    }
 
     logger
       .withTag('backgroundRpc')
@@ -104,7 +87,6 @@ export class BackgroundRpc {
             originalHeight: height,
           },
           hostname,
-          tabId,
           hostSettings,
           mediaMetadata,
         });
@@ -113,7 +95,6 @@ export class BackgroundRpc {
         await this.inferenceService.scheduleInferenceTask({
           input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
           hostname,
-          tabId,
           hostSettings,
           mediaMetadata,
         });
@@ -121,7 +102,6 @@ export class BackgroundRpc {
         await this.inferenceService.scheduleInferenceTask({
           input: { kind: 'src', imageSrc: src },
           hostname,
-          tabId,
           hostSettings,
           mediaMetadata,
         });
@@ -135,8 +115,6 @@ export class BackgroundRpc {
    * Process video frame for inference.
    * Chrome: Receives ImageBitmap as transferable via MessageChannel (zero-copy)
    * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
-   *
-   * The inference library handles both bitmap and blob conversion internally.
    */
   async postInferenceVideoFrame(frameData: IVideoFrameTransfer): Promise<void> {
     const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight } = frameData;
@@ -154,17 +132,6 @@ export class BackgroundRpc {
       timestampSec,
     });
 
-    // Resolve tab ID
-    let tabId = this.tabEventListener.getActiveTabId();
-    if (!tabId) {
-      const tabs = await browser.tabs.query({ url: `*://${hostname}/*` });
-      tabId = tabs[0]?.id ?? null;
-    }
-    if (!tabId) {
-      logger.withTag('backgroundRpc').warn('Could not resolve tab ID for video frame, using default priority');
-      tabId = -1;
-    }
-
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
 
@@ -176,7 +143,6 @@ export class BackgroundRpc {
       await this.inferenceService.scheduleInferenceTask({
         input,
         hostname,
-        tabId,
         hostSettings,
         mediaMetadata: {
           kind: 'frame',

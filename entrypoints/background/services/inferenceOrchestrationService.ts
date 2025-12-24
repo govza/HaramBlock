@@ -1,7 +1,6 @@
 import { processInferenceTask } from '@/utils/inference';
 import { logger, extractUrlId } from '@/utils/logger';
 
-import type { TabEventListener } from '@/entrypoints/background/events/tabEventListener';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
 import type {
@@ -24,7 +23,6 @@ export type InferenceInput =
 export type ScheduleArgs = {
   input: InferenceInput;
   hostname: string;
-  tabId: number;
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
 };
@@ -36,7 +34,6 @@ export class InferenceOrchestrationService {
   constructor(
     private queueService: QueueService,
     private imageCacheService: ImageCacheService,
-    private tabEventListener: TabEventListener,
   ) {
     this.setupEventHandlers();
   }
@@ -50,7 +47,7 @@ export class InferenceOrchestrationService {
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
-    const { input, hostname, tabId, hostSettings, mediaMetadata } = args;
+    const { input, hostname, hostSettings, mediaMetadata } = args;
     const { imageSrc } = input;
 
     // Only check cache for images, not video frames
@@ -79,9 +76,7 @@ export class InferenceOrchestrationService {
     const baseTask = {
       imageSrc,
       hostname,
-      priority: this.calculatePriority(tabId),
       createdAt: new Date(),
-      tabId,
       hostSettings,
       mediaMetadata,
     };
@@ -181,13 +176,6 @@ export class InferenceOrchestrationService {
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error('Error sending frame predictions:', error);
     }
-  }
-
-  private calculatePriority(tabId: number): number {
-    // Higher numbers = higher priority
-    // Active tab gets highest priority, others get default
-    const activeTabId = this.tabEventListener.getActiveTabId();
-    return activeTabId === tabId ? 10 : 5;
   }
 
   // Public methods for monitoring

@@ -20,14 +20,11 @@ export class QueueService {
 
   enqueue(task: InferenceTask): Promise<void> {
     // Return the promise to allow proper tracking of task completion
-    return this.queue.add(
-      async () => {
-        if (this.onTaskProcessing) {
-          await this.onTaskProcessing(task);
-        }
-      },
-      { priority: task.priority },
-    );
+    return this.queue.add(async () => {
+      if (this.onTaskProcessing) {
+        await this.onTaskProcessing(task);
+      }
+    });
   }
 
   getQueueSize(): number {

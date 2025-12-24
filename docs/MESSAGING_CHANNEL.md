@@ -43,23 +43,12 @@ interface MessageMeta {
    - `browser.runtime` path: `CompositeProvideAdapter` adds `tabId` from `sender.tab.id`
    - `MessageChannel` path: No sender context, but URL is available in meta
 
-3. **Background resolves tab ID when needed**:
-   ```typescript
-   // In BackgroundRpc.postInferenceImage()
-   let tabId = this.tabEventListener.getActiveTabId();
-   if (!tabId) {
-     // Query tabs matching the hostname from payload
-     const tabs = await browser.tabs.query({ url: `*://${hostname}/*` });
-     tabId = tabs[0]?.id ?? null;
-   }
-   ```
-
 ### Why This Pattern?
 
-- **Follows comctx conventions**: URL-based tab lookup, not explicit tab ID passing
+- **Follows comctx conventions**: URL-based identification, not explicit tab ID passing
 - **No chicken-and-egg problem**: Content doesn't need to know its tab ID upfront
 - **Works for both transports**: browser.runtime has sender context, MessageChannel uses URL lookup
-- **Predictions are broadcast**: Tab ID is primarily for priority; results go to all subscribers
+- **Predictions are broadcast**: Results go to all subscribers matching the hostname
 
 ## Transport Variants
 
