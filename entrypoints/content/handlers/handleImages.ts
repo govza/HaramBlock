@@ -13,6 +13,12 @@ import { extractUrlId, logger } from '@/utils/logger';
 
 import type { IHostSettings } from '@/utils/types';
 
+const UNSUPPORTED_FORMAT_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
+
+function isProcessableImage(src: string): boolean {
+  return !UNSUPPORTED_FORMAT_PATTERN.test(src);
+}
+
 function isBelowMinSize(image: HTMLImageElement, hostSettings: IHostSettings): boolean {
   const w = image.naturalWidth || image.width;
   const h = image.naturalHeight || image.height;
@@ -24,6 +30,11 @@ export function handleImages(images: HTMLImageElement[], hostSettings: IHostSett
     const src = image.currentSrc || image.src;
     if (!src) continue;
     if (!isHandled(image, src)) {
+      if (!isProcessableImage(src)) {
+        markHandled(image, src);
+        markProcessed(image, src);
+        continue;
+      }
       if (image.complete && image.naturalWidth > 0 && isBelowMinSize(image, hostSettings)) {
         markHandled(image, src);
         markProcessed(image, src);
