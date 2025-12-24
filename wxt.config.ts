@@ -16,6 +16,13 @@ export default defineConfig({
     name: '__MSG_Extension_name__',
     description: '__MSG_Extension_description__',
     default_locale: 'en',
+    browser_specific_settings: {
+      gecko: {
+        id: 'admin@haramblock.com',
+        strict_min_version: '142.0',
+        data_collection_permissions: { required: ['none'] },
+      } as never,
+    },
     permissions: ['storage', 'tabs'],
     options_page: 'options.html',
     web_accessible_resources: [
