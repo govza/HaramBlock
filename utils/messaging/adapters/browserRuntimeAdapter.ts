@@ -19,7 +19,8 @@ export class ProvideAdapter implements Adapter<MessageMeta> {
           await browser.tabs.sendMessage(message.meta.tabId, message);
         } else if (message.meta.url) {
           const tabs = await browser.tabs.query({ url: message.meta.url });
-          await Promise.all(tabs.map(tab => tab.id && browser.tabs.sendMessage(tab.id, message)));
+          const tabIds = tabs.map(tab => tab.id).filter((id): id is number => id !== undefined);
+          await Promise.all(tabIds.map(tabId => browser.tabs.sendMessage(tabId, message)));
         }
         break;
       }

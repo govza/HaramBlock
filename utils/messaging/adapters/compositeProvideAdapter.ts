@@ -176,16 +176,15 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
             });
           } else if (meta.url) {
             const tabs = await browser.tabs.query({ url: meta.url });
+            const tabIds = tabs.map(tab => tab.id).filter((id): id is number => id !== undefined);
             await Promise.all(
-              tabs.map(
-                tab =>
-                  tab.id &&
-                  browser.tabs.sendMessage(tab.id, cleanMessage).catch((error: Error) => {
-                    if (error.message?.includes('Receiving end does not exist')) {
-                      return;
-                    }
-                    throw error;
-                  }),
+              tabIds.map(tabId =>
+                browser.tabs.sendMessage(tabId, cleanMessage).catch((error: Error) => {
+                  if (error.message?.includes('Receiving end does not exist')) {
+                    return;
+                  }
+                  throw error;
+                }),
               ),
             );
           }
