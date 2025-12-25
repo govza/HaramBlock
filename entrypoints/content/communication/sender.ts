@@ -1,6 +1,7 @@
 import {
+  IS_CHROME,
   IMAGE_TRANSFER_KIND,
-  VIDEO_FRAME_TRANSFER_KIND,
+  IMAGE_FALLBACK_KIND,
   type ImageTransferKind,
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
@@ -49,21 +50,23 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 }
 
 /**
- * Resolve transfer kind with fallback.
- * If 'bitmap' is requested but MessageChannel is not available, falls back to 'url'.
+ * Resolve image transfer kind with browser-specific fallback.
+ * - Chrome: 'bitmap' primary, falls back to 'url'
+ * - Firefox: 'blob' primary, falls back to 'url'
  */
-async function resolveTransferKind(): Promise<ImageTransferKind> {
-  if (IMAGE_TRANSFER_KIND !== 'bitmap') {
-    return IMAGE_TRANSFER_KIND;
+async function resolveImageTransferKind(): Promise<ImageTransferKind> {
+  // Chrome with bitmap requires MessageChannel
+  if (IS_CHROME && IMAGE_TRANSFER_KIND === 'bitmap') {
+    const channelReady = await waitForMessageChannel();
+    if (!channelReady) {
+      logger.withTag('sender').warn('MessageChannel not available, falling back to URL transfer');
+      return IMAGE_FALLBACK_KIND;
+    }
+    return 'bitmap';
   }
 
-  // bitmap requires MessageChannel - wait for it or fall back to url
-  const channelReady = await waitForMessageChannel();
-  if (!channelReady) {
-    logger.withTag('sender').warn('MessageChannel not available, falling back to URL transfer');
-    return 'url';
-  }
-  return 'bitmap';
+  // Firefox or Chrome with non-bitmap: use configured kind
+  return IMAGE_TRANSFER_KIND;
 }
 
 /**
@@ -86,7 +89,7 @@ async function sendImageForInference(
     const height = image.naturalHeight || image.height;
     const base = { src, width, height, hostname, metadata };
 
-    const transferKind = await resolveTransferKind();
+    const transferKind = await resolveImageTransferKind();
     let payload: IImageTransfer | null = null;
 
     // Try the configured transfer kind first, fall back to URL on failure.
@@ -174,20 +177,23 @@ export async function requestHostData(hostname: string): Promise<{
 // =============================================================================
 
 /**
- * Resolve video frame transfer kind with fallback.
- * Chrome: 'bitmap' via MessageChannel (zero-copy)
- * Firefox: 'blob' via structured clone (compressed WebP)
+ * Resolve video frame transfer kind with browser-specific handling.
+ * - Chrome: 'bitmap' via MessageChannel (zero-copy), no fallback (throws if unavailable)
+ * - Firefox: 'blob' via structured clone (compressed WebP)
+ *
+ * Video frames cannot fall back to URL (they're generated in content script, not fetchable).
+ * Chrome must not fall back to blob (defeats MessageChannel purpose).
  */
 async function resolveVideoFrameTransferKind(): Promise<VideoFrameTransferKind> {
-  if (VIDEO_FRAME_TRANSFER_KIND !== 'bitmap') {
-    return VIDEO_FRAME_TRANSFER_KIND;
+  // Firefox: always use blob (no MessageChannel support)
+  if (!IS_CHROME) {
+    return 'blob';
   }
 
-  // bitmap requires MessageChannel - wait for it or fall back to blob
+  // Chrome: must use bitmap via MessageChannel - wait for it or throw
   const channelReady = await waitForMessageChannel();
   if (!channelReady) {
-    logger.withTag('sender').warn('MessageChannel not available for video frame, falling back to blob');
-    return 'blob';
+    throw new Error('MessageChannel not available for video frame transfer (Chrome requires bitmap)');
   }
   return 'bitmap';
 }

@@ -31,7 +31,13 @@ export interface IImageWithMetadata {
   [key: string]: string | number | IImageMetadata;
 }
 
-// Base interface for image transfer payloads
+// =============================================================================
+// Image Transfer Payloads
+// =============================================================================
+// Architecture:
+// - Chrome: 'bitmap' primary (MessageChannel zero-copy), 'url' fallback
+// - Firefox: 'blob' primary (structured clone), 'url' fallback
+
 interface IImageTransferBase {
   src: string;
   width: number;
@@ -40,19 +46,19 @@ interface IImageTransferBase {
   hostname: string;
 }
 
-// Chrome: Uses ImageBitmap via MessageChannel (zero-copy transfer)
+// Chrome primary: ImageBitmap via MessageChannel (zero-copy transfer)
 export interface IImageWithBitmap extends IImageTransferBase {
   kind: 'bitmap';
   bitmap: ImageBitmap;
 }
 
-// Firefox: Uses Blob via browser.runtime (structured clone)
+// Firefox primary: Blob via browser.runtime (structured clone)
 export interface IImageWithBlob extends IImageTransferBase {
   kind: 'blob';
   blob: Blob;
 }
 
-// URL-only: Background fetches image (uses browser cache)
+// Fallback for both browsers: URL-only, background fetches from cache
 export interface IImageWithUrl extends IImageTransferBase {
   kind: 'url';
 }
@@ -61,10 +67,12 @@ export interface IImageWithUrl extends IImageTransferBase {
 export type IImageTransfer = IImageWithBitmap | IImageWithBlob | IImageWithUrl;
 
 // =============================================================================
-// Video Frame Transfer Types
+// Video Frame Transfer Payloads
 // =============================================================================
+// Architecture (no URL fallback - frames are generated in content, not fetchable):
+// - Chrome: 'bitmap' only (MessageChannel zero-copy), throws if unavailable
+// - Firefox: 'blob' only (structured clone with WebP compression)
 
-// Base interface for video frame transfer payloads
 interface IVideoFrameTransferBase {
   videoUrl: string; // Original video URL (for DOM matching)
   frameIndex: number; // -1 for thumbnail, 0+ for playback frames
@@ -77,13 +85,13 @@ interface IVideoFrameTransferBase {
   sessionId: string; // Unique playback session identifier
 }
 
-// Chrome: ImageBitmap via MessageChannel (zero-copy transfer)
+// Chrome only: ImageBitmap via MessageChannel (zero-copy transfer)
 export interface IVideoFrameWithBitmap extends IVideoFrameTransferBase {
   kind: 'bitmap';
   bitmap: ImageBitmap;
 }
 
-// Firefox: Compressed blob via browser.runtime (structured clone)
+// Firefox only: Compressed WebP blob via browser.runtime (structured clone)
 export interface IVideoFrameWithBlob extends IVideoFrameTransferBase {
   kind: 'blob';
   blob: Blob;

@@ -20,6 +20,7 @@ export function isSentForInference(el: HTMLImageElement | HTMLVideoElement, src:
 
 export function markProcessed(el: HTMLImageElement | HTMLVideoElement, src: string): void {
   if (el.dataset.hbSrc !== src) el.dataset.hbSrc = src;
+  el.dataset.hbHandled = '1';
   el.dataset.hbProcessed = '1';
 }
 

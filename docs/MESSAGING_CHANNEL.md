@@ -7,10 +7,23 @@ different transport mechanisms optimized for Chrome and Firefox.
 
 HaramBlock uses **comctx** (RPC library) with adaptive transport selection:
 
-- **Chrome MV3**: MessageChannel with ImageBitmap (zero-copy transfer) + WebGPU inference
-- **Firefox MV2**: URL-only transfer (background fetches from cache) + WebGL inference
+- **Chrome**: MessageChannel with ImageBitmap (zero-copy transfer) + WebGPU inference
+- **Firefox**: Blob transfer via browser.runtime (structured clone) + WebGL inference
 
 The system automatically selects the optimal transport and TensorFlow.js backend based on browser.
+
+### Browser-Specific Transfer Rules
+
+| Content Type | Chrome Primary | Chrome Fallback | Firefox Primary | Firefox Fallback |
+| ------------ | -------------- | --------------- | --------------- | ---------------- |
+| Images       | `bitmap`       | `url`           | `blob`          | `url`            |
+| Video Frames | `bitmap`       | _(throws)_      | `blob`          | _(none)_         |
+
+**Key constraints enforced by the type system:**
+
+- Chrome NEVER sends blobs (defeats MessageChannel purpose)
+- Firefox NEVER sends bitmaps (no MessageChannel support)
+- Video frames have no URL fallback (generated in content script, not fetchable)
 
 ### Architecture Roles
 
@@ -52,7 +65,7 @@ interface MessageMeta {
 
 ## Transport Variants
 
-### Chrome MV3 Path (MessageChannel + ImageBitmap)
+### Chrome Path (MessageChannel + ImageBitmap)
 
 **Why**: Zero-copy transfer of large image data (saves ~25MB per image)
 
@@ -77,35 +90,40 @@ Transfer: ImageBitmap ──────────────► (zero-copy, 
 Background: ImageBitmap → tensor (WebGPU inference)
 ```
 
-### Firefox MV2 Path (URL-only + Cache Fetch)
+### Firefox Path (Blob Primary, URL Fallback)
 
-**Why**: Avoids blob serialization overhead; background fetches from browser cache
+**Why**: No MessageChannel support; uses blob transfer via structured clone
 
-**Flow**:
+**Flow** (primary - blob):
 
-1. Content script calls `backgroundRpc.postInferenceImage(imageData)` with `kind: 'url'`
+1. Content script calls `backgroundRpc.postInferenceImage(imageData)` with `kind: 'blob'`
 2. `HybridInjectAdapter` detects Firefox → routes via `InjectAdapter('content')`
-3. comctx sends RPC call via `browser.runtime.sendMessage()` with URL only (~200 bytes)
-4. `CompositeProvideAdapter` receives via `browser.runtime.onMessage`
-5. Message enriched with `tabId` from `sender.tab.id`
-6. Routes to `BackgroundRpc.postInferenceImage()`
-7. Background calls inference library with `kind: 'src'`
-8. Inference library fetches image with `cache: 'force-cache'` (cache hit ~7ms)
+3. Content fetches image and creates Blob
+4. comctx sends RPC call via `browser.runtime.sendMessage()` with Blob
+5. `CompositeProvideAdapter` receives via `browser.runtime.onMessage`
+6. Message enriched with `tabId` from `sender.tab.id`
+7. Routes to `BackgroundRpc.postInferenceImage()`
+8. Background creates ImageBitmap from Blob
 9. Inference runs with WebGL backend (~190ms)
 10. Response sent back via `browser.tabs.sendMessage()`
 
-**Data Flow**:
+**Fallback** (url - on fetch/CORS errors):
+
+- Content sends URL only (~200 bytes)
+- Background fetches image with `cache: 'force-cache'` (cache hit ~7ms)
+
+**Data Flow** (blob):
 
 ```
-Content: Send URL only (~200 bytes)
-Transfer: URL string ──────────────► (minimal overhead)
-Background: fetch(cache) → Blob → ImageBitmap → tensor (WebGL inference)
+Content: fetch() → Blob
+Transfer: Blob ──────────────► (structured clone, data copied)
+Background: Blob → ImageBitmap → tensor (WebGL inference)
 ```
 
 ### Image Transfer Types
 
 ```typescript
-// Chrome: ImageBitmap via MessageChannel (zero-copy)
+// Chrome primary: ImageBitmap via MessageChannel (zero-copy)
 interface IImageWithBitmap {
   kind: 'bitmap';
   bitmap: ImageBitmap;
@@ -116,7 +134,14 @@ interface IImageWithBitmap {
   metadata: IImageMetadata;
 }
 
-// Firefox: URL only, background fetches from cache
+// Firefox primary: Blob via browser.runtime (structured clone)
+interface IImageWithBlob {
+  kind: 'blob';
+  blob: Blob;
+  // ... same fields
+}
+
+// Fallback for both: URL only, background fetches from cache
 interface IImageWithUrl {
   kind: 'url';
   src: string;
@@ -124,13 +149,6 @@ interface IImageWithUrl {
   height: number;
   hostname: string;
   metadata: IImageMetadata;
-}
-
-// Blob transfer (structured clone, ~25MB overhead)
-interface IImageWithBlob {
-  kind: 'blob';
-  blob: Blob;
-  // ... same fields
 }
 ```
 
@@ -142,23 +160,29 @@ interface IImageWithBlob {
 // Browser detection
 export const IS_CHROME = import.meta.env.CHROME === true;
 
-// Valid kinds per browser (enforced at runtime)
-type ChromeTransferKind = 'bitmap' | 'blob' | 'url';
-type FirefoxTransferKind = 'blob' | 'url';
+// Chrome: bitmap primary, url fallback (NEVER blob)
+type ChromeImageTransferKind = 'bitmap' | 'url';
+// Firefox: blob primary, url fallback (NEVER bitmap)
+type FirefoxImageTransferKind = 'blob' | 'url';
 
 // Default based on browser capability
-export const IMAGE_TRANSFER_KIND = IS_CHROME ? 'bitmap' : 'url';
+export const IMAGE_TRANSFER_KIND = IS_CHROME ? 'bitmap' : 'blob';
+export const IMAGE_FALLBACK_KIND = 'url'; // Same for both browsers
 ```
 
-| Kind     | Transport       | Overhead                 | Browser     |
-| -------- | --------------- | ------------------------ | ----------- |
-| `bitmap` | MessageChannel  | ~0 bytes (zero-copy)     | Chrome only |
-| `blob`   | browser.runtime | ~25MB (structured clone) | Both        |
-| `url`    | browser.runtime | ~200 bytes               | Both        |
+| Kind     | Transport       | Overhead             | Browser      |
+| -------- | --------------- | -------------------- | ------------ |
+| `bitmap` | MessageChannel  | ~0 bytes (zero-copy) | Chrome only  |
+| `blob`   | browser.runtime | image size (copied)  | Firefox only |
+| `url`    | browser.runtime | ~200 bytes           | Both         |
 
-**Fallback behavior**: If `bitmap` is configured but MessageChannel is unavailable (timeout), the
-sender automatically falls back to `url` mode. This ensures inference still works even if the
-service worker hasn't established the MessageChannel yet.
+**Fallback behavior**:
+
+- **Chrome**: If `bitmap` transfer fails (MessageChannel unavailable), falls back to `url`
+- **Firefox**: If `blob` transfer fails (fetch/CORS error), falls back to `url`
+
+**Key constraint**: Chrome never falls back to `blob` - this would defeat the purpose of
+MessageChannel. The type system enforces this separation.
 
 **Testing different modes**: Change `IMAGE_TRANSFER_KIND` in `utils/constants/environment.ts`.
 Runtime validation throws if you set an invalid kind for the browser (e.g., `bitmap` on Firefox).
@@ -375,15 +399,15 @@ const unsubImagePreds = onImagePredictions(data => {
 | Inference (WebGPU)     | ~80ms     | GPU accelerated   |
 | **Total**              | **~90ms** |                   |
 
-### Firefox (URL + WebGL)
+### Firefox (Blob + WebGL)
 
-| Step              | Time       | Notes                |
-| ----------------- | ---------- | -------------------- |
-| Transfer URL      | ~0ms       | Just a string        |
-| Background fetch  | ~7ms       | Cache hit            |
-| createImageBitmap | ~4ms       | Decode in background |
-| Inference (WebGL) | ~190ms     | GPU accelerated      |
-| **Total**         | **~200ms** |                      |
+| Step                 | Time       | Notes                 |
+| -------------------- | ---------- | --------------------- |
+| Content fetch + blob | ~10ms      | Fetch in content      |
+| Transfer Blob        | varies     | Structured clone copy |
+| createImageBitmap    | ~4ms       | Decode in background  |
+| Inference (WebGL)    | ~190ms     | GPU accelerated       |
+| **Total**            | **~210ms** |                       |
 
 ### Why Firefox is Slower
 
