@@ -1,3 +1,5 @@
+import type { IRLEMask } from '@/utils/rle';
+
 export interface ICacheMetadata {
   // HTTP Cache headers
   cacheControl?: string; // Cache-Control header value
@@ -25,7 +27,7 @@ export interface IElementPrediction {
     width: number;
     height: number;
   };
-  masks: number[][];
+  masks: IRLEMask;
 }
 
 // How the image was transformed to fit the model input size

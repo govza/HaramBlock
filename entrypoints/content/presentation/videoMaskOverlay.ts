@@ -1,6 +1,7 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger, extractUrlId } from '@/utils/logger';
+import { decodeMaskRLE } from '@/utils/rle';
 
 import type { IImagePrediction, IMaskTransform } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
@@ -57,9 +58,9 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     // Collect masks
     const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
     imagePrediction.predictions.forEach(prediction => {
-      if (prediction.masks && prediction.masks.length > 0) {
+      if (prediction.masks && prediction.masks.runs.length > 0) {
         allMasks.push({
-          masks: prediction.masks,
+          masks: decodeMaskRLE(prediction.masks),
           boundingBox: prediction.boundingBox,
         });
       }
@@ -285,8 +286,8 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] =
         [];
       prediction.predictions.forEach(p => {
-        if (p.masks && p.masks.length) {
-          allMasks.push({ masks: p.masks, boundingBox: p.boundingBox });
+        if (p.masks && p.masks.runs.length) {
+          allMasks.push({ masks: decodeMaskRLE(p.masks), boundingBox: p.boundingBox });
         }
       });
       if (!allMasks.length) return;

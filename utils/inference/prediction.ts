@@ -7,6 +7,7 @@ import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import * as imageProcessor from '@/utils/inference/imageProcessor';
 import * as modelLoader from '@/utils/inference/modelLoader';
 import { logger, extractUrlId } from '@/utils/logger';
+import { encodeMaskRLE } from '@/utils/rle';
 
 import type { IElementPrediction, IImagePrediction, IMaskTransform, Metadata } from '@/utils/types';
 import type { InferenceTask } from '@/utils/types/model';
@@ -294,7 +295,7 @@ async function processSegmentationResults(
           width: Math.round((modelX2 - modelX1) * scaleX),
           height: Math.round((modelY2 - modelY1) * scaleY),
         },
-        masks: maskArray,
+        masks: encodeMaskRLE(maskArray),
       };
       predictions.push(prediction);
     }

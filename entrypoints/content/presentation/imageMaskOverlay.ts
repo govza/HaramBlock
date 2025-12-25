@@ -1,5 +1,6 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { logger, extractUrlId } from '@/utils/logger';
+import { decodeMaskRLE } from '@/utils/rle';
 
 import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
@@ -58,9 +59,9 @@ class ImageMaskOverlay implements IMediaOverlay {
     // Collect all masks and bounding boxes for single overlay
     const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
     imagePrediction.predictions.forEach(prediction => {
-      if (prediction.masks && prediction.masks.length > 0) {
+      if (prediction.masks && prediction.masks.runs.length > 0) {
         allMasks.push({
-          masks: prediction.masks,
+          masks: decodeMaskRLE(prediction.masks),
           boundingBox: prediction.boundingBox,
         });
       }
@@ -329,8 +330,8 @@ class ImageMaskOverlay implements IMediaOverlay {
     // Collect masks
     const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
     imagePrediction.predictions.forEach((prediction: IElementPrediction) => {
-      if (prediction.masks && prediction.masks.length > 0) {
-        allMasks.push({ masks: prediction.masks, boundingBox: prediction.boundingBox });
+      if (prediction.masks && prediction.masks.runs.length > 0) {
+        allMasks.push({ masks: decodeMaskRLE(prediction.masks), boundingBox: prediction.boundingBox });
       }
     });
     if (!allMasks.length) return;
