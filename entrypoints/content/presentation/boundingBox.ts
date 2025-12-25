@@ -152,3 +152,7 @@ export const clearBlurBoxOverlay = (element: HTMLImageElement | HTMLVideoElement
   // Fallback removal using current parent if available
   removeBlurBoxOverlays(element);
 };
+
+export const hasBlurBoxOverlay = (element: HTMLImageElement | HTMLVideoElement): boolean => {
+  return blurStates.has(element) || false;
+};

@@ -16,6 +16,8 @@ export interface IMediaOverlayState {
   viewportHandler?: () => void;
   posterImage?: HTMLImageElement;
   corsVideo?: HTMLVideoElement;
+  /** The src this overlay was created for - used for self-cleaning on src change */
+  trackedSrc?: string;
 }
 
 /**

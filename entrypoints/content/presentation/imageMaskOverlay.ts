@@ -1,9 +1,19 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { logger, extractUrlId } from '@/utils/logger';
-import { decodeMaskRLE } from '@/utils/rle';
+import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
 
 import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
+
+/** Type guard to check if a prediction has valid RLE mask data */
+function hasValidMask(prediction: IElementPrediction): prediction is IElementPrediction & { masks: IRLEMask } {
+  return (
+    prediction.masks !== undefined &&
+    prediction.masks !== null &&
+    Array.isArray(prediction.masks.runs) &&
+    prediction.masks.runs.length > 0
+  );
+}
 
 /**
  * Manages mask overlays for image elements.
@@ -58,14 +68,14 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     // Collect all masks and bounding boxes for single overlay
     const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
-    imagePrediction.predictions.forEach(prediction => {
-      if (prediction.masks && prediction.masks.runs.length > 0) {
+    for (const prediction of imagePrediction.predictions) {
+      if (hasValidMask(prediction)) {
         allMasks.push({
           masks: decodeMaskRLE(prediction.masks),
           boundingBox: prediction.boundingBox,
         });
       }
-    });
+    }
 
     // Create single overlay for all masks
     if (allMasks.length > 0) {
@@ -197,6 +207,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       rafId: null,
       destroyed: false,
       currentPrediction: undefined,
+      trackedSrc: image.currentSrc || image.src,
     };
 
     // Initial render
@@ -252,17 +263,19 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     state.lastSize = { width: image.offsetWidth, height: image.offsetHeight };
 
-    // ResizeObserver for image size changes
+    // ResizeObserver for image size changes + src change detection (self-cleaning)
     state.resizeObserver = new ResizeObserver(entries => {
+      // Self-clean if src changed
+      const currentSrc = image.currentSrc || image.src;
+      if (state.trackedSrc && currentSrc !== state.trackedSrc) {
+        this.clearMaskOverlay(image);
+        return;
+      }
+
       for (const entry of entries) {
         const newWidth = entry.contentRect.width;
         const newHeight = entry.contentRect.height;
         if (newWidth !== state.lastSize.width || newHeight !== state.lastSize.height) {
-          logger.withTag('maskOverlay').debug('ResizeObserver: Image size changed', {
-            src: extractUrlId(image.src || image.currentSrc),
-            oldSize: state.lastSize,
-            newSize: { width: newWidth, height: newHeight },
-          });
           state.lastSize = { width: newWidth, height: newHeight };
           scheduleUpdate();
         }
@@ -306,6 +319,13 @@ class ImageMaskOverlay implements IMediaOverlay {
   }
 
   private updateOverlayForImage(image: HTMLImageElement, state: IMediaOverlayState): void {
+    // Self-clean if src changed
+    const currentSrc = image.currentSrc || image.src;
+    if (state.trackedSrc && currentSrc !== state.trackedSrc) {
+      this.clearMaskOverlay(image);
+      return;
+    }
+
     const imagePrediction = state.currentPrediction;
     if (!imagePrediction || !imagePrediction.predictions.length) {
       this.clearMaskOverlay(image);
@@ -329,11 +349,11 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     // Collect masks
     const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
-    imagePrediction.predictions.forEach((prediction: IElementPrediction) => {
-      if (prediction.masks && prediction.masks.runs.length > 0) {
+    for (const prediction of imagePrediction.predictions) {
+      if (hasValidMask(prediction)) {
         allMasks.push({ masks: decodeMaskRLE(prediction.masks), boundingBox: prediction.boundingBox });
       }
-    });
+    }
     if (!allMasks.length) return;
 
     renderUnifiedCanvasMask(

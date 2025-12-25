@@ -284,6 +284,7 @@ async function processSegmentationResults(
       const modelY2 = y2 - offsetY;
 
       const maskArray = masksArr[i] as number[][];
+      const encodedMask = encodeMaskRLE(maskArray);
 
       const prediction: IElementPrediction = {
         classId: labelIndex,
@@ -295,7 +296,7 @@ async function processSegmentationResults(
           width: Math.round((modelX2 - modelX1) * scaleX),
           height: Math.round((modelY2 - modelY1) * scaleY),
         },
-        masks: encodeMaskRLE(maskArray),
+        masks: encodedMask,
       };
       predictions.push(prediction);
     }
