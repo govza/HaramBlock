@@ -169,6 +169,123 @@ t=4: Inference for B completes, applies to img[src=B] ✓
 **Key insight**: Predictions are matched by `src`, not by element reference. If the src changed, the
 old prediction simply won't find any matching elements.
 
+## Handling Rapid Source Changes (Google Images)
+
+Some sites like Google Images rapidly change image `src` attributes for quality upgrades, lazy
+loading, or A/B testing. This creates a challenge where by the time an image loads, its src has
+already changed multiple times.
+
+### The Problem
+
+```
+t=0: Image added with src=A (low quality placeholder)
+t=1: queueInference(src=A), attach load listener
+t=2: Google changes src to B (medium quality)
+t=3: handleSrcChange fires, queueInference(src=B)
+t=4: Google changes src to C (high quality)
+t=5: handleSrcChange fires, queueInference(src=C)
+t=6: Load listener for A fires, but currentSrc is now C → abort
+t=7: Load listener for B fires, but currentSrc is now C → abort
+t=8: Image stuck with blur forever (no inference ever sent for C)
+```
+
+### The Solution: Debounced Source Change Handling
+
+Instead of immediately processing on every src change, we **debounce** the processing:
+
+```typescript
+const SRC_STABILIZATION_DELAY = 150; // ms
+
+handleSrcChange(img: HTMLImageElement): void {
+  // Clear overlays and apply blur immediately (visual feedback)
+  this.clearOverlays(img);
+  if (!this.hasBlurClass(img)) {
+    applyInitialImageStyling(img, this.hostSettings);
+  }
+
+  // Cancel any pending debounce for this image
+  const existingTimeout = this.srcChangeDebounce.get(img);
+  if (existingTimeout) clearTimeout(existingTimeout);
+
+  // Wait for src to stabilize before processing
+  const timeout = setTimeout(() => {
+    this.srcChangeDebounce.delete(img);
+    this.process(img);
+  }, SRC_STABILIZATION_DELAY);
+
+  this.srcChangeDebounce.set(img, timeout);
+}
+```
+
+**Result:**
+
+```
+t=0-5: Multiple src changes, debounce keeps resetting
+t=6: src stabilizes at C
+t=7: 150ms passes with no changes
+t=8: Debounce fires, process(img) with src=C
+t=9: Inference sent for C, prediction applied ✓
+```
+
+### Robust Image Load Detection
+
+For images that aren't yet loaded, we use **both** `decode()` and `load` event - whichever fires
+first wins:
+
+```typescript
+if (img.complete && img.naturalWidth > 0) {
+  void sendRequest();
+} else {
+  let handled = false;
+  const onReady = () => {
+    if (handled) return;
+    handled = true;
+    void sendRequest();
+  };
+
+  img.decode().then(onReady).catch(handleError);
+  img.addEventListener('load', onReady, { once: true });
+  img.addEventListener('error', handleError, { once: true });
+}
+```
+
+This handles edge cases where:
+
+- `decode()` resolves but `load` never fires (cached images)
+- `load` fires but `decode()` rejects (CORS issues)
+- Image fails to load (network error)
+
+### Finding Images by Resolved URL
+
+When predictions come back, we need to find matching images. CSS attribute selectors match the
+**literal attribute value**, not the resolved URL:
+
+```html
+<img src="/images/photo.jpg" />
+<!-- img.src returns "https://example.com/images/photo.jpg" -->
+<!-- but img[src="https://..."] won't match! -->
+```
+
+**Solution:** Query pending images and compare resolved `src` property:
+
+```typescript
+private findImagesBySrc(src: string): HTMLImageElement[] {
+  const results: HTMLImageElement[] = [];
+  const pendingImages = document.querySelectorAll<HTMLImageElement>(
+    `img.${BLUR_CLASS}, img.${BLACKLIST_CLASS}`
+  );
+
+  for (const img of pendingImages) {
+    const imgSrc = img.currentSrc || img.src;
+    if (imgSrc === src) {
+      results.push(img);
+    }
+  }
+
+  return results;
+}
+```
+
 ## Deduplication
 
 ### Inference Requests

@@ -14,6 +14,7 @@ const BLUR_CLASS = 'haramblock-initial-blur';
 const BLACKLIST_CLASS = 'haramblock-blacklist';
 const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
+const SRC_STABILIZATION_DELAY = 150;
 
 // =============================================================================
 // ImageProcessor
@@ -36,6 +37,7 @@ const MAX_CACHE_SIZE = 500;
 export class ImageProcessor {
   private readonly cache = new Map<string, IImagePrediction>();
   private readonly pendingInference = new Set<string>();
+  private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly hostSettings: IHostSettings) {}
 
@@ -87,15 +89,34 @@ export class ImageProcessor {
   }
 
   /**
-   * Handle src attribute change - clear old overlay, reprocess.
+   * Handle src attribute change - debounce to let src stabilize before reprocessing.
+   * Google Images rapidly changes src (quality upgrades), so we wait for it to settle.
    */
   handleSrcChange(img: HTMLImageElement): void {
     // Clear any existing overlays (they may be for old src)
     this.clearOverlays(img);
-    removeInitialImageStyling(img);
 
-    // Reprocess with new src
-    this.process(img);
+    // Ensure blur is applied while waiting for stabilization
+    if (!this.hasBlurClass(img)) {
+      applyInitialImageStyling(img, this.hostSettings);
+    }
+
+    // Cancel any pending debounce for this image
+    const existingTimeout = this.srcChangeDebounce.get(img);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Debounce: wait for src to stabilize before processing
+    const timeout = setTimeout(() => {
+      this.srcChangeDebounce.delete(img);
+      const src = img.currentSrc || img.src;
+      if (src) {
+        this.process(img);
+      }
+    }, SRC_STABILIZATION_DELAY);
+
+    this.srcChangeDebounce.set(img, timeout);
   }
 
   /**
@@ -127,6 +148,12 @@ export class ImageProcessor {
    * Clean up when image removed from DOM.
    */
   handleRemoved(img: HTMLImageElement): void {
+    // Clear any pending debounce
+    const timeout = this.srcChangeDebounce.get(img);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.srcChangeDebounce.delete(img);
+    }
     // Mask overlays self-clean via MutationObserver, but blur boxes don't
     clearBlurBoxOverlay(img);
   }
@@ -188,17 +215,24 @@ export class ImageProcessor {
     if (img.complete && img.naturalWidth > 0) {
       // Image already loaded with dimensions - send immediately
       void sendRequest();
-    } else if (img.complete) {
-      // Image complete but no dimensions - either error or not decoded yet
-      // Use decode() to wait for decoding or detect error
-      img
-        .decode()
-        .then(() => void sendRequest())
-        .catch(handleError);
     } else {
-      // Image not complete - wait for load or error
-      img.addEventListener('load', () => void sendRequest(), { once: true });
-      img.addEventListener('error', handleError, { once: true });
+      // Use both decode() and load event - whichever fires first wins
+      // This handles edge cases where one mechanism fails
+      let handled = false;
+      const onReady = () => {
+        if (handled) return;
+        handled = true;
+        void sendRequest();
+      };
+      const onFail = () => {
+        if (handled) return;
+        handled = true;
+        handleError();
+      };
+
+      img.decode().then(onReady).catch(onFail);
+      img.addEventListener('load', onReady, { once: true });
+      img.addEventListener('error', onFail, { once: true });
     }
   }
 
