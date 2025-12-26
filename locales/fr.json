@@ -1,0 +1,90 @@
+{
+  "Extension": {
+    "description": "Protection du regard — bloque et filtre le contenu inapproprié pour vous garder concentré",
+    "name": "Haram Block"
+  },
+  "OptionsPage": {
+    "title": "Options",
+    "extensionOptions": "Options de l'extension",
+    "Tabs": {
+      "overview": "Aperçu",
+      "hostList": "Liste des hôtes",
+      "customSettings": "Paramètres personnalisés",
+      "about": "À propos"
+    }
+  },
+  "PopupPage": {
+    "globalSettings": "Paramètres globaux",
+    "description": "Configurez vos préférences d'extension",
+    "defaultSettings": "Paramètres par défaut"
+  },
+  "HostSettings": {
+    "global": "Paramètres globaux",
+    "description": "Configurez vos préférences d'extension",
+    "customSettings": "Paramètres personnalisés",
+    "HostList": {
+      "blacklist": "Liste noire",
+      "process": "Liste de traitement",
+      "whitelist": "Liste blanche",
+      "title": "Listes d'hôtes",
+      "description": "Gérez les listes blanches et noires de vos sites",
+      "placeholder": "exemple.fr",
+      "adding": "Ajout en cours..."
+    },
+    "Masking": {
+      "title": "Masquage",
+      "Blur": {
+        "true": "Flou : Activé",
+        "false": "Flou : Désactivé"
+      }
+    },
+    "Masks": {
+      "title": "Masques",
+      "blur": "Flou",
+      "pixelate": "Pixelisation",
+      "none": "Aucun"
+    },
+    "Outline": {
+      "title": "Contour",
+      "boundingBox": "Boîte englobante",
+      "segment": "Segment"
+    },
+    "Policy": {
+      "title": "Politique",
+      "description": "Contrôlez comment l'IA traite le contenu",
+      "blacklist": "Tout bloquer",
+      "process": "Tout traiter",
+      "whitelist": "Tout autoriser"
+    },
+    "Strictness": {
+      "title": "Rigueur",
+      "permissive": "Permissif",
+      "strict": "Strict"
+    }
+  },
+  "Common": {
+    "add": "Ajouter",
+    "remove": "Supprimer",
+    "noData": "Aucune donnée",
+    "hostname": "Nom d'hôte",
+    "actions": "Actions",
+    "enabled": "Activé",
+    "disabled": "Désactivé"
+  },
+  "global": "Paramètres par défaut",
+  "Permissions": {
+    "askPermission": "Haram Block nécessite l'autorisation d'accéder à tous les sites web",
+    "grantPermission": "Accorder l'autorisation"
+  },
+  "About": {
+    "title": "À propos",
+    "extensionInformation": "Informations sur l'extension",
+    "version": "Version :",
+    "author": "Auteur :",
+    "description": "Description",
+    "supportLinks": "Support et liens",
+    "reportBug": "Signaler un bug",
+    "featureRequest": "Demande de fonctionnalité",
+    "documentation": "Documentation"
+  }
+}

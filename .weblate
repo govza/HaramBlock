@@ -1,0 +1,5 @@
+[weblate]
+file_format = json-nested
+filemask = locales/*.json
+source_language = en
+new_base = locales/en.json

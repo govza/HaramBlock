@@ -23,7 +23,7 @@ export function VerticalTabs({ items, activeTab, onTabChange, children }: Vertic
             <img src='/logo.svg' alt={t('Extension.name')} className='w-8 h-8' />
             <h1 className='text-xl font-bold text-text-primary'>{t('Extension.name')}</h1>
           </div>
-          <p className='text-sm text-text-muted'>Extension Options</p>
+          <p className='text-sm text-text-muted'>{t('OptionsPage.extensionOptions')}</p>
         </div>
         <ul>
           {items.map(item => (
