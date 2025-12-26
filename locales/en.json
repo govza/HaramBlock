@@ -3,6 +3,21 @@
     "description": "Gaze protection — blocks and filters inappropriate content, keeping you focused",
     "name": "Haram Block"
   },
+  "OptionsPage": {
+    "title": "Options",
+    "extensionOptions": "Extension Options",
+    "Tabs": {
+      "overview": "Overview",
+      "hostList": "List of hosts",
+      "customSettings": "Custom settings",
+      "about": "About"
+    }
+  },
+  "PopupPage": {
+    "globalSettings": "Global settings",
+    "description": "Configure your extension preferences",
+    "defaultSettings": "Default settings"
+  },
   "HostSettings": {
     "global": "Global settings",
     "description": "Configure your extension preferences",
@@ -12,7 +27,16 @@
       "process": "Process list",
       "whitelist": "Whitelist",
       "title": "Host Lists",
-      "description": "Manage whitelist and blacklist for your sites"
+      "description": "Manage whitelist and blacklist for your sites",
+      "placeholder": "example.com",
+      "adding": "Adding..."
+    },
+    "Masking": {
+      "title": "Masking",
+      "Blur": {
+        "true": "Blur: On",
+        "false": "Blur: Off"
+      }
     },
     "Masks": {
       "title": "Masks",
@@ -43,12 +67,11 @@
     "remove": "Remove",
     "noData": "No data",
     "hostname": "Hostname",
-    "actions": "Actions"
+    "actions": "Actions",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
   },
   "global": "Default settings",
-  "Options": {
-    "title": "Options"
-  },
   "Permissions": {
     "askPermission": "Haram Block requires permission to access all websites",
     "grantPermission": "Grant permission"

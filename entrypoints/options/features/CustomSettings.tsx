@@ -139,7 +139,7 @@ export const CustomSettings = () => {
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'masking')}`}>
                       <div className='flex flex-wrap gap-1'>
                         <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
-                          {t(`HostSettings.Masking.blur.${host.masking.blur}`)}
+                          {t(`HostSettings.Masking.Blur.${host.masking.blur}`)}
                         </span>
                       </div>
                     </td>

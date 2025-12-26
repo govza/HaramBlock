@@ -1,0 +1,90 @@
+{
+  "Extension": {
+    "description": "Защита взгляда — блокирует и фильтрует неподобающий контент, помогая сохранить концентрацию",
+    "name": "Haram Block"
+  },
+  "OptionsPage": {
+    "title": "Настройки",
+    "extensionOptions": "Настройки расширения",
+    "Tabs": {
+      "overview": "Обзор",
+      "hostList": "Список хостов",
+      "customSettings": "Пользовательские настройки",
+      "about": "О расширении"
+    }
+  },
+  "PopupPage": {
+    "globalSettings": "Глобальные настройки",
+    "description": "Настройте параметры расширения",
+    "defaultSettings": "Настройки по умолчанию"
+  },
+  "HostSettings": {
+    "global": "Глобальные настройки",
+    "description": "Настройте параметры расширения",
+    "customSettings": "Пользовательские настройки",
+    "HostList": {
+      "blacklist": "Чёрный список",
+      "process": "Список обработки",
+      "whitelist": "Белый список",
+      "title": "Списки хостов",
+      "description": "Управляйте белыми и чёрными списками для ваших сайтов",
+      "placeholder": "example.ru",
+      "adding": "Добавление..."
+    },
+    "Masking": {
+      "title": "Маскирование",
+      "Blur": {
+        "true": "Размытие: Вкл",
+        "false": "Размытие: Выкл"
+      }
+    },
+    "Masks": {
+      "title": "Маски",
+      "blur": "Размытие",
+      "pixelate": "Пикселизация",
+      "none": "Нет"
+    },
+    "Outline": {
+      "title": "Контур",
+      "boundingBox": "Ограничивающая рамка",
+      "segment": "Сегмент"
+    },
+    "Policy": {
+      "title": "Политика",
+      "description": "Управляйте обработкой контента ИИ",
+      "blacklist": "Блокировать всё",
+      "process": "Обрабатывать всё",
+      "whitelist": "Разрешить всё"
+    },
+    "Strictness": {
+      "title": "Строгость",
+      "permissive": "Мягкий",
+      "strict": "Строгий"
+    }
+  },
+  "Common": {
+    "add": "Добавить",
+    "remove": "Удалить",
+    "noData": "Нет данных",
+    "hostname": "Имя хоста",
+    "actions": "Действия",
+    "enabled": "Включено",
+    "disabled": "Отключено"
+  },
+  "global": "Настройки по умолчанию",
+  "Permissions": {
+    "askPermission": "Haram Block требует разрешение на доступ ко всем веб-сайтам",
+    "grantPermission": "Предоставить разрешение"
+  },
+  "About": {
+    "title": "О расширении",
+    "extensionInformation": "Информация о расширении",
+    "version": "Версия:",
+    "author": "Автор:",
+    "description": "Описание",
+    "supportLinks": "Поддержка и ссылки",
+    "reportBug": "Сообщить об ошибке",
+    "featureRequest": "Предложить функцию",
+    "documentation": "Документация"
+  }
+}

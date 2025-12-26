@@ -1,0 +1,90 @@
+{
+  "Extension": {
+    "description": "Blickschutz — blockiert und filtert unangemessene Inhalte, damit Sie konzentriert bleiben",
+    "name": "Haram Block"
+  },
+  "OptionsPage": {
+    "title": "Optionen",
+    "extensionOptions": "Erweiterungsoptionen",
+    "Tabs": {
+      "overview": "Übersicht",
+      "hostList": "Hostliste",
+      "customSettings": "Benutzerdefinierte Einstellungen",
+      "about": "Über"
+    }
+  },
+  "PopupPage": {
+    "globalSettings": "Globale Einstellungen",
+    "description": "Konfigurieren Sie Ihre Erweiterungseinstellungen",
+    "defaultSettings": "Standardeinstellungen"
+  },
+  "HostSettings": {
+    "global": "Globale Einstellungen",
+    "description": "Konfigurieren Sie Ihre Erweiterungseinstellungen",
+    "customSettings": "Benutzerdefinierte Einstellungen",
+    "HostList": {
+      "blacklist": "Sperrliste",
+      "process": "Liste zur Verarbeitung",
+      "whitelist": "Whitelist",
+      "title": "Hostlisten",
+      "description": "Verwalten Sie Erlaubnis- und Sperrlisten für Ihre Websites",
+      "placeholder": "beispiel.de",
+      "adding": "Wird hinzugefügt..."
+    },
+    "Masking": {
+      "title": "Maskierung",
+      "Blur": {
+        "true": "Unschärfe: An",
+        "false": "Unschärfe: Aus"
+      }
+    },
+    "Masks": {
+      "title": "Masken",
+      "blur": "Unschärfe",
+      "pixelate": "Verpixelung",
+      "none": "Keine"
+    },
+    "Outline": {
+      "title": "Kontur",
+      "boundingBox": "Begrenzungsrahmen",
+      "segment": "Segment"
+    },
+    "Policy": {
+      "title": "Richtlinie",
+      "description": "Steuern Sie, wie KI Inhalte verarbeitet",
+      "blacklist": "Alles blockieren",
+      "process": "Alles verarbeiten",
+      "whitelist": "Alles erlauben"
+    },
+    "Strictness": {
+      "title": "Strenge",
+      "permissive": "Nachsichtig",
+      "strict": "Streng"
+    }
+  },
+  "Common": {
+    "add": "Hinzufügen",
+    "remove": "Entfernen",
+    "noData": "Keine Daten",
+    "hostname": "Hostname",
+    "actions": "Aktionen",
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert"
+  },
+  "global": "Standardeinstellungen",
+  "Permissions": {
+    "askPermission": "Haram Block benötigt die Berechtigung, auf alle Websites zuzugreifen",
+    "grantPermission": "Berechtigung erteilen"
+  },
+  "About": {
+    "title": "Über",
+    "extensionInformation": "Erweiterungsinformationen",
+    "version": "Version:",
+    "author": "Autor:",
+    "description": "Beschreibung",
+    "supportLinks": "Support & Links",
+    "reportBug": "Fehler melden",
+    "featureRequest": "Funktionsanfrage",
+    "documentation": "Dokumentation"
+  }
+}

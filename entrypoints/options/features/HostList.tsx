@@ -137,7 +137,7 @@ export const HostList = () => {
                   value={newHostname}
                   onChange={e => setNewHostname(e.target.value)}
                   className='flex-1 bg-surface border border-border-secondary text-text-secondary text-base rounded-lg p-2'
-                  placeholder='example.com'
+                  placeholder={t('HostSettings.HostList.placeholder')}
                   disabled={isSubmitting}
                 />
                 <button
@@ -145,7 +145,7 @@ export const HostList = () => {
                   disabled={!newHostname.trim() || isSubmitting}
                   className='bg-surface hover:bg-surface-light text-text-primary px-4 py-2 rounded-lg text-base ring-2 ring-accent-light ring-opacity-50 transition-all duration-150 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 cursor-pointer'
                 >
-                  {isSubmitting ? 'Adding...' : t('Common.add')}
+                  {isSubmitting ? t('HostSettings.HostList.adding') : t('Common.add')}
                 </button>
               </form>
             </div>

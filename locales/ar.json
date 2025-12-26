@@ -1,0 +1,90 @@
+{
+  "Extension": {
+    "description": "حماية النظر — يحجب ويصفي المحتوى غير اللائق للحفاظ على تركيزك",
+    "name": "Haram Block"
+  },
+  "OptionsPage": {
+    "title": "الخيارات",
+    "extensionOptions": "خيارات الإضافة",
+    "Tabs": {
+      "overview": "نظرة عامة",
+      "hostList": "قائمة المواقع",
+      "customSettings": "إعدادات مخصصة",
+      "about": "حول"
+    }
+  },
+  "PopupPage": {
+    "globalSettings": "الإعدادات العامة",
+    "description": "قم بتكوين تفضيلات الإضافة الخاصة بك",
+    "defaultSettings": "الإعدادات الافتراضية"
+  },
+  "HostSettings": {
+    "global": "الإعدادات العامة",
+    "description": "قم بتكوين تفضيلات الإضافة الخاصة بك",
+    "customSettings": "إعدادات مخصصة",
+    "HostList": {
+      "blacklist": "القائمة السوداء",
+      "process": "قائمة المعالجة",
+      "whitelist": "القائمة البيضاء",
+      "title": "قوائم المواقع",
+      "description": "إدارة القوائم البيضاء والسوداء لمواقعك",
+      "placeholder": "example.com",
+      "adding": "جارٍ الإضافة..."
+    },
+    "Masking": {
+      "title": "التمويه",
+      "Blur": {
+        "true": "ضبابية: مفعّل",
+        "false": "ضبابية: معطّل"
+      }
+    },
+    "Masks": {
+      "title": "الأقنعة",
+      "blur": "ضبابية",
+      "pixelate": "بكسلة",
+      "none": "لا شيء"
+    },
+    "Outline": {
+      "title": "الإطار",
+      "boundingBox": "مربع إحاطة",
+      "segment": "مقطع"
+    },
+    "Policy": {
+      "title": "السياسة",
+      "description": "تحكم في كيفية معالجة الذكاء الاصطناعي للمحتوى",
+      "blacklist": "حظر الكل",
+      "process": "معالجة الكل",
+      "whitelist": "السماح للكل"
+    },
+    "Strictness": {
+      "title": "الصرامة",
+      "permissive": "متساهل",
+      "strict": "صارم"
+    }
+  },
+  "Common": {
+    "add": "إضافة",
+    "remove": "إزالة",
+    "noData": "لا توجد بيانات",
+    "hostname": "اسم المضيف",
+    "actions": "الإجراءات",
+    "enabled": "مفعّل",
+    "disabled": "معطّل"
+  },
+  "global": "الإعدادات الافتراضية",
+  "Permissions": {
+    "askPermission": "يتطلب Haram Block إذنًا للوصول إلى جميع المواقع",
+    "grantPermission": "منح الإذن"
+  },
+  "About": {
+    "title": "حول",
+    "extensionInformation": "معلومات الإضافة",
+    "version": "الإصدار:",
+    "author": "المؤلف:",
+    "description": "الوصف",
+    "supportLinks": "الدعم والروابط",
+    "reportBug": "الإبلاغ عن خطأ",
+    "featureRequest": "طلب ميزة",
+    "documentation": "التوثيق"
+  }
+}

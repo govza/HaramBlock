@@ -1,0 +1,90 @@
+{
+  "Extension": {
+    "description": "Bakış koruması — uygunsuz içerikleri engeller ve filtreler, odaklanmanızı sağlar",
+    "name": "Haram Block"
+  },
+  "OptionsPage": {
+    "title": "Seçenekler",
+    "extensionOptions": "Eklenti seçenekleri",
+    "Tabs": {
+      "overview": "Genel bakış",
+      "hostList": "Host Listesi",
+      "customSettings": "Özel Ayarlar",
+      "about": "Hakkında"
+    }
+  },
+  "PopupPage": {
+    "globalSettings": "Genel ayarlar",
+    "description": "Eklenti tercihlerinizi yapılandırın",
+    "defaultSettings": "Varsayılan ayarlar"
+  },
+  "HostSettings": {
+    "global": "Genel ayarlar",
+    "description": "Eklenti tercihlerinizi yapılandırın",
+    "customSettings": "Özel Ayarlar",
+    "HostList": {
+      "blacklist": "Kara Liste",
+      "process": "İşlem Listesi",
+      "whitelist": "Beyaz Liste",
+      "title": "Host Listeleri",
+      "description": "Siteleriniz için beyaz ve kara listeleri yönetin",
+      "placeholder": "ornek.com",
+      "adding": "Ekleniyor..."
+    },
+    "Masking": {
+      "title": "Maskeleme",
+      "Blur": {
+        "true": "Bulanıklık: Açık",
+        "false": "Bulanıklık: Kapalı"
+      }
+    },
+    "Masks": {
+      "title": "Maskeler",
+      "blur": "Bulanıklaştırma",
+      "pixelate": "Pikselleştirme",
+      "none": "Yok"
+    },
+    "Outline": {
+      "title": "Anahat",
+      "boundingBox": "Sınır kutusu",
+      "segment": "Bölüm"
+    },
+    "Policy": {
+      "title": "Politika",
+      "description": "Yapay zekanın içeriği nasıl işleyeceğini kontrol edin",
+      "blacklist": "Tümünü engelle",
+      "process": "Tümünü işle",
+      "whitelist": "Tümüne izin ver"
+    },
+    "Strictness": {
+      "title": "Katılık",
+      "permissive": "Hoşgörülü",
+      "strict": "Katı"
+    }
+  },
+  "Common": {
+    "add": "Ekle",
+    "remove": "Kaldır",
+    "noData": "Veri yok",
+    "hostname": "Host adı",
+    "actions": "Eylemler",
+    "enabled": "Etkin",
+    "disabled": "Devre dışı"
+  },
+  "global": "Varsayılan ayarlar",
+  "Permissions": {
+    "askPermission": "Haram Block tüm web sitelerine erişim izni gerektirir",
+    "grantPermission": "İzin ver"
+  },
+  "About": {
+    "title": "Hakkında",
+    "extensionInformation": "Eklenti Bilgileri",
+    "version": "Sürüm:",
+    "author": "Yazar:",
+    "description": "Açıklama",
+    "supportLinks": "Destek & Bağlantılar",
+    "reportBug": "Hata bildir",
+    "featureRequest": "Özellik İsteği",
+    "documentation": "Dokümantasyon"
+  }
+}
