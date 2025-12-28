@@ -46,7 +46,7 @@
     },
     "Outline": {
       "title": "Anahat",
-      "boundingBox": "Sınır kutusu",
+      "bbox": "Sınır kutusu",
       "segment": "Bölüm"
     },
     "Policy": {

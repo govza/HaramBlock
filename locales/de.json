@@ -46,7 +46,7 @@
     },
     "Outline": {
       "title": "Kontur",
-      "boundingBox": "Begrenzungsrahmen",
+      "bbox": "Begrenzungsrahmen",
       "segment": "Segment"
     },
     "Policy": {
