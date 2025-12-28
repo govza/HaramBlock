@@ -156,9 +156,7 @@ export const CustomSettings = () => {
                             style={{ width: `${(host.strictness / 1) * 100}%` }}
                           />
                         </div>
-                        <span className='text-xs text-text-muted min-w-[2rem]'>
-                          {(host.strictness * 100).toFixed(0)}%
-                        </span>
+                        <span className='text-xs text-text-muted min-w-8'>{(host.strictness * 100).toFixed(0)}%</span>
                       </div>
                     </td>
                     <td className='px-6 py-4'>
