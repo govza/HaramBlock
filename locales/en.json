@@ -46,7 +46,7 @@
     },
     "Outline": {
       "title": "Outline",
-      "boundingBox": "Bounding box",
+      "bbox": "Bounding box",
       "segment": "Segment"
     },
     "Policy": {

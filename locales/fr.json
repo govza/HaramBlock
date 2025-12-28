@@ -46,7 +46,7 @@
     },
     "Outline": {
       "title": "Contour",
-      "boundingBox": "Boîte englobante",
+      "bbox": "Boîte englobante",
       "segment": "Segment"
     },
     "Policy": {

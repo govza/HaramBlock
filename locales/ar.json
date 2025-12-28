@@ -46,7 +46,7 @@
     },
     "Outline": {
       "title": "الإطار",
-      "boundingBox": "مربع إحاطة",
+      "bbox": "مربع إحاطة",
       "segment": "مقطع"
     },
     "Policy": {
