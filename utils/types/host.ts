@@ -1,5 +1,5 @@
 export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
-export type OutlineType = 'bbox' | 'segment' | 'full';
+export type OutlineType = 'bbox' | 'segment';
 
 export interface IHostSettings {
   hostname: string;
