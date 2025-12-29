@@ -22,7 +22,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     _hostSettings: IHostSettings,
     skipObserverSetup = false,
   ): Promise<void> {
-    if (!imagePrediction || !imagePrediction.predictions.length) {
+    if (!imagePrediction.predictions.length) {
       this.clearMaskOverlay(video);
       return;
     }
