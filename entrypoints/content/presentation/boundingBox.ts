@@ -57,7 +57,9 @@ export const createBlurBoxOverlays = (
   state.parent = parent;
   blurStates.set(element, state);
 
-  registerQuickToggle(element, imagePrediction, hostSettings.quickToggle);
+  if (element instanceof HTMLImageElement) {
+    registerQuickToggle(element, imagePrediction, hostSettings.quickToggle);
+  }
 
   if (!shouldBlock(imagePrediction)) {
     removeBlurBoxOverlays(element);
@@ -157,8 +159,10 @@ export const clearBlurBoxOverlay = (element: HTMLImageElement | HTMLVideoElement
     }
     blurStates.delete(element);
   }
-  // Unregister from eye toggle
-  unregisterQuickToggle(element);
+  // Unregister from eye toggle (images only)
+  if (element instanceof HTMLImageElement) {
+    unregisterQuickToggle(element);
+  }
   // Fallback removal using current parent if available
   removeBlurBoxOverlays(element);
 };

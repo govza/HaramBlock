@@ -3,6 +3,19 @@
 Per-image masking toggle that allows users to quickly disable or enable masking on individual
 images.
 
+> **Note:** Quick Toggle currently only works with images. Video support is not yet implemented.
+
+## TODO: Video Support
+
+Video toggle applies to the entire video element (not per-frame). Requires video prediction caching
+first:
+
+- [ ] Add video prediction cache with `forcedVisibility` per video URL
+- [ ] Update `quickToggle.ts` types to accept `HTMLImageElement | HTMLVideoElement`
+- [ ] Add `registerQuickToggle()` calls in `videoPredictions.ts`
+- [ ] Create video toggle handler to show/hide all frame overlays
+- [ ] Add cleanup in `handleVideos.ts` via `unregisterQuickToggle()`
+
 ## User Story
 
 As a user, I want to quickly unmask a specific image without changing site-wide settings, so I can
@@ -121,24 +134,24 @@ function shouldBlock(prediction: IImagePrediction): boolean {
 // Initialize with callback for state changes
 initQuickToggle(onToggle: (src: string, forcedVisibility: ForcedVisibility) => void): void
 
-// Register element for hover tracking
+// Register image for hover tracking
 registerQuickToggle(
-  element: HTMLImageElement | HTMLVideoElement,
+  element: HTMLImageElement,
   prediction: IImagePrediction,
   quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean }
 ): void
 
-// Remove element from tracking
-unregisterQuickToggle(element: HTMLImageElement | HTMLVideoElement): void
+// Remove image from tracking
+unregisterQuickToggle(element: HTMLImageElement): void
 
-// Update prediction reference for registered element
+// Update prediction reference for registered image
 updateQuickTogglePrediction(
-  element: HTMLImageElement | HTMLVideoElement,
+  element: HTMLImageElement,
   prediction: IImagePrediction
 ): void
 
-// Check if element is registered
-isElementRegistered(element: HTMLImageElement | HTMLVideoElement): boolean
+// Check if image is registered
+isElementRegistered(element: HTMLImageElement): boolean
 ```
 
 ### CSS Styling
