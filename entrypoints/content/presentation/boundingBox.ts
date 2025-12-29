@@ -1,7 +1,6 @@
 import { computeRenderedContentRect } from '@/entrypoints/content/presentation/imageLayout';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
-
-import type { IElementPrediction, IHostSettings, IImagePrediction } from '@/utils/types';
+import { shouldBlock, type IElementPrediction, type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 type BlurOverlayState = {
   resizeObserver: ResizeObserver | null;
@@ -60,8 +59,7 @@ export const createBlurBoxOverlays = (
 
   registerQuickToggle(element, imagePrediction, hostSettings.quickToggle);
 
-  // Skip blur boxes if user unmasked this image
-  if (imagePrediction.isUnmasked) {
+  if (!shouldBlock(imagePrediction)) {
     removeBlurBoxOverlays(element);
     return;
   }
@@ -71,7 +69,7 @@ export const createBlurBoxOverlays = (
     const pred = blurStates.get(element)?.currentPrediction;
     const predictions = pred?.predictions || [];
     removeBlurBoxOverlays(element);
-    if (!pred || !predictions.length || pred.isUnmasked) return;
+    if (!pred || !predictions.length || !shouldBlock(pred)) return;
 
     const elementRect = element.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(element, elementRect);

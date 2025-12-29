@@ -50,9 +50,9 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 /**
  * Request background to update toggle state in cache
  */
-export async function requestToggleUpdate(src: string, isUnmasked: boolean): Promise<void> {
+export async function requestToggleUpdate(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
   try {
-    await backgroundRpc.updateToggleState(src, isUnmasked);
+    await backgroundRpc.updateToggleState(src, forcedVisibility);
   } catch (error) {
     logger.withTag('sender').error('Failed to update toggle state:', error);
   }

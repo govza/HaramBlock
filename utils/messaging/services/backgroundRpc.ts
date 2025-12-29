@@ -51,10 +51,10 @@ export class BackgroundRpc {
     }
   }
 
-  async updateToggleState(src: string, isUnmasked: boolean): Promise<void> {
+  async updateToggleState(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
     try {
-      await this.imageCacheService.updateToggleState(src, isUnmasked);
-      logger.withTag('backgroundRpc').debug(`Updated toggle state for ${extractUrlId(src)}: ${isUnmasked}`);
+      await this.imageCacheService.updateToggleState(src, forcedVisibility);
+      logger.withTag('backgroundRpc').debug(`Updated toggle state for ${extractUrlId(src)}: ${forcedVisibility}`);
     } catch (error) {
       logger.withTag('backgroundRpc').error('Failed to update toggle state:', error);
       throw error;

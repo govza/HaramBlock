@@ -2,8 +2,14 @@ import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/conte
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger, extractUrlId } from '@/utils/logger';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
+import {
+  shouldBlock,
+  type IHostSettings,
+  type IImagePrediction,
+  type IMaskTransform,
+  type IElementPrediction,
+} from '@/utils/types';
 
-import type { IHostSettings, IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
 /** Type guard to check if a prediction has valid RLE mask data */
@@ -51,8 +57,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     registerQuickToggle(image, imagePrediction, hostSettings.quickToggle);
 
-    // Skip mask overlay if user unmasked this image
-    if (imagePrediction.isUnmasked) {
+    if (!shouldBlock(imagePrediction)) {
       this.removeMaskOverlayOnly(image);
       return;
     }
