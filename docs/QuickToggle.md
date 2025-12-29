@@ -36,22 +36,16 @@ view content I deem appropriate while keeping protection active for other images
 - **'visible'** (force show): Image always visible, no overlays
 - **'blocked'** (force hide): Image always blurred with blacklist overlay
 
-Cycle differs based on image type:
+Cycle is the same for both image types:
 
-- **Unsafe images** (has predictions): `null (blocked) → 'visible' → 'blocked' → null`
+- **Unsafe images** (has predictions): `null (blocked) → 'blocked' → 'visible' → null`
 - **Safe images** (no predictions): `null (visible) → 'blocked' → 'visible' → null`
 
 ### Icons
 
 Icon shows the next state that will be applied on click:
 
-**Unsafe images:**
-
-- Current `null` → shows open eye (next: visible)
-- Current `'visible'` → shows closed eye (next: blocked)
-- Current `'blocked'` → shows eye with checkmark (next: AI decides)
-
-**Safe images:**
+**Both unsafe and safe images:**
 
 - Current `null` → shows closed eye (next: blocked)
 - Current `'blocked'` → shows open eye (next: visible)
