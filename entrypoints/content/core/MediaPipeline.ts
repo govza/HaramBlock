@@ -50,6 +50,7 @@ export class MediaPipeline {
 
   stop(): void {
     this.dom.stop();
+    this.imageProcessor.dispose();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
   }
