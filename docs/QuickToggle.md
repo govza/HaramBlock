@@ -81,7 +81,7 @@ interface IHostSettings {
 }
 ```
 
-Defaults: `unsafeEnabled: true`, `safeEnabled: false`
+Defaults: `unsafeEnabled: true`, `safeEnabled: true`
 
 ### Popup UI
 

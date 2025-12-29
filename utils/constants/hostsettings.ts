@@ -10,5 +10,5 @@ export const DEFAULT_HOST_SETTINGS: IHostSettings = {
   policy: 'process',
   strictness: 0.8,
   minSize: { width: 50, height: 50 },
-  quickToggle: { unsafeEnabled: true, safeEnabled: false },
+  quickToggle: { unsafeEnabled: true, safeEnabled: true },
 };
