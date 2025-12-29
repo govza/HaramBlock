@@ -66,8 +66,7 @@ function positionEye(element: HTMLElement): void {
 
   // Position at top-right of element
   const top = rect.top < 0 ? 0 : rect.top;
-  let { left } = rect;
-  left = rect.right - 32; // Button width is 2rem ≈ 32px
+  let left = rect.right - 32; // Button width is 2rem ≈ 32px
   if (left + 32 > viewportWidth) left = viewportWidth - 32;
   if (left < rect.left) ({ left } = rect);
 
