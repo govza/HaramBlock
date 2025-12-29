@@ -9,7 +9,7 @@ import { getIconPaths } from '@/utils/icons';
 import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/popup';
 
-import type { OutlineType, HostPolicy, IHostSettings } from '@/utils/types';
+import type { HostPolicy, IHostSettings } from '@/utils/types';
 
 /**
  * Reactive hook for HostSettings data management
@@ -148,42 +148,39 @@ export function useHostSettings(hostname: string) {
   const repository = useMemo(() => {
     const baseRepository = new HostSettingsRepository();
 
-    // Create a proxy that intercepts the methods we want to enhance
+    // Pattern for methods that mutate settings and need side effects
+    const isMutatingMethod = (name: string): boolean =>
+      name.startsWith('set') ||
+      name.startsWith('toggle') ||
+      name.startsWith('save') ||
+      name.startsWith('create') ||
+      name === 'delete';
+
+    // Create a proxy that wraps all mutating methods with side effects
     return new Proxy(baseRepository, {
       get(target, prop) {
-        const enhancedMethods = {
-          togglePolicy: async (hostname: string) => {
-            const result = await target.togglePolicy(hostname);
-            await updateIconFromPolicy(result.policy);
-            notifyContentScripts();
-            return result;
-          },
-          setOutline: async (hostname: string, outlineVariant: OutlineType) => {
-            const result = await target.setOutline(hostname, outlineVariant);
-            await updateIcon();
-            notifyContentScripts();
-            return result;
-          },
-          setStrictness: async (hostname: string, strictness: number) => {
-            const result = await target.setStrictness(hostname, strictness);
-            await updateIcon();
-            notifyContentScripts();
-            return result;
-          },
-          setPolicy: async (hostname: string, policy: HostPolicy) => {
-            const result = await target.setPolicy(hostname, policy);
-            await updateIcon();
-            notifyContentScripts();
-            return result;
-          },
-          saveSettings: async (settings: IHostSettings) => {
-            await target.saveSettings(settings);
-            await updateIcon();
-            notifyContentScripts();
-          },
-        };
+        const value = target[prop as keyof typeof target];
 
-        return enhancedMethods[prop as keyof typeof enhancedMethods] || target[prop as keyof typeof target];
+        // Wrap mutating methods to trigger icon update and content script notification
+        if (typeof prop === 'string' && typeof value === 'function' && isMutatingMethod(prop)) {
+          return async (...args: unknown[]) => {
+            const method = value as (...args: unknown[]) => Promise<unknown>;
+            const result = await method.apply(target, args);
+
+            // Update icon: togglePolicy uses returned policy directly, others read from state
+            if (prop === 'togglePolicy' && result && typeof result === 'object' && 'policy' in result) {
+              await updateIconFromPolicy((result as IHostSettings).policy);
+            } else {
+              await updateIcon();
+            }
+
+            // Notify content scripts to reload with new settings (all mutating methods)
+            notifyContentScripts();
+            return result;
+          };
+        }
+
+        return value;
       },
     });
   }, [updateIcon, updateIconFromPolicy, notifyContentScripts]);
