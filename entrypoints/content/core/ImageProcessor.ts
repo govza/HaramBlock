@@ -60,13 +60,22 @@ export class ImageProcessor {
     const src = img.currentSrc || img.src;
     if (!src) return;
 
-    // Skip if already has overlay for current src
-    if (this.hasOverlayForSrc(img, src)) {
+    // Skip non-processable formats
+    if (SVG_PATTERN.test(src)) {
       return;
     }
 
-    // Skip non-processable formats
-    if (SVG_PATTERN.test(src)) {
+    // Blacklist policy: clear any existing overlays, apply blur, don't process
+    if (this.hostSettings.policy === 'blacklist') {
+      this.clearOverlays(img);
+      if (!img.classList.contains(BLACKLIST_CLASS)) {
+        applyInitialImageStyling(img, this.hostSettings);
+      }
+      return;
+    }
+
+    // Skip if already has overlay for current src
+    if (this.hasOverlayForSrc(img, src)) {
       return;
     }
 
