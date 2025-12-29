@@ -54,8 +54,7 @@ function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
 function updateButtonIcon(prediction: IImagePrediction): void {
   if (!eyeButton) return;
   const hasPredictions = Boolean(prediction.predictions?.length);
-  eyeButton.innerHTML = '';
-  eyeButton.appendChild(createSvgIcon(getNextState(prediction.forcedVisibility, hasPredictions)));
+  eyeButton.replaceChildren(createSvgIcon(getNextState(prediction.forcedVisibility, hasPredictions)));
 }
 
 function positionEye(element: HTMLElement): void {
