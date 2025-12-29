@@ -52,6 +52,7 @@ export interface IImagePrediction {
     bitmapTime: number; // Bitmap creation duration in milliseconds
     inferenceTime: number; // Model inference duration in milliseconds
   };
+  isUnmasked: boolean; // User toggled masking off for this image
 }
 
 export interface IVideoFramePrediction {
