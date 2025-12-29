@@ -116,13 +116,15 @@ function handleClick(e: Event): void {
   if (!registered) return;
 
   const hasPredictions = Boolean(registered.prediction.predictions?.length);
-  registered.prediction.forcedVisibility = getNextState(registered.prediction.forcedVisibility, hasPredictions);
-  updateButtonIcon(registered.prediction);
-  resetHideTimer();
+  const nextForcedVisibility = getNextState(registered.prediction.forcedVisibility, hasPredictions);
 
   if (toggleCallback) {
-    toggleCallback(registered.prediction.src, registered.prediction.forcedVisibility);
+    toggleCallback(registered.prediction.src, nextForcedVisibility);
   }
+
+  registered.prediction.forcedVisibility = nextForcedVisibility;
+  updateButtonIcon(registered.prediction);
+  resetHideTimer();
 }
 
 function handleMouseEnter(e: Event): void {
