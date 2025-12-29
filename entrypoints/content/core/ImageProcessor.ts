@@ -1,8 +1,13 @@
-import { requestImageInference } from '@/entrypoints/content/communication/sender';
+import { requestImageInference, requestToggleUpdate } from '@/entrypoints/content/communication/sender';
 import { clearBlurBoxOverlay, hasBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
+import {
+  initQuickToggle,
+  registerQuickToggle,
+  unregisterQuickToggle,
+} from '@/entrypoints/content/presentation/quickToggle';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -39,7 +44,9 @@ export class ImageProcessor {
   private readonly pendingInference = new Set<string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
 
-  constructor(private readonly hostSettings: IHostSettings) {}
+  constructor(private readonly hostSettings: IHostSettings) {
+    initQuickToggle((src, isUnmasked) => this.handleToggle(src, isUnmasked));
+  }
 
   // ===========================================================================
   // Public API
@@ -148,14 +155,34 @@ export class ImageProcessor {
    * Clean up when image removed from DOM.
    */
   handleRemoved(img: HTMLImageElement): void {
-    // Clear any pending debounce
     const timeout = this.srcChangeDebounce.get(img);
     if (timeout) {
       clearTimeout(timeout);
       this.srcChangeDebounce.delete(img);
     }
-    // Mask overlays self-clean via MutationObserver, but blur boxes don't
     clearBlurBoxOverlay(img);
+  }
+
+  private handleToggle(src: string, isUnmasked: boolean): void {
+    const cached = this.cache.get(src);
+    if (!cached) return;
+
+    const updated = { ...cached, isUnmasked };
+    this.cache.set(src, updated);
+    void requestToggleUpdate(src, isUnmasked);
+
+    const images = this.findAllImagesBySrc(src);
+    for (const img of images) {
+      this.clearOverlays(img);
+      if (updated.predictions.length > 0) {
+        void applyPredictionsStyling([img], [updated], this.hostSettings);
+      } else {
+        if (isUnmasked) {
+          img.classList.add('haramblock-blacklist');
+        }
+        registerQuickToggle(img, updated, this.hostSettings.quickToggle);
+      }
+    }
   }
 
   // ===========================================================================
@@ -264,13 +291,19 @@ export class ImageProcessor {
       // Clear any existing overlays first
       this.clearOverlays(img);
 
+      // Remove initial blur first
+      removeInitialImageStyling(img);
+
       // Apply styling if there are detections
       if (prediction.predictions && prediction.predictions.length > 0) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
+      } else {
+        // Safe image - apply blacklist blur if user toggled it
+        if (prediction.isUnmasked) {
+          img.classList.add('haramblock-blacklist');
+        }
+        registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
       }
-
-      // Remove blur - prediction is now applied (or no detections)
-      removeInitialImageStyling(img);
     };
 
     // Wait for load if needed
@@ -306,15 +339,29 @@ export class ImageProcessor {
   private clearOverlays(img: HTMLImageElement): void {
     imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
+    unregisterQuickToggle(img);
+    img.classList.remove('haramblock-blacklist');
   }
 
   private findImagesBySrc(src: string): HTMLImageElement[] {
-    // Query pending images (those with blur class waiting for predictions)
-    // and compare resolved src (not attribute value) to handle relative URLs
     const results: HTMLImageElement[] = [];
     const pendingImages = document.querySelectorAll<HTMLImageElement>(`img.${BLUR_CLASS}, img.${BLACKLIST_CLASS}`);
 
     for (const img of pendingImages) {
+      const imgSrc = img.currentSrc || img.src;
+      if (imgSrc === src) {
+        results.push(img);
+      }
+    }
+
+    return results;
+  }
+
+  private findAllImagesBySrc(src: string): HTMLImageElement[] {
+    const results: HTMLImageElement[] = [];
+    const allImages = document.querySelectorAll<HTMLImageElement>('img');
+
+    for (const img of allImages) {
       const imgSrc = img.currentSrc || img.src;
       if (imgSrc === src) {
         results.push(img);

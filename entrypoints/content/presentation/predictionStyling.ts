@@ -33,9 +33,9 @@ export const applyPredictionsStyling = (
           });
 
           if (hostSettings.outline === 'bbox') {
-            createBlurBoxOverlays(image, imagePrediction);
+            createBlurBoxOverlays(image, imagePrediction, hostSettings);
           } else if (hostSettings.outline === 'segment') {
-            imageMaskOverlay.createMaskOverlay(image, imagePrediction);
+            imageMaskOverlay.createMaskOverlay(image, imagePrediction, hostSettings);
           }
           resolve();
         });

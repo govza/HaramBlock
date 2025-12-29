@@ -22,13 +22,14 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   async findByHostname(hostname: string): Promise<IHostSettings> {
     const effectiveHostname = getEffectiveHostname(hostname);
     const stored = await this.table.get(effectiveHostname);
-    return stored
-      ? stored
-      : {
-          ...DEFAULT_HOST_SETTINGS,
-          hostname: effectiveHostname,
-          isGlobal: isGlobalPage(effectiveHostname),
-        };
+    return {
+      ...DEFAULT_HOST_SETTINGS,
+      ...stored,
+      masking: { ...DEFAULT_HOST_SETTINGS.masking, ...stored?.masking },
+      quickToggle: { ...DEFAULT_HOST_SETTINGS.quickToggle, ...stored?.quickToggle },
+      hostname: effectiveHostname,
+      isGlobal: isGlobalPage(effectiveHostname),
+    };
   }
 
   /**
@@ -115,6 +116,20 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   async setPolicy(hostname: string, policy: HostPolicy): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.policy = policy;
+    await this.saveSettings(settings);
+    return settings;
+  }
+
+  async setQuickToggleUnsafe(hostname: string, enabled: boolean): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.quickToggle = { ...settings.quickToggle, unsafeEnabled: enabled };
+    await this.saveSettings(settings);
+    return settings;
+  }
+
+  async setQuickToggleSafe(hostname: string, enabled: boolean): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.quickToggle = { ...settings.quickToggle, safeEnabled: enabled };
     await this.saveSettings(settings);
     return settings;
   }

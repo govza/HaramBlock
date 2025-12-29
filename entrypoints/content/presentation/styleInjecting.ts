@@ -42,6 +42,26 @@ export const injectPredictionDomStyles = () => {
       filter: blur(10px) !important;
       opacity: 0.3 !important;
     }
+    .haramblock-eye-toggle {
+      width: 2rem;
+      height: 2rem;
+      padding: 0.25rem;
+      border: none;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      cursor: pointer;
+      z-index: 100000000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .haramblock-eye-toggle:hover {
+      background: rgba(0, 0, 0, 0.8);
+    }
+    .haramblock-eye-toggle svg {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
   `;
 
   (document.head || document.documentElement).appendChild(styleElement);

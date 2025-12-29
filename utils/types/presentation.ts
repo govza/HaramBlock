@@ -1,3 +1,4 @@
+import type { IHostSettings } from '@/utils/types/host';
 import type { IImagePrediction } from '@/utils/types/prediction';
 
 /**
@@ -29,9 +30,15 @@ export interface IMediaOverlay<T extends HTMLElement = HTMLImageElement> {
    * Creates mask overlay for the given element
    * @param element - The media element
    * @param prediction - Prediction data with masks
+   * @param hostSettings - Host settings for eye toggle configuration
    * @param skipObserverSetup - Whether to skip setting up observers (default: false)
    */
-  createMaskOverlay: (element: T, prediction?: IImagePrediction, skipObserverSetup?: boolean) => void | Promise<void>;
+  createMaskOverlay: (
+    element: T,
+    prediction: IImagePrediction,
+    hostSettings: IHostSettings,
+    skipObserverSetup?: boolean,
+  ) => void | Promise<void>;
 
   /**
    * Clears/removes the mask overlay for the given element
