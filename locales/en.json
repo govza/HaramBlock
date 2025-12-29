@@ -60,6 +60,10 @@
       "title": "Strictness",
       "permissive": "Permissive",
       "strict": "Strict"
+    },
+    "QuickToggle": {
+      "unsafeEnabled": "Show quick toggle on blocked media",
+      "safeEnabled": "Show quick toggle on allowed media"
     }
   },
   "Common": {

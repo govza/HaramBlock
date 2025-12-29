@@ -1,0 +1,50 @@
+import { Switch } from '@/components/ui/Switch';
+import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
+import { t } from '@/utils/i18n';
+
+interface SwitchRowProps {
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+const SwitchRow = ({ label, checked, disabled, onChange }: SwitchRowProps) => (
+  <div className='flex items-center justify-between gap-2 rtl:flex-row-reverse'>
+    <span className='text-text-muted'>{label}</span>
+    <Switch checked={checked} disabled={disabled} onChange={onChange} />
+  </div>
+);
+
+export const QuickToggleSetting = () => {
+  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+
+  const isDisabled = hostSettings.policy !== 'process';
+
+  const handleUnsafeChange = (enabled: boolean) => {
+    if (isDisabled) return;
+    void hostSettingsRepository.setQuickToggleUnsafe(hostSettings.hostname, enabled);
+  };
+
+  const handleSafeChange = (enabled: boolean) => {
+    if (isDisabled) return;
+    void hostSettingsRepository.setQuickToggleSafe(hostSettings.hostname, enabled);
+  };
+
+  return (
+    <div className='my-2 flex flex-col gap-2 text-sm'>
+      <SwitchRow
+        label={t('HostSettings.QuickToggle.unsafeEnabled')}
+        checked={hostSettings.quickToggle.unsafeEnabled}
+        disabled={isDisabled}
+        onChange={handleUnsafeChange}
+      />
+      <SwitchRow
+        label={t('HostSettings.QuickToggle.safeEnabled')}
+        checked={hostSettings.quickToggle.safeEnabled}
+        disabled={isDisabled}
+        onChange={handleSafeChange}
+      />
+    </div>
+  );
+};
