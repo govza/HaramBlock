@@ -18,18 +18,11 @@ let toggleCallback: ToggleCallback | null = null;
 
 const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
 
-function getNextState(current: ForcedVisibility, hasPredictions: boolean): ForcedVisibility {
-  if (hasPredictions) {
-    // Unsafe: null (blocked) → visible → blocked → null
-    if (current === null) return 'visible';
-    if (current === 'visible') return 'blocked';
-    return null;
-  } else {
-    // Safe: null (visible) → blocked → visible → null
-    if (current === null) return 'blocked';
-    if (current === 'blocked') return 'visible';
-    return null;
-  }
+function getNextState(current: ForcedVisibility): ForcedVisibility {
+  // Both unsafe and safe: null → blocked → visible → null
+  if (current === null) return 'blocked';
+  if (current === 'blocked') return 'visible';
+  return null;
 }
 
 function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
@@ -52,8 +45,7 @@ function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
 
 function updateButtonIcon(prediction: IImagePrediction): void {
   if (!eyeButton) return;
-  const hasPredictions = Boolean(prediction.predictions?.length);
-  eyeButton.replaceChildren(createSvgIcon(getNextState(prediction.forcedVisibility, hasPredictions)));
+  eyeButton.replaceChildren(createSvgIcon(getNextState(prediction.forcedVisibility)));
 }
 
 function positionEye(element: HTMLElement): void {
@@ -112,8 +104,7 @@ function handleClick(e: Event): void {
   const registered = registeredElements.get(currentElement);
   if (!registered) return;
 
-  const hasPredictions = Boolean(registered.prediction.predictions?.length);
-  const nextForcedVisibility = getNextState(registered.prediction.forcedVisibility, hasPredictions);
+  const nextForcedVisibility = getNextState(registered.prediction.forcedVisibility);
 
   if (toggleCallback) {
     toggleCallback(registered.prediction.src, nextForcedVisibility);
