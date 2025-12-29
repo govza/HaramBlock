@@ -376,6 +376,8 @@ export class ImageProcessor {
     return results;
   }
 
+  // Queries all images on each call. Acceptable for user-initiated toggles (infrequent).
+  // Maintaining a src→elements index would require complex cleanup for removed elements.
   private findAllImagesBySrc(src: string): HTMLImageElement[] {
     const results: HTMLImageElement[] = [];
     const allImages = document.querySelectorAll<HTMLImageElement>('img');
