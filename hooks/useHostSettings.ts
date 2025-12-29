@@ -148,13 +148,19 @@ export function useHostSettings(hostname: string) {
   const repository = useMemo(() => {
     const baseRepository = new HostSettingsRepository();
 
-    // Pattern for methods that mutate settings and need side effects
-    const isMutatingMethod = (name: string): boolean =>
-      name.startsWith('set') ||
-      name.startsWith('toggle') ||
-      name.startsWith('save') ||
-      name.startsWith('create') ||
-      name === 'delete';
+    // Explicit list of methods that mutate settings and need side effects
+    const MUTATING_METHODS = new Set([
+      'createHostSettings',
+      'saveSettings',
+      'togglePolicy',
+      'setOutline',
+      'setStrictness',
+      'setPolicy',
+      'setQuickToggleUnsafe',
+      'setQuickToggleSafe',
+      'delete',
+    ]);
+    const isMutatingMethod = (name: string): boolean => MUTATING_METHODS.has(name);
 
     // Create a proxy that wraps all mutating methods with side effects
     return new Proxy(baseRepository, {
