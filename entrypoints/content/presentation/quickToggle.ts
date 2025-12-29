@@ -8,16 +8,16 @@ const HIDE_DELAY_MS = 2500;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
 type RegisteredElement = {
-  element: HTMLImageElement | HTMLVideoElement;
+  element: HTMLImageElement;
   prediction: IImagePrediction;
 };
 
 let eyeButton: HTMLButtonElement | null = null;
-let currentElement: (HTMLImageElement | HTMLVideoElement) | null = null;
+let currentElement: HTMLImageElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let toggleCallback: ToggleCallback | null = null;
 
-const registeredElements = new WeakMap<HTMLImageElement | HTMLVideoElement, RegisteredElement>();
+const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
 
 function getNextState(current: ForcedVisibility, hasPredictions: boolean): ForcedVisibility {
   if (hasPredictions) {
@@ -75,7 +75,7 @@ function positionEye(element: HTMLElement): void {
   eyeButton.style.left = `${left - 8}px`;
 }
 
-function showEye(element: HTMLImageElement | HTMLVideoElement): void {
+function showEye(element: HTMLImageElement): void {
   if (!eyeButton) return;
 
   const registered = registeredElements.get(element);
@@ -126,7 +126,7 @@ function handleClick(e: Event): void {
 }
 
 function handleMouseEnter(e: Event): void {
-  const target = e.currentTarget as HTMLImageElement | HTMLVideoElement;
+  const target = e.currentTarget as HTMLImageElement;
   if (registeredElements.has(target)) {
     showEye(target);
   }
@@ -160,7 +160,7 @@ export function initQuickToggle(onToggle: ToggleCallback): void {
 }
 
 export function registerQuickToggle(
-  element: HTMLImageElement | HTMLVideoElement,
+  element: HTMLImageElement,
   prediction: IImagePrediction,
   quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean },
 ): void {
@@ -174,7 +174,7 @@ export function registerQuickToggle(
   element.addEventListener('mouseleave', handleMouseLeave);
 }
 
-export function unregisterQuickToggle(element: HTMLImageElement | HTMLVideoElement): void {
+export function unregisterQuickToggle(element: HTMLImageElement): void {
   registeredElements.delete(element);
   element.removeEventListener('mouseenter', handleMouseEnter);
   element.removeEventListener('mouseleave', handleMouseLeave);
@@ -184,10 +184,7 @@ export function unregisterQuickToggle(element: HTMLImageElement | HTMLVideoEleme
   }
 }
 
-export function updateQuickTogglePrediction(
-  element: HTMLImageElement | HTMLVideoElement,
-  prediction: IImagePrediction,
-): void {
+export function updateQuickTogglePrediction(element: HTMLImageElement, prediction: IImagePrediction): void {
   const registered = registeredElements.get(element);
   if (registered) {
     registered.prediction = prediction;
@@ -197,6 +194,6 @@ export function updateQuickTogglePrediction(
   }
 }
 
-export function isElementRegistered(element: HTMLImageElement | HTMLVideoElement): boolean {
+export function isElementRegistered(element: HTMLImageElement): boolean {
   return registeredElements.has(element);
 }
