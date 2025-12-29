@@ -94,13 +94,13 @@ export class ImageCacheService {
     }
   }
 
-  async updateToggleState(src: string, isUnmasked: boolean): Promise<void> {
+  async updateToggleState(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
     try {
       const predictions = await this.repository.findBySrc(src);
       const original = predictions[0];
       if (!original) return;
 
-      original.isUnmasked = isUnmasked;
+      original.forcedVisibility = forcedVisibility;
       await this.repository.savePrediction(original);
     } catch (error) {
       logger.withTag('imageCacheService').error('Error updating toggle state:', src, error);

@@ -52,7 +52,13 @@ export interface IImagePrediction {
     bitmapTime: number; // Bitmap creation duration in milliseconds
     inferenceTime: number; // Model inference duration in milliseconds
   };
-  isUnmasked: boolean; // User toggled masking off for this image
+  forcedVisibility: null | 'visible' | 'blocked';
+}
+
+export function shouldBlock(prediction: IImagePrediction): boolean {
+  if (prediction.forcedVisibility === 'visible') return false;
+  if (prediction.forcedVisibility === 'blocked') return true;
+  return Boolean(prediction.predictions?.length);
 }
 
 export interface IVideoFramePrediction {

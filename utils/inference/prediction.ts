@@ -92,7 +92,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
         bitmapTime,
         inferenceTime,
       },
-      isUnmasked: false,
+      forcedVisibility: null,
     };
 
     logger

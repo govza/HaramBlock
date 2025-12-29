@@ -45,7 +45,7 @@ export class ImageProcessor {
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly hostSettings: IHostSettings) {
-    initQuickToggle((src, isUnmasked) => this.handleToggle(src, isUnmasked));
+    initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
   }
 
   // ===========================================================================
@@ -172,23 +172,25 @@ export class ImageProcessor {
     clearBlurBoxOverlay(img);
   }
 
-  private handleToggle(src: string, isUnmasked: boolean): void {
+  private handleToggle(src: string, forcedVisibility: IImagePrediction['forcedVisibility']): void {
     const cached = this.cache.get(src);
     if (!cached) return;
 
-    const updated = { ...cached, isUnmasked };
+    const updated = { ...cached, forcedVisibility };
     this.cache.set(src, updated);
-    void requestToggleUpdate(src, isUnmasked);
+    void requestToggleUpdate(src, forcedVisibility);
 
     const images = this.findAllImagesBySrc(src);
     for (const img of images) {
       this.clearOverlays(img);
-      if (updated.predictions.length > 0) {
+      if (forcedVisibility === 'blocked') {
+        img.classList.add(BLACKLIST_CLASS);
+        registerQuickToggle(img, updated, this.hostSettings.quickToggle);
+      } else if (forcedVisibility === 'visible') {
+        registerQuickToggle(img, updated, this.hostSettings.quickToggle);
+      } else if (updated.predictions.length > 0) {
         void applyPredictionsStyling([img], [updated], this.hostSettings);
       } else {
-        if (isUnmasked) {
-          img.classList.add('haramblock-blacklist');
-        }
         registerQuickToggle(img, updated, this.hostSettings.quickToggle);
       }
     }
@@ -303,14 +305,14 @@ export class ImageProcessor {
       // Remove initial blur first
       removeInitialImageStyling(img);
 
-      // Apply styling if there are detections
-      if (prediction.predictions && prediction.predictions.length > 0) {
+      if (prediction.forcedVisibility === 'blocked') {
+        img.classList.add(BLACKLIST_CLASS);
+        registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+      } else if (prediction.forcedVisibility === 'visible') {
+        registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+      } else if (prediction.predictions.length > 0) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
       } else {
-        // Safe image - apply blacklist blur if user toggled it
-        if (prediction.isUnmasked) {
-          img.classList.add('haramblock-blacklist');
-        }
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
       }
     };
