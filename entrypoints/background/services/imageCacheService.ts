@@ -100,8 +100,11 @@ export class ImageCacheService {
       const original = predictions[0];
       if (!original) return;
 
-      original.forcedVisibility = forcedVisibility;
-      await this.repository.savePrediction(original);
+      const updatedPrediction: IImagePrediction = {
+        ...original,
+        forcedVisibility,
+      };
+      await this.repository.savePrediction(updatedPrediction);
     } catch (error) {
       logger.withTag('imageCacheService').error('Error updating toggle state:', src, error);
       throw error;
