@@ -187,6 +187,32 @@ describe('HostSettingsRepository', () => {
     });
   });
 
+  describe('setQuickToggleUnsafe', () => {
+    it('should update unsafeEnabled while preserving safeEnabled', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setQuickToggleUnsafe(TEST_HOSTNAME, false);
+
+      expect(settings.quickToggle.unsafeEnabled).toBe(false);
+      expect(settings.quickToggle.safeEnabled).toBe(false);
+    });
+  });
+
+  describe('setQuickToggleSafe', () => {
+    it('should update safeEnabled while preserving unsafeEnabled', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setQuickToggleSafe(TEST_HOSTNAME, true);
+
+      expect(settings.quickToggle.safeEnabled).toBe(true);
+      expect(settings.quickToggle.unsafeEnabled).toBe(true);
+    });
+  });
+
   describe('delete method', () => {
     it('should delete regular host settings', async () => {
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);

@@ -168,6 +168,12 @@ export function registerQuickToggle(
   const shouldRegister = hasPredictions ? quickToggle.unsafeEnabled : quickToggle.safeEnabled;
   if (!shouldRegister) return;
 
+  const existing = registeredElements.get(element);
+  if (existing) {
+    existing.prediction = prediction;
+    return;
+  }
+
   registeredElements.set(element, { element, prediction });
 
   element.addEventListener('mouseenter', handleMouseEnter);
