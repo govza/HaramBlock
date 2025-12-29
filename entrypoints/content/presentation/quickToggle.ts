@@ -153,6 +153,19 @@ function createGlobalEyeButton(): void {
 
   globalThis.addEventListener('scroll', hideEye, { passive: true });
 
+  if (!document.body) {
+    document.addEventListener(
+      'DOMContentLoaded',
+      () => {
+        if (eyeButton && !eyeButton.isConnected) {
+          document.body.appendChild(eyeButton);
+        }
+      },
+      { once: true },
+    );
+    return;
+  }
+
   document.body.appendChild(eyeButton);
 }
 
