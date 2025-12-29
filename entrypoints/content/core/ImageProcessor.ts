@@ -4,6 +4,7 @@ import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOv
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import {
+  destroyQuickToggle,
   initQuickToggle,
   registerQuickToggle,
   unregisterQuickToggle,
@@ -170,6 +171,13 @@ export class ImageProcessor {
       this.srcChangeDebounce.delete(img);
     }
     clearBlurBoxOverlay(img);
+  }
+
+  /**
+   * Clean up resources when processor is disposed.
+   */
+  dispose(): void {
+    destroyQuickToggle();
   }
 
   private handleToggle(src: string, forcedVisibility: IImagePrediction['forcedVisibility']): void {
