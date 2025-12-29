@@ -57,9 +57,9 @@ async function processThumbnailPredictions(
           const imagePrediction = toImagePrediction(framePred);
 
           if (hostSettings.outline === 'segment' && hostSettings.masking.blur) {
-            await videoMaskOverlays.createMaskOverlay(video, imagePrediction);
+            await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
           } else if (hostSettings.outline === 'bbox' && hostSettings.masking.blur) {
-            createVideoBlurBoxOverlays(video, imagePrediction);
+            createVideoBlurBoxOverlays(video, imagePrediction, hostSettings);
           }
 
           markThumbnailProcessed(video, videoSrc);
@@ -117,9 +117,9 @@ async function processRegularFramePredictions(
           const imagePrediction = toImagePrediction(framePred);
 
           if (hostSettings.outline === 'segment' && hostSettings.masking.blur) {
-            await videoMaskOverlays.createMaskOverlay(video, imagePrediction);
+            await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
           } else if (hostSettings.outline === 'bbox' && hostSettings.masking.blur) {
-            createVideoBlurBoxOverlays(video, imagePrediction);
+            createVideoBlurBoxOverlays(video, imagePrediction, hostSettings);
           }
 
           markProcessed(video, videoSrc);
@@ -145,11 +145,15 @@ function toImagePrediction(framePred: IFramePrediction): IImagePrediction {
   };
 }
 
-function createVideoBlurBoxOverlays(video: HTMLVideoElement, prediction: IImagePrediction): void {
+function createVideoBlurBoxOverlays(
+  video: HTMLVideoElement,
+  prediction: IImagePrediction,
+  hostSettings: IHostSettings,
+): void {
   clearBlurBoxOverlay(video);
 
   void import('@/entrypoints/content/presentation/boundingBox').then(({ createBlurBoxOverlays }) => {
-    createBlurBoxOverlays(video, prediction);
+    createBlurBoxOverlays(video, prediction, hostSettings);
   });
 }
 

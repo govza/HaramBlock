@@ -1,6 +1,7 @@
 import { computeRenderedContentRect } from '@/entrypoints/content/presentation/imageLayout';
+import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 
-import type { IElementPrediction, IImagePrediction } from '@/utils/types';
+import type { IElementPrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
 type BlurOverlayState = {
   resizeObserver: ResizeObserver | null;
@@ -35,12 +36,13 @@ function getNaturalDimensions(element: HTMLImageElement | HTMLVideoElement): { w
 
 export const createBlurBoxOverlays = (
   element: HTMLImageElement | HTMLVideoElement,
-  imagePrediction?: IImagePrediction,
+  imagePrediction: IImagePrediction,
+  hostSettings: IHostSettings,
 ): void => {
   const parent = element.parentElement;
   if (!parent) return;
 
-  if (!imagePrediction || !imagePrediction.predictions?.length || !isMediaReady(element)) {
+  if (!imagePrediction.predictions?.length || !isMediaReady(element)) {
     clearBlurBoxOverlay(element);
     return;
   }
@@ -56,12 +58,20 @@ export const createBlurBoxOverlays = (
   state.parent = parent;
   blurStates.set(element, state);
 
+  registerQuickToggle(element, imagePrediction, hostSettings.quickToggle);
+
+  // Skip blur boxes if user unmasked this image
+  if (imagePrediction.isUnmasked) {
+    removeBlurBoxOverlays(element);
+    return;
+  }
+
   const render = () => {
     // Always use the latest prediction from state
     const pred = blurStates.get(element)?.currentPrediction;
     const predictions = pred?.predictions || [];
     removeBlurBoxOverlays(element);
-    if (!pred || !predictions.length) return;
+    if (!pred || !predictions.length || pred.isUnmasked) return;
 
     const elementRect = element.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(element, elementRect);
@@ -149,6 +159,8 @@ export const clearBlurBoxOverlay = (element: HTMLImageElement | HTMLVideoElement
     }
     blurStates.delete(element);
   }
+  // Unregister from eye toggle
+  unregisterQuickToggle(element);
   // Fallback removal using current parent if available
   removeBlurBoxOverlays(element);
 };

@@ -1,8 +1,9 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger, extractUrlId } from '@/utils/logger';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
 
-import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
+import type { IHostSettings, IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
 /** Type guard to check if a prediction has valid RLE mask data */
@@ -22,10 +23,12 @@ function hasValidMask(prediction: IElementPrediction): prediction is IElementPre
 class ImageMaskOverlay implements IMediaOverlay {
   private imageStates = new WeakMap<HTMLImageElement, IMediaOverlayState>();
 
-  /**
-   * Creates mask overlay for image elements.
-   */
-  createMaskOverlay(image: HTMLImageElement, imagePrediction?: IImagePrediction, skipObserverSetup = false): void {
+  createMaskOverlay(
+    image: HTMLImageElement,
+    imagePrediction: IImagePrediction,
+    hostSettings: IHostSettings,
+    skipObserverSetup = false,
+  ): void {
     logger.withTag('maskOverlay').debug('createMaskOverlays called', {
       hasImagePrediction: Boolean(imagePrediction),
       predictionsLength: imagePrediction?.predictions.length || 0,
@@ -34,7 +37,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       imageSrc: extractUrlId(image.src || image.currentSrc),
     });
 
-    if (!imagePrediction || !imagePrediction.predictions.length || !image.complete || image.naturalWidth === 0) {
+    if (!imagePrediction.predictions.length || !image.complete || image.naturalWidth === 0) {
       logger.withTag('maskOverlay').debug('Early return from createMaskOverlays', {
         hasImagePrediction: Boolean(imagePrediction),
         predictionsLength: imagePrediction?.predictions.length || 0,
@@ -42,8 +45,15 @@ class ImageMaskOverlay implements IMediaOverlay {
         imageNaturalWidth: image.naturalWidth,
         imageSrc: extractUrlId(image.src || image.currentSrc),
       });
-      // If there is an existing overlay for this image, ensure it's cleared when predictions are missing
       this.clearMaskOverlay(image);
+      return;
+    }
+
+    registerQuickToggle(image, imagePrediction, hostSettings.quickToggle);
+
+    // Skip mask overlay if user unmasked this image
+    if (imagePrediction.isUnmasked) {
+      this.removeMaskOverlayOnly(image);
       return;
     }
 
@@ -96,6 +106,23 @@ class ImageMaskOverlay implements IMediaOverlay {
   }
 
   /**
+   * Removes the visual mask overlay without affecting eye toggle registration.
+   * Used when user toggles masking off.
+   */
+  private removeMaskOverlayOnly(image: HTMLImageElement): void {
+    const state = this.imageStates.get(image);
+    if (state) {
+      if (state.overlay.parentElement) state.overlay.remove();
+    } else {
+      const parent = image.parentElement;
+      if (parent) {
+        const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
+        existingOverlays.forEach(overlay => overlay.remove());
+      }
+    }
+  }
+
+  /**
    * Clears mask overlay for image elements.
    */
   clearMaskOverlay(image: HTMLImageElement): void {
@@ -126,6 +153,8 @@ class ImageMaskOverlay implements IMediaOverlay {
         existingOverlays.forEach(overlay => overlay.remove());
       }
     }
+    // Unregister from eye toggle
+    unregisterQuickToggle(image);
   }
 
   /**

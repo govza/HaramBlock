@@ -9,4 +9,5 @@ export interface IHostSettings {
   policy: HostPolicy;
   strictness: number;
   minSize: { width: number; height: number };
+  quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean };
 }

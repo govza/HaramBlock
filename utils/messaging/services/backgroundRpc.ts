@@ -51,11 +51,16 @@ export class BackgroundRpc {
     }
   }
 
-  /**
-   * Process image for inference.
-   * Chrome: Receives ImageBitmap as transferable via MessageChannel (zero-copy)
-   * Firefox: Receives Blob via browser.runtime (structured clone), converts to ImageBitmap
-   */
+  async updateToggleState(src: string, isUnmasked: boolean): Promise<void> {
+    try {
+      await this.imageCacheService.updateToggleState(src, isUnmasked);
+      logger.withTag('backgroundRpc').debug(`Updated toggle state for ${extractUrlId(src)}: ${isUnmasked}`);
+    } catch (error) {
+      logger.withTag('backgroundRpc').error('Failed to update toggle state:', error);
+      throw error;
+    }
+  }
+
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
     const { hostname, src, width, height, metadata } = imageData;
 

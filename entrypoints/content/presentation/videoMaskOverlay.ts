@@ -3,7 +3,7 @@ import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger, extractUrlId } from '@/utils/logger';
 import { decodeMaskRLE } from '@/utils/rle';
 
-import type { IImagePrediction, IMaskTransform } from '@/utils/types';
+import type { IHostSettings, IImagePrediction, IMaskTransform } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
 /**
@@ -18,7 +18,8 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
    */
   async createMaskOverlay(
     video: HTMLVideoElement,
-    imagePrediction?: IImagePrediction,
+    imagePrediction: IImagePrediction,
+    _hostSettings: IHostSettings,
     skipObserverSetup = false,
   ): Promise<void> {
     if (!imagePrediction || !imagePrediction.predictions.length) {

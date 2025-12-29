@@ -46,6 +46,7 @@ const STANDARD_SETTINGS: IHostSettings = {
   policy: 'whitelist',
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
+  quickToggle: { unsafeEnabled: true, safeEnabled: false },
 };
 
 const GLOBAL_SETTINGS: IHostSettings = {
@@ -56,6 +57,7 @@ const GLOBAL_SETTINGS: IHostSettings = {
   policy: 'process',
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
+  quickToggle: { unsafeEnabled: true, safeEnabled: false },
 };
 
 describe('HostSettingsRepository', () => {
@@ -169,6 +171,7 @@ describe('HostSettingsRepository', () => {
         policy: 'whitelist',
         strictness: 0,
         minSize: { width: 64, height: 64 },
+        quickToggle: { unsafeEnabled: true, safeEnabled: false },
       });
 
       expect(mockAdd).toHaveBeenCalledWith({
@@ -179,6 +182,7 @@ describe('HostSettingsRepository', () => {
         policy: 'whitelist',
         strictness: 0,
         minSize: { width: 64, height: 64 },
+        quickToggle: { unsafeEnabled: true, safeEnabled: false },
       });
     });
   });

@@ -36,8 +36,6 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
 
 /**
  * Request cached predictions for a hostname from background script
- * @param hostname - The hostname to get cached predictions for
- * @returns Promise resolving to array of cached predictions
  */
 export async function requestCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
   try {
@@ -46,6 +44,17 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
   } catch (error) {
     logger.withTag('sender').error('Failed to request cached predictions:', error);
     return [];
+  }
+}
+
+/**
+ * Request background to update toggle state in cache
+ */
+export async function requestToggleUpdate(src: string, isUnmasked: boolean): Promise<void> {
+  try {
+    await backgroundRpc.updateToggleState(src, isUnmasked);
+  } catch (error) {
+    logger.withTag('sender').error('Failed to update toggle state:', error);
   }
 }
 
