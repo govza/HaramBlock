@@ -8,7 +8,6 @@ const HIDE_DELAY_MS = 2500;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
 type RegisteredElement = {
-  element: HTMLImageElement;
   prediction: IImagePrediction;
 };
 
@@ -187,7 +186,7 @@ export function registerQuickToggle(
     return;
   }
 
-  registeredElements.set(element, { element, prediction });
+  registeredElements.set(element, { prediction });
 
   element.addEventListener('mouseenter', handleMouseEnter);
   element.addEventListener('mouseleave', handleMouseLeave);
