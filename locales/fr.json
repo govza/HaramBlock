@@ -60,6 +60,10 @@
       "title": "Rigueur",
       "permissive": "Permissif",
       "strict": "Strict"
+    },
+    "QuickToggle": {
+      "unsafeEnabled": "Afficher le bouton de basculement rapide sur les médias bloqués",
+      "safeEnabled": "Afficher le bouton de basculement rapide sur les médias autorisés"
     }
   },
   "Common": {

@@ -60,6 +60,10 @@
       "title": "Strenge",
       "permissive": "Nachsichtig",
       "strict": "Streng"
+    },
+    "QuickToggle": {
+      "unsafeEnabled": "Schnellschalter bei blockierten Medien anzeigen",
+      "safeEnabled": "Schnellschalter bei erlaubten Medien anzeigen"
     }
   },
   "Common": {

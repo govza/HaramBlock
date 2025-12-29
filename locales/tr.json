@@ -60,6 +60,10 @@
       "title": "Katılık",
       "permissive": "Hoşgörülü",
       "strict": "Katı"
+    },
+    "QuickToggle": {
+      "unsafeEnabled": "Engellenen medyada hızlı geçiş düğmesini göster",
+      "safeEnabled": "İzin verilen medyada hızlı geçiş düğmesini göster"
     }
   },
   "Common": {
