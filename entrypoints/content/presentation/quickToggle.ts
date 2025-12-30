@@ -193,16 +193,6 @@ export function unregisterQuickToggle(element: HTMLImageElement): void {
   }
 }
 
-export function updateQuickTogglePrediction(element: HTMLImageElement, prediction: IImagePrediction): void {
-  const registered = registeredElements.get(element);
-  if (registered) {
-    registered.prediction = prediction;
-    if (currentElement === element) {
-      updateButtonIcon(prediction);
-    }
-  }
-}
-
 export function destroyQuickToggle(): void {
   globalThis.removeEventListener('scroll', hideEye);
   clearHideTimer();
