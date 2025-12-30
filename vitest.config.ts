@@ -9,6 +9,7 @@ export default defineConfig({
     mockReset: true,
     restoreMocks: true,
     watch: false,
+    exclude: ['tests/e2e/**', 'node_modules/**'],
   },
 
   plugins: [WxtVitest() as unknown as PluginOption],
