@@ -46,7 +46,7 @@ const STANDARD_SETTINGS: IHostSettings = {
   policy: 'whitelist',
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
-  quickToggle: { unsafeEnabled: true, safeEnabled: false },
+  quickToggle: { unsafeEnabled: true, safeEnabled: true },
 };
 
 const GLOBAL_SETTINGS: IHostSettings = {
@@ -57,7 +57,7 @@ const GLOBAL_SETTINGS: IHostSettings = {
   policy: 'process',
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
-  quickToggle: { unsafeEnabled: true, safeEnabled: false },
+  quickToggle: { unsafeEnabled: true, safeEnabled: true },
 };
 
 describe('HostSettingsRepository', () => {
@@ -196,7 +196,7 @@ describe('HostSettingsRepository', () => {
       const settings = await repository.setQuickToggleUnsafe(TEST_HOSTNAME, false);
 
       expect(settings.quickToggle.unsafeEnabled).toBe(false);
-      expect(settings.quickToggle.safeEnabled).toBe(false);
+      expect(settings.quickToggle.safeEnabled).toBe(true);
     });
   });
 
