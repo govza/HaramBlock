@@ -9,5 +9,6 @@
     "noImplicitThis": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true
-  }
+  },
+  "exclude": ["tests/e2e"]
 }
