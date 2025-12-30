@@ -1,5 +1,6 @@
 import { createBlurBoxOverlays } from '@/entrypoints/content/presentation/boundingBox';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
+import { removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { logger, extractUrlId } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
@@ -31,6 +32,8 @@ export const applyPredictionsStyling = (
             outline: hostSettings.outline,
             imageSrc: extractUrlId(imageSrc),
           });
+
+          removeInitialImageStyling(image);
 
           if (hostSettings.outline === 'bbox') {
             createBlurBoxOverlays(image, imagePrediction, hostSettings);
