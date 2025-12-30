@@ -3,7 +3,7 @@ describe('Popup Page', () => {
     const extensionPath = await browser.getExtensionPath();
     await browser.url(`${extensionPath}/popup.html`);
 
-    const popup = $('body');
+    const popup = await $('body').getElement();
     await expect(popup).toBeExisting();
   });
 
@@ -11,7 +11,7 @@ describe('Popup Page', () => {
     const extensionPath = await browser.getExtensionPath();
     await browser.url(`${extensionPath}/popup.html`);
 
-    const body = $('body');
+    const body = await $('body').getElement();
     await expect(body).toBeExisting();
   });
 });

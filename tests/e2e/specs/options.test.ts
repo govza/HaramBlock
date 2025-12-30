@@ -3,7 +3,7 @@ describe('Options Page', () => {
     const extensionPath = await browser.getExtensionPath();
     await browser.url(`${extensionPath}/options.html`);
 
-    const optionsPage = $('body');
+    const optionsPage = await $('body').getElement();
     await expect(optionsPage).toBeExisting();
   });
 });
