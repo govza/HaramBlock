@@ -203,4 +203,18 @@ export default [
       'import/no-default-export': 'off',
     },
   },
+  // E2E tests override
+  {
+    files: ['tests/e2e/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: './tests/e2e/tsconfig.json',
+      },
+    },
+    rules: {
+      'no-restricted-imports': 'off',
+      // WebdriverIO's ChainablePromiseElement is thenable but ESLint doesn't detect it
+      '@typescript-eslint/await-thenable': 'off',
+    },
+  },
 ];
