@@ -143,9 +143,6 @@ updateQuickTogglePrediction(
   element: HTMLImageElement,
   prediction: IImagePrediction
 ): void
-
-// Check if image is registered
-isElementRegistered(element: HTMLImageElement): boolean
 ```
 
 ### CSS Styling
