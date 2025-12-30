@@ -1,0 +1,60 @@
+name: Run E2E Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  chrome:
+    name: E2E tests for Chrome
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Chrome extension
+        run: pnpm zip
+
+      - name: Run E2E tests
+        run: pnpm e2e
+
+  firefox:
+    name: E2E tests for Firefox
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Firefox extension
+        run: pnpm zip:firefox
+
+      - name: Run E2E tests
+        run: pnpm e2e:firefox
