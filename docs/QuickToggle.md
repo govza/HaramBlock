@@ -137,12 +137,6 @@ registerQuickToggle(
 
 // Remove image from tracking
 unregisterQuickToggle(element: HTMLImageElement): void
-
-// Update prediction reference for registered image
-updateQuickTogglePrediction(
-  element: HTMLImageElement,
-  prediction: IImagePrediction
-): void
 ```
 
 ### CSS Styling
