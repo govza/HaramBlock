@@ -171,6 +171,7 @@ export class ImageProcessor {
       this.srcChangeDebounce.delete(img);
     }
     clearBlurBoxOverlay(img);
+    unregisterQuickToggle(img);
   }
 
   /**
