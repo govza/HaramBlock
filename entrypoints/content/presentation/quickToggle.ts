@@ -203,10 +203,6 @@ export function updateQuickTogglePrediction(element: HTMLImageElement, predictio
   }
 }
 
-export function isElementRegistered(element: HTMLImageElement): boolean {
-  return registeredElements.has(element);
-}
-
 export function destroyQuickToggle(): void {
   globalThis.removeEventListener('scroll', hideEye);
   clearHideTimer();
