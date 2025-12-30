@@ -141,6 +141,7 @@ function createGlobalEyeButton(): void {
 
   globalThis.addEventListener('scroll', hideEye, { passive: true });
 
+  // { once: true } auto-removes listener. Callback is safe after destroy since eyeButton will be null.
   if (!document.body) {
     document.addEventListener(
       'DOMContentLoaded',
