@@ -150,7 +150,7 @@ unregisterQuickToggle(element: HTMLImageElement): void
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);
   cursor: pointer;
-  z-index: 100000000;
+  z-index: 10000;
 }
 ```
 

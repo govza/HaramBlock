@@ -50,7 +50,7 @@ export const injectPredictionDomStyles = () => {
       border-radius: 50%;
       background: rgba(0, 0, 0, 0.6);
       cursor: pointer;
-      z-index: 100000000;
+      z-index: 10000;
       display: flex;
       align-items: center;
       justify-content: center;
