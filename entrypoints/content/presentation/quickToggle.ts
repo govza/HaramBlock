@@ -4,6 +4,9 @@ import type { IImagePrediction } from '@/utils/types';
 
 type ForcedVisibility = IImagePrediction['forcedVisibility'];
 
+// Delay before showing button after hovering an image
+const SHOW_DELAY_MS = 500;
+// Delay before hiding button after mouse leaves
 const HIDE_DELAY_MS = 2500;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
@@ -70,10 +73,18 @@ function showEye(element: HTMLImageElement): void {
   const registered = registeredElements.get(element);
   if (!registered) return;
 
+  // Hide first when switching to a new element
+  eyeButton.style.display = 'none';
+
   currentElement = element;
   updateButtonIcon(registered.prediction);
   positionEye(element);
-  eyeButton.style.display = 'flex';
+
+  setTimeout(() => {
+    if (currentElement === element && eyeButton) {
+      eyeButton.style.display = 'flex';
+    }
+  }, SHOW_DELAY_MS);
 
   resetHideTimer();
 }

@@ -48,7 +48,7 @@ export const injectPredictionDomStyles = () => {
       padding: 0.25rem;
       border: none;
       border-radius: 50%;
-      background: rgba(0, 0, 0, 0.6);
+      background: rgba(0, 0, 0, 0.5);
       cursor: pointer;
       z-index: 10000;
       display: flex;
@@ -61,6 +61,7 @@ export const injectPredictionDomStyles = () => {
     .haramblock-eye-toggle svg {
       width: 1.25rem;
       height: 1.25rem;
+      opacity: 0.5;
     }
   `;
 
