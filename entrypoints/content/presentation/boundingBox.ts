@@ -107,7 +107,13 @@ export const createBlurBoxOverlays = (
       if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) return;
 
       const blurBox = document.createElement('div');
-      blurBox.className = 'haramblock-blur-box';
+      let className = 'haramblock-blur-box';
+      if (hostSettings.masking.blurTint === 'grayscale') {
+        className += ' haramblock-blur-box-grayscale';
+      } else if (hostSettings.masking.blurTint === 'dark') {
+        className += ' haramblock-blur-box-dark';
+      }
+      blurBox.className = className;
       blurBox.style.left = `${clippedLeft}px`;
       blurBox.style.top = `${clippedTop}px`;
       blurBox.style.width = `${clippedRight - clippedLeft}px`;

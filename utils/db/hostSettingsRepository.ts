@@ -3,7 +3,7 @@ import { BaseRepository } from '@/utils/db/baseRepository';
 import { hostSettingsDb } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
-import type { IHostSettings, OutlineType, HostPolicy } from '@/utils/types';
+import type { IHostSettings, OutlineType, HostPolicy, BlurTintType } from '@/utils/types';
 
 /**
  * Repository for managing host settings records
@@ -130,6 +130,20 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   async setQuickToggleSafe(hostname: string, enabled: boolean): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.quickToggle = { ...settings.quickToggle, safeEnabled: enabled };
+    await this.saveSettings(settings);
+    return settings;
+  }
+
+  async setBlurTint(hostname: string, blurTint: BlurTintType): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.masking = { ...settings.masking, blurTint };
+    await this.saveSettings(settings);
+    return settings;
+  }
+
+  async setPixelationScale(hostname: string, pixelationScale: number): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.masking = { ...settings.masking, pixelationScale: Math.max(1, Math.min(100, pixelationScale)) };
     await this.saveSettings(settings);
     return settings;
   }

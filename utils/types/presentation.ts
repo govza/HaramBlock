@@ -1,4 +1,4 @@
-import type { IHostSettings } from '@/utils/types/host';
+import type { IHostSettings, IMaskingSettings } from '@/utils/types/host';
 import type { IImagePrediction } from '@/utils/types/prediction';
 
 /**
@@ -19,6 +19,7 @@ export interface IMediaOverlayState {
   corsVideo?: HTMLVideoElement;
   /** The src this overlay was created for - used for self-cleaning on src change */
   trackedSrc?: string;
+  masking: IMaskingSettings;
 }
 
 /**
