@@ -3,7 +3,7 @@ import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger, extractUrlId } from '@/utils/logger';
 import { decodeMaskRLE } from '@/utils/rle';
 
-import type { IHostSettings, IImagePrediction, IMaskTransform } from '@/utils/types';
+import type { IHostSettings, IImagePrediction, IMaskTransform, IMaskingSettings } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
 /**
@@ -19,7 +19,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
   async createMaskOverlay(
     video: HTMLVideoElement,
     imagePrediction: IImagePrediction,
-    _hostSettings: IHostSettings,
+    hostSettings: IHostSettings,
     skipObserverSetup = false,
   ): Promise<void> {
     if (!imagePrediction.predictions.length) {
@@ -77,6 +77,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
         imagePrediction.maskTransform,
         imagePrediction.width,
         imagePrediction.height,
+        hostSettings.masking,
         posterImage,
         posterImage ? elementWidth : undefined,
         posterImage ? elementHeight : undefined,
@@ -130,6 +131,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     maskTransform: IMaskTransform,
     originalWidth: number,
     originalHeight: number,
+    masking: IMaskingSettings,
     posterImage?: HTMLImageElement,
     sourceWidth?: number,
     sourceHeight?: number,
@@ -201,6 +203,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       currentPrediction: undefined,
       posterImage,
       corsVideo,
+      masking,
     };
 
     renderVideoMask(
@@ -218,6 +221,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       contentRect.width,
       contentRect.height,
       posterImage,
+      masking,
     );
 
     this.videoStates.set(video, state);
@@ -320,6 +324,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
         contentRect.width,
         contentRect.height,
         posterImage,
+        state.masking,
       );
     });
   }
@@ -341,11 +346,12 @@ function renderVideoMask(
   overlayWidth: number,
   overlayHeight: number,
   video: HTMLVideoElement,
-  offsetXInOverlay = 0,
-  offsetYInOverlay = 0,
-  contentWidth?: number,
-  contentHeight?: number,
-  posterImage?: HTMLImageElement,
+  offsetXInOverlay: number,
+  offsetYInOverlay: number,
+  contentWidth: number,
+  contentHeight: number,
+  posterImage: HTMLImageElement | undefined,
+  masking: IMaskingSettings,
 ): void {
   if (!allMasks || !allMasks.length) {
     logger.withTag('videoOverlay').warn('renderVideoMask: No masks provided');
@@ -356,8 +362,8 @@ function renderVideoMask(
     return;
   }
 
-  const dWidth = contentWidth ?? overlayWidth;
-  const dHeight = contentHeight ?? overlayHeight;
+  const dWidth = contentWidth;
+  const dHeight = contentHeight;
 
   canvas.width = overlayWidth;
   canvas.height = overlayHeight;
@@ -380,14 +386,16 @@ function renderVideoMask(
     return;
   }
 
-  // Create pixelated version using element dimensions (same as imageMaskOverlay.ts)
-  // Calculate scale factors between natural and display dimensions
-  const naturalToDisplayScaleX = dWidth / elementWidth;
-  const naturalToDisplayScaleY = dHeight / elementHeight;
-  const avgScale = (naturalToDisplayScaleX + naturalToDisplayScaleY) / 2;
+  // Quadratic ease-in curve: slow growth initially, accelerates toward 100%
+  const MIN_BLOCK = 8;
+  const MAX_BLOCK = 150;
+  const normalized = masking.pixelationScale / 100;
+  const curved = normalized * normalized;
+  const BLOCK_SIZE = MIN_BLOCK + curved * (MAX_BLOCK - MIN_BLOCK);
 
-  // Adjust block size based on the scaling to maintain consistent pixelation
-  const BLOCK_SIZE = Math.max(8, Math.min(dWidth, dHeight) / 10 / avgScale);
+  // Use display dimensions for pixelation (not element/natural size)
+  const smallW = Math.max(1, Math.floor(dWidth / BLOCK_SIZE));
+  const smallH = Math.max(1, Math.floor(dHeight / BLOCK_SIZE));
 
   logger.withTag('videoOverlay').debug('Rendering video mask', {
     displaySize: { width: dWidth, height: dHeight },
@@ -397,10 +405,6 @@ function renderVideoMask(
     usingPoster: Boolean(posterImage),
     videoSrc: extractUrlId(video.src || video.currentSrc),
   });
-
-  // Use element dimensions scaled by block size for proper pixelation
-  const smallW = Math.max(1, Math.floor(elementWidth / BLOCK_SIZE));
-  const smallH = Math.max(1, Math.floor(elementHeight / BLOCK_SIZE));
 
   const tmp = document.createElement('canvas');
   tmp.width = smallW;
@@ -439,6 +443,15 @@ function renderVideoMask(
     dWidth,
     dHeight,
   );
+
+  // Apply blur tint effect via CSS filter (hardware-accelerated)
+  if (masking.blurTint === 'grayscale') {
+    canvas.style.filter = 'grayscale(100%)';
+  } else if (masking.blurTint === 'dark') {
+    canvas.style.filter = 'brightness(0.4)';
+  } else {
+    canvas.style.filter = '';
+  }
 }
 
 /**

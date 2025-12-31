@@ -8,6 +8,7 @@ import {
   type IImagePrediction,
   type IMaskTransform,
   type IElementPrediction,
+  type IMaskingSettings,
 } from '@/utils/types';
 
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
@@ -100,6 +101,7 @@ class ImageMaskOverlay implements IMediaOverlay {
         imagePrediction.maskTransform,
         imagePrediction.width,
         imagePrediction.height,
+        hostSettings.masking,
       );
 
       // Set up observers for this image (only on initial setup)
@@ -175,6 +177,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     maskTransform: IMaskTransform,
     originalWidth: number,
     originalHeight: number,
+    masking: IMaskingSettings,
   ): IMediaOverlayState {
     const parent = image.parentElement;
     if (!parent) throw new Error('Image has no parent');
@@ -242,6 +245,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       destroyed: false,
       currentPrediction: undefined,
       trackedSrc: image.currentSrc || image.src,
+      masking,
     };
 
     // Initial render
@@ -259,6 +263,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       contentRect.offsetY,
       contentRect.width,
       contentRect.height,
+      masking,
     );
 
     // Store state for subsequent updates
@@ -404,6 +409,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       contentRect.offsetY,
       contentRect.width,
       contentRect.height,
+      state.masking,
     );
   }
 }
@@ -419,16 +425,17 @@ const renderUnifiedCanvasMask = (
   overlayWidth: number,
   overlayHeight: number,
   image: HTMLImageElement,
-  offsetXInOverlay = 0,
-  offsetYInOverlay = 0,
-  contentWidth?: number,
-  contentHeight?: number,
+  offsetXInOverlay: number,
+  offsetYInOverlay: number,
+  contentWidth: number,
+  contentHeight: number,
+  masking: IMaskingSettings,
 ): void => {
   if (!allMasks || !allMasks.length) return;
   if (overlayWidth <= 0 || overlayHeight <= 0) return;
 
-  const dWidth = contentWidth ?? overlayWidth;
-  const dHeight = contentHeight ?? overlayHeight;
+  const dWidth = contentWidth;
+  const dHeight = contentHeight;
 
   // Ensure canvas bitmap matches display size for crisp pixels
   canvas.width = overlayWidth;
@@ -436,14 +443,16 @@ const renderUnifiedCanvasMask = (
   canvas.style.width = `${overlayWidth}px`;
   canvas.style.height = `${overlayHeight}px`;
 
-  // 1) Create a pixelated copy of the image covering the display area
-  // Calculate scale factors between natural and display dimensions
-  const naturalToDisplayScaleX = dWidth / image.naturalWidth;
-  const naturalToDisplayScaleY = dHeight / image.naturalHeight;
-  const avgScale = (naturalToDisplayScaleX + naturalToDisplayScaleY) / 2;
+  // Quadratic ease-in curve: slow growth initially, accelerates toward 100%
+  const MIN_BLOCK = 8;
+  const MAX_BLOCK = 150;
+  const normalized = masking.pixelationScale / 100;
+  const curved = normalized * normalized;
+  const BLOCK_SIZE = MIN_BLOCK + curved * (MAX_BLOCK - MIN_BLOCK);
 
-  // Adjust block size based on the scaling to maintain consistent pixelation
-  const BLOCK_SIZE = Math.max(8, Math.min(dWidth, dHeight) / 10 / avgScale);
+  // Use display dimensions for pixelation (not natural size)
+  const smallW = Math.max(1, Math.floor(dWidth / BLOCK_SIZE));
+  const smallH = Math.max(1, Math.floor(dHeight / BLOCK_SIZE));
 
   logger.withTag('maskOverlay').debug('Rendering unified canvas mask', {
     displaySize: { width: dWidth, height: dHeight },
@@ -451,9 +460,6 @@ const renderUnifiedCanvasMask = (
     blockSize: BLOCK_SIZE,
     imageSrc: extractUrlId(image.src || image.currentSrc),
   });
-  // Use natural dimensions scaled by block size for proper pixelation
-  const smallW = Math.max(1, Math.floor(image.naturalWidth / BLOCK_SIZE));
-  const smallH = Math.max(1, Math.floor(image.naturalHeight / BLOCK_SIZE));
 
   const tmp = document.createElement('canvas');
   tmp.width = smallW;
@@ -546,6 +552,15 @@ const renderUnifiedCanvasMask = (
   ctx.globalCompositeOperation = 'destination-in';
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
+
+  // 4) Apply blur tint effect via CSS filter (hardware-accelerated)
+  if (masking.blurTint === 'grayscale') {
+    canvas.style.filter = 'grayscale(100%)';
+  } else if (masking.blurTint === 'dark') {
+    canvas.style.filter = 'brightness(0.4)';
+  } else {
+    canvas.style.filter = '';
+  }
 };
 
 // Helper function for removing legacy overlays
