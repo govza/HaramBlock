@@ -1,7 +1,7 @@
 # Source Code Review Instructions
 
 This guide is intended for reviewers (store submission review, security review, etc.). For general
-project docs, see `docs/README.md`. For end-user usage, see `README.md`.
+project docs, see `docs/INDEX.md`. For end-user usage, see `README.md`.
 
 ## Prerequisites
 

@@ -8,7 +8,7 @@ APIs, and implementation details). If you’re a user, start with the project
 
 - **Build / verify a release**: [SOURCE_CODE_REVIEW.md](SOURCE_CODE_REVIEW.md)
 - **Understand the overall architecture**:
-  - [CONTENT_SCRIPT.md](CONTENT_SCRIPT.md) (runs on webpages)
+  - [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md) (content script - runs on webpages)
   - [MESSAGING_CHANNEL.md](MESSAGING_CHANNEL.md) (content ↔ background transport)
   - [REACTIVE_SETTINGS.md](REACTIVE_SETTINGS.md) (per-site settings storage + UI reactivity)
 - **Video filtering details**: [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
