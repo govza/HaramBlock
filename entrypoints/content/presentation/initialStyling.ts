@@ -13,7 +13,7 @@ export const removeInitialVideoStyling = (video: HTMLVideoElement): void => {
 export const applyInitialVideoStyling = (video: HTMLVideoElement, hostSettings: IHostSettings): void => {
   if (hostSettings.policy === 'blacklist') {
     video.classList.add('haramblock-blacklist');
-  } else if (hostSettings.masking.blur) {
+  } else if (hostSettings.policy === 'process') {
     video.classList.add('haramblock-initial-blur');
   }
 };
@@ -21,7 +21,7 @@ export const applyInitialVideoStyling = (video: HTMLVideoElement, hostSettings: 
 export const applyInitialImageStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {
   if (hostSettings.policy === 'blacklist') {
     image.classList.add('haramblock-blacklist');
-  } else if (hostSettings.masking.blur) {
+  } else if (hostSettings.policy === 'process') {
     image.classList.add('haramblock-initial-blur');
   }
 };
