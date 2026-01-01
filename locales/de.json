@@ -33,9 +33,16 @@
     },
     "Masking": {
       "title": "Maskierung",
-      "Blur": {
-        "true": "Unschärfe: An",
-        "false": "Unschärfe: Aus"
+      "BlurTint": {
+        "title": "Unschärfe-Tönung",
+        "grayscale": "Graustufen",
+        "dark": "Dunkel"
+      },
+      "BlurIntensity": {
+        "title": "Unschärfe-Intensität"
+      },
+      "PixelationScale": {
+        "title": "Verpixelung"
       }
     },
     "Masks": {

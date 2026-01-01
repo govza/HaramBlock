@@ -138,9 +138,21 @@ export const CustomSettings = () => {
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'masking')}`}>
                       <div className='flex flex-wrap gap-1'>
-                        <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
-                          {t(`HostSettings.Masking.Blur.${host.masking.blur}`)}
-                        </span>
+                        {host.masking.grayscale && (
+                          <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
+                            {t('HostSettings.Masking.BlurTint.grayscale')}
+                          </span>
+                        )}
+                        {host.masking.dark && (
+                          <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
+                            {t('HostSettings.Masking.BlurTint.dark')}
+                          </span>
+                        )}
+                        {!host.masking.grayscale && !host.masking.dark && (
+                          <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-muted border border-border-secondary'>
+                            —
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'outline')}`}>

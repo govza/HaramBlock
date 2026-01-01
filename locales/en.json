@@ -33,9 +33,16 @@
     },
     "Masking": {
       "title": "Masking",
-      "Blur": {
-        "true": "Blur: On",
-        "false": "Blur: Off"
+      "BlurTint": {
+        "title": "Blur Tint",
+        "grayscale": "Grayscale",
+        "dark": "Dark"
+      },
+      "BlurIntensity": {
+        "title": "Blur Intensity"
+      },
+      "PixelationScale": {
+        "title": "Pixelation"
       }
     },
     "Masks": {
