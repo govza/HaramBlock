@@ -1,7 +1,11 @@
+import { join } from 'node:path';
+
+const e2eDir = join(import.meta.dirname, '..');
+
 export const config: WebdriverIO.Config = {
   runner: 'local',
-  tsConfigPath: '../tsconfig.json',
-  specs: ['../specs/**/*.ts'],
+  tsConfigPath: join(e2eDir, 'tsconfig.json'),
+  specs: [join(e2eDir, 'features/**/*.feature')],
   exclude: [],
   maxInstances: 10,
   capabilities: [],
@@ -10,10 +14,19 @@ export const config: WebdriverIO.Config = {
   waitforTimeout: 10000,
   connectionRetryTimeout: 120000,
   connectionRetryCount: 3,
-  framework: 'mocha',
+  framework: 'cucumber',
   reporters: ['spec'],
-  mochaOpts: {
-    ui: 'bdd',
+  cucumberOpts: {
+    require: [join(e2eDir, 'step-definitions/**/*.ts')],
+    backtrace: false,
+    requireModule: [],
+    dryRun: false,
+    failFast: false,
+    snippets: true,
+    source: true,
+    strict: false,
+    tagExpression: '',
     timeout: 60000,
+    ignoreUndefinedDefinitions: false,
   },
 };
