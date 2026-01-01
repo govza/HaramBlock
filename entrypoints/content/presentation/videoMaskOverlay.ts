@@ -362,6 +362,10 @@ function renderVideoMask(
     logger.withTag('videoOverlay').warn('renderVideoMask: Invalid overlay dimensions');
     return;
   }
+  if (contentWidth <= 0 || contentHeight <= 0) {
+    logger.withTag('videoOverlay').warn('renderVideoMask: Invalid content dimensions');
+    return;
+  }
 
   const dWidth = contentWidth;
   const dHeight = contentHeight;
