@@ -1,4 +1,4 @@
-import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import { hostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 
@@ -9,11 +9,7 @@ import type { IHostSettings } from '@/utils/types';
  * Coordinates between controllers and data layer
  */
 export class HostSettingsService {
-  private repository: HostSettingsRepository;
-
-  constructor() {
-    this.repository = new HostSettingsRepository();
-  }
+  private repository = hostSettingsRepository;
 
   /**
    * Retrieve host settings for a given hostname
