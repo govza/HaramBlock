@@ -4,7 +4,7 @@ import { t } from '@/utils/i18n';
 export const BlurTint = () => {
   const { hostSettings, hostSettingsRepository } = useHostDataContext();
 
-  const isDisabled = hostSettings.policy !== 'process';
+  const isDisabled = hostSettings.policy !== 'process' && hostSettings.policy !== 'blacklist';
 
   const handleGrayscaleToggle = () => {
     if (isDisabled) return;
@@ -20,12 +20,12 @@ export const BlurTint = () => {
     <div className='my-2 flex flex-col gap-1 text-sm'>
       <label className='text-text-muted'>{t('HostSettings.Masking.BlurTint.title')}</label>
       <div className='flex flex-1 gap-2'>
-        <div className='flex flex-1 rounded-full bg-text-muted p-1 transition'>
+        <div className={`flex flex-1 rounded-full p-0.5 transition ${isDisabled ? 'bg-text-muted' : 'bg-white'}`}>
           <button
             className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} ${
               hostSettings.masking.grayscale
                 ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
-                : 'text-text-inverse hover:text-text-inverse'
+                : 'bg-text-muted text-text-inverse hover:text-text-inverse'
             }`}
             onClick={handleGrayscaleToggle}
             disabled={isDisabled}
@@ -34,12 +34,12 @@ export const BlurTint = () => {
             {t('HostSettings.Masking.BlurTint.grayscale')}
           </button>
         </div>
-        <div className='flex flex-1 rounded-full bg-text-muted p-1 transition'>
+        <div className={`flex flex-1 rounded-full p-0.5 transition ${isDisabled ? 'bg-text-muted' : 'bg-white'}`}>
           <button
             className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} ${
               hostSettings.masking.dark
                 ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
-                : 'text-text-inverse hover:text-text-inverse'
+                : 'bg-text-muted text-text-inverse hover:text-text-inverse'
             }`}
             onClick={handleDarkToggle}
             disabled={isDisabled}
