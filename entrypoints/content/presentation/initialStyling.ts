@@ -1,3 +1,4 @@
+import { BLACKLIST_ATTR } from '@/entrypoints/content/presentation/constants';
 import { buildMaskingFilter } from '@/utils/masking';
 
 import type { IHostSettings } from '@/utils/types';
@@ -13,6 +14,8 @@ const removeBlacklistInlineStyles = (element: HTMLImageElement | HTMLVideoElemen
     }
     delete element.dataset.haramblockOriginalFilter;
   }
+
+  element.removeAttribute(BLACKLIST_ATTR);
 };
 
 export const removeInitialImageStyling = (image: HTMLImageElement): void => {
@@ -30,7 +33,7 @@ export const removeInitialVideoStyling = (video: HTMLVideoElement): void => {
 const applyBlacklistStyling = (element: HTMLImageElement | HTMLVideoElement, hostSettings: IHostSettings): void => {
   element.dataset.haramblockOriginalFilter = element.style.filter || '';
   element.style.setProperty('filter', buildMaskingFilter(hostSettings.masking), 'important');
-  element.classList.add('haramblock-blacklist');
+  element.setAttribute(BLACKLIST_ATTR, '');
 };
 
 export const applyInitialVideoStyling = (video: HTMLVideoElement, hostSettings: IHostSettings): void => {
