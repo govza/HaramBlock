@@ -4,7 +4,7 @@ export const DEFAULT_GLOBAL_KEY = 'global';
 
 export const DEFAULT_HOST_SETTINGS: IHostSettings = {
   hostname: DEFAULT_GLOBAL_KEY,
-  masking: { blur: true, blurTint: 'none', pixelationScale: 50 },
+  masking: { blur: true, blurTint: 'none', blurIntensity: 50, pixelationScale: 50 },
   isGlobal: true,
   outline: 'segment',
   policy: 'process',

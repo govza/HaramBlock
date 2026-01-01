@@ -107,17 +107,23 @@ export const createBlurBoxOverlays = (
       if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) return;
 
       const blurBox = document.createElement('div');
-      let className = 'haramblock-blur-box';
-      if (hostSettings.masking.blurTint === 'grayscale') {
-        className += ' haramblock-blur-box-grayscale';
-      } else if (hostSettings.masking.blurTint === 'dark') {
-        className += ' haramblock-blur-box-dark';
-      }
-      blurBox.className = className;
+      blurBox.className = 'haramblock-blur-box';
       blurBox.style.left = `${clippedLeft}px`;
       blurBox.style.top = `${clippedTop}px`;
       blurBox.style.width = `${clippedRight - clippedLeft}px`;
       blurBox.style.height = `${clippedBottom - clippedTop}px`;
+
+      // Dynamic blur intensity: 1-100% maps to 1-30px
+      const blurPx = Math.round(hostSettings.masking.blurIntensity * 0.3);
+      let backdropFilter = `blur(${blurPx}px)`;
+      if (hostSettings.masking.blurTint === 'grayscale') {
+        backdropFilter += ' grayscale(100%)';
+      }
+      blurBox.style.backdropFilter = backdropFilter;
+      if (hostSettings.masking.blurTint === 'dark') {
+        blurBox.style.background = 'rgba(0, 0, 0, 0.6)';
+      }
+
       parent.appendChild(blurBox);
     });
   };

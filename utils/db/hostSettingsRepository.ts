@@ -141,6 +141,13 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     return settings;
   }
 
+  async setBlurIntensity(hostname: string, blurIntensity: number): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.masking = { ...settings.masking, blurIntensity: Math.max(1, Math.min(100, blurIntensity)) };
+    await this.saveSettings(settings);
+    return settings;
+  }
+
   async setPixelationScale(hostname: string, pixelationScale: number): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
     settings.masking = { ...settings.masking, pixelationScale: Math.max(1, Math.min(100, pixelationScale)) };
