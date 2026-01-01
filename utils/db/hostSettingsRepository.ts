@@ -3,7 +3,7 @@ import { BaseRepository } from '@/utils/db/baseRepository';
 import { hostSettingsDb } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
-import type { IHostSettings, OutlineType, HostPolicy, BlurTintType } from '@/utils/types';
+import type { IHostSettings, OutlineType, HostPolicy } from '@/utils/types';
 
 /**
  * Repository for managing host settings records
@@ -134,9 +134,16 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     return settings;
   }
 
-  async setBlurTint(hostname: string, blurTint: BlurTintType): Promise<IHostSettings> {
+  async setGrayscale(hostname: string, enabled: boolean): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
-    settings.masking = { ...settings.masking, blurTint };
+    settings.masking = { ...settings.masking, grayscale: enabled };
+    await this.saveSettings(settings);
+    return settings;
+  }
+
+  async setDark(hostname: string, enabled: boolean): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.masking = { ...settings.masking, dark: enabled };
     await this.saveSettings(settings);
     return settings;
   }

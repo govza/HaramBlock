@@ -1,10 +1,10 @@
 export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
 export type OutlineType = 'bbox' | 'segment';
-export type BlurTintType = 'none' | 'grayscale' | 'dark';
 
 export interface IMaskingSettings {
   blur: boolean;
-  blurTint: BlurTintType;
+  grayscale: boolean;
+  dark: boolean;
   blurIntensity: number;
   pixelationScale: number;
 }
