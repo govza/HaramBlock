@@ -1,10 +1,12 @@
+import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
-import { useHostSettings } from '@/hooks/useHostSettings';
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
-import { type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import { hostSettingsDb } from '@/utils/db/db';
+import { hostSettingsRepository, type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
+import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
 import type { IHostSettings } from '@/utils/types';
 
@@ -40,7 +42,14 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const [isGlobalMode, setIsGlobalMode] = useState(false);
 
   const currentHostname = isGlobalMode ? DEFAULT_GLOBAL_KEY : detectedHostname;
-  const { hostSettings, hostSettingsRepository, isLoading } = useHostSettings(currentHostname);
+  const effectiveHostname = useMemo(() => getEffectiveHostname(currentHostname), [currentHostname]);
+  const hostSettingsData = useLiveQuery(() => hostSettingsDb.hostSettings.get(effectiveHostname), [effectiveHostname]);
+  const hostSettings = hostSettingsData || {
+    ...DEFAULT_HOST_SETTINGS,
+    hostname: effectiveHostname,
+    isGlobal: isGlobalPage(effectiveHostname),
+  };
+  const isLoading = hostSettingsData === undefined;
   const error = hostnameError;
   const imageCacheRepository = useMemo(() => new ImageCacheRepository(), []);
 
@@ -58,10 +67,10 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
       }
     };
 
-    if (hostSettingsRepository && !isLoading) {
+    if (!isLoading) {
       void checkGlobalSettings();
     }
-  }, [hostSettingsRepository, isLoading]);
+  }, [isLoading]);
 
   const switchToGlobal = () => setIsGlobalMode(true);
   const switchToLocal = () => setIsGlobalMode(false);
