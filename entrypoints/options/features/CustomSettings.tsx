@@ -45,7 +45,14 @@ export const CustomSettings = () => {
         const hosts = await hostSettingsRepository.findAll();
         const globalHost = await hostSettingsRepository.findByHostname(DEFAULT_GLOBAL_KEY);
 
-        setAllHosts(hosts);
+        // Sort so global settings always come first
+        const sortedHosts = [...hosts].sort((a, b) => {
+          if (a.hostname === DEFAULT_GLOBAL_KEY) return -1;
+          if (b.hostname === DEFAULT_GLOBAL_KEY) return 1;
+          return a.hostname.localeCompare(b.hostname);
+        });
+
+        setAllHosts(sortedHosts);
         setGlobalSettings(globalHost);
       } catch (error) {
         logger.withTag('CustomSettings').error('Failed to load hosts:', error);
@@ -94,8 +101,8 @@ export const CustomSettings = () => {
         ) : (
           <div className='overflow-x-auto'>
             <table className='w-full text-sm text-left'>
-              <thead className='bg-surface border-b border-border-secondary'>
-                <tr>
+              <thead className='bg-surface border-b border-border-secondary text-center'>
+                <tr className='divide-x divide-border-secondary'>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('Common.hostname')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Policy.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Masking.title')}</th>
@@ -108,7 +115,7 @@ export const CustomSettings = () => {
                 {allHosts.map((host, index) => (
                   <tr
                     key={host.hostname}
-                    className={`${index % 2 === 0 ? 'bg-secondary' : 'bg-surface'} hover:bg-surface-light transition-colors duration-150`}
+                    className={`${index % 2 === 0 ? 'bg-secondary' : 'bg-surface'} hover:bg-surface-light transition-colors duration-150 divide-x divide-border-secondary`}
                   >
                     <td className='px-6 py-4'>
                       <div className='flex items-center'>
@@ -138,6 +145,12 @@ export const CustomSettings = () => {
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'masking')}`}>
                       <div className='flex flex-wrap gap-1'>
+                        <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
+                          {t('HostSettings.Masking.BlurIntensity.title')}: {host.masking.blurIntensity}%
+                        </span>
+                        <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
+                          {t('HostSettings.Masking.PixelationScale.title')}: {host.masking.pixelationScale}%
+                        </span>
                         {host.masking.grayscale && (
                           <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
                             {t('HostSettings.Masking.BlurTint.grayscale')}
@@ -146,11 +159,6 @@ export const CustomSettings = () => {
                         {host.masking.dark && (
                           <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
                             {t('HostSettings.Masking.BlurTint.dark')}
-                          </span>
-                        )}
-                        {!host.masking.grayscale && !host.masking.dark && (
-                          <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-muted border border-border-secondary'>
-                            —
                           </span>
                         )}
                       </div>
