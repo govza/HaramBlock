@@ -14,16 +14,24 @@ Defined in `utils/types/host.ts`:
 
 ```ts
 export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
-export type OutlineType = 'bbox' | 'segment' | 'full';
+export type OutlineType = 'bbox' | 'segment';
+
+export interface IMaskingSettings {
+  grayscale: boolean;
+  dark: boolean;
+  blurIntensity: number; // 1-100%
+  pixelationScale: number; // 1-100%
+}
 
 export interface IHostSettings {
   hostname: string;
   isGlobal: boolean;
-  masking: { blur: boolean };
+  masking: IMaskingSettings;
   outline: OutlineType;
   policy: HostPolicy;
   strictness: number;
   minSize: { width: number; height: number };
+  quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean };
 }
 ```
 
