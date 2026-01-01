@@ -1,5 +1,6 @@
 import { computeRenderedContentRect } from '@/entrypoints/content/presentation/imageLayout';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
+import { buildBackdropFilter, getDarkBackdropBackground } from '@/utils/masking';
 import { shouldBlock, type IElementPrediction, type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 type BlurOverlayState = {
@@ -113,15 +114,10 @@ export const createBlurBoxOverlays = (
       blurBox.style.width = `${clippedRight - clippedLeft}px`;
       blurBox.style.height = `${clippedBottom - clippedTop}px`;
 
-      // Dynamic blur intensity: 1-100% maps to 1-30px
-      const blurPx = Math.round(hostSettings.masking.blurIntensity * 0.3);
-      let backdropFilter = `blur(${blurPx}px)`;
-      if (hostSettings.masking.grayscale) {
-        backdropFilter += ' grayscale(100%)';
-      }
-      blurBox.style.backdropFilter = backdropFilter;
-      if (hostSettings.masking.dark) {
-        blurBox.style.background = 'rgba(0, 0, 0, 0.6)';
+      blurBox.style.backdropFilter = buildBackdropFilter(hostSettings.masking);
+      const darkBackground = getDarkBackdropBackground(hostSettings.masking);
+      if (darkBackground) {
+        blurBox.style.background = darkBackground;
       }
 
       parent.appendChild(blurBox);

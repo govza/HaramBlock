@@ -1,3 +1,5 @@
+import { buildMaskingFilter } from '@/utils/masking';
+
 import type { IHostSettings } from '@/utils/types';
 
 const removeBlacklistInlineStyles = (element: HTMLImageElement | HTMLVideoElement): void => {
@@ -37,28 +39,11 @@ export const removeInitialVideoStyling = (video: HTMLVideoElement): void => {
 };
 
 const applyBlacklistStyling = (element: HTMLImageElement | HTMLVideoElement, hostSettings: IHostSettings): void => {
-  const { masking } = hostSettings;
-
   // Save original styles before modifying
   element.dataset.haramblockOriginalFilter = element.style.filter || '';
   element.dataset.haramblockOriginalOpacity = element.style.opacity || '';
 
-  // Build filter string based on masking settings
-  const filters: string[] = [];
-
-  // Blur intensity: 1-100% maps to 1-30px
-  const blurPx = Math.round(masking.blurIntensity * 0.3);
-  filters.push(`blur(${blurPx}px)`);
-
-  if (masking.grayscale) {
-    filters.push('grayscale(100%)');
-  }
-
-  if (masking.dark) {
-    filters.push('brightness(0.4)');
-  }
-
-  element.style.setProperty('filter', filters.join(' '), 'important');
+  element.style.setProperty('filter', buildMaskingFilter(hostSettings.masking), 'important');
   element.style.setProperty('opacity', '0.3', 'important');
   element.classList.add('haramblock-blacklist');
 };

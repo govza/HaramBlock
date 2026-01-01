@@ -1,6 +1,7 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger, extractUrlId } from '@/utils/logger';
+import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 
 import type { IHostSettings, IImagePrediction, IMaskTransform, IMaskingSettings } from '@/utils/types';
@@ -386,22 +387,15 @@ function renderVideoMask(
     return;
   }
 
-  // Quadratic ease-in curve: slow growth initially, accelerates toward 100%
-  const MIN_BLOCK = 8;
-  const MAX_BLOCK = 150;
-  const normalized = masking.pixelationScale / 100;
-  const curved = normalized * normalized;
-  const BLOCK_SIZE = MIN_BLOCK + curved * (MAX_BLOCK - MIN_BLOCK);
-
-  // Use display dimensions for pixelation (not element/natural size)
-  const smallW = Math.max(1, Math.floor(dWidth / BLOCK_SIZE));
-  const smallH = Math.max(1, Math.floor(dHeight / BLOCK_SIZE));
+  const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
+  const smallW = Math.max(1, Math.floor(dWidth / blockSize));
+  const smallH = Math.max(1, Math.floor(dHeight / blockSize));
 
   logger.withTag('videoOverlay').debug('Rendering video mask', {
     displaySize: { width: dWidth, height: dHeight },
     elementSize: { width: elementWidth, height: elementHeight },
     inferenceSize: { width: originalWidth, height: originalHeight },
-    blockSize: BLOCK_SIZE,
+    blockSize,
     usingPoster: Boolean(posterImage),
     videoSrc: extractUrlId(video.src || video.currentSrc),
   });
@@ -445,10 +439,7 @@ function renderVideoMask(
   );
 
   // Apply tint effects via CSS filter (hardware-accelerated)
-  const filters: string[] = [];
-  if (masking.grayscale) filters.push('grayscale(100%)');
-  if (masking.dark) filters.push('brightness(0.4)');
-  canvas.style.filter = filters.length ? filters.join(' ') : '';
+  canvas.style.filter = buildCanvasTintFilter(masking);
 }
 
 /**
