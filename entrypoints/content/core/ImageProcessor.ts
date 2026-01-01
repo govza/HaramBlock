@@ -2,7 +2,13 @@ import { requestImageInference, requestToggleUpdate } from '@/entrypoints/conten
 import { clearBlurBoxOverlay, hasBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
-import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
+import {
+  applyBlacklistStyling,
+  applyInitialImageStyling,
+  hasBlacklistStyling,
+  hasInitialStyling,
+  removeInitialImageStyling,
+} from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import {
   destroyQuickToggle,
@@ -65,12 +71,14 @@ export class ImageProcessor {
       return;
     }
 
-    // Blacklist policy: clear any existing overlays, apply blur, don't process
+    // Blacklist policy: apply blacklist styling if not already applied
     if (this.hostSettings.policy === 'blacklist') {
-      this.clearOverlays(img);
-      if (!img.hasAttribute(BLACKLIST_ATTR)) {
-        applyInitialImageStyling(img, this.hostSettings);
+      if (hasBlacklistStyling(img)) {
+        return; // Already blacklisted
       }
+      // Clear any overlays from previous state and apply blacklist styling
+      this.clearOverlays(img);
+      applyBlacklistStyling(img, this.hostSettings);
       return;
     }
 
@@ -87,7 +95,7 @@ export class ImageProcessor {
     }
 
     // Apply blur if not already present (idempotent)
-    if (!this.hasBlurClass(img)) {
+    if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
 
@@ -113,7 +121,7 @@ export class ImageProcessor {
     this.clearOverlays(img);
 
     // Ensure blur is applied while waiting for stabilization
-    if (!this.hasBlurClass(img)) {
+    if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
 
@@ -192,7 +200,7 @@ export class ImageProcessor {
     for (const img of images) {
       this.clearOverlays(img);
       if (forcedVisibility === 'blocked') {
-        img.setAttribute(BLACKLIST_ATTR, '');
+        applyBlacklistStyling(img, this.hostSettings);
         registerQuickToggle(img, updated, this.hostSettings.quickToggle);
       } else if (forcedVisibility === 'visible') {
         registerQuickToggle(img, updated, this.hostSettings.quickToggle);
@@ -207,10 +215,6 @@ export class ImageProcessor {
   // ===========================================================================
   // State Queries (DOM-derived)
   // ===========================================================================
-
-  private hasBlurClass(img: HTMLImageElement): boolean {
-    return img.classList.contains(BLUR_CLASS) || img.hasAttribute(BLACKLIST_ATTR);
-  }
 
   private hasOverlayForSrc(img: HTMLImageElement, _src: string): boolean {
     // Check if any overlay exists - they self-clean if src doesn't match
@@ -314,7 +318,7 @@ export class ImageProcessor {
       removeInitialImageStyling(img);
 
       if (prediction.forcedVisibility === 'blocked') {
-        img.setAttribute(BLACKLIST_ATTR, '');
+        applyBlacklistStyling(img, this.hostSettings);
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
       } else if (prediction.forcedVisibility === 'visible') {
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
@@ -359,7 +363,7 @@ export class ImageProcessor {
     imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
     unregisterQuickToggle(img);
-    img.removeAttribute(BLACKLIST_ATTR);
+    removeInitialImageStyling(img);
   }
 
   private findImagesBySrc(src: string): HTMLImageElement[] {
