@@ -1,5 +1,6 @@
 import { requestImageInference, requestToggleUpdate } from '@/entrypoints/content/communication/sender';
 import { clearBlurBoxOverlay, hasBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
+import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { applyInitialImageStyling, removeInitialImageStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
@@ -16,8 +17,6 @@ import type { IHostSettings, IImagePrediction } from '@/utils/types';
 // Constants
 // =============================================================================
 
-const BLUR_CLASS = 'haramblock-initial-blur';
-const BLACKLIST_CLASS = 'haramblock-blacklist';
 const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
@@ -69,7 +68,7 @@ export class ImageProcessor {
     // Blacklist policy: clear any existing overlays, apply blur, don't process
     if (this.hostSettings.policy === 'blacklist') {
       this.clearOverlays(img);
-      if (!img.classList.contains(BLACKLIST_CLASS)) {
+      if (!img.hasAttribute(BLACKLIST_ATTR)) {
         applyInitialImageStyling(img, this.hostSettings);
       }
       return;
@@ -193,7 +192,7 @@ export class ImageProcessor {
     for (const img of images) {
       this.clearOverlays(img);
       if (forcedVisibility === 'blocked') {
-        img.classList.add(BLACKLIST_CLASS);
+        img.setAttribute(BLACKLIST_ATTR, '');
         registerQuickToggle(img, updated, this.hostSettings.quickToggle);
       } else if (forcedVisibility === 'visible') {
         registerQuickToggle(img, updated, this.hostSettings.quickToggle);
@@ -210,7 +209,7 @@ export class ImageProcessor {
   // ===========================================================================
 
   private hasBlurClass(img: HTMLImageElement): boolean {
-    return img.classList.contains(BLUR_CLASS) || img.classList.contains(BLACKLIST_CLASS);
+    return img.classList.contains(BLUR_CLASS) || img.hasAttribute(BLACKLIST_ATTR);
   }
 
   private hasOverlayForSrc(img: HTMLImageElement, _src: string): boolean {
@@ -315,7 +314,7 @@ export class ImageProcessor {
       removeInitialImageStyling(img);
 
       if (prediction.forcedVisibility === 'blocked') {
-        img.classList.add(BLACKLIST_CLASS);
+        img.setAttribute(BLACKLIST_ATTR, '');
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
       } else if (prediction.forcedVisibility === 'visible') {
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
@@ -360,12 +359,12 @@ export class ImageProcessor {
     imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
     unregisterQuickToggle(img);
-    img.classList.remove('haramblock-blacklist');
+    img.removeAttribute(BLACKLIST_ATTR);
   }
 
   private findImagesBySrc(src: string): HTMLImageElement[] {
     const results: HTMLImageElement[] = [];
-    const pendingImages = document.querySelectorAll<HTMLImageElement>(`img.${BLUR_CLASS}, img.${BLACKLIST_CLASS}`);
+    const pendingImages = document.querySelectorAll<HTMLImageElement>(`img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`);
 
     for (const img of pendingImages) {
       const imgSrc = img.currentSrc || img.src;
