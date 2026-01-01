@@ -4,11 +4,11 @@
     "moduleResolution": "NodeNext",
     "target": "ES2022",
     "lib": ["ESNext", "DOM"],
-    "types": ["node", "@wdio/globals/types", "@wdio/mocha-framework"],
+    "types": ["node", "@wdio/globals/types", "@wdio/cucumber-framework"],
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "noEmit": true
   },
-  "include": ["specs", "config", "utils", "helpers", "wdio.d.ts"]
+  "include": ["features", "step-definitions", "config", "utils", "constants", "wdio.d.ts"]
 }
