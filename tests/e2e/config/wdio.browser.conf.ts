@@ -37,10 +37,6 @@ const chromeCapabilities = {
   'goog:chromeOptions': {
     args: [
       '--disable-web-security',
-      '--disable-gpu',
-      '--disable-software-rasterizer',
-      '--disable-gpu-compositing',
-      '--disable-gpu-sandbox',
       '--no-sandbox',
       '--disable-dev-shm-usage',
       '--log-level=3',
