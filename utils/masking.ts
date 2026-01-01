@@ -17,10 +17,10 @@ const DARK_BACKDROP_OPACITY = 0.6;
 
 /**
  * Calculate blur amount in pixels from blur intensity percentage.
- * Maps 1-100% to 1-30px.
+ * Maps 1-100% to 1-30px (minimum 1px).
  */
 export const calculateBlurPx = (blurIntensity: number): number => {
-  return Math.round(blurIntensity * BLUR_PX_MULTIPLIER);
+  return Math.max(1, Math.round(blurIntensity * BLUR_PX_MULTIPLIER));
 };
 
 /**
