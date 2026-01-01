@@ -22,28 +22,26 @@ export const BlurTint = () => {
       <div className='flex flex-1 gap-2'>
         <div className={`flex flex-1 rounded-full p-0.5 transition ${isDisabled ? 'bg-text-muted' : 'bg-white'}`}>
           <button
-            className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} ${
+            className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-surface-light'} ${
               hostSettings.masking.grayscale
                 ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
                 : 'bg-text-muted text-text-inverse hover:text-text-inverse'
             }`}
             onClick={handleGrayscaleToggle}
             disabled={isDisabled}
-            style={{ opacity: isDisabled ? 0.5 : 1 }}
           >
             {t('HostSettings.Masking.BlurTint.grayscale')}
           </button>
         </div>
         <div className={`flex flex-1 rounded-full p-0.5 transition ${isDisabled ? 'bg-text-muted' : 'bg-white'}`}>
           <button
-            className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-light'} ${
+            className={`flex-1 rounded-full p-1 text-center transition-all duration-200 ${isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-surface-light'} ${
               hostSettings.masking.dark
                 ? 'bg-surface text-white shadow-lg ring-2 ring-accent-light ring-opacity-50'
                 : 'bg-text-muted text-text-inverse hover:text-text-inverse'
             }`}
             onClick={handleDarkToggle}
             disabled={isDisabled}
-            style={{ opacity: isDisabled ? 0.5 : 1 }}
           >
             {t('HostSettings.Masking.BlurTint.dark')}
           </button>
