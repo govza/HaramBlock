@@ -5,6 +5,7 @@ export type BlurTintType = 'none' | 'grayscale' | 'dark';
 export interface IMaskingSettings {
   blur: boolean;
   blurTint: BlurTintType;
+  blurIntensity: number;
   pixelationScale: number;
 }
 

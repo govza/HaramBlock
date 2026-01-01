@@ -41,7 +41,7 @@ const TEST_HOSTNAME = 'example.com';
 const STANDARD_SETTINGS: IHostSettings = {
   hostname: TEST_HOSTNAME,
   isGlobal: false,
-  masking: { blur: true, blurTint: 'none', pixelationScale: 50 },
+  masking: { blur: true, blurTint: 'none', blurIntensity: 50, pixelationScale: 50 },
   outline: 'bbox',
   policy: 'whitelist',
   strictness: 0.8,
@@ -52,7 +52,7 @@ const STANDARD_SETTINGS: IHostSettings = {
 const GLOBAL_SETTINGS: IHostSettings = {
   hostname: DEFAULT_GLOBAL_KEY,
   isGlobal: true,
-  masking: { blur: true, blurTint: 'none', pixelationScale: 50 },
+  masking: { blur: true, blurTint: 'none', blurIntensity: 50, pixelationScale: 50 },
   outline: 'segment',
   policy: 'process',
   strictness: 0.8,
