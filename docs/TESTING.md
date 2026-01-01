@@ -42,3 +42,129 @@ vi.mock('@/utils/db/db', () => ({
 ```
 
 This ensures tests run quickly and don't interfere with actual browser storage.
+
+## E2E Testing
+
+E2E tests use [WebdriverIO](https://webdriver.io/) with [Cucumber](https://cucumber.io/) framework.
+
+### Running E2E Tests
+
+**Important:** If you've modified extension code, rebuild before running tests:
+
+```bash
+# Build extension first (required after code changes)
+pnpm zip
+
+# Run all e2e tests
+pnpm e2e
+
+# Run specific feature file
+pnpm e2e -- --spec tests/e2e/features/policy.feature
+```
+
+### Project Structure
+
+```
+tests/e2e/
+├── config/           # WebdriverIO configuration
+├── constants/        # Shared constants (selectors, timeouts)
+├── features/         # Cucumber feature files (.feature)
+└── step-definitions/ # Step definition files (.steps.ts)
+```
+
+### Writing Step Definitions
+
+#### Use `.getElement()` and `.getElements()` for Proper Element Resolution
+
+Always call `.getElement()` or `.getElements()` to get actual WebdriverIO elements:
+
+```typescript
+// ✅ Correct
+const button = await $('[data-testid="policy-toggle"]').getElement();
+const images = await $$(Selectors.GALLERY_IMAGE).getElements();
+
+// ❌ Avoid - may cause issues with chained promises
+const button = await $('[data-testid="policy-toggle"]');
+```
+
+#### Use `Array.from()` for Element Arrays
+
+WebdriverIO element arrays aren't directly iterable with Array methods:
+
+```typescript
+// ✅ Correct
+const images = await $$(selector).getElements();
+const results = await Promise.all(Array.from(images).map(img => img.getAttribute('data-attr')));
+
+// ❌ Will throw "object is not iterable"
+const results = await Promise.all(images.map(img => img.getAttribute('data-attr')));
+```
+
+#### Check Attribute Existence with `null`
+
+When checking if an attribute exists (even with empty value), compare to `null`:
+
+```typescript
+// ✅ Correct - attribute exists with empty value ""
+const attr = await element.getAttribute('data-haramblock-blacklist');
+if (attr === null) return false; // attribute doesn't exist
+
+// ❌ Wrong - empty string "" is falsy
+if (!attr) return false; // fails for data-attr=""
+```
+
+#### Handle Sequential Awaits in Loops
+
+Use `eslint-disable-next-line` for intentional sequential operations:
+
+```typescript
+const clickUntilPolicy = async (button: WebdriverIO.Element, target: string): Promise<void> => {
+  for (let i = 0; i < 3; i++) {
+    // eslint-disable-next-line no-await-in-loop
+    const current = await button.getAttribute('data-policy');
+    if (current === target) return;
+    // eslint-disable-next-line no-await-in-loop
+    await button.click();
+  }
+};
+```
+
+#### Never Register Duplicate Step Definitions
+
+Registering the same pattern with different keywords causes steps to be skipped silently:
+
+```typescript
+// ✅ Correct - register once with Given (keywords are interchangeable)
+Given('I set the policy to {string}', async (policy: string) => { ... });
+
+// ❌ Wrong - duplicate registration
+Given('I set the policy to {string}', async (policy: string) => { ... });
+When('I set the policy to {string}', async (policy: string) => { ... });
+```
+
+#### Wait After Popup Clicks
+
+The popup uses React with async state updates. Pause after clicking buttons to allow state to
+settle:
+
+```typescript
+await policyButton.click();
+await browser.pause(300);
+```
+
+No pause is needed after navigation - `waitUntil` assertions handle async waiting.
+
+### Adding Test IDs to Components
+
+Add `data-testid` attributes to components for reliable test targeting:
+
+```tsx
+<button
+  onClick={togglePolicy}
+  data-testid='policy-toggle'
+  data-policy={hostSettings.policy}
+>
+```
+
+Use descriptive `data-testid` values and include state in `data-*` attributes when needed for
+assertions.

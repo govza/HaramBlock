@@ -9,7 +9,7 @@ import {
 } from '../constants/gallery.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
-  const elements = await $$(selector);
+  const elements = await $$(selector).getElements();
   return elements.length;
 };
 

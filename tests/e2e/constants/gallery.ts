@@ -1,6 +1,8 @@
+// External test fixture URL - tests depend on this site being available.
+// If tests fail due to network issues, verify haramblock.com is accessible.
 export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 
-export const INFERENCE_TIMEOUT = 30000;
+export const INFERENCE_TIMEOUT = 60000;
 
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
@@ -54,8 +56,3 @@ export const buildGalleryUrl = (params: Partial<GalleryParams> = {}): string => 
   });
   return `${GALLERY_BASE_URL}?${searchParams.toString()}`;
 };
-
-export const GalleryUrls = {
-  notSafe: (count = 25) => buildGalleryUrl({ mode: GalleryMode.NOT_SAFE, count }),
-  safe: (count = 25) => buildGalleryUrl({ mode: GalleryMode.SAFE, count }),
-} as const;

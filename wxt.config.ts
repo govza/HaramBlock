@@ -11,6 +11,15 @@ export default defineConfig({
       plugins: [toUtf8(), tailwindcss()],
     }) as WxtViteConfig,
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
+  webExt: {
+    chromiumArgs: [
+      // Uncomment for debugging no-gpu environments
+      // '--disable-dev-shm-usage',
+      // '--enable-unsafe-swiftshader',
+      // '--disable-gpu',
+      // '--disable-gpu-compositing',
+    ],
+  },
   manifestVersion: 3,
   manifest: {
     name: '__MSG_Extension_name__',

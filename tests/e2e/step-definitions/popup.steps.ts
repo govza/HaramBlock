@@ -11,6 +11,6 @@ Then('the popup should be visible', async () => {
 });
 
 Then('the popup should display the version number', async () => {
-  const versionElement = await $('p*=v0.');
+  const versionElement = await $('p*=v0.').getElement();
   await expect(versionElement).toBeExisting();
 });

@@ -30,29 +30,45 @@ if (!latestExtension) {
 const extPath = join(outputDir, latestExtension);
 const bundledExtension = (await readFile(extPath)).toString('base64');
 
+const ciChromeArgs = [
+  '--headless=new',
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--enable-unsafe-swiftshader',
+  '--disable-gpu',
+  '--disable-gpu-compositing',
+];
+
 const chromeCapabilities = {
   browserName: 'chrome',
   browserVersion: 'stable',
   acceptInsecureCerts: true,
   'goog:chromeOptions': {
-    args: [
-      '--disable-web-security',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--log-level=3',
-      '--silent',
-      ...(IS_CI ? ['--headless=new'] : []),
-    ],
+    args: ['--disable-dev-shm-usage', '--log-level=3', '--silent', ...(IS_CI ? ciChromeArgs : [])],
     prefs: { 'extensions.ui.developer_mode': true },
     extensions: [bundledExtension],
   },
+};
+
+const ciFirefoxPrefs = {
+  // Disable GPU/hardware acceleration
+  'layers.acceleration.disabled': true,
+  'gfx.webrender.all': false,
+  'gfx.canvas.accelerated': false,
+  // Disable hardware video decoding
+  'media.hardware-video-decoding.enabled': false,
+  // Use software WebGL (like SwiftShader for Chrome)
+  'webgl.disabled': false,
+  'webgl.force-enabled': true,
+  'webgl.software': true,
 };
 
 const firefoxCapabilities = {
   browserName: 'firefox',
   acceptInsecureCerts: true,
   'moz:firefoxOptions': {
-    args: [...(IS_CI ? ['--headless'] : [])],
+    args: [...(IS_CI ? ['-headless'] : [])],
+    prefs: IS_CI ? ciFirefoxPrefs : {},
   },
 };
 
@@ -60,8 +76,11 @@ export const config: WebdriverIO.Config = {
   ...baseConfig,
   capabilities: IS_FIREFOX ? [firefoxCapabilities] : [chromeCapabilities],
 
-  maxInstances: IS_CI ? 10 : 1,
+  maxInstances: 1,
   logLevel: 'error',
+  cucumberOpts: {
+    ...baseConfig.cucumberOpts,
+  },
   before: async ({ browserName }: WebdriverIO.Capabilities, _specs, browser: WebdriverIO.Browser) => {
     if (browserName === 'firefox') {
       await browser.installAddOn(bundledExtension, true);
@@ -69,11 +88,6 @@ export const config: WebdriverIO.Config = {
       browser.addCommand('getExtensionPath', () => getFirefoxExtensionPath(browser));
     } else if (browserName === 'chrome') {
       browser.addCommand('getExtensionPath', () => getChromeExtensionPath(browser));
-    }
-  },
-  afterTest: async () => {
-    if (!IS_CI) {
-      await browser.pause(500);
     }
   },
 };
