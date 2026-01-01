@@ -16,19 +16,36 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
 
   /**
    * Find host settings by hostname, returns default if not found
+   * Uses stored global settings as base for non-global hostnames
    * @param hostname - The hostname to find settings for
    * @returns Host settings for the hostname
    */
   async findByHostname(hostname: string): Promise<IHostSettings> {
     const effectiveHostname = getEffectiveHostname(hostname);
+    const isGlobal = isGlobalPage(effectiveHostname);
+
+    // Get the base settings - for non-global hostnames, use stored global settings
+    let baseSettings = DEFAULT_HOST_SETTINGS;
+    if (!isGlobal) {
+      const storedGlobal = await this.table.get(DEFAULT_GLOBAL_KEY);
+      if (storedGlobal) {
+        baseSettings = {
+          ...DEFAULT_HOST_SETTINGS,
+          ...storedGlobal,
+          masking: { ...DEFAULT_HOST_SETTINGS.masking, ...storedGlobal.masking },
+          quickToggle: { ...DEFAULT_HOST_SETTINGS.quickToggle, ...storedGlobal.quickToggle },
+        };
+      }
+    }
+
     const stored = await this.table.get(effectiveHostname);
     return {
-      ...DEFAULT_HOST_SETTINGS,
+      ...baseSettings,
       ...stored,
-      masking: { ...DEFAULT_HOST_SETTINGS.masking, ...stored?.masking },
-      quickToggle: { ...DEFAULT_HOST_SETTINGS.quickToggle, ...stored?.quickToggle },
+      masking: { ...baseSettings.masking, ...stored?.masking },
+      quickToggle: { ...baseSettings.quickToggle, ...stored?.quickToggle },
       hostname: effectiveHostname,
-      isGlobal: isGlobalPage(effectiveHostname),
+      isGlobal,
     };
   }
 

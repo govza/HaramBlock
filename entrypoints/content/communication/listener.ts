@@ -1,3 +1,4 @@
+import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 import { logger, extractUrlId } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import { type IImagePrediction, type IFramePrediction } from '@/utils/types';
@@ -114,14 +115,15 @@ export function onFramePredictions(callback: (data: FramePredictionsMessage) => 
 }
 
 /**
- * Setup a filtered host settings listener that only triggers for specific hostname
+ * Setup a filtered host settings listener that triggers for specific hostname or global updates
  * @param targetHostname - The hostname to filter for
- * @param callback - Function to call when settings for this hostname are updated
+ * @param callback - Function to call when settings for this hostname (or global) are updated
  * @returns Cleanup function to remove the listener
  */
 export function onHostSettingsUpdatedForHostname(targetHostname: string, callback: () => void): () => void {
   return onHostSettingsUpdated(data => {
-    if (data.hostname === targetHostname) {
+    // Trigger for exact hostname match OR global settings update (affects all sites)
+    if (data.hostname === targetHostname || data.hostname === DEFAULT_GLOBAL_KEY) {
       callback();
     }
   });
