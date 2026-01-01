@@ -213,6 +213,90 @@ describe('HostSettingsRepository', () => {
     });
   });
 
+  describe('setGrayscale', () => {
+    it('should update grayscale while preserving other masking settings', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setGrayscale(TEST_HOSTNAME, true);
+
+      expect(settings.masking.grayscale).toBe(true);
+      expect(settings.masking.dark).toBe(false);
+      expect(settings.masking.blurIntensity).toBe(50);
+      expect(settings.masking.pixelationScale).toBe(50);
+    });
+  });
+
+  describe('setDark', () => {
+    it('should update dark while preserving other masking settings', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setDark(TEST_HOSTNAME, true);
+
+      expect(settings.masking.dark).toBe(true);
+      expect(settings.masking.grayscale).toBe(false);
+      expect(settings.masking.blurIntensity).toBe(50);
+      expect(settings.masking.pixelationScale).toBe(50);
+    });
+  });
+
+  describe('setBlurIntensity', () => {
+    it('should update blurIntensity while preserving other masking settings', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setBlurIntensity(TEST_HOSTNAME, 75);
+
+      expect(settings.masking.blurIntensity).toBe(75);
+      expect(settings.masking.grayscale).toBe(false);
+      expect(settings.masking.dark).toBe(false);
+      expect(settings.masking.pixelationScale).toBe(50);
+    });
+
+    it('should clamp blurIntensity to valid range [1, 100]', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      let settings = await repository.setBlurIntensity(TEST_HOSTNAME, 0);
+      expect(settings.masking.blurIntensity).toBe(1);
+
+      settings = await repository.setBlurIntensity(TEST_HOSTNAME, 150);
+      expect(settings.masking.blurIntensity).toBe(100);
+    });
+  });
+
+  describe('setPixelationScale', () => {
+    it('should update pixelationScale while preserving other masking settings', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setPixelationScale(TEST_HOSTNAME, 80);
+
+      expect(settings.masking.pixelationScale).toBe(80);
+      expect(settings.masking.grayscale).toBe(false);
+      expect(settings.masking.dark).toBe(false);
+      expect(settings.masking.blurIntensity).toBe(50);
+    });
+
+    it('should clamp pixelationScale to valid range [1, 100]', async () => {
+      mockGet.mockResolvedValue(STANDARD_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      let settings = await repository.setPixelationScale(TEST_HOSTNAME, -10);
+      expect(settings.masking.pixelationScale).toBe(1);
+
+      settings = await repository.setPixelationScale(TEST_HOSTNAME, 200);
+      expect(settings.masking.pixelationScale).toBe(100);
+    });
+  });
+
   describe('delete method', () => {
     it('should delete regular host settings', async () => {
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
