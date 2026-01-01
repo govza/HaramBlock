@@ -28,11 +28,11 @@ export interface IHostSettings {
 ```
 
 - `policy`
-  - `whitelist`: don’t filter
+  - `whitelist`: don't filter
   - `blacklist`: filter everything (no inference)
   - `process`: run inference and filter based on predictions
-- `outline`: how the masking is applied (`bbox`, `segment`, or `full`)
-- `masking.blur`: whether masking is enabled (if `false`, the UI is effectively “detection only”)
+- `outline`: how the masking is applied (`bbox` or `segment`)
+- `masking`: visual effects (grayscale, dark, blurIntensity, pixelationScale)
 - `strictness`: detection threshold (higher = stricter)
 - `minSize`: ignore very small media to reduce false positives and cost
 

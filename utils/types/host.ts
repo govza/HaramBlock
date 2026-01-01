@@ -2,7 +2,6 @@ export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
 export type OutlineType = 'bbox' | 'segment';
 
 export interface IMaskingSettings {
-  blur: boolean;
   grayscale: boolean;
   dark: boolean;
   blurIntensity: number;

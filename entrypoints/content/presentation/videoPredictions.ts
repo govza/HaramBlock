@@ -56,9 +56,9 @@ async function processThumbnailPredictions(
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           const imagePrediction = toImagePrediction(framePred);
 
-          if (hostSettings.outline === 'segment' && hostSettings.masking.blur) {
+          if (hostSettings.outline === 'segment') {
             await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
-          } else if (hostSettings.outline === 'bbox' && hostSettings.masking.blur) {
+          } else if (hostSettings.outline === 'bbox') {
             createVideoBlurBoxOverlays(video, imagePrediction, hostSettings);
           }
 
@@ -116,9 +116,9 @@ async function processRegularFramePredictions(
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           const imagePrediction = toImagePrediction(framePred);
 
-          if (hostSettings.outline === 'segment' && hostSettings.masking.blur) {
+          if (hostSettings.outline === 'segment') {
             await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
-          } else if (hostSettings.outline === 'bbox' && hostSettings.masking.blur) {
+          } else if (hostSettings.outline === 'bbox') {
             createVideoBlurBoxOverlays(video, imagePrediction, hostSettings);
           }
 

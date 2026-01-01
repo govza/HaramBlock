@@ -25,7 +25,7 @@ export const applyPredictionsStyling = (
       policy: hostSettings.policy,
     });
 
-    if (imagePrediction && hostSettings.masking.blur) {
+    if (imagePrediction) {
       const overlayPromise = new Promise<void>(resolve => {
         requestAnimationFrame(() => {
           logger.withTag('predictionStyling').debug('Creating overlay', {
