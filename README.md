@@ -62,7 +62,7 @@ that exceeds your configured strictness threshold.
 
 ## Documentation
 
-- Start here: `docs/README.md`
+- Developer docs index: `docs/INDEX.md`
 - Most users only need this README; the `docs/` directory is primarily developer/architecture notes.
 
 ## Development
@@ -76,7 +76,7 @@ pnpm lint         # Check code style
 pnpm fix          # Auto-fix formatting
 ```
 
-For detailed architecture and internals, see `docs/README.md`.
+For detailed architecture and internals, see `docs/INDEX.md`.
 
 ## Contributing
 
