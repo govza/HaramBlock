@@ -33,9 +33,16 @@
     },
     "Masking": {
       "title": "Masquage",
-      "Blur": {
-        "true": "Flou : Activé",
-        "false": "Flou : Désactivé"
+      "BlurTint": {
+        "title": "Teinte du flou",
+        "grayscale": "Niveaux de gris",
+        "dark": "Sombre"
+      },
+      "BlurIntensity": {
+        "title": "Intensité du flou"
+      },
+      "PixelationScale": {
+        "title": "Pixelisation"
       }
     },
     "Masks": {

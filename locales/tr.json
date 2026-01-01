@@ -33,9 +33,16 @@
     },
     "Masking": {
       "title": "Maskeleme",
-      "Blur": {
-        "true": "Bulanıklık: Açık",
-        "false": "Bulanıklık: Kapalı"
+      "BlurTint": {
+        "title": "Bulanıklık Tonu",
+        "grayscale": "Gri tonlama",
+        "dark": "Koyu"
+      },
+      "BlurIntensity": {
+        "title": "Bulanıklık Yoğunluğu"
+      },
+      "PixelationScale": {
+        "title": "Pikselleştirme"
       }
     },
     "Masks": {

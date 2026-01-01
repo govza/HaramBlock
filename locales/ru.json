@@ -33,9 +33,16 @@
     },
     "Masking": {
       "title": "Маскирование",
-      "Blur": {
-        "true": "Размытие: Вкл",
-        "false": "Размытие: Выкл"
+      "BlurTint": {
+        "title": "Оттенок размытия",
+        "grayscale": "Оттенки серого",
+        "dark": "Тёмный"
+      },
+      "BlurIntensity": {
+        "title": "Интенсивность размытия"
+      },
+      "PixelationScale": {
+        "title": "Пикселизация"
       }
     },
     "Masks": {

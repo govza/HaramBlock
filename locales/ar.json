@@ -33,9 +33,16 @@
     },
     "Masking": {
       "title": "التمويه",
-      "Blur": {
-        "true": "ضبابية: مفعّل",
-        "false": "ضبابية: معطّل"
+      "BlurTint": {
+        "title": "لون الضبابية",
+        "grayscale": "رمادي",
+        "dark": "داكن"
+      },
+      "BlurIntensity": {
+        "title": "شدة الضبابية"
+      },
+      "PixelationScale": {
+        "title": "البكسلة"
       }
     },
     "Masks": {
