@@ -3,9 +3,7 @@ import { buildMaskingFilter } from '@/utils/masking';
 import type { IHostSettings } from '@/utils/types';
 
 const removeBlacklistInlineStyles = (element: HTMLImageElement | HTMLVideoElement): void => {
-  // Restore original styles if we saved them
   const originalFilter = element.dataset.haramblockOriginalFilter;
-  const originalOpacity = element.dataset.haramblockOriginalOpacity;
 
   if (originalFilter !== undefined) {
     if (originalFilter) {
@@ -14,15 +12,6 @@ const removeBlacklistInlineStyles = (element: HTMLImageElement | HTMLVideoElemen
       element.style.removeProperty('filter');
     }
     delete element.dataset.haramblockOriginalFilter;
-  }
-
-  if (originalOpacity !== undefined) {
-    if (originalOpacity) {
-      element.style.opacity = originalOpacity;
-    } else {
-      element.style.removeProperty('opacity');
-    }
-    delete element.dataset.haramblockOriginalOpacity;
   }
 };
 
@@ -39,12 +28,8 @@ export const removeInitialVideoStyling = (video: HTMLVideoElement): void => {
 };
 
 const applyBlacklistStyling = (element: HTMLImageElement | HTMLVideoElement, hostSettings: IHostSettings): void => {
-  // Save original styles before modifying
   element.dataset.haramblockOriginalFilter = element.style.filter || '';
-  element.dataset.haramblockOriginalOpacity = element.style.opacity || '';
-
   element.style.setProperty('filter', buildMaskingFilter(hostSettings.masking), 'important');
-  element.style.setProperty('opacity', '0.3', 'important');
   element.classList.add('haramblock-blacklist');
 };
 

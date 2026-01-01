@@ -45,10 +45,6 @@ export const injectPredictionDomStyles = () => {
     .haramblock-initial-blur {
       filter: blur(15px) !important;
     }
-    .haramblock-blacklist {
-      filter: blur(10px) !important;
-      opacity: 0.3 !important;
-    }
     .haramblock-eye-toggle {
       width: 2rem;
       height: 2rem;
