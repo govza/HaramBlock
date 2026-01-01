@@ -1,4 +1,4 @@
-import { IconEventListener } from '@/entrypoints/background/events';
+import { HostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
 import {
   HostSettingsService,
   ImageCacheService,
@@ -46,6 +46,13 @@ export default defineBackground({
 
     // Initialize all event listeners
     iconEventListener.initialize();
+
+    // Initialize hostSettings observer to react to database changes
+    const hostSettingsObserver = new HostSettingsObserver();
+    hostSettingsObserver.initialize(hostname => {
+      backgroundRpc.emitHostSettingsUpdated(hostname);
+      void iconService.updateIconForActiveTab();
+    });
 
     // Initialize inference library
     void initializeInference();
