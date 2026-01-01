@@ -434,6 +434,7 @@ const renderUnifiedCanvasMask = (
 ): void => {
   if (!allMasks || !allMasks.length) return;
   if (overlayWidth <= 0 || overlayHeight <= 0) return;
+  if (contentWidth <= 0 || contentHeight <= 0) return;
 
   const dWidth = contentWidth;
   const dHeight = contentHeight;
