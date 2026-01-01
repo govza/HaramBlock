@@ -4,7 +4,9 @@ import { t } from '@/utils/i18n';
 export const BlurIntensity = () => {
   const { hostSettings, hostSettingsRepository } = useHostDataContext();
 
-  const isHidden = hostSettings.policy !== 'process' || hostSettings.outline !== 'bbox';
+  // Show for blacklist (always) or process mode with bbox outline
+  const isHidden =
+    hostSettings.policy !== 'blacklist' && (hostSettings.policy !== 'process' || hostSettings.outline !== 'bbox');
 
   if (isHidden) return null;
 
