@@ -444,14 +444,11 @@ function renderVideoMask(
     dHeight,
   );
 
-  // Apply blur tint effect via CSS filter (hardware-accelerated)
-  if (masking.blurTint === 'grayscale') {
-    canvas.style.filter = 'grayscale(100%)';
-  } else if (masking.blurTint === 'dark') {
-    canvas.style.filter = 'brightness(0.4)';
-  } else {
-    canvas.style.filter = '';
-  }
+  // Apply tint effects via CSS filter (hardware-accelerated)
+  const filters: string[] = [];
+  if (masking.grayscale) filters.push('grayscale(100%)');
+  if (masking.dark) filters.push('brightness(0.4)');
+  canvas.style.filter = filters.length ? filters.join(' ') : '';
 }
 
 /**

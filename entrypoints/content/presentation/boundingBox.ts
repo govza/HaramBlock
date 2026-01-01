@@ -116,11 +116,11 @@ export const createBlurBoxOverlays = (
       // Dynamic blur intensity: 1-100% maps to 1-30px
       const blurPx = Math.round(hostSettings.masking.blurIntensity * 0.3);
       let backdropFilter = `blur(${blurPx}px)`;
-      if (hostSettings.masking.blurTint === 'grayscale') {
+      if (hostSettings.masking.grayscale) {
         backdropFilter += ' grayscale(100%)';
       }
       blurBox.style.backdropFilter = backdropFilter;
-      if (hostSettings.masking.blurTint === 'dark') {
+      if (hostSettings.masking.dark) {
         blurBox.style.background = 'rgba(0, 0, 0, 0.6)';
       }
 
