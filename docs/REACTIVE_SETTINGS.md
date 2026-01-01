@@ -67,9 +67,8 @@ Most UI code writes settings through repositories rather than calling Dexie dire
 The popup/options UIs use a small stack of hooks + context:
 
 - `useHostname()`: `hooks/useHostname.ts` (current tab hostname detection)
-- `useHostSettings(hostname)`: `hooks/useHostSettings.ts`
-  - returns `{ hostSettings, hostSettingsRepository, isLoading }`
 - `HostDataProvider`: `entrypoints/popup/context/HostDataContext.tsx`
+  - uses `useLiveQuery` directly for reactive settings
   - combines hostname + settings and exposes:
     - `hostSettings`, `currentHostname`, `hostSettingsRepository`, `imageCacheRepository`
     - global/local mode helpers: `switchToGlobal()`, `switchToLocal()`, `isGlobalMode`
