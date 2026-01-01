@@ -115,14 +115,24 @@ function handleClick(e: Event): void {
   const registered = registeredElements.get(currentElement);
   if (!registered) return;
 
+  // Save element reference - toggleCallback may unregister/re-register
+  const clickedElement = currentElement;
   const nextForcedVisibility = getNextState(registered.prediction.forcedVisibility);
 
   if (toggleCallback) {
     toggleCallback(registered.prediction.src, nextForcedVisibility);
   }
 
-  registered.prediction.forcedVisibility = nextForcedVisibility;
-  updateButtonIcon(registered.prediction);
+  // After toggle, get fresh registered data and keep eye visible
+  const freshRegistered = registeredElements.get(clickedElement);
+  if (freshRegistered) {
+    currentElement = clickedElement;
+    updateButtonIcon(freshRegistered.prediction);
+    positionEye(clickedElement);
+    if (eyeButton) {
+      eyeButton.style.display = 'flex';
+    }
+  }
   resetHideTimer();
 }
 

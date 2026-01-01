@@ -201,14 +201,11 @@ export class ImageProcessor {
       this.clearOverlays(img);
       if (forcedVisibility === 'blocked') {
         applyBlacklistStyling(img, this.hostSettings);
-        registerQuickToggle(img, updated, this.hostSettings.quickToggle);
-      } else if (forcedVisibility === 'visible') {
-        registerQuickToggle(img, updated, this.hostSettings.quickToggle);
-      } else if (updated.predictions.length > 0) {
+      } else if (forcedVisibility === null && updated.predictions.length > 0) {
         void applyPredictionsStyling([img], [updated], this.hostSettings);
-      } else {
-        registerQuickToggle(img, updated, this.hostSettings.quickToggle);
       }
+      // Always register quick toggle for all states
+      registerQuickToggle(img, updated, this.hostSettings.quickToggle);
     }
   }
 
