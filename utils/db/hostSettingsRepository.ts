@@ -180,3 +180,5 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     await super.delete(effectiveHostname);
   }
 }
+
+export const hostSettingsRepository = new HostSettingsRepository();
