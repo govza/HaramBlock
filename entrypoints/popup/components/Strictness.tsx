@@ -28,7 +28,7 @@ export const Strictness = () => {
           void handleChange(e);
         }}
         disabled={isDisabled}
-        className={`w-full accent-accent md:w-1/2 ${isDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
+        className={`w-full accent-accent ${isDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
       />
     </div>
   );
