@@ -56,12 +56,15 @@ export async function useHostData(
   // Fetch initial data
   await refresh();
 
-  // Setup listener for settings updates (predictions are updated via inference results)
+  // This triggers for both hostname-specific AND global settings changes
   const unsubscribe = onHostSettingsUpdatedForHostname(effectiveHostname, () => {
-    // Refresh the page when settings change to ensure clean state
-    // Small delay to ensure background script has finished processing
+    // Only reload if settings actually changed for this hostname
     globalThis.setTimeout(() => {
-      globalThis.location.reload();
+      void fetchData().then(newData => {
+        if (JSON.stringify(newData.settings) !== JSON.stringify(settings)) {
+          globalThis.location.reload();
+        }
+      });
     }, 500);
   });
 
