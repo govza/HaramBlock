@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode, type KeyboardEvent } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 import { t } from '@/utils/i18n';
 
@@ -28,8 +28,8 @@ export const FlipCard = ({ children, isFlipped, onFlip }: FlipCardProps) => {
     <FlipCardContext.Provider value={{ isFlipped, flip: onFlip }}>
       <div className='w-full overflow-hidden perspective-[1000px]'>
         <div
-          className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${
-            isFlipped ? '[transform:rotateY(180deg)]' : ''
+          className={`grid transition-transform duration-500 transform-3d ${
+            isFlipped ? 'transform-[rotateY(180deg)]' : ''
           }`}
         >
           {children}
@@ -44,12 +44,12 @@ type FlipCardSideProps = {
 };
 
 const Front = ({ children }: FlipCardSideProps) => {
-  return <div className='[backface-visibility:hidden]'>{children}</div>;
+  return <div className='col-start-1 row-start-1 backface-hidden'>{children}</div>;
 };
 
 const Back = ({ children }: FlipCardSideProps) => {
   return (
-    <div className='absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)]'>
+    <div className='relative col-start-1 row-start-1 backface-hidden transform-[rotateY(180deg)]'>
       {children}
       <div className='pointer-events-none absolute inset-0 bg-danger/10' />
     </div>
@@ -63,23 +63,13 @@ type FlipCardHeaderProps = {
 
 const Header = ({ children, className = '' }: FlipCardHeaderProps) => {
   const { isFlipped, flip } = useFlipCard();
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      flip();
-    }
-  };
-
   const ariaLabel = isFlipped ? t('FlipCard.switchToSiteSettings') : t('FlipCard.switchToDefaultSettings');
 
   return (
     <button
       onClick={flip}
-      onKeyDown={handleKeyDown}
       className={`flex w-full cursor-pointer items-center p-2 transition-colors hover:brightness-110 ${className}`}
       aria-label={ariaLabel}
-      tabIndex={0}
     >
       {children}
     </button>
