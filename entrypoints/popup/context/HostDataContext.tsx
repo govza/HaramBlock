@@ -3,7 +3,6 @@ import { createContext, useContext, useState, useEffect, useMemo, type ReactNode
 
 import { useHostname } from '@/hooks/useHostname';
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
-import { hostSettingsDb } from '@/utils/db/db';
 import { hostSettingsRepository, type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
@@ -43,39 +42,16 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
 
   const currentHostname = isGlobalMode ? DEFAULT_GLOBAL_KEY : detectedHostname;
   const effectiveHostname = useMemo(() => getEffectiveHostname(currentHostname), [currentHostname]);
-  const isGlobal = isGlobalPage(effectiveHostname);
-
-  // Query both hostname-specific and global settings for proper fallback
-  const hostSettingsData = useLiveQuery(async () => {
-    // Get base settings - for non-global, use stored global settings as base
-    let baseSettings = DEFAULT_HOST_SETTINGS;
-    if (!isGlobal) {
-      const storedGlobal = await hostSettingsDb.hostSettings.get(DEFAULT_GLOBAL_KEY);
-      if (storedGlobal) {
-        baseSettings = {
-          ...DEFAULT_HOST_SETTINGS,
-          ...storedGlobal,
-          masking: { ...DEFAULT_HOST_SETTINGS.masking, ...storedGlobal.masking },
-          quickToggle: { ...DEFAULT_HOST_SETTINGS.quickToggle, ...storedGlobal.quickToggle },
-        };
-      }
-    }
-
-    const stored = await hostSettingsDb.hostSettings.get(effectiveHostname);
-    return {
-      ...baseSettings,
-      ...stored,
-      masking: { ...baseSettings.masking, ...stored?.masking },
-      quickToggle: { ...baseSettings.quickToggle, ...stored?.quickToggle },
-      hostname: effectiveHostname,
-      isGlobal,
-    };
-  }, [effectiveHostname, isGlobal]);
+  // Use repository's findByHostname which handles global fallback logic
+  const hostSettingsData = useLiveQuery(
+    () => hostSettingsRepository.findByHostname(effectiveHostname),
+    [effectiveHostname],
+  );
 
   const hostSettings = hostSettingsData || {
     ...DEFAULT_HOST_SETTINGS,
     hostname: effectiveHostname,
-    isGlobal,
+    isGlobal: isGlobalPage(effectiveHostname),
   };
   const isLoading = hostSettingsData === undefined;
   const error = hostnameError;
