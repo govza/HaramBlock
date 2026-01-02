@@ -82,7 +82,7 @@
     "enabled": "Enabled",
     "disabled": "Disabled"
   },
-  "global": "Default settings",
+  "global": "Default Settings",
   "Permissions": {
     "askPermission": "Haram Block requires permission to access all websites",
     "grantPermission": "Grant permission"
@@ -97,5 +97,9 @@
     "reportBug": "Report a Bug",
     "featureRequest": "Feature Request",
     "documentation": "Documentation"
+  },
+  "FlipCard": {
+    "switchToDefaultSettings": "Switch to default settings",
+    "switchToSiteSettings": "Switch to site settings"
   }
 }
