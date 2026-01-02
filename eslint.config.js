@@ -215,6 +215,8 @@ export default [
       'no-restricted-imports': 'off',
       // WebdriverIO's ChainablePromiseElement is thenable but ESLint doesn't detect it
       '@typescript-eslint/await-thenable': 'off',
+      // WebdriverIO globals (describe, it, browser, $) are typed via @wdio/globals/types
+      '@typescript-eslint/no-unsafe-call': 'off',
     },
   },
 ];
