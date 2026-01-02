@@ -30,7 +30,7 @@ export const BlurIntensity = () => {
         onChange={e => {
           void handleChange(e);
         }}
-        className='w-full accent-accent md:w-1/2'
+        className='w-full accent-accent'
       />
     </div>
   );
