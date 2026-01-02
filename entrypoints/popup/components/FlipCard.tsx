@@ -27,11 +27,7 @@ export const FlipCard = ({ children, isFlipped, onFlip }: FlipCardProps) => {
   return (
     <FlipCardContext.Provider value={{ isFlipped, flip: onFlip }}>
       <div className='w-full overflow-hidden perspective-[1000px]'>
-        <div
-          className={`grid transition-transform duration-500 transform-3d ${
-            isFlipped ? 'transform-[rotateY(180deg)]' : ''
-          }`}
-        >
+        <div className={`grid transition-transform duration-500 transform-3d ${isFlipped ? 'rotate-y-180' : ''}`}>
           {children}
         </div>
       </div>
@@ -49,7 +45,7 @@ const Front = ({ children }: FlipCardSideProps) => {
 
 const Back = ({ children }: FlipCardSideProps) => {
   return (
-    <div className='relative col-start-1 row-start-1 backface-hidden transform-[rotateY(180deg)]'>
+    <div className='relative col-start-1 row-start-1 backface-hidden rotate-y-180'>
       {children}
       <div className='pointer-events-none absolute inset-0 bg-danger/10' />
     </div>
