@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
@@ -11,7 +11,7 @@ export const PolicyButton = () => {
     void hostSettingsRepository.togglePolicy(hostSettings.hostname);
   }, [hostSettingsRepository, hostSettings.hostname]);
 
-  const getPolicyConfig = () => {
+  const config = useMemo(() => {
     switch (hostSettings.policy) {
       case 'whitelist':
         return {
@@ -32,9 +32,7 @@ export const PolicyButton = () => {
           bgColor: 'bg-success-dark hover:bg-success',
         };
     }
-  };
-
-  const config = getPolicyConfig();
+  }, [hostSettings.policy]);
 
   return (
     <div className='mb-2'>
