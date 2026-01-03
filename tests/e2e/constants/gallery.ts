@@ -2,7 +2,7 @@
 // If tests fail due to network issues, verify haramblock.com is accessible.
 export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 
-export const INFERENCE_TIMEOUT = 60000;
+export const INFERENCE_TIMEOUT = 60_000;
 
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',

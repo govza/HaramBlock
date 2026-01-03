@@ -7,10 +7,11 @@ interface SwitchRowProps {
   checked: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
+  testId?: string;
 }
 
-const SwitchRow = ({ label, checked, disabled, onChange }: SwitchRowProps) => (
-  <div className='flex items-center justify-between gap-2 rtl:flex-row-reverse'>
+const SwitchRow = ({ label, checked, disabled, onChange, testId }: SwitchRowProps) => (
+  <div className='flex items-center justify-between gap-2 rtl:flex-row-reverse' data-testid={testId}>
     <span className='text-text-muted'>{label}</span>
     <Switch checked={checked} disabled={disabled} onChange={onChange} />
   </div>
@@ -38,12 +39,14 @@ export const QuickToggleSetting = () => {
         checked={hostSettings.quickToggle.unsafeEnabled}
         disabled={isDisabled}
         onChange={handleUnsafeChange}
+        testId='quick-toggle-unsafe'
       />
       <SwitchRow
         label={t('HostSettings.QuickToggle.safeEnabled')}
         checked={hostSettings.quickToggle.safeEnabled}
         disabled={isDisabled}
         onChange={handleSafeChange}
+        testId='quick-toggle-safe'
       />
     </div>
   );
