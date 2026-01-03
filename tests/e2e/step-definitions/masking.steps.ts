@@ -1,6 +1,6 @@
 import { Given, Then } from '@wdio/cucumber-framework';
 
-import { Selectors, INFERENCE_TIMEOUT } from '../constants/gallery.js';
+import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
   const elements = await $$(selector).getElements();

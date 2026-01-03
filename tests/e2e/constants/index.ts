@@ -4,11 +4,17 @@ export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 
 export const INFERENCE_TIMEOUT = 60_000;
 
+export const Timeouts = {
+  SCROLL_SETTLE: 200,
+  EYE_TOGGLE_AUTO_HIDE: 3000,
+} as const;
+
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
   BBOX_OVERLAY: '.haramblock-blur-box',
   BLACKLIST_ATTR: 'data-haramblock-blacklist',
   GALLERY_IMAGE: 'main img',
+  EYE_TOGGLE: '.haramblock-eye-toggle',
 } as const;
 
 export const GalleryMode = {
