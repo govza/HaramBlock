@@ -1,6 +1,6 @@
 import { markProcessed, markThumbnailProcessed } from '@/entrypoints/content/core/status';
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
-import { removeInitialVideoStyling } from '@/entrypoints/content/presentation/initialStyling';
+import { resetVideoStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { logger, extractUrlId } from '@/utils/logger';
 
@@ -44,7 +44,7 @@ async function processThumbnailPredictions(
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           videoMaskOverlays.clearMaskOverlay(video);
           clearBlurBoxOverlay(video);
-          removeInitialVideoStyling(video);
+          resetVideoStyling(video);
           markThumbnailProcessed(video, videoSrc);
           markProcessed(video, videoSrc);
         }
@@ -64,7 +64,7 @@ async function processThumbnailPredictions(
 
           markThumbnailProcessed(video, videoSrc);
           markProcessed(video, videoSrc);
-          removeInitialVideoStyling(video);
+          resetVideoStyling(video);
         }),
       );
     }),
@@ -105,7 +105,7 @@ async function processRegularFramePredictions(
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           videoMaskOverlays.clearMaskOverlay(video);
           clearBlurBoxOverlay(video);
-          removeInitialVideoStyling(video);
+          resetVideoStyling(video);
           markProcessed(video, videoSrc);
         }
         return;
@@ -123,7 +123,7 @@ async function processRegularFramePredictions(
           }
 
           markProcessed(video, videoSrc);
-          removeInitialVideoStyling(video);
+          resetVideoStyling(video);
         }),
       );
     }),

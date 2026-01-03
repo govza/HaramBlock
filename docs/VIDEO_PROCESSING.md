@@ -249,7 +249,7 @@ export async function applyFramePredictionsToDom(
 3. For frames (`frameIndex >= 0`): find videos with `[data-hb-video-status="processing"]`
 4. Apply overlays based on `hostSettings.outline` (segment or bbox)
 5. Emit `hb:inference-timing` event for adaptive throttling
-6. Mark video as processed and remove initial blur styling
+6. Finalize styling and state: remove initial blur and set processed status attributes
 
 ### videoMaskOverlay.ts
 
@@ -268,7 +268,34 @@ Canvas-based overlay for segmentation masks on videos:
 Video-specific styling functions:
 
 - `applyInitialVideoStyling()` - Add blur class before processing
-- `removeInitialVideoStyling()` - Remove blur after predictions applied
+- `resetVideoStyling()` - Clear blur and styling for reprocessing
+- `finalizeVideoProcessing()` - Removes styling and sets final processed status
+  (safe/unsafe/skipped)
+
+#### Processed Status Attributes (Video)
+
+Videos can expose their final processing outcome via boolean data attributes. These are set by
+`finalizeVideoProcessing(video, status)` and cleared by `resetVideoStyling(video)`.
+
+- `data-haramblock-processed-safe` — AI found no unsafe content
+- `data-haramblock-processed-unsafe` — AI detected unsafe content
+- `data-haramblock-processed-skipped` — Processing was skipped (unsupported format, too small, or
+  error)
+
+Notes:
+
+- Exactly one of these attributes is present after finalization; all are removed on reset or when
+  the video `src` changes.
+- Use them for CSS hooks or analytics. Example CSS:
+
+```css
+video[data-haramblock-processed-unsafe] {
+  outline: 2px solid rgba(255, 0, 0, 0.4);
+}
+video[data-haramblock-processed-safe] {
+  outline: 1px dashed rgba(0, 128, 0, 0.3);
+}
+```
 
 ## Configuration
 

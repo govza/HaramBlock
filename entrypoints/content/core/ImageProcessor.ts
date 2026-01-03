@@ -5,9 +5,10 @@ import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOv
 import {
   applyBlacklistStyling,
   applyInitialImageStyling,
+  finalizeImageProcessing,
   hasBlacklistStyling,
   hasInitialStyling,
-  removeInitialImageStyling,
+  resetImageStyling,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import {
@@ -68,6 +69,7 @@ export class ImageProcessor {
 
     // Skip non-processable formats
     if (SVG_PATTERN.test(src)) {
+      finalizeImageProcessing(img, 'skipped');
       return;
     }
 
@@ -242,7 +244,7 @@ export class ImageProcessor {
       // Check size
       if (this.isBelowMinSize(img)) {
         this.pendingInference.delete(src);
-        removeInitialImageStyling(img);
+        finalizeImageProcessing(img, 'skipped');
         return;
       }
 
@@ -250,13 +252,13 @@ export class ImageProcessor {
         await requestImageInference(this.hostSettings.hostname, img);
       } catch {
         this.pendingInference.delete(src);
-        removeInitialImageStyling(img);
+        finalizeImageProcessing(img, 'skipped');
       }
     };
 
     const handleError = () => {
       this.pendingInference.delete(src);
-      removeInitialImageStyling(img);
+      finalizeImageProcessing(img, 'skipped');
     };
 
     if (img.complete && img.naturalWidth > 0) {
@@ -311,15 +313,16 @@ export class ImageProcessor {
       // Clear any existing overlays first
       this.clearOverlays(img);
 
-      // Remove initial blur first
-      removeInitialImageStyling(img);
+      // Finalize processing with status based on AI result (not forced visibility)
+      const hasDetections = prediction.predictions.length > 0;
+      finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
 
       if (prediction.forcedVisibility === 'blocked') {
         applyBlacklistStyling(img, this.hostSettings);
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
       } else if (prediction.forcedVisibility === 'visible') {
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
-      } else if (prediction.predictions.length > 0) {
+      } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
       } else {
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
@@ -360,7 +363,7 @@ export class ImageProcessor {
     imageMaskOverlay.clearMaskOverlay(img);
     clearBlurBoxOverlay(img);
     unregisterQuickToggle(img);
-    removeInitialImageStyling(img);
+    resetImageStyling(img);
   }
 
   private findImagesBySrc(src: string): HTMLImageElement[] {

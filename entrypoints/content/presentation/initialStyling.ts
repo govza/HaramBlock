@@ -1,7 +1,30 @@
-import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
+import {
+  BLACKLIST_ATTR,
+  BLUR_CLASS,
+  PROCESSED_SAFE_ATTR,
+  PROCESSED_SKIPPED_ATTR,
+  PROCESSED_UNSAFE_ATTR,
+} from '@/entrypoints/content/presentation/constants';
 import { buildMaskingFilter } from '@/utils/masking';
 
 import type { IHostSettings } from '@/utils/types';
+
+export type ProcessedStatus = 'safe' | 'unsafe' | 'skipped';
+
+const PROCESSED_ATTRS = [PROCESSED_SAFE_ATTR, PROCESSED_SKIPPED_ATTR, PROCESSED_UNSAFE_ATTR];
+
+const PROCESSED_ATTR_MAP = {
+  safe: PROCESSED_SAFE_ATTR,
+  unsafe: PROCESSED_UNSAFE_ATTR,
+  skipped: PROCESSED_SKIPPED_ATTR,
+} as const;
+
+/** Clear all processed status attributes from element */
+const clearProcessedStatus = (element: HTMLImageElement | HTMLVideoElement): void => {
+  for (const attr of PROCESSED_ATTRS) {
+    element.removeAttribute(attr);
+  }
+};
 
 /** Check if element has any initial styling applied (blur class or blacklist) */
 export const hasInitialStyling = (element: HTMLImageElement | HTMLVideoElement): boolean => {
@@ -28,16 +51,32 @@ const removeBlacklistInlineStyles = (element: HTMLImageElement | HTMLVideoElemen
   element.removeAttribute(BLACKLIST_ATTR);
 };
 
-export const removeInitialImageStyling = (image: HTMLImageElement): void => {
+/** Reset image styling - clears all haramblock classes, blacklist styles, and processed status */
+export const resetImageStyling = (image: HTMLImageElement): void => {
   const classesToRemove = Array.from(image.classList).filter(className => className.startsWith('haramblock'));
   classesToRemove.forEach(className => image.classList.remove(className));
   removeBlacklistInlineStyles(image);
+  clearProcessedStatus(image);
 };
 
-export const removeInitialVideoStyling = (video: HTMLVideoElement): void => {
+/** Reset video styling - clears all haramblock classes, blacklist styles, and processed status */
+export const resetVideoStyling = (video: HTMLVideoElement): void => {
   const classesToRemove = Array.from(video.classList).filter(className => className.startsWith('haramblock'));
   classesToRemove.forEach(className => video.classList.remove(className));
   removeBlacklistInlineStyles(video);
+  clearProcessedStatus(video);
+};
+
+/** Finalize image processing - clears styling and sets the final processed status */
+export const finalizeImageProcessing = (image: HTMLImageElement, status: ProcessedStatus): void => {
+  resetImageStyling(image);
+  image.setAttribute(PROCESSED_ATTR_MAP[status], '');
+};
+
+/** Finalize video processing - clears styling and sets the final processed status */
+export const finalizeVideoProcessing = (video: HTMLVideoElement, status: ProcessedStatus): void => {
+  resetVideoStyling(video);
+  video.setAttribute(PROCESSED_ATTR_MAP[status], '');
 };
 
 export const applyBlacklistStyling = (
