@@ -40,6 +40,8 @@ export const PolicyButton = () => {
         onClick={togglePolicy}
         className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg p-2 transition-colors ${config.bgColor}`}
         aria-label={`${t('HostSettings.Policy.title')}: ${config.label}`}
+        data-testid='policy-toggle'
+        data-policy={hostSettings.policy}
       >
         <svg className='h-6 w-6' viewBox='0 0 24 24'>
           <title>{config.label}</title>
