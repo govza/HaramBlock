@@ -58,8 +58,8 @@ pnpm zip
 # Run all e2e tests
 pnpm e2e
 
-# Run specific feature file
-pnpm e2e -- --spec tests/e2e/features/policy.feature
+# Run tests by tag (e.g., @policy, @masking, @quick-toggle)
+pnpm e2e --cucumberOpts.tagExpression="@policy"
 ```
 
 ### Project Structure
@@ -142,6 +142,28 @@ Given('I set the policy to {string}', async (policy: string) => { ... });
 When('I set the policy to {string}', async (policy: string) => { ... });
 ```
 
+#### Avoid Explicit Timeouts
+
+Never use `browser.pause()` with arbitrary delays when there's something concrete to wait for.
+Instead, use `browser.waitUntil()` with a condition:
+
+```typescript
+// ❌ Bad - arbitrary timeout
+await browser.pause(5000);
+
+// ✅ Good - wait for specific condition (uses default timeout from config)
+await browser.waitUntil(async () =>
+  browser.execute((img: HTMLElement) => img.complete && img.naturalHeight > 0, image)
+);
+
+// ✅ Good - wait for element attribute
+await browser.waitUntil(async () => (await element.getAttribute('data-processed')) !== null);
+```
+
+Don't specify `{ timeout: ... }` unless you need a value different from the configured default.
+Explicit pauses make tests slow and flaky. Only use them when there's genuinely no observable state
+to wait for (e.g., waiting for React state to settle after a click).
+
 #### Wait After Popup Clicks
 
 The popup uses React with async state updates. Pause after clicking buttons to allow state to
@@ -153,6 +175,26 @@ await browser.pause(300);
 ```
 
 No pause is needed after navigation - `waitUntil` assertions handle async waiting.
+
+#### Verify State Changes After Toggle Clicks
+
+When toggling settings that persist to IndexedDB, always verify the state actually changed before
+proceeding. Extension state updates are async and may fail silently:
+
+```typescript
+const isChecked = await checkbox.isSelected();
+if (isChecked !== enabled) {
+  await browser.execute((el: HTMLElement) => el.click(), label);
+  await browser.pause(500);
+  // Verify the toggle changed
+  const newState = await checkbox.isSelected();
+  if (newState !== enabled) {
+    throw new Error(`Failed to set toggle to ${enabled}. Current state: ${newState}`);
+  }
+}
+```
+
+This pattern catches cases where clicks don't register or state doesn't persist correctly.
 
 ### Adding Test IDs to Components
 
