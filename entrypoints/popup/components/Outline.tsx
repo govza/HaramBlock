@@ -24,6 +24,8 @@ export const Outline = () => {
           }`}
           onClick={() => handleChange('bbox')}
           disabled={isDisabled}
+          data-testid='outline-bbox'
+          aria-pressed={hostSettings.outline === 'bbox'}
           style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
           {t('HostSettings.Outline.bbox')}
@@ -36,6 +38,8 @@ export const Outline = () => {
           }`}
           onClick={() => handleChange('segment')}
           disabled={isDisabled}
+          data-testid='outline-segment'
+          aria-pressed={hostSettings.outline === 'segment'}
           style={{ opacity: isDisabled ? 0.5 : 1 }}
         >
           {t('HostSettings.Outline.segment')}
