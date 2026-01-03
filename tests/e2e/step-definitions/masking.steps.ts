@@ -29,12 +29,18 @@ Given('the outline type is set to {string}', async (outlineType: string) => {
     }
   }
 
-  // Set outline type
-  const buttonText = outlineType === 'bbox' ? 'Bounding box' : 'Segment';
-  const button = await $(`button=${buttonText}`).getElement();
+  // Set outline type and wait for selected state (class reflects selection)
+  const testId = outlineType === 'bbox' ? 'outline-bbox' : 'outline-segment';
+  const button = await $(`[data-testid="${testId}"]`).getElement();
   await browser.execute((el: HTMLElement) => el.click(), button);
 
-  await browser.pause(300);
+  await browser.waitUntil(
+    async () => {
+      const pressed = await button.getAttribute('aria-pressed');
+      return pressed === 'true';
+    },
+    { timeout: 5000, timeoutMsg: `Failed to set outline to ${outlineType}` },
+  );
 });
 
 Then('I should see at least {string} segment mask overlays with canvas', async (count: string) => {
