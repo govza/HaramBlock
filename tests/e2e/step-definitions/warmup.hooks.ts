@@ -1,5 +1,7 @@
 import { BeforeAll } from '@wdio/cucumber-framework';
 
+import { IS_CI } from '../config/wdio.browser.conf.js';
+
 const setPolicyProcess = async (): Promise<void> => {
   const extensionPath = await browser.getExtensionPath();
   await browser.url(`${extensionPath}/popup.html`);
@@ -17,7 +19,6 @@ const setPolicyProcess = async (): Promise<void> => {
 };
 
 BeforeAll(async () => {
-  const IS_CI = Boolean(process.env.IS_CI);
   if (!IS_CI) return;
 
   try {

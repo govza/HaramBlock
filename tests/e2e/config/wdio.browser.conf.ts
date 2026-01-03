@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { config as baseConfig } from './wdio.conf.js';
 import { getChromeExtensionPath, getFirefoxExtensionPath } from '../utils/extension-path.js';
 
-const IS_CI = Boolean(process.env.CI);
+export const IS_CI = Boolean(process.env.CI);
 const IS_FIREFOX = Boolean(process.env.IS_FIREFOX);
 
 const outputDir = join(import.meta.dirname, '../../../.output');
