@@ -40,7 +40,7 @@ type FlipCardSideProps = {
 };
 
 const Front = ({ children }: FlipCardSideProps) => {
-  return <div className='col-start-1 row-start-1 backface-hidden'>{children}</div>;
+  return <div className='col-start-1 row-start-1 rotate-y-0 backface-hidden'>{children}</div>;
 };
 
 const Back = ({ children }: FlipCardSideProps) => {

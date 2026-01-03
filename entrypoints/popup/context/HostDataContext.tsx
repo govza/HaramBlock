@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, type ReactNode } from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
@@ -56,25 +56,6 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const isLoading = hostSettingsData === undefined;
   const error = hostnameError;
   const imageCacheRepository = useMemo(() => new ImageCacheRepository(), []);
-
-  // Check global settings to enforce global mode if policy !== "process"
-  useEffect(() => {
-    const checkGlobalSettings = async () => {
-      try {
-        const globalSettings = await hostSettingsRepository.findByHostname(DEFAULT_GLOBAL_KEY);
-
-        if (globalSettings.policy !== 'process') {
-          setIsGlobalMode(true);
-        }
-      } catch {
-        // Do nothing
-      }
-    };
-
-    if (!isLoading) {
-      void checkGlobalSettings();
-    }
-  }, [isLoading]);
 
   const switchToGlobal = () => setIsGlobalMode(true);
   const switchToLocal = () => setIsGlobalMode(false);
