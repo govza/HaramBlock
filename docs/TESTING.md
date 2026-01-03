@@ -60,6 +60,21 @@ pnpm e2e
 
 # Run tests by tag (e.g., @policy, @masking, @quick-toggle)
 pnpm e2e --cucumberOpts.tagExpression="@policy"
+
+# Run smoke tests only (quick validation)
+pnpm e2e --cucumberOpts.tagExpression="@smoke"
+```
+
+#### Firefox E2E Tests
+
+To run E2E tests on Firefox, build the Firefox extension zip and use the Firefox-specific command:
+
+```bash
+# Build Firefox extension
+pnpm zip:firefox
+
+# Run E2E tests on Firefox
+pnpm e2e:firefox
 ```
 
 ### Project Structure

@@ -1,6 +1,6 @@
 import { Given, Then } from '@wdio/cucumber-framework';
 
-import { Selectors, INFERENCE_TIMEOUT } from '../constants/gallery.js';
+import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
 
 const VALID_POLICIES = ['whitelist', 'blacklist', 'process'];
 
@@ -17,23 +17,27 @@ const clickUntilPolicy = async (
   targetPolicy: string,
   maxClicks: number,
 ): Promise<void> => {
+  const policiesSeen: string[] = [];
+
   /* eslint-disable no-await-in-loop */
   for (let i = 0; i < maxClicks; i++) {
     const currentPolicy = await policyButton.getAttribute('data-policy');
+    policiesSeen.push(currentPolicy ?? 'null');
     if (currentPolicy === targetPolicy) {
       return;
     }
-    // Use JS click to avoid "element click intercepted" errors from child elements
     await browser.execute((el: HTMLElement) => el.click(), policyButton);
-    // Wait for React state to settle after click
     await browser.pause(500);
   }
   /* eslint-enable no-await-in-loop */
 
-  // Final verification that policy was set
   const finalPolicy = await policyButton.getAttribute('data-policy');
+  policiesSeen.push(finalPolicy ?? 'null');
   if (finalPolicy !== targetPolicy) {
-    throw new Error(`Failed to set policy to "${targetPolicy}". Current policy: "${finalPolicy}"`);
+    throw new Error(
+      `Failed to set policy to "${targetPolicy}" after ${maxClicks} clicks. ` +
+        `Policy sequence: [${policiesSeen.join(' → ')}]`,
+    );
   }
 };
 

@@ -6,7 +6,7 @@ import {
   Selectors,
   INFERENCE_TIMEOUT,
   type GallerySizeType,
-} from '../constants/gallery.js';
+} from '../constants/index.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
   const elements = await $$(selector).getElements();
@@ -60,24 +60,25 @@ Then('I should see {string} images loaded', async (count: string) => {
 
 Then('I should see {string} mask overlays', async (count: string) => {
   const expectedCount = parseInt(count, 10);
-  let actualCount = 0;
 
   if (expectedCount === 0) {
     const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
     const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
     await expect(segmentCount + bboxCount).toBe(0);
   } else {
-    await browser.waitUntil(
-      async () => {
-        const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
-        const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
-        actualCount = segmentCount + bboxCount;
-        return actualCount >= expectedCount;
-      },
-      {
+    const getTotalOverlays = async (): Promise<number> => {
+      const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
+      const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
+      return segmentCount + bboxCount;
+    };
+
+    try {
+      await browser.waitUntil(async () => (await getTotalOverlays()) >= expectedCount, {
         timeout: INFERENCE_TIMEOUT,
-        timeoutMsg: `Expected ${expectedCount} mask overlays, but found ${actualCount}`,
-      },
-    );
+      });
+    } catch {
+      const actualCount = await getTotalOverlays();
+      throw new Error(`Expected ${expectedCount} mask overlays, but found ${actualCount}`);
+    }
   }
 });
