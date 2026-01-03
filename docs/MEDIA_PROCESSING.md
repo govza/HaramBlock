@@ -146,7 +146,34 @@ Core CSS injection module that handles global style management.
 Handles initial protective styling applied to media elements before AI analysis.
 
 - `applyInitialImageStyling()` - Applies protective blur while waiting for AI analysis
-- `removeInitialImageStyling()` - Removes protective styling after AI analysis
+- `resetImageStyling()` - Clears all styling for reprocessing
+- `finalizeImageProcessing()` - Removes styling and sets final processed status
+  (safe/unsafe/skipped)
+
+##### Processed Status Attributes
+
+Media elements can expose their final processing outcome via boolean data attributes. These are set
+by `finalizeImageProcessing(image, status)` and cleared by `resetImageStyling(image)`.
+
+- `data-haramblock-processed-safe` — AI found no unsafe content
+- `data-haramblock-processed-unsafe` — AI detected unsafe content
+- `data-haramblock-processed-skipped` — Processing was skipped (unsupported format, too small, or
+  error)
+
+Notes:
+
+- Exactly one of these attributes is present after finalization; all are removed on reset or when
+  the image `src` changes.
+- Use them for CSS hooks or analytics. Example CSS:
+
+```css
+img[data-haramblock-processed-unsafe] {
+  outline: 2px solid rgba(255, 0, 0, 0.4);
+}
+img[data-haramblock-processed-safe] {
+  outline: 1px dashed rgba(0, 128, 0, 0.3);
+}
+```
 
 #### `predictionStyling.ts`
 
