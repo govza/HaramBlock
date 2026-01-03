@@ -34,6 +34,6 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
     // Firefox: Disable - use structured clone which handles ImageBitmap natively
     transfer: USE_MESSAGE_CHANNEL,
     // Increase timeout to handle slow service worker wake-up + WebGL/model initialization
-    heartbeatTimeout: 15000,
+    heartbeatTimeout: 25000,
   },
 );
