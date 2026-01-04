@@ -1,6 +1,6 @@
 import { Given, Then } from '@wdio/cucumber-framework';
 
-import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
+import { Selectors } from '../constants/index.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
   const elements = await $$(selector).getElements();
@@ -46,33 +46,12 @@ Given('the outline type is set to {string}', async (outlineType: string) => {
 Then('I should see at least {string} segment mask overlays with canvas', async (count: string) => {
   const minExpected = parseInt(count, 10);
   const canvasSelector = `${Selectors.SEGMENT_OVERLAY} canvas`;
-
-  try {
-    await browser.waitUntil(async () => (await getElementCount(canvasSelector)) >= minExpected, {
-      timeout: INFERENCE_TIMEOUT,
-      interval: 1000,
-    });
-  } catch {
-    const actualCount = await getElementCount(canvasSelector);
-    throw new Error(`Expected at least ${minExpected} segment mask overlays with canvas, but found ${actualCount}`);
-  }
-
-  const finalCount = await getElementCount(canvasSelector);
-  expect(finalCount).toBeGreaterThanOrEqual(minExpected);
+  const actualCount = await getElementCount(canvasSelector);
+  expect(actualCount).toBeGreaterThanOrEqual(minExpected);
 });
 
 Then('I should see at least {string} bounding box overlays', async (count: string) => {
   const minExpected = parseInt(count, 10);
-
-  try {
-    await browser.waitUntil(async () => (await getElementCount(Selectors.BBOX_OVERLAY)) >= minExpected, {
-      timeout: INFERENCE_TIMEOUT,
-    });
-  } catch {
-    const actualCount = await getElementCount(Selectors.BBOX_OVERLAY);
-    throw new Error(`Expected at least ${minExpected} bounding boxes, but found ${actualCount}`);
-  }
-
-  const finalCount = await getElementCount(Selectors.BBOX_OVERLAY);
-  expect(finalCount).toBeGreaterThanOrEqual(minExpected);
+  const actualCount = await getElementCount(Selectors.BBOX_OVERLAY);
+  expect(actualCount).toBeGreaterThanOrEqual(minExpected);
 });

@@ -1,12 +1,6 @@
 import { When, Then } from '@wdio/cucumber-framework';
 
-import {
-  buildGalleryUrl,
-  GalleryMode,
-  Selectors,
-  INFERENCE_TIMEOUT,
-  type GallerySizeType,
-} from '../constants/index.js';
+import { buildGalleryUrl, GalleryMode, Selectors, type GallerySizeType } from '../constants/index.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
   const elements = await $$(selector).getElements();
@@ -60,25 +54,7 @@ Then('I should see {string} images loaded', async (count: string) => {
 
 Then('I should see {string} mask overlays', async (count: string) => {
   const expectedCount = parseInt(count, 10);
-
-  if (expectedCount === 0) {
-    const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
-    const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
-    await expect(segmentCount + bboxCount).toBe(0);
-  } else {
-    const getTotalOverlays = async (): Promise<number> => {
-      const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
-      const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
-      return segmentCount + bboxCount;
-    };
-
-    try {
-      await browser.waitUntil(async () => (await getTotalOverlays()) >= expectedCount, {
-        timeout: INFERENCE_TIMEOUT,
-      });
-    } catch {
-      const actualCount = await getTotalOverlays();
-      throw new Error(`Expected ${expectedCount} mask overlays, but found ${actualCount}`);
-    }
-  }
+  const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
+  const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
+  expect(segmentCount + bboxCount).toBe(expectedCount);
 });
