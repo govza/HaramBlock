@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { config as baseConfig } from './wdio.conf.js';
 import { getChromeExtensionPath, getFirefoxExtensionPath } from '../utils/extension-path.js';
 
-export const IS_CI = Boolean(process.env.CI);
+const TEST_CI = false;
+export const IS_CI = Boolean(process.env.CI) || TEST_CI;
 const IS_FIREFOX = Boolean(process.env.IS_FIREFOX);
 
 const outputDir = join(import.meta.dirname, '../../../.output');
@@ -31,7 +32,7 @@ const extPath = join(outputDir, latestExtension);
 const bundledExtension = (await readFile(extPath)).toString('base64');
 
 const ciChromeArgs = [
-  '--headless=new',
+  ...(!TEST_CI ? ['--headless=new'] : []),
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--enable-unsafe-swiftshader',
