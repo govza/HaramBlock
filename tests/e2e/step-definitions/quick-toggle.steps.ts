@@ -16,14 +16,15 @@ const setQuickToggle = async (type: 'safe' | 'unsafe', enabled: boolean): Promis
   // Wait for toggle to be enabled (policy must be 'process')
   await browser.waitUntil(
     async () => {
-      const isDisabled = await browser.execute((el: HTMLInputElement) => el.disabled, checkbox);
+      const isDisabled: boolean = await browser.execute(el => (el as HTMLInputElement).disabled, checkbox);
       return !isDisabled;
     },
     { timeout: 5000, timeoutMsg: 'Quick toggle checkbox is still disabled' },
   );
 
   const getCheckedState = async (): Promise<boolean> => {
-    return browser.execute((el: HTMLInputElement) => el.checked, checkbox);
+    const checked: boolean = await browser.execute(el => (el as HTMLInputElement).checked, checkbox);
+    return checked;
   };
 
   const isChecked = await getCheckedState();
@@ -60,7 +61,7 @@ When('I hover over the first gallery image', async () => {
   const image = await $(Selectors.GALLERY_IMAGE).getElement();
   await image.scrollIntoView({ block: 'center' });
   await browser.pause(Timeouts.SCROLL_SETTLE);
-  await browser.execute((el: HTMLImageElement) => {
+  await browser.execute((el: HTMLElement) => {
     el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
   }, image);
 });
@@ -71,7 +72,7 @@ When('I wait for the eye toggle to auto-hide', async () => {
 
 Then('I should see the eye toggle icon', async () => {
   const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
-  await eyeToggle.waitForDisplayed({ timeout: INFERENCE_TIMEOUT });
+  await eyeToggle.waitForDisplayed();
 });
 
 Then('I should not see the eye toggle icon', async () => {
@@ -83,4 +84,40 @@ Then('I should not see the eye toggle icon', async () => {
       timeoutMsg: 'Expected eye toggle to be hidden',
     });
   }
+});
+
+When('I click the eye toggle icon', async () => {
+  const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
+  await eyeToggle.waitForDisplayed();
+  await browser.execute((el: HTMLElement) => el.click(), eyeToggle);
+});
+
+Then('the first image should be masked', async () => {
+  await browser.waitUntil(async () => {
+    const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
+    const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
+    return overlays.length > 0 || bboxes.length > 0;
+  });
+});
+
+Then('the first image should not be masked', async () => {
+  await browser.waitUntil(async () => {
+    const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
+    const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
+    return overlays.length === 0 && bboxes.length === 0;
+  });
+});
+
+Then('the first image should be blacklisted', async () => {
+  const image = await $(Selectors.GALLERY_IMAGE).getElement();
+  await browser.waitUntil(async () => {
+    const attr = await image.getAttribute(Selectors.BLACKLIST_ATTR);
+    return attr !== null;
+  });
+});
+
+Then('the first image should not be blacklisted', async () => {
+  const image = await $(Selectors.GALLERY_IMAGE).getElement();
+  const attr = await image.getAttribute(Selectors.BLACKLIST_ATTR);
+  expect(attr).toBeNull();
 });
