@@ -12,10 +12,12 @@ Feature: Site Policy
   Scenario: Blacklist policy masks all images
     Given I set the global policy to "blacklist"
     When I go to the "safe" basic gallery with "1" "medium" images
+    And I wait for image processing
     Then all images should be blacklisted
 
   @process
   Scenario: Process policy uses AI detection
     Given I set the global policy to "process"
     When I go to the "not-safe" basic gallery with "1" "medium" images
+    And I wait for image processing
     Then I should see at least "1" segment mask overlays with canvas

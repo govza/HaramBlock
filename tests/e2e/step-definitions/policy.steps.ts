@@ -1,6 +1,6 @@
 import { Given, Then } from '@wdio/cucumber-framework';
 
-import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
+import { Selectors } from '../constants/index.js';
 
 const VALID_POLICIES = ['whitelist', 'blacklist', 'process'];
 
@@ -61,8 +61,6 @@ Given('I set the global policy to {string}', async (policy: string) => {
 });
 
 Then('all images should be blacklisted', async () => {
-  await browser.waitUntil(checkAllImagesBlacklisted, {
-    timeout: INFERENCE_TIMEOUT,
-    timeoutMsg: 'Expected all images to be blacklisted',
-  });
+  const isBlacklisted = await checkAllImagesBlacklisted();
+  expect(isBlacklisted).toBe(true);
 });

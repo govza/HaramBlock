@@ -51,7 +51,8 @@ When('I wait for image processing', async () => {
       const safe = await image.getAttribute('data-haramblock-processed-safe');
       const unsafe = await image.getAttribute('data-haramblock-processed-unsafe');
       const skipped = await image.getAttribute('data-haramblock-processed-skipped');
-      return safe !== null || unsafe !== null || skipped !== null;
+      const blacklisted = await image.getAttribute(Selectors.BLACKLIST_ATTR);
+      return safe !== null || unsafe !== null || skipped !== null || blacklisted !== null;
     },
     { timeout: INFERENCE_TIMEOUT, timeoutMsg: 'Image was not processed in time' },
   );
