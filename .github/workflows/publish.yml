@@ -86,11 +86,14 @@ jobs:
         if: inputs.target == 'all' || inputs.target == 'firefox'
         run: pnpm zip:firefox
 
+      - name: List output directory
+        run: ls -la .output/
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: extension-zips
-          path: .output/*.zip
+          path: .output/haram-block-*.zip
           if-no-files-found: error
 
       - name: Submit to all stores
