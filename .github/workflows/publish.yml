@@ -4,16 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Publish target'
+        description: "Publish target"
         required: true
-        default: 'all'
+        default: "all"
         type: choice
         options:
           - all
           - chrome
           - firefox
+          - edge
       dry_run:
-        description: 'Dry run (test without publishing)'
+        description: "Dry run (test without publishing)"
         required: false
         default: false
         type: boolean
@@ -29,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -59,6 +60,9 @@ jobs:
       FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
       FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
       FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+      EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+      EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+      EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,7 +70,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -75,7 +79,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Chrome extension
-        if: inputs.target == 'all' || inputs.target == 'chrome'
+        if: inputs.target == 'all' || inputs.target == 'chrome' || inputs.target == 'edge'
         run: pnpm zip
 
       - name: Build Firefox extension
@@ -100,3 +104,7 @@ jobs:
       - name: Submit to Firefox Add-ons
         if: inputs.target == 'firefox'
         run: pnpm submit:firefox
+
+      - name: Submit to Edge Add-ons
+        if: inputs.target == 'edge'
+        run: pnpm submit:edge
