@@ -24,16 +24,14 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+          node-version: 22
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -64,37 +62,22 @@ jobs:
       EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
       EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+          node-version: 22
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Chrome extension
-        if: inputs.target == 'all' || inputs.target == 'chrome' || inputs.target == 'edge'
-        run: pnpm zip
-
-      - name: Build Firefox extension
-        if: inputs.target == 'all' || inputs.target == 'firefox'
-        run: pnpm zip:firefox
-
-      - name: List output directory
-        run: ls -la .output/
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: extension-zips
-          path: .output/haram-block-*.zip
-          if-no-files-found: error
+      - name: Zip extensions
+        run: |
+          pnpm zip
+          pnpm zip:firefox
 
       - name: Submit to all stores
         if: inputs.target == 'all'
