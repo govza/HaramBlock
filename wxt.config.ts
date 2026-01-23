@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type WxtViteConfig } from 'wxt';
 
@@ -9,6 +11,19 @@ export default defineConfig({
   vite: () =>
     ({
       plugins: [toUtf8(), tailwindcss()],
+      resolve: {
+        alias: {
+          // Force ONNX Runtime to use the WebGPU bundle (no dynamic imports)
+          'onnxruntime-web/webgpu': path.resolve(
+            __dirname,
+            'node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs',
+          ),
+          'onnxruntime-web': path.resolve(__dirname, 'node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs'),
+        },
+      },
+      optimizeDeps: {
+        exclude: ['onnxruntime-web'],
+      },
     }) as WxtViteConfig,
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   webExt: {

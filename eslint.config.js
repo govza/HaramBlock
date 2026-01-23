@@ -17,6 +17,7 @@ export default [
       '*.min.js',
       'coverage/**',
       'public/models/**',
+      'public/ort/**',
     ],
   },
   js.configs.recommended,
