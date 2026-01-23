@@ -25,6 +25,7 @@ export type ScheduleArgs = {
   hostname: string;
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
+  priority: number;
 };
 
 export class InferenceOrchestrationService {
@@ -79,6 +80,7 @@ export class InferenceOrchestrationService {
       createdAt: new Date(),
       hostSettings,
       mediaMetadata,
+      priority: args.priority,
     };
 
     let task: InferenceTask;

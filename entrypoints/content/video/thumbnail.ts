@@ -57,8 +57,9 @@ export async function processThumbnail(
       bitmap,
       hostname: hostSettings.hostname,
       sessionId,
-      frameIndex: -1, // -1 indicates thumbnail
+      frameIndex: -1,
       timestampSec: 0,
+      priority: 10,
     });
 
     markThumbnailSentForInference(video, src);

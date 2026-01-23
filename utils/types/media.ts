@@ -44,6 +44,7 @@ interface IImageTransferBase {
   height: number;
   metadata: IImageMetadata;
   hostname: string;
+  priority: number;
 }
 
 // Chrome primary: ImageBitmap via MessageChannel (zero-copy transfer)
@@ -83,6 +84,7 @@ interface IVideoFrameTransferBase {
   originalHeight: number; // Original video height (for prediction mapping)
   hostname: string;
   sessionId: string; // Unique playback session identifier
+  priority: number; // Queue priority (higher = runs first)
 }
 
 // Chrome only: ImageBitmap via MessageChannel (zero-copy transfer)

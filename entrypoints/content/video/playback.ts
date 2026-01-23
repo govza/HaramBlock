@@ -37,6 +37,7 @@ export function handleVideoPlayback(
         sessionId,
         frameIndex,
         timestampSec,
+        priority: 10,
       });
     };
 

@@ -7,12 +7,10 @@ export interface InferenceTask {
   createdAt: Date;
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
-  /** Optional pre-loaded bitmap (from MessageChannel transferable) */
-  bitmap?: ImageBitmap;
-  /** Optional blob (from Firefox structured clone) - converted to bitmap by inference library */
-  blob?: Blob;
-  /** Original image dimensions (when bitmap or blob is provided) */
-  originalWidth?: number;
+  priority: number; // Queue priority (higher = runs first)
+  bitmap?: ImageBitmap; // Pre-loaded bitmap (from MessageChannel transferable)
+  blob?: Blob; // Blob (from Firefox structured clone) - converted to bitmap by inference library
+  originalWidth?: number; // Original image dimensions (when bitmap or blob is provided)
   originalHeight?: number;
 }
 
