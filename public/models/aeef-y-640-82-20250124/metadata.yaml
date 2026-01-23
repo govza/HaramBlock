@@ -1,0 +1,106 @@
+id: y640
+name: YOLO11n 640×640 (82 classes)
+description: Ultralytics YOLO11n-seg model trained on d:\dev\projects\ab\model\afeef\datasets\coco-afeef-yolo\dataset.yaml
+author: Ultralytics
+date: '2025-08-24T17:41:39.400215'
+version: 8.3.171
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: segment
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: airplane
+  1: apple
+  2: backpack
+  3: banana
+  4: baseball bat
+  5: baseball glove
+  6: bear
+  7: bed
+  8: bench
+  9: bicycle
+  10: bird
+  11: boat
+  12: book
+  13: bottle
+  14: bowl
+  15: broccoli
+  16: bus
+  17: cake
+  18: car
+  19: carrot
+  20: cat
+  21: cell phone
+  22: chair
+  23: clock
+  24: couch
+  25: cow
+  26: cup
+  27: dining table
+  28: dog
+  29: donut
+  30: elephant
+  31: fire hydrant
+  32: fork
+  33: frisbee
+  34: giraffe
+  35: hair drier
+  36: handbag
+  37: horse
+  38: hot dog
+  39: keyboard
+  40: kite
+  41: knife
+  42: laptop
+  43: microwave
+  44: motorcycle
+  45: mouse
+  46: orange
+  47: oven
+  48: parking meter
+  49: person
+  50: pizza
+  51: potted plant
+  52: refrigerator
+  53: remote
+  54: sandwich
+  55: scissors
+  56: sheep
+  57: sink
+  58: skateboard
+  59: skis
+  60: snowboard
+  61: spoon
+  62: sports ball
+  63: stop sign
+  64: suitcase
+  65: surfboard
+  66: teddy bear
+  67: tennis racket
+  68: tie
+  69: toaster
+  70: toilet
+  71: toothbrush
+  72: traffic light
+  73: train
+  74: truck
+  75: tv
+  76: umbrella
+  77: vase
+  78: wine glass
+  79: zebra
+  80: zfa
+  81: zma
+args:
+  batch: 1
+  half: false
+  int8: false
+  nms: true
+channels: 3
+output_shape:
+- 160
+- 160
