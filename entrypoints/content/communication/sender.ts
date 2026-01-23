@@ -91,12 +91,13 @@ async function sendImageForInference(
   hostname: string,
   image: HTMLImageElement,
   metadata: IImageMetadata,
+  priority: number,
 ): Promise<void> {
   try {
     const src = image.currentSrc || image.src;
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
-    const base = { src, width, height, hostname, metadata };
+    const base = { src, width, height, hostname, metadata, priority };
 
     const transferKind = await resolveImageTransferKind();
     let payload: IImageTransfer | null = null;
@@ -138,9 +139,14 @@ async function sendImageForInference(
  * Queue images for AI processing in background script
  * @param hostname - The hostname for these images
  * @param image - Image element to process
+ * @param priority - Queue priority (higher = runs first). 10 = visible, 0 = offscreen
  * @returns Promise that resolves when images are queued
  */
-export async function requestImageInference(hostname: string, image: HTMLImageElement): Promise<void> {
+export async function requestImageInference(
+  hostname: string,
+  image: HTMLImageElement,
+  priority: number,
+): Promise<void> {
   const metadata: IImageMetadata = {
     kind: 'image',
     contentType: image.dataset.contentType || null,
@@ -153,7 +159,7 @@ export async function requestImageInference(hostname: string, image: HTMLImageEl
 
   const src = image.currentSrc || image.src;
   logger.withTag('sender').info(`Sending image for inference: ${extractUrlId(src)}`);
-  await sendImageForInference(hostname, image, metadata);
+  await sendImageForInference(hostname, image, metadata, priority);
 }
 
 /**
@@ -225,8 +231,9 @@ export interface VideoFrameParams {
   bitmap: ImageBitmap;
   hostname: string;
   sessionId: string;
-  frameIndex: number; // -1 for thumbnail
+  frameIndex: number;
   timestampSec: number;
+  priority: number;
 }
 
 /**
@@ -235,7 +242,7 @@ export interface VideoFrameParams {
  * Firefox: Compressed WebP blob via structured clone
  */
 export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
-  const { video, bitmap, hostname, sessionId, frameIndex, timestampSec } = params;
+  const { video, bitmap, hostname, sessionId, frameIndex, timestampSec, priority } = params;
 
   try {
     const videoUrl = video.currentSrc || video.src;
@@ -252,6 +259,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       originalHeight,
       hostname,
       sessionId,
+      priority,
     };
 
     const transferKind = await resolveVideoFrameTransferKind();

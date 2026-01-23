@@ -28,6 +28,9 @@ const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
 
+const PRIORITY_VISIBLE = 10;
+const PRIORITY_OFFSCREEN = 0;
+
 // =============================================================================
 // ImageProcessor
 // =============================================================================
@@ -50,9 +53,20 @@ export class ImageProcessor {
   private readonly cache = new Map<string, IImagePrediction>();
   private readonly pendingInference = new Set<string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
+  private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
+  private readonly visibilityObserver: IntersectionObserver;
 
   constructor(private readonly hostSettings: IHostSettings) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
+
+    this.visibilityObserver = new IntersectionObserver(
+      entries => {
+        for (const entry of entries) {
+          this.visibilityMap.set(entry.target as HTMLImageElement, entry.isIntersecting);
+        }
+      },
+      { rootMargin: '200px' },
+    );
   }
 
   // ===========================================================================
@@ -66,6 +80,8 @@ export class ImageProcessor {
   process(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
     if (!src) return;
+
+    this.visibilityObserver.observe(img);
 
     // Skip non-processable formats
     if (SVG_PATTERN.test(src)) {
@@ -179,6 +195,7 @@ export class ImageProcessor {
       clearTimeout(timeout);
       this.srcChangeDebounce.delete(img);
     }
+    this.visibilityObserver.unobserve(img);
     clearBlurBoxOverlay(img);
     unregisterQuickToggle(img);
   }
@@ -187,6 +204,7 @@ export class ImageProcessor {
    * Clean up resources when processor is disposed.
    */
   dispose(): void {
+    this.visibilityObserver.disconnect();
     destroyQuickToggle();
   }
 
@@ -249,7 +267,9 @@ export class ImageProcessor {
       }
 
       try {
-        await requestImageInference(this.hostSettings.hostname, img);
+        const isVisible = this.visibilityMap.get(img) ?? false;
+        const priority = isVisible ? PRIORITY_VISIBLE : PRIORITY_OFFSCREEN;
+        await requestImageInference(this.hostSettings.hostname, img, priority);
       } catch {
         this.pendingInference.delete(src);
         finalizeImageProcessing(img, 'skipped');

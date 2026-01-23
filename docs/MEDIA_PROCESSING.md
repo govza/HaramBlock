@@ -66,6 +66,7 @@ Handles image processing with DOM-derived state (no dataset attributes).
 - Deduplicates inference requests via `pendingInference` Set
 - Idempotent operations - safe to call multiple times
 - Self-cleaning overlays via `trackedSrc` tracking
+- Viewport-based priority via `IntersectionObserver` (visible images processed first)
 
 **Public API:**
 
@@ -277,11 +278,54 @@ queueInference(img, src)
 [Async] Wait for load if needed
        │
        ▼
-[Async] Send to background
+Check visibility (IntersectionObserver)
+       │
+       ▼
+[Async] Send to background with priority
        │
        └── No callbacks, no state updates
            Background will broadcast prediction when ready
 ```
+
+### Viewport-Based Priority
+
+Images visible in the viewport are processed before offscreen images. This improves perceived
+performance by prioritizing above-the-fold content.
+
+**How it works:**
+
+1. `ImageProcessor` maintains an `IntersectionObserver` that tracks image visibility
+2. When an image is queued for inference, its visibility is checked
+3. Visible images get `priority=10`, offscreen images get `priority=0`
+4. The background queue (p-queue) processes higher priority tasks first
+
+```typescript
+// In ImageProcessor
+this.visibilityObserver = new IntersectionObserver(
+  entries => {
+    for (const entry of entries) {
+      this.visibilityMap.set(entry.target, entry.isIntersecting);
+    }
+  },
+  { rootMargin: '200px' } // Pre-fetch slightly outside viewport
+);
+
+// When sending for inference
+const isVisible = this.visibilityMap.get(img) ?? false;
+const priority = isVisible ? PRIORITY_VISIBLE : PRIORITY_OFFSCREEN;
+await requestImageInference(hostname, img, priority);
+```
+
+**Priority values:**
+
+| Media Type       | Priority | Description                        |
+| ---------------- | -------- | ---------------------------------- |
+| Visible images   | 10       | In viewport (+ 200px margin)       |
+| Offscreen images | 0        | Below fold or hidden               |
+| Video frames     | 10       | Active playback (user is watching) |
+| Video thumbnails | 10       | Usually visible when processed     |
+
+**Note:** p-queue uses higher number = higher priority (runs first).
 
 ### Prediction Broadcast (Background → Content)
 
@@ -563,6 +607,8 @@ classDiagram
   class ImageProcessor {
     -cache: Map~string, IImagePrediction~
     -pendingInference: Set~string~
+    -visibilityMap: WeakMap~HTMLImageElement, boolean~
+    -visibilityObserver: IntersectionObserver
     +process(img): void
     +processAll(images): void
     +handleSrcChange(img): void
@@ -596,11 +642,14 @@ classDiagram
 - **Parallel data fetching**: Settings and predictions fetched simultaneously on init
 - **RequestAnimationFrame**: Overlay creation batched for smooth rendering
 - **Self-cleaning overlays**: No manual cleanup needed when src changes
+- **Viewport priority**: Visible images processed first via async `IntersectionObserver` (negligible
+  overhead)
 
 | Operation         | Blocking Time | Notes                             |
 | ----------------- | ------------- | --------------------------------- |
 | Add blur class    | <1ms          | Sync, single classList.add        |
 | Check for overlay | <1ms          | Sync, WeakMap lookup              |
+| Check visibility  | <1ms          | Sync, WeakMap lookup              |
 | Queue inference   | <1ms          | Just adds to Set + posts message  |
 | Apply overlay     | ~5-10ms       | Async, uses requestAnimationFrame |
 | Remove blur       | <1ms          | Sync, classList.remove            |

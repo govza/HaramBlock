@@ -67,7 +67,7 @@ export class BackgroundRpc {
    * Firefox: Receives Blob via browser.runtime (structured clone), converts to ImageBitmap
    */
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
-    const { hostname, src, width, height, metadata } = imageData;
+    const { hostname, src, width, height, metadata, priority } = imageData;
 
     if (!hostname) {
       logger.withTag('backgroundRpc').error('Hostname is required for inference request');
@@ -99,6 +99,7 @@ export class BackgroundRpc {
           hostname,
           hostSettings,
           mediaMetadata,
+          priority,
         });
       } else if (imageData.kind === 'blob') {
         const bitmap = await createImageBitmap(imageData.blob);
@@ -107,6 +108,7 @@ export class BackgroundRpc {
           hostname,
           hostSettings,
           mediaMetadata,
+          priority,
         });
       } else {
         await this.inferenceService.scheduleInferenceTask({
@@ -114,6 +116,7 @@ export class BackgroundRpc {
           hostname,
           hostSettings,
           mediaMetadata,
+          priority,
         });
       }
     } catch (error) {
@@ -127,7 +130,7 @@ export class BackgroundRpc {
    * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
    */
   async postInferenceVideoFrame(frameData: IVideoFrameTransfer): Promise<void> {
-    const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight } = frameData;
+    const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight, priority } = frameData;
 
     if (!hostname) {
       logger.withTag('backgroundRpc').error('Hostname is required for video frame inference request');
@@ -161,6 +164,7 @@ export class BackgroundRpc {
           sessionId: frameData.sessionId,
           timestampSec,
         },
+        priority,
       });
     } catch (error) {
       logger.withTag('backgroundRpc').error('Failed to schedule video frame inference:', hostname, error);
