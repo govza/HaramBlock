@@ -4,7 +4,7 @@ import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/c
 import { calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import * as modelLoader from '@/utils/inference/modelLoader';
+import { loadModel } from '@/utils/inference/modelLoader';
 import { loadImageBitmap, tensorFromImageBitmap } from '@/utils/inference/preprocessing';
 import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
@@ -16,8 +16,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
   const startTime = Date.now();
 
   try {
-    const model = modelLoader.getModel() || (await modelLoader.loadModel());
-    const config = modelLoader.getModelConfig();
+    const { model, config } = await loadModel();
 
     // Use provided bitmap/blob (from MessageChannel/structured clone) or fetch from URL
     let imageBitmap: ImageBitmap;

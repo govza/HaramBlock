@@ -224,8 +224,10 @@ Backend is selected based on browser for optimal performance:
 
 ```typescript
 // utils/inference/modelLoader.ts
-const IS_CHROME = import.meta.env.CHROME === true;
-const PREFERRED_BACKEND = IS_CHROME ? 'webgpu' : 'webgl';
+import { IS_CHROME } from '@/utils/constants/environment';
+
+const backend = IS_CHROME ? 'webgpu' : 'webgl';
+await tf.setBackend(backend);
 ```
 
 | Browser | Backend | Inference Time |

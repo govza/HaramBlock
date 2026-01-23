@@ -341,6 +341,13 @@ For each: apply overlay, remove blur class
        └── If img.src changed, overlay auto-cleans via ResizeObserver
 ```
 
+### Why One-By-One (Not Batched)
+
+Images are processed individually by design. This enables priority ordering (visible images before
+offscreen), predictable memory usage, and isolated error handling. Arrays in the API
+(`handlePredictions[]`, `seedCache[]`) exist for receiving cached predictions on page load, not for
+batch sending.
+
 ## Handling Source Changes
 
 Instead of complex version tracking, use **idempotent re-detection**:
