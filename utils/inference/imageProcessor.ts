@@ -1,6 +1,6 @@
 import * as tf from '@tensorflow/tfjs';
 
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 
 export async function loadImageBitmap(imageSrc: string): Promise<{
   imageBitmap: ImageBitmap;
@@ -18,9 +18,7 @@ export async function loadImageBitmap(imageSrc: string): Promise<{
 
     logger
       .withTag('imageProcessor')
-      .debug(
-        `Successfully loaded image from: ${extractUrlId(imageSrc)}... (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms)`,
-      );
+      .debug(`Successfully loaded image from: ${imageSrc} (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms)`);
 
     return { imageBitmap, fetchTime, bitmapTime };
   } catch (error) {

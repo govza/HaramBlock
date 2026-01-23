@@ -1,5 +1,5 @@
 import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import { type IImagePrediction, type IFramePrediction } from '@/utils/types';
 
@@ -52,9 +52,7 @@ export function onImagePredictions(callback: (data: ImagePredictionsMessage) => 
       if (isActive) {
         logger.withTag('listener').debug(
           'onImagePredictions:',
-          data.predictions.map(
-            pred => `${extractUrlId(pred.src)} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
-          ),
+          data.predictions.map(pred => `${pred.src} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`),
         );
         callback(data);
       }
@@ -88,8 +86,7 @@ export function onFramePredictions(callback: (data: FramePredictionsMessage) => 
         logger.withTag('listener').debug(
           'onFramePredictions:',
           data.predictions.map(
-            pred =>
-              `${extractUrlId(pred.videoUrl)}#${pred.frameIndex} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
+            pred => `${pred.videoUrl}#${pred.frameIndex} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
           ),
         );
         callback(data);

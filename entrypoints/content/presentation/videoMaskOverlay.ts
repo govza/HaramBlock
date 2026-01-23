@@ -1,6 +1,6 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 
@@ -401,7 +401,7 @@ function renderVideoMask(
     inferenceSize: { width: originalWidth, height: originalHeight },
     blockSize,
     usingPoster: Boolean(posterImage),
-    videoSrc: extractUrlId(video.src || video.currentSrc),
+    videoSrc: video.src || video.currentSrc,
   });
 
   const tmp = document.createElement('canvas');
