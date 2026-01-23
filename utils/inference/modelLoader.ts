@@ -96,8 +96,8 @@ export async function initializeModel(): Promise<void> {
   // Initialize TF backend (prefer WebGPU, fallback to WebGL), then load the model
   try {
     await setupBackend();
-    const loadedModel = await loadModel();
-    await warmupModel(loadedModel);
+    const { model } = await loadModel();
+    await warmupModel(model);
     logger.withTag('modelLoader').info('AI model loaded and ready for inference');
   } catch (error) {
     logger.withTag('modelLoader').error('Failed to load AI model:', error);
@@ -105,7 +105,7 @@ export async function initializeModel(): Promise<void> {
   }
 }
 
-export async function loadModel(): Promise<tf.GraphModel> {
+export async function loadModel(): Promise<{ model: tf.GraphModel; config: Metadata }> {
   if (model === null) {
     const loadedModel = await tf.loadGraphModel(MODEL_PATH);
 
@@ -115,15 +115,7 @@ export async function loadModel(): Promise<tf.GraphModel> {
 
     model = loadedModel;
   }
-  return model;
-}
-
-export function getModel(): tf.GraphModel | null {
-  return model;
-}
-
-export function isModelReady(): boolean {
-  return model !== null;
+  return { model, config };
 }
 
 export function cleanup(): void {
@@ -135,8 +127,4 @@ export function cleanup(): void {
   } catch (error) {
     logger.withTag('modelLoader').error('Error during model cleanup:', error);
   }
-}
-
-export function getModelConfig(): Metadata {
-  return config;
 }
