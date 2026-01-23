@@ -2,7 +2,7 @@ import { onHostSettingsUpdatedForHostname } from '@/entrypoints/content/communic
 import { requestHostData } from '@/entrypoints/content/communication/sender';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 /**
@@ -34,7 +34,7 @@ export async function useHostData(
       'Fetched data: host settings: ',
       hostData.settings,
       'cached predictions: ',
-      hostData.predictions.map(pred => extractUrlId(pred.src)),
+      hostData.predictions.map(pred => pred.src),
     );
     return hostData;
   };

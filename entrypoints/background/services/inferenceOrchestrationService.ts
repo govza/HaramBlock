@@ -1,5 +1,5 @@
 import { processInferenceTask } from '@/utils/inference';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
@@ -57,7 +57,7 @@ export class InferenceOrchestrationService {
         const cachedPredictions = await this.imageCacheService.getCachedPredictionsBySrc(imageSrc);
 
         if (cachedPredictions && cachedPredictions.length > 0) {
-          logger.withTag('inferenceOrchestrationService').debug(`Cache hit for ${extractUrlId(imageSrc)} on src`);
+          logger.withTag('inferenceOrchestrationService').debug(`Cache hit for ${imageSrc} on src`);
           await this.imageCacheService.cachePredictions(
             cachedPredictions.map(prediction => ({
               ...prediction,
@@ -106,9 +106,7 @@ export class InferenceOrchestrationService {
     logger.withTag('inferenceOrchestrationService').debug(`Scheduling ${taskType} inference task for ${hostname}`);
 
     this.queueService.enqueue(task).catch(error => {
-      logger
-        .withTag('inferenceOrchestrationService')
-        .error(`Failed to enqueue task for ${extractUrlId(imageSrc)}:`, error);
+      logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task for ${imageSrc}:`, error);
     });
   }
 
@@ -118,9 +116,7 @@ export class InferenceOrchestrationService {
         const imagePrediction = await processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
       } catch (error) {
-        logger
-          .withTag('inferenceOrchestrationService')
-          .error(`Error processing image ${extractUrlId(task.imageSrc)}:`, error);
+        logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
       }
     });
   }
@@ -135,9 +131,7 @@ export class InferenceOrchestrationService {
         this.sendImagePredictionsToContent([imagePrediction], task.hostname);
       }
     } catch (error) {
-      logger
-        .withTag('inferenceOrchestrationService')
-        .error(`Error handling success for ${extractUrlId(task.imageSrc)}:`, error);
+      logger.withTag('inferenceOrchestrationService').error(`Error handling success for ${task.imageSrc}:`, error);
     }
   }
 

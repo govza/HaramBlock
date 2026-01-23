@@ -5,7 +5,7 @@ import {
   type ImageTransferKind,
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 
 import type {
@@ -158,7 +158,7 @@ export async function requestImageInference(
   };
 
   const src = image.currentSrc || image.src;
-  logger.withTag('sender').info(`Sending image for inference: ${extractUrlId(src)}`);
+  logger.withTag('sender').info(`Sending image for inference: ${src}`);
   await sendImageForInference(hostname, image, metadata, priority);
 }
 
@@ -283,7 +283,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     }
 
     const frameLabel = frameIndex === -1 ? 'thumbnail' : `frame ${frameIndex}`;
-    logger.withTag('sender').debug(`Sending video ${frameLabel} for inference: ${extractUrlId(videoUrl)}`);
+    logger.withTag('sender').debug(`Sending video ${frameLabel} for inference: ${videoUrl}`);
 
     await backgroundRpc.postInferenceVideoFrame(payload);
   } catch (error) {

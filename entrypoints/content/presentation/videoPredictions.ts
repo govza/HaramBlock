@@ -2,7 +2,7 @@ import { markProcessed, markThumbnailProcessed } from '@/entrypoints/content/cor
 import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { resetVideoStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 
 import type { IHostSettings, IFramePrediction, IImagePrediction } from '@/utils/types';
 
@@ -35,7 +35,7 @@ async function processThumbnailPredictions(
       const videos = findVideosForThumbnailPrediction(framePred.videoUrl);
 
       if (!videos.length) {
-        logger.withTag('videoPredictions').debug('No videos for thumbnail:', extractUrlId(framePred.videoUrl));
+        logger.withTag('videoPredictions').debug('No videos for thumbnail:', framePred.videoUrl);
         return;
       }
 
@@ -84,7 +84,7 @@ async function processRegularFramePredictions(
       const videos = findVideosForFramePrediction(framePred.videoUrl);
 
       if (!videos.length) {
-        logger.withTag('videoPredictions').debug('No videos for frame:', extractUrlId(framePred.videoUrl));
+        logger.withTag('videoPredictions').debug('No videos for frame:', framePred.videoUrl);
         return;
       }
 

@@ -1,4 +1,4 @@
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -54,7 +54,7 @@ export class BackgroundRpc {
   async updateToggleState(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
     try {
       await this.imageCacheService.updateToggleState(src, forcedVisibility);
-      logger.withTag('backgroundRpc').debug(`Updated toggle state for ${extractUrlId(src)}: ${forcedVisibility}`);
+      logger.withTag('backgroundRpc').debug(`Updated toggle state for ${src}: ${forcedVisibility}`);
     } catch (error) {
       logger.withTag('backgroundRpc').error('Failed to update toggle state:', error);
       throw error;
@@ -79,9 +79,7 @@ export class BackgroundRpc {
       hostname,
     });
 
-    logger
-      .withTag('backgroundRpc')
-      .log(`Inference request (${imageData.kind}) for ${extractUrlId(src)} from: ${hostname}`);
+    logger.withTag('backgroundRpc').log(`Inference request (${imageData.kind}) for ${src} from: ${hostname}`);
 
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
@@ -141,7 +139,7 @@ export class BackgroundRpc {
     logger.withTag('backgroundRpc').debug(`postInferenceVideoFrame: ${frameLabel}`, {
       kind: frameData.kind,
       hostname,
-      videoUrl: extractUrlId(videoUrl),
+      videoUrl,
       timestampSec,
     });
 

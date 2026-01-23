@@ -1,6 +1,6 @@
 import { createBlurBoxOverlays } from '@/entrypoints/content/presentation/boundingBox';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 export const applyPredictionsStyling = (
@@ -17,7 +17,7 @@ export const applyPredictionsStyling = (
     const imagePrediction = predictionMap.get(imageSrc);
 
     logger.withTag('predictionStyling').debug('Processing image', {
-      imageSrc: extractUrlId(imageSrc),
+      imageSrc,
       hasImagePrediction: Boolean(imagePrediction),
       masking: hostSettings.masking,
       outline: hostSettings.outline,
@@ -29,7 +29,7 @@ export const applyPredictionsStyling = (
         requestAnimationFrame(() => {
           logger.withTag('predictionStyling').debug('Creating overlay', {
             outline: hostSettings.outline,
-            imageSrc: extractUrlId(imageSrc),
+            imageSrc,
           });
 
           if (hostSettings.outline === 'bbox') {

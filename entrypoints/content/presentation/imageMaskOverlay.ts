@@ -1,6 +1,6 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
 import {
@@ -42,7 +42,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       predictionsLength: imagePrediction?.predictions.length || 0,
       imageComplete: image.complete,
       imageNaturalWidth: image.naturalWidth,
-      imageSrc: extractUrlId(image.src || image.currentSrc),
+      imageSrc: image.src || image.currentSrc,
     });
 
     if (!imagePrediction.predictions.length || !image.complete || image.naturalWidth === 0) {
@@ -51,7 +51,7 @@ class ImageMaskOverlay implements IMediaOverlay {
         predictionsLength: imagePrediction?.predictions.length || 0,
         imageComplete: image.complete,
         imageNaturalWidth: image.naturalWidth,
-        imageSrc: extractUrlId(image.src || image.currentSrc),
+        imageSrc: image.src || image.currentSrc,
       });
       this.clearMaskOverlay(image);
       return;
@@ -192,7 +192,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     logger.withTag('maskOverlay').debug('Creating single mask overlay', {
       imageRect: { width: imageRect.width, height: imageRect.height },
-      imageSrc: extractUrlId(image.src || image.currentSrc),
+      imageSrc: image.src || image.currentSrc,
     });
 
     // Create single overlay container for all masks
@@ -453,7 +453,7 @@ const renderUnifiedCanvasMask = (
     displaySize: { width: dWidth, height: dHeight },
     originalSize: { width: originalWidth, height: originalHeight },
     blockSize,
-    imageSrc: extractUrlId(image.src || image.currentSrc),
+    imageSrc: image.src || image.currentSrc,
   });
 
   const tmp = document.createElement('canvas');

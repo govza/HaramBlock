@@ -6,7 +6,7 @@ import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import * as imageProcessor from '@/utils/inference/imageProcessor';
 import * as modelLoader from '@/utils/inference/modelLoader';
-import { logger, extractUrlId } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
 
 import type { IElementPrediction, IImagePrediction, IMaskTransform, Metadata } from '@/utils/types';
@@ -31,7 +31,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
       imageBitmap = task.bitmap;
       imageWidth = task.originalWidth || imageBitmap.width;
       imageHeight = task.originalHeight || imageBitmap.height;
-      logger.withTag('prediction').debug(`Using pre-loaded bitmap for ${extractUrlId(task.imageSrc)}`);
+      logger.withTag('prediction').debug(`Using pre-loaded bitmap for ${task.imageSrc}`);
     } else if (task.blob) {
       // Convert blob to bitmap (Firefox structured clone path)
       const bitmapStartTime = Date.now();
@@ -39,9 +39,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
       bitmapTime = Date.now() - bitmapStartTime;
       imageWidth = task.originalWidth || imageBitmap.width;
       imageHeight = task.originalHeight || imageBitmap.height;
-      logger
-        .withTag('prediction')
-        .debug(`Created bitmap from blob for ${extractUrlId(task.imageSrc)} in ${bitmapTime}ms`);
+      logger.withTag('prediction').debug(`Created bitmap from blob for ${task.imageSrc} in ${bitmapTime}ms`);
     } else {
       // Fetch and decode image from URL
       const loaded = await imageProcessor.loadImageBitmap(task.imageSrc);
@@ -98,13 +96,13 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     logger
       .withTag('prediction')
       .info(
-        `Completed image inference task for ${extractUrlId(task.imageSrc)} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
+        `Completed image inference task for ${task.imageSrc} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
       );
 
     return result;
   } catch (error) {
-    logger.withTag('prediction').error(`Failed to process image task for ${extractUrlId(task.imageSrc)}:`, error);
-    throw new Error(`Failed to process image task for ${extractUrlId(task.imageSrc)}`, { cause: error });
+    logger.withTag('prediction').error(`Failed to process image task for ${task.imageSrc}:`, error);
+    throw new Error(`Failed to process image task for ${task.imageSrc}`, { cause: error });
   }
 }
 
