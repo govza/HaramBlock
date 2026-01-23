@@ -55,6 +55,7 @@
     "dexie": "^4.2.1",
     "dexie-react-hooks": "^4.2.0",
     "js-yaml": "^4.1.1",
+    "onnxruntime-web": "^1.23.2",
     "p-queue": "^9.0.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
@@ -74,6 +75,7 @@
     "@wdio/local-runner": "9.22.0",
     "@wdio/spec-reporter": "9.20.0",
     "@wdio/types": "9.20.0",
+    "@webgpu/types": "^0.1.68",
     "@wxt-dev/module-react": "^1.1.5",
     "cross-env": "^10.1.0",
     "eslint": "^9.39.2",
