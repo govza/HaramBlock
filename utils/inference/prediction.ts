@@ -4,8 +4,8 @@ import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/c
 import { calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import * as imageProcessor from '@/utils/inference/imageProcessor';
 import * as modelLoader from '@/utils/inference/modelLoader';
+import { loadImageBitmap, tensorFromImageBitmap } from '@/utils/inference/preprocessing';
 import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
 
@@ -42,7 +42,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
       logger.withTag('prediction').debug(`Created bitmap from blob for ${task.imageSrc} in ${bitmapTime}ms`);
     } else {
       // Fetch and decode image from URL
-      const loaded = await imageProcessor.loadImageBitmap(task.imageSrc);
+      const loaded = await loadImageBitmap(task.imageSrc);
       ({ imageBitmap, fetchTime, bitmapTime } = loaded);
       imageWidth = imageBitmap.width;
       imageHeight = imageBitmap.height;
@@ -127,7 +127,7 @@ async function getFramePredictions(
 
   try {
     // Prepare model input
-    const input = imageProcessor.tensorFromImageBitmap(imageBitmap, [modelWidth, modelHeight]);
+    const input = tensorFromImageBitmap(imageBitmap, [modelWidth, modelHeight]);
     // Compute letterbox factors relative to the natural/original image dimensions
     const { scaleX, scaleY, offsetX, offsetY } = calculateScaleFactors(
       originalWidth,
