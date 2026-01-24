@@ -15,7 +15,7 @@ export interface ModelDefinition {
 }
 
 // Contract: each path contains best_web_model/model.json and metadata.yaml
-const MODEL_PATHS = ['/models/aeef-y-640-82-20250124'];
+const MODEL_PATHS = ['/models/afeef-y-320-3-20250124', '/models/aeef-y-640-82-20250124'];
 
 const DEFAULT_MODEL_ID = 'y640';
 
