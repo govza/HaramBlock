@@ -15,8 +15,9 @@ videos, keeping you focused.
 
 ### From Web Stores (Recommended)
 
-- **Chrome**: [Chrome Web Store](#) _(coming soon)_
-- **Firefox**: [Firefox Add-ons](#) _(coming soon)_
+- **Chrome**:
+  [Chrome Web Store](https://chromewebstore.google.com/detail/ffcbndjmpndbajnjcdbnbbmakmaflmok)
+- **Firefox**: [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/haramblock/)
 
 ### Manual Install (Unpacked)
 
