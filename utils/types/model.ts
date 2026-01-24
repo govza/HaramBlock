@@ -32,58 +32,65 @@ export interface CoordinateTransform {
 }
 
 /**
- * Represents raw detection data from the ML model.
+ * Model metadata from YAML file.
  */
-export interface RawDetection {
-  x1: number;
-  x2: number;
-  y1: number;
-  y2: number;
-  score: number;
-  classId: number;
-  className: string;
-}
-
-/**
- * Raw detection data extracted from model detection tensor.
- * Corresponds to pred[:, :4] (bounding boxes), pred[:, 4:6] (score, class), and pred[:, 6:] (segmentation coefficients).
- */
-export interface ModelDetection {
-  /** Bounding box coordinates in model space */
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  /** Detection confidence score */
-  score: number;
-  /** Class label as float (needs Math.floor for integer class ID) */
-  classLabel: number;
-  /** Segmentation coefficients for mask generation (corresponds to pred[:, 6:]) */
-  segmentationCoefficients: number[];
-}
-
-export interface YamlMetadata {
+export interface YamlModelMetadata {
+  id: string;
+  name: string;
   names: { [key: number]: string };
-  stride: number;
   imgsz: [number, number];
+  normalize?: {
+    mean: [number, number, number];
+    std: [number, number, number];
+  };
 
   description?: string;
   author?: string;
+  architecture?: string;
+  encoder?: string;
   date?: string;
   version?: string;
   license?: string;
   docs?: string;
+  task?: string;
+  kind?: string;
   batch?: number;
-
+  channels?: number;
+  size_mb?: number;
+  stride?: number;
   args?: {
-    batch: number;
-    half: boolean;
-    int8: boolean;
-    nms: boolean;
+    batch?: number;
+    half?: boolean;
+    int8?: boolean;
+    nms?: boolean;
   };
+  input_name?: string;
+  output_names?: {
+    masks?: string;
+  };
+  output_shape?: [number, number];
 }
 
-export interface Metadata extends YamlMetadata {
-  outputShape: [number, number, number];
+/**
+ * Model configuration used at runtime.
+ */
+export interface ModelMetadata {
+  names: { [key: number]: string };
+  imgsz: [number, number];
+  /** ImageNet normalization params (null for YOLO-style 0-1 normalization) */
+  normalize: {
+    mean: [number, number, number];
+    std: [number, number, number];
+  } | null;
   namesToCheck: string[];
+  /** Output mask grid dimensions [height, width] for mask transform calculations */
+  outputShape: [number, number];
+  /** ONNX input tensor name */
+  inputName: string;
+  /** ONNX output tensor names (model-specific) */
+  outputNames: {
+    masks: string;
+  };
+  /** Model stride for calculating output dimensions */
+  stride: number;
 }
