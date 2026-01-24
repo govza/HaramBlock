@@ -17,36 +17,31 @@ export interface IRLEMask {
 }
 
 /**
- * Encode a 2D binary mask to RLE format.
- * @param mask - 2D array of 0s and 1s [height][width]
+ * Encode a flat binary mask buffer to RLE format.
+ * @param data - Flat Uint8Array of 0s and 1s in row-major order
+ * @param width - Width of the mask
+ * @param height - Height of the mask
  * @returns RLE-encoded mask
  */
-export function encodeMaskRLE(mask: number[][]): IRLEMask {
-  const height = mask.length;
-  const width = mask[0]?.length || 0;
-
-  const firstRow = mask[0];
-  if (height === 0 || width === 0 || !firstRow) {
+export function encodeMaskRLE(data: Uint8Array, width: number, height: number): IRLEMask {
+  const totalSize = width * height;
+  if (totalSize === 0 || data.length < totalSize) {
     return { width: 0, height: 0, startValue: 0, runs: [] };
   }
 
   const runs: number[] = [];
-  let currentValue = firstRow[0] ? 1 : 0;
+  let currentValue = data[0] ? 1 : 0;
   const startValue = currentValue as 0 | 1;
   let runLength = 0;
 
-  for (let y = 0; y < height; y++) {
-    const row = mask[y];
-    if (!row) continue;
-    for (let x = 0; x < width; x++) {
-      const value = row[x] ? 1 : 0;
-      if (value === currentValue) {
-        runLength++;
-      } else {
-        runs.push(runLength);
-        currentValue = value;
-        runLength = 1;
-      }
+  for (let i = 0; i < totalSize; i++) {
+    const value = data[i] ? 1 : 0;
+    if (value === currentValue) {
+      runLength++;
+    } else {
+      runs.push(runLength);
+      currentValue = value;
+      runLength = 1;
     }
   }
 
