@@ -2,8 +2,8 @@ import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/c
 import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { loadModel, ort } from '@/utils/inference/modelLoader';
-import { loadImageBitmap, preprocessImageForONNX } from '@/utils/inference/preprocessing';
+import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
+import { loadModel, ort } from '@/utils/inference/runtimes/onnx/modelLoader';
 import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
 
@@ -140,14 +140,13 @@ async function getFramePredictions(
 
   try {
     // Preprocess image to NCHW Float32Array
-    const tensorData = preprocessImageForONNX(imageBitmap, config);
+    const tensorData = preprocessImage(imageBitmap, config);
 
     // Create ONNX tensor
     const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, modelHeight, modelWidth]);
 
-    // Run inference - try common input names
-    const inputName = session.inputNames[0] || 'images';
-    const feeds: Record<string, typeof inputTensor> = { [inputName]: inputTensor };
+    // Run inference
+    const feeds: Record<string, typeof inputTensor> = { [config.inputName]: inputTensor };
     const results = await session.run(feeds);
 
     logger.withTag('prediction').debug(`ONNX outputs: ${Object.keys(results).join(', ')}`);
@@ -177,8 +176,9 @@ async function getFramePredictions(
     );
 
     // Process YOLO segmentation output
-    const predictions = processYoloSegmentation(
-      results,
+    // Cast results to expected type - YOLO outputs are always numeric tensors
+    const predictions = processSegmentation(
+      results as Record<string, { data: ArrayLike<number>; dims: readonly number[] }>,
       config,
       scoreThreshold,
       modelWidth,
@@ -214,7 +214,7 @@ async function getFramePredictions(
  * The final instance mask = sigmoid(mask_coeffs @ prototypes)
  * Masks are cropped to remove letterbox padding before encoding.
  */
-function processYoloSegmentation(
+function processSegmentation(
   results: Record<string, { data: ArrayLike<number>; dims: readonly number[] }>,
   config: ModelMetadata,
   scoreThreshold: number,
@@ -343,7 +343,7 @@ function processYoloSegmentation(
           for (let c = 0; c < numMaskCoeffs; c++) {
             // prototypes: [1, 32, H, W] - access as prototypes[c * H * W + y * W + x]
             const protoVal = prototypes[c * protoHeight * protoWidth + y * protoWidth + x] ?? 0;
-            sum += coeffs[c] * protoVal;
+            sum += (coeffs[c] ?? 0) * protoVal;
           }
           // Apply sigmoid and threshold
           const maskVal = 1 / (1 + Math.exp(-sum));
