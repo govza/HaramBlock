@@ -1,5 +1,9 @@
 # Haram Block
 
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](LICENSE)
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/ffcbndjmpndbajnjcdbnbbmakmaflmok)](https://chromewebstore.google.com/detail/ffcbndjmpndbajnjcdbnbbmakmaflmok)
+[![Firefox Add-on](https://img.shields.io/amo/v/haramblock)](https://addons.mozilla.org/en-US/firefox/addon/haramblock/)
+
 Gaze protection — a browser extension that blocks and filters inappropriate content from images and
 videos, keeping you focused.
 
