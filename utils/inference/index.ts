@@ -12,8 +12,6 @@
  * All other implementation details are internal and not exported.
  */
 
-// @ts-expect-error - @inference-runtime is aliased at build time by WXT module
- 
 import { initializeModel, processInferenceTask as runTask } from '@inference-runtime';
 
 import type { IImagePrediction, InferenceTask } from '@/utils/types';
@@ -29,7 +27,6 @@ import type { IImagePrediction, InferenceTask } from '@/utils/types';
  * - Load model metadata
  */
 export async function initializeInference(): Promise<void> {
-   
   await (initializeModel as () => Promise<void>)();
 }
 
@@ -41,6 +38,5 @@ export async function initializeInference(): Promise<void> {
  * @throws {Error} If inference fails
  */
 export function processInferenceTask(task: InferenceTask): Promise<IImagePrediction> {
-   
   return (runTask as (task: InferenceTask) => Promise<IImagePrediction>)(task);
 }
