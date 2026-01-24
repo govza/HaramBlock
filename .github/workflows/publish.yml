@@ -49,6 +49,8 @@ jobs:
     name: Build & Publish
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       DRY_RUN: ${{ inputs.dry_run }}
       CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
