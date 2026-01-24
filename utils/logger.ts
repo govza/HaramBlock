@@ -1,8 +1,31 @@
 import { createConsola, type ConsolaReporter, type LogObject } from 'consola/basic';
 
-// Set log level based on environment
-// 5 = verbose (dev mode), 0 = silent (production mode)
-const logLevel = import.meta.env.DEV ? 5 : 0;
+import { getLogSettings, onLogSettingsChange } from '@/utils/logging/logSettings';
+
+// Cache settings to avoid async lookup on every log
+let cachedConsoleEnabled = false;
+
+// Initialize and listen for changes
+const initLoggerSettings = async () => {
+  try {
+    const settings = await getLogSettings();
+    cachedConsoleEnabled = settings.consoleEnabled;
+
+    onLogSettingsChange(settings => {
+      cachedConsoleEnabled = settings.consoleEnabled;
+    });
+  } catch {
+    // Silent fail - browser.storage may not be available during initial load
+  }
+};
+
+// Initialize on module load (fire and forget)
+void initLoggerSettings();
+
+// Dynamic check: dev mode always logs, production checks setting
+const shouldLog = (): boolean => {
+  return import.meta.env.DEV || cachedConsoleEnabled;
+};
 
 // Style colors per log type (matching consola browser defaults)
 const typeColors: Record<string, string> = {
@@ -13,10 +36,8 @@ const typeColors: Record<string, string> = {
   success: '#2ecc71',
 };
 
-// Beautify URLs in strings by extracting digit identifiers (dev mode only)
+// Shorten URLs in strings by extracting digit identifiers
 const beautifyUrls = (value: unknown): unknown => {
-  if (!import.meta.env.DEV) return value;
-
   if (typeof value === 'string') {
     // Match URLs (http/https/data or paths with image extensions)
     return value.replace(
@@ -60,15 +81,16 @@ const beautifyUrls = (value: unknown): unknown => {
   return value;
 };
 
-// Custom reporter: plain errors, styled everything else
+// Custom reporter: respects shouldLog(), styled output
 const customReporter: ConsolaReporter = {
   log(logObj: LogObject) {
+    if (!shouldLog()) return;
+
     const { tag, type, args } = logObj;
     const beautifiedArgs = args.map(beautifyUrls);
 
     if (type === 'error') {
       const prefix = tag ? `[${tag}] [error]` : '[error]';
-
       console.error(prefix, ...beautifiedArgs);
     } else {
       const color = typeColors[type] ?? '#2ecc71';
@@ -80,9 +102,9 @@ const customReporter: ConsolaReporter = {
   },
 };
 
-// Create logger with proper level configuration
+// Create logger - always level 5 internally, reporter controls output
 export const logger = createConsola({
-  level: logLevel,
+  level: 5,
   reporters: [customReporter],
   defaults: {
     tag: 'HaramBlock',
