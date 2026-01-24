@@ -22,9 +22,8 @@ models without code changes.
 2. Add the ONNX model file as `best.onnx`
 3. Add the TensorFlow.js model in `best_web_model/` subdirectory (`model.json` + weight shards)
 4. Add a `metadata.yaml` with required fields (see below)
-5. Add the path to `MODEL_PATHS` array in both:
-   - `utils/inference/runtimes/onnx/modelLoader.ts` (for Chrome)
-   - `utils/inference/runtimes/tfjs/modelLoader.ts` (for Firefox)
+5. Add the path to `MODEL_PATHS` array in `utils/inference/shared/modelRegistry.ts` (single source
+   of truth for both runtimes)
 
 ### Directory Contract
 
