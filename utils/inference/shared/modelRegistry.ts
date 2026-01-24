@@ -30,6 +30,7 @@ export const DEFAULT_CONFIG: ModelMetadata = {
   outputShape: [160, 160],
   inputName: 'images',
   outputNames: {
+    detections: 'output0',
     masks: 'output1',
   },
   stride: 32,
@@ -62,6 +63,7 @@ export function createConfigFromMetadata(metadata: YamlModelMetadata, defaults: 
     outputShape: metadata.output_shape || [imgsz[0] / stride, imgsz[1] / stride],
     inputName: metadata.input_name || defaults.inputName,
     outputNames: {
+      detections: metadata.output_names?.detections || 'output0',
       masks: metadata.output_names?.masks || 'output1',
     },
     stride,
