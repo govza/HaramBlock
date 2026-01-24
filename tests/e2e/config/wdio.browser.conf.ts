@@ -1,5 +1,5 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 import { config as baseConfig } from './wdio.conf.js';
 import { getChromeExtensionPath, getFirefoxExtensionPath } from '../utils/extension-path.js';
@@ -8,28 +8,28 @@ const TEST_CI = false;
 export const IS_CI = Boolean(process.env.CI) || TEST_CI;
 const IS_FIREFOX = Boolean(process.env.IS_FIREFOX);
 
-const outputDir = join(import.meta.dirname, '../../../.output');
-const files = await readdir(outputDir);
+const outputDir = resolve(import.meta.dirname, '../../../.output');
 
-// Pattern: haram-block-{version}-chrome.zip or haram-block-{version}-firefox.zip
-const browserSuffix = IS_FIREFOX ? 'firefox.zip' : 'chrome.zip';
-const extensionFiles = files
-  .filter(file => file.startsWith('haram-block-') && file.endsWith(`-${browserSuffix}`))
-  .sort((a, b) => {
-    // Extract version and compare semantically
-    const versionA = a.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
-    const versionB = b.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
-    return versionA.localeCompare(versionB, undefined, { numeric: true });
-  });
+// Chrome: use unpacked extension with --load-extension (avoids "Too many properties to enumerate" error)
+const chromeExtensionPath = resolve(outputDir, 'chrome-mv3');
 
-const latestExtension = extensionFiles.at(-1);
-
-if (!latestExtension) {
-  throw new Error(`No ${browserSuffix} extension found in ${outputDir}`);
+// Firefox: use file path for installAddOn (avoids base64 "Too many properties" error)
+let firefoxExtensionPath: string | undefined;
+if (IS_FIREFOX) {
+  const files = await readdir(outputDir);
+  const firefoxZip = files
+    .filter(file => file.startsWith('haram-block-') && file.endsWith('-firefox.zip'))
+    .sort((a, b) => {
+      const versionA = a.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
+      const versionB = b.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
+      return versionA.localeCompare(versionB, undefined, { numeric: true });
+    })
+    .at(-1);
+  if (!firefoxZip) {
+    throw new Error(`No firefox.zip extension found in ${outputDir}`);
+  }
+  firefoxExtensionPath = resolve(outputDir, firefoxZip);
 }
-
-const extPath = join(outputDir, latestExtension);
-const bundledExtension = (await readFile(extPath)).toString('base64');
 
 const ciChromeArgs = [
   ...(!TEST_CI ? ['--headless=new'] : []),
@@ -45,9 +45,14 @@ const chromeCapabilities = {
   browserVersion: 'stable',
   acceptInsecureCerts: true,
   'goog:chromeOptions': {
-    args: ['--disable-dev-shm-usage', '--log-level=3', '--silent', ...(IS_CI ? ciChromeArgs : [])],
+    args: [
+      '--disable-dev-shm-usage',
+      '--log-level=3',
+      '--silent',
+      `--load-extension=${chromeExtensionPath}`,
+      ...(IS_CI ? ciChromeArgs : []),
+    ],
     prefs: { 'extensions.ui.developer_mode': true },
-    extensions: [bundledExtension],
   },
 };
 
@@ -84,7 +89,23 @@ export const config: WebdriverIO.Config = {
   },
   before: async ({ browserName }: WebdriverIO.Capabilities, _specs, browser: WebdriverIO.Browser) => {
     if (browserName === 'firefox') {
-      await browser.installAddOn(bundledExtension, true);
+      if (!firefoxExtensionPath) {
+        throw new Error('Firefox extension path not set');
+      }
+      // Use raw WebDriver protocol with 'path' parameter (avoids base64 "Too many properties" error)
+      await browser.call(async () => {
+        const { sessionId } = browser;
+        const url = `${(browser.options as { protocol: string; hostname: string; port: number }).protocol}://${(browser.options as { hostname: string }).hostname}:${(browser.options as { port: number }).port}/session/${sessionId}/moz/addon/install`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: firefoxExtensionPath, temporary: true }),
+        });
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Failed to install addon: ${error}`);
+        }
+      });
 
       browser.addCommand('getExtensionPath', () => getFirefoxExtensionPath(browser));
     } else if (browserName === 'chrome') {
