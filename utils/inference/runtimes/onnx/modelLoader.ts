@@ -1,13 +1,21 @@
 // Polyfills MUST be imported first (before onnxruntime-web)
 import '@/utils/inference/serviceWorkerPolyfills';
 
-import { load } from 'js-yaml';
 // WebGPU bundle import - resolved via wxt.config.ts alias (no dynamic imports)
 import * as ort from 'onnxruntime-web';
 
+import {
+  createConfigFromMetadata,
+  DEFAULT_CONFIG,
+  DEFAULT_MODEL_ID,
+  discoverModels as discoverModelsShared,
+  fetchMetadata,
+  MODEL_PATHS,
+  type ModelDefinition,
+} from '@/utils/inference/shared/modelRegistry';
 import { logger } from '@/utils/logger';
 
-import type { ModelMetadata, YamlModelMetadata } from '@/utils/types';
+import type { ModelMetadata } from '@/utils/types';
 
 // Configure ONNX Runtime for service worker environment
 ort.env.wasm.numThreads = 1;
@@ -27,17 +35,7 @@ async function preloadWasmBinary(): Promise<ArrayBuffer> {
   return wasmBinaryPromise;
 }
 
-export interface ModelDefinition {
-  id: string;
-  name: string;
-  basePath: string;
-  inputSize: number;
-}
-
-// Contract: each path contains best.onnx and metadata.yaml
-const MODEL_PATHS = ['/models/afeef-y-320-3-20250124', '/models/aeef-y-640-82-20250124'];
-
-const DEFAULT_MODEL_ID = 'y640';
+export type { ModelDefinition };
 
 // Built dynamically from metadata during discoverModels()
 const availableModels: Map<string, ModelDefinition> = new Map();
@@ -45,75 +43,10 @@ const availableModels: Map<string, ModelDefinition> = new Map();
 let currentModelId: string = DEFAULT_MODEL_ID;
 let session: ort.InferenceSession | null = null;
 let loadingPromise: Promise<{ session: ort.InferenceSession; config: ModelMetadata }> | null = null;
-let config: ModelMetadata = {
-  names: { 0: 'person', 1: 'zfa', 2: 'zma' },
-  imgsz: [320, 320],
-  normalize: null,
-  namesToCheck: ['zfa', 'zma'],
-  outputShape: [80, 80],
-  inputName: 'images',
-  outputNames: {
-    masks: 'output1',
-  },
-  stride: 32,
-};
-
-async function fetchMetadata(basePath: string): Promise<YamlModelMetadata> {
-  const response = await fetch(`${basePath}/metadata.yaml`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch metadata: ${response.status} ${response.statusText}`);
-  }
-  const text = await response.text();
-  return load(text) as YamlModelMetadata;
-}
-
-function applyMetadataToConfig(metadata: YamlModelMetadata): void {
-  const imgsz = metadata.imgsz || config.imgsz;
-  const stride = metadata.stride || config.stride;
-  config = {
-    ...config,
-    names: metadata.names || config.names,
-    imgsz,
-    normalize: metadata.normalize || null,
-    outputShape: metadata.output_shape || [imgsz[0] / stride, imgsz[1] / stride],
-    inputName: metadata.input_name || config.inputName,
-    outputNames: {
-      masks: metadata.output_names?.masks || 'output1',
-    },
-    stride,
-  };
-}
+let config: ModelMetadata = { ...DEFAULT_CONFIG };
 
 export async function discoverModels(): Promise<void> {
-  if (availableModels.size > 0) {
-    return; // Already discovered
-  }
-
-  const discoveries = await Promise.all(
-    MODEL_PATHS.map(async basePath => {
-      const metadata = await fetchMetadata(basePath);
-      return {
-        id: metadata.id,
-        name: metadata.name,
-        basePath,
-        inputSize: metadata.imgsz[0],
-        metadata,
-      };
-    }),
-  );
-
-  for (const model of discoveries) {
-    availableModels.set(model.id, {
-      id: model.id,
-      name: model.name,
-      basePath: model.basePath,
-      inputSize: model.inputSize,
-    });
-  }
-
-  logger
-    .withTag('modelLoader')
-    .info(`Discovered ${availableModels.size} models: ${[...availableModels.keys()].join(', ')}`);
+  await discoverModelsShared(MODEL_PATHS, availableModels);
 }
 
 async function warmupModel(sessionToWarm: ort.InferenceSession): Promise<void> {
@@ -153,7 +86,7 @@ export async function initializeModel(modelId?: string): Promise<void> {
 
   try {
     const metadata = await fetchMetadata(modelDef.basePath);
-    applyMetadataToConfig(metadata);
+    config = createConfigFromMetadata(metadata, config);
     currentModelId = targetModelId;
     logger
       .withTag('modelLoader')

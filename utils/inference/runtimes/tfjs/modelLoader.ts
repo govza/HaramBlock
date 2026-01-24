@@ -1,23 +1,21 @@
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgpu';
-import { load } from 'js-yaml';
 
 import { IS_CHROME } from '@/utils/constants/environment';
+import {
+  createConfigFromMetadata,
+  DEFAULT_CONFIG,
+  DEFAULT_MODEL_ID,
+  discoverModels as discoverModelsShared,
+  fetchMetadata,
+  MODEL_PATHS,
+  type ModelDefinition,
+} from '@/utils/inference/shared/modelRegistry';
 import { logger } from '@/utils/logger';
 
-import type { ModelMetadata, YamlModelMetadata } from '@/utils/types';
+import type { ModelMetadata } from '@/utils/types';
 
-export interface ModelDefinition {
-  id: string;
-  name: string;
-  basePath: string;
-  inputSize: number;
-}
-
-// Contract: each path contains best_web_model/model.json and metadata.yaml
-const MODEL_PATHS = ['/models/afeef-y-320-3-20250124', '/models/aeef-y-640-82-20250124'];
-
-const DEFAULT_MODEL_ID = 'y640';
+export type { ModelDefinition };
 
 // Built dynamically from metadata during discoverModels()
 const availableModels: Map<string, ModelDefinition> = new Map();
@@ -25,75 +23,10 @@ const availableModels: Map<string, ModelDefinition> = new Map();
 let currentModelId: string = DEFAULT_MODEL_ID;
 let model: tf.GraphModel | null = null;
 let loadingPromise: Promise<{ model: tf.GraphModel; config: ModelMetadata }> | null = null;
-let config: ModelMetadata = {
-  names: { 0: 'person', 1: 'zfa', 2: 'zma' },
-  imgsz: [640, 640],
-  normalize: null,
-  namesToCheck: ['zfa', 'zma'],
-  outputShape: [160, 160],
-  inputName: 'images',
-  outputNames: {
-    masks: 'output1',
-  },
-  stride: 32,
-};
-
-async function fetchMetadata(basePath: string): Promise<YamlModelMetadata> {
-  const response = await fetch(`${basePath}/metadata.yaml`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch metadata: ${response.status} ${response.statusText}`);
-  }
-  const text = await response.text();
-  return load(text) as YamlModelMetadata;
-}
-
-function applyMetadataToConfig(metadata: YamlModelMetadata): void {
-  const imgsz = metadata.imgsz || config.imgsz;
-  const stride = metadata.stride || config.stride;
-  config = {
-    ...config,
-    names: metadata.names || config.names,
-    imgsz,
-    normalize: metadata.normalize || null,
-    outputShape: metadata.output_shape || [imgsz[0] / stride, imgsz[1] / stride],
-    inputName: metadata.input_name || config.inputName,
-    outputNames: {
-      masks: metadata.output_names?.masks || 'output1',
-    },
-    stride,
-  };
-}
+let config: ModelMetadata = { ...DEFAULT_CONFIG };
 
 export async function discoverModels(): Promise<void> {
-  if (availableModels.size > 0) {
-    return; // Already discovered
-  }
-
-  const discoveries = await Promise.all(
-    MODEL_PATHS.map(async basePath => {
-      const metadata = await fetchMetadata(basePath);
-      return {
-        id: metadata.id,
-        name: metadata.name,
-        basePath,
-        inputSize: metadata.imgsz[0],
-        metadata,
-      };
-    }),
-  );
-
-  for (const modelDef of discoveries) {
-    availableModels.set(modelDef.id, {
-      id: modelDef.id,
-      name: modelDef.name,
-      basePath: modelDef.basePath,
-      inputSize: modelDef.inputSize,
-    });
-  }
-
-  logger
-    .withTag('modelLoader')
-    .info(`Discovered ${availableModels.size} models: ${[...availableModels.keys()].join(', ')}`);
+  await discoverModelsShared(MODEL_PATHS, availableModels);
 }
 
 async function setupBackend(): Promise<void> {
@@ -151,7 +84,7 @@ export async function initializeModel(modelId?: string): Promise<void> {
 
   try {
     const metadata = await fetchMetadata(modelDef.basePath);
-    applyMetadataToConfig(metadata);
+    config = createConfigFromMetadata(metadata, config);
     currentModelId = targetModelId;
     logger
       .withTag('modelLoader')
@@ -241,7 +174,8 @@ export async function switchModel(modelId: string): Promise<void> {
   logger.withTag('modelLoader').info(`Successfully switched to model ${modelId}`);
 }
 
-export function cleanup(): Promise<void> {
+// eslint-disable-next-line @typescript-eslint/require-await -- Async for API consistency with ONNX runtime
+export async function cleanup(): Promise<void> {
   try {
     if (model) {
       model.dispose();
@@ -250,5 +184,4 @@ export function cleanup(): Promise<void> {
   } catch (error) {
     logger.withTag('modelLoader').error('Error during model cleanup:', error);
   }
-  return Promise.resolve();
 }
