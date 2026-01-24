@@ -32,7 +32,7 @@ export default defineConfig({
         data_collection_permissions: { required: ['none'] },
       } as never,
     },
-    permissions: ['tabs'],
+    permissions: ['tabs', 'storage'],
     options_page: 'options.html',
     web_accessible_resources: [
       {
