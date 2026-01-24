@@ -18,17 +18,32 @@ import { logger } from '@/utils/logger';
 import type { ModelMetadata } from '@/utils/types';
 
 // Configure ONNX Runtime for service worker environment
+// - numThreads=1: Single-threaded (SharedArrayBuffer not available in service workers)
+// - proxy=false: Direct execution (no worker proxy needed)
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
 
-// Pre-load WASM binary (WebGPU still needs WASM for some operations)
-// This avoids dynamic imports which are disallowed in service workers
+/**
+ * WASM binary selection for service worker environment:
+ *
+ * We use the `.asyncify` variant because:
+ * 1. Service workers are NOT cross-origin isolated (no COOP/COEP headers)
+ * 2. SharedArrayBuffer is not available without cross-origin isolation
+ * 3. The asyncify variant uses async/await patterns instead of SharedArrayBuffer
+ *
+ * The "threaded" in the filename is misleading - with numThreads=1, it runs single-threaded.
+ * The asyncify variant is specifically designed for this use case.
+ */
+const WASM_PATH = '/ort/ort-wasm-simd-threaded.asyncify.wasm';
+
 let wasmBinaryPromise: Promise<ArrayBuffer> | null = null;
 
 async function preloadWasmBinary(): Promise<ArrayBuffer> {
   if (!wasmBinaryPromise) {
-    wasmBinaryPromise = fetch('/ort/ort-wasm-simd-threaded.asyncify.wasm').then(res => {
-      if (!res.ok) throw new Error(`Failed to fetch WASM: ${res.status}`);
+    wasmBinaryPromise = fetch(WASM_PATH).then(res => {
+      if (!res.ok) {
+        throw new Error(`Failed to fetch WASM binary from ${WASM_PATH}: ${res.status} ${res.statusText}`);
+      }
       return res.arrayBuffer();
     });
   }

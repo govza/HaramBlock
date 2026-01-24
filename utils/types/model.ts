@@ -66,6 +66,7 @@ export interface YamlModelMetadata {
   };
   input_name?: string;
   output_names?: {
+    detections?: string;
     masks?: string;
   };
   output_shape?: [number, number];
@@ -89,6 +90,7 @@ export interface ModelMetadata {
   inputName: string;
   /** ONNX output tensor names (model-specific) */
   outputNames: {
+    detections: string;
     masks: string;
   };
   /** Model stride for calculating output dimensions */

@@ -151,9 +151,9 @@ async function getFramePredictions(
 
     logger.withTag('prediction').debug(`ONNX outputs: ${Object.keys(results).join(', ')}`);
 
-    // Get prototype dimensions from output1 (if available)
-    const { output1 } = results;
-    const protoDims = output1?.dims as number[] | undefined;
+    // Get prototype dimensions from masks output (if available)
+    const masksOutput = results[config.outputNames.masks];
+    const protoDims = masksOutput?.dims as number[] | undefined;
     const protoHeight = protoDims?.[2] ?? config.outputShape[0];
     const protoWidth = protoDims?.[3] ?? config.outputShape[1];
 
@@ -208,9 +208,10 @@ async function getFramePredictions(
  * Handles YOLO11 seg model output format with NMS enabled.
  *
  * Expected output format (with nms=True):
- * - output0: [batch, num_dets, 38] = [x1, y1, x2, y2, conf, cls, mask_coeffs(32)]
- * - output1: [batch, 32, mask_h, mask_w] = prototype masks
+ * - detections: [batch, num_dets, 38] = [x1, y1, x2, y2, conf, cls, mask_coeffs(32)]
+ * - masks: [batch, 32, mask_h, mask_w] = prototype masks
  *
+ * Output tensor names are configurable via config.outputNames (defaults: output0, output1).
  * The final instance mask = sigmoid(mask_coeffs @ prototypes)
  * Masks are cropped to remove letterbox padding before encoding.
  */
@@ -228,18 +229,22 @@ function processSegmentation(
 ): IElementPrediction[] {
   const predictions: IElementPrediction[] = [];
 
-  // Get output tensors - YOLO typically uses output0 and output1
-  const { output0, output1 } = results;
+  // Get output tensors using configurable names from metadata
+  const { detections: detectionsName, masks: masksName } = config.outputNames;
+  const detectionsOutput = results[detectionsName];
+  const masksOutput = results[masksName];
 
-  if (!output0) {
-    logger.withTag('prediction').error(`Missing output0 tensor. Available: ${Object.keys(results).join(', ')}`);
+  if (!detectionsOutput) {
+    logger
+      .withTag('prediction')
+      .error(`Missing '${detectionsName}' tensor. Available: ${Object.keys(results).join(', ')}`);
     return predictions;
   }
 
-  const detections = output0.data as Float32Array;
-  const detsDims = output0.dims as number[];
+  const detections = detectionsOutput.data as Float32Array;
+  const detsDims = detectionsOutput.dims as number[];
 
-  // Dims: output0 [batch, num_dets, features]
+  // Dims: detections [batch, num_dets, features]
   const numDetections = detsDims[1] ?? 0;
   const numFeatures = detsDims[2] ?? 0;
 
@@ -251,10 +256,10 @@ function processSegmentation(
   let prototypes: Float32Array | undefined;
   let protoHeight = 0;
   let protoWidth = 0;
-  if (output1 && hasMaskCoeffs) {
-    prototypes = output1.data as Float32Array;
-    const protoDims = output1.dims as number[];
-    // output1: [batch, 32, mask_h, mask_w]
+  if (masksOutput && hasMaskCoeffs) {
+    prototypes = masksOutput.data as Float32Array;
+    const protoDims = masksOutput.dims as number[];
+    // masks: [batch, 32, mask_h, mask_w]
     protoHeight = protoDims[2] ?? 0;
     protoWidth = protoDims[3] ?? 0;
   }
