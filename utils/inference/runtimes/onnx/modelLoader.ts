@@ -46,7 +46,11 @@ let loadingPromise: Promise<{ session: ort.InferenceSession; config: ModelMetada
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
 
 export async function discoverModels(): Promise<void> {
-  await discoverModelsShared(MODEL_PATHS, availableModels);
+  const resolvedDefaultId = await discoverModelsShared(MODEL_PATHS, availableModels);
+  // Update currentModelId if it was never explicitly set (still at initial default)
+  if (currentModelId === DEFAULT_MODEL_ID) {
+    currentModelId = resolvedDefaultId;
+  }
 }
 
 async function warmupModel(sessionToWarm: ort.InferenceSession): Promise<void> {

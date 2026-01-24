@@ -11,9 +11,14 @@ export interface ModelDefinition {
   inputSize: number;
 }
 
-/** Model directory paths - each contains metadata.yaml and model files */
+/**
+ * Model directory paths - each contains metadata.yaml and model files.
+ * This is the SINGLE SOURCE OF TRUTH for available models.
+ * To add a new model, add its path here.
+ */
 export const MODEL_PATHS = ['/models/afeef-y-320-3-20250124', '/models/aeef-y-640-82-20250124'];
 
+/** Preferred default model ID. Falls back to first discovered model if not found. */
 export const DEFAULT_MODEL_ID = 'y640';
 
 /** Default model configuration used before metadata is loaded */
@@ -66,13 +71,14 @@ export function createConfigFromMetadata(metadata: YamlModelMetadata, defaults: 
 /**
  * Discover available models by fetching metadata from all model paths.
  * Populates the provided map with discovered models.
+ * @returns The resolved default model ID (validates DEFAULT_MODEL_ID exists, falls back to first model)
  */
 export async function discoverModels(
   modelPaths: string[],
   availableModels: Map<string, ModelDefinition>,
-): Promise<void> {
+): Promise<string> {
   if (availableModels.size > 0) {
-    return; // Already discovered
+    return resolveDefaultModelId(availableModels);
   }
 
   const discoveries = await Promise.all(
@@ -94,4 +100,25 @@ export async function discoverModels(
   logger
     .withTag('modelLoader')
     .info(`Discovered ${availableModels.size} models: ${[...availableModels.keys()].join(', ')}`);
+
+  return resolveDefaultModelId(availableModels);
+}
+
+/**
+ * Resolve the default model ID, falling back to first discovered model if preferred default doesn't exist.
+ */
+function resolveDefaultModelId(availableModels: Map<string, ModelDefinition>): string {
+  if (availableModels.has(DEFAULT_MODEL_ID)) {
+    return DEFAULT_MODEL_ID;
+  }
+
+  const firstModelId = availableModels.keys().next().value;
+  if (firstModelId) {
+    logger
+      .withTag('modelLoader')
+      .warn(`Default model '${DEFAULT_MODEL_ID}' not found, falling back to '${firstModelId}'`);
+    return firstModelId;
+  }
+
+  throw new Error('No models discovered');
 }

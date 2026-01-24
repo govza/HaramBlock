@@ -26,7 +26,11 @@ let loadingPromise: Promise<{ model: tf.GraphModel; config: ModelMetadata }> | n
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
 
 export async function discoverModels(): Promise<void> {
-  await discoverModelsShared(MODEL_PATHS, availableModels);
+  const resolvedDefaultId = await discoverModelsShared(MODEL_PATHS, availableModels);
+  // Update currentModelId if it was never explicitly set (still at initial default)
+  if (currentModelId === DEFAULT_MODEL_ID) {
+    currentModelId = resolvedDefaultId;
+  }
 }
 
 async function setupBackend(): Promise<void> {
@@ -174,8 +178,7 @@ export async function switchModel(modelId: string): Promise<void> {
   logger.withTag('modelLoader').info(`Successfully switched to model ${modelId}`);
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await -- Async for API consistency with ONNX runtime
-export async function cleanup(): Promise<void> {
+export function cleanup(): Promise<void> {
   try {
     if (model) {
       model.dispose();
@@ -184,4 +187,5 @@ export async function cleanup(): Promise<void> {
   } catch (error) {
     logger.withTag('modelLoader').error('Error during model cleanup:', error);
   }
+  return Promise.resolve();
 }
