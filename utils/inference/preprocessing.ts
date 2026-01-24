@@ -1,6 +1,6 @@
-import * as tf from '@tensorflow/tfjs';
-
 import { logger } from '@/utils/logger';
+
+import type { ModelMetadata } from '@/utils/types';
 
 export async function loadImageBitmap(imageSrc: string): Promise<{
   imageBitmap: ImageBitmap;
@@ -43,41 +43,82 @@ async function createBitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
 }
 
 /**
- * Converts ImageBitmap to TensorFlow tensor with proper preprocessing
- * using TF ops (no canvas). Maintains aspect ratio via letterboxing
- * to match the model's expected [width, height].
+ * Converts ImageBitmap to NCHW Float32Array for model inference.
+ * Maintains aspect ratio via letterboxing (gray padding for YOLO, black for ImageNet).
+ * Supports both ImageNet normalization (mean/std) and YOLO-style (0-1) normalization.
+ *
  * @param imageBitmap The image to convert
- * @param imgsz Target size [width, height] from YOLO metadata
- * @returns TensorFlow tensor [1, height, width, 3] normalized to [0,1]
+ * @param config Model configuration with imgsz and normalize params
+ * @returns Float32Array in NCHW format [1, 3, height, width]
  */
-export function tensorFromImageBitmap(imageBitmap: ImageBitmap, imgsz: [number, number]): tf.Tensor4D {
-  const [modelW, modelH] = imgsz;
+export function preprocessImage(imageBitmap: ImageBitmap, config: ModelMetadata): Float32Array {
+  const [modelHeight, modelWidth] = config.imgsz;
+  const { normalize } = config;
 
-  return tf.tidy(() => {
-    // 1) Create tensor directly from ImageBitmap and normalize
-    const img: tf.Tensor3D = tf.browser.fromPixels(imageBitmap).toFloat().div(255);
+  // Calculate letterbox dimensions (matching postprocessing for consistency)
+  const scale = Math.min(modelWidth / imageBitmap.width, modelHeight / imageBitmap.height);
+  const newWidth = Math.round(imageBitmap.width * scale);
+  const newHeight = Math.round(imageBitmap.height * scale);
+  // Keep offset as float, round for canvas positioning (matches Python reference)
+  const offsetX = (modelWidth - newWidth) / 2;
+  const offsetY = (modelHeight - newHeight) / 2;
 
-    const [h, w] = img.shape;
-    const scale = Math.min(modelW / w, modelH / h);
-    const newW = Math.max(1, Math.round(w * scale));
-    const newH = Math.max(1, Math.round(h * scale));
+  // Create offscreen canvas and draw letterboxed image
+  const canvas = new OffscreenCanvas(modelWidth, modelHeight);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Failed to get 2D context');
+  }
 
-    // 2) Aspect-preserving resize
-    const resized: tf.Tensor3D = tf.image.resizeBilinear(img, [newH, newW], true);
+  // Fill with gray (114/255 ≈ 0.447) for YOLO letterbox padding
+  ctx.fillStyle = normalize ? 'black' : 'rgb(114, 114, 114)';
+  ctx.fillRect(0, 0, modelWidth, modelHeight);
 
-    // 3) Letterbox to target size with black padding
-    const padLeft = Math.floor((modelW - newW) / 2);
-    const padRight = modelW - newW - padLeft;
-    const padTop = Math.floor((modelH - newH) / 2);
-    const padBottom = modelH - newH - padTop;
+  // Draw scaled image centered
+  ctx.drawImage(imageBitmap, offsetX, offsetY, newWidth, newHeight);
 
-    const padded: tf.Tensor3D = tf.pad(resized, [
-      [padTop, padBottom],
-      [padLeft, padRight],
-      [0, 0],
-    ]);
+  // Get pixel data
+  const imageData = ctx.getImageData(0, 0, modelWidth, modelHeight);
+  const pixels = imageData.data; // RGBA format
 
-    // 4) Add batch dimension
-    return padded.expandDims(0);
-  });
+  // Create NCHW tensor [1, 3, H, W]
+  const tensorData = new Float32Array(1 * 3 * modelHeight * modelWidth);
+  const channelStride = modelHeight * modelWidth;
+
+  if (normalize) {
+    // ImageNet-style normalization: (pixel/255 - mean) / std
+    const { mean, std } = normalize;
+    for (let y = 0; y < modelHeight; y++) {
+      for (let x = 0; x < modelWidth; x++) {
+        const pixelIndex = (y * modelWidth + x) * 4;
+        const spatialIndex = y * modelWidth + x;
+
+        const r = pixels[pixelIndex] ?? 0;
+        const g = pixels[pixelIndex + 1] ?? 0;
+        const b = pixels[pixelIndex + 2] ?? 0;
+
+        tensorData[spatialIndex] = (r / 255 - mean[0]) / std[0];
+        tensorData[channelStride + spatialIndex] = (g / 255 - mean[1]) / std[1];
+        tensorData[2 * channelStride + spatialIndex] = (b / 255 - mean[2]) / std[2];
+      }
+    }
+  } else {
+    // YOLO-style normalization: pixel / 255 (0-1 range)
+    for (let y = 0; y < modelHeight; y++) {
+      for (let x = 0; x < modelWidth; x++) {
+        const pixelIndex = (y * modelWidth + x) * 4;
+        const spatialIndex = y * modelWidth + x;
+
+        const r = pixels[pixelIndex] ?? 0;
+        const g = pixels[pixelIndex + 1] ?? 0;
+        const b = pixels[pixelIndex + 2] ?? 0;
+
+        tensorData[spatialIndex] = r / 255;
+        tensorData[channelStride + spatialIndex] = g / 255;
+        tensorData[2 * channelStride + spatialIndex] = b / 255;
+      }
+    }
+  }
+
+  return tensorData;
 }
