@@ -56,6 +56,9 @@ export class ImageProcessor {
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
 
+  // Track shadow roots that contain processed images (for efficient querying)
+  private readonly knownShadowRoots = new Set<ShadowRoot>();
+
   constructor(private readonly hostSettings: IHostSettings) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
 
@@ -82,6 +85,7 @@ export class ImageProcessor {
     if (!src) return;
 
     this.visibilityObserver.observe(img);
+    this.trackShadowRoot(img);
 
     // Skip non-processable formats
     if (SVG_PATTERN.test(src)) {
@@ -252,10 +256,12 @@ export class ImageProcessor {
     this.pendingInference.add(src);
 
     const sendRequest = async () => {
-      // Abort if src changed before load
+      // If src changed before load (common with srcset), reprocess with new src
       const currentSrc = img.currentSrc || img.src;
       if (currentSrc !== src) {
         this.pendingInference.delete(src);
+        // Re-process with the actual loaded URL instead of just aborting
+        this.process(img);
         return;
       }
 
@@ -388,12 +394,28 @@ export class ImageProcessor {
 
   private findImagesBySrc(src: string): HTMLImageElement[] {
     const results: HTMLImageElement[] = [];
-    const pendingImages = document.querySelectorAll<HTMLImageElement>(`img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`);
+    const selector = `img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`;
 
-    for (const img of pendingImages) {
+    // Query light DOM
+    for (const img of document.querySelectorAll<HTMLImageElement>(selector)) {
       const imgSrc = img.currentSrc || img.src;
       if (imgSrc === src) {
         results.push(img);
+      }
+    }
+
+    // Query only tracked shadow roots (O(shadowRoots) instead of O(allElements))
+    for (const shadowRoot of this.knownShadowRoots) {
+      // Skip disconnected shadow roots
+      if (!shadowRoot.host.isConnected) {
+        this.knownShadowRoots.delete(shadowRoot);
+        continue;
+      }
+      for (const img of shadowRoot.querySelectorAll<HTMLImageElement>(selector)) {
+        const imgSrc = img.currentSrc || img.src;
+        if (imgSrc === src) {
+          results.push(img);
+        }
       }
     }
 
@@ -404,15 +426,47 @@ export class ImageProcessor {
   // Maintaining a src→elements index would require complex cleanup for removed elements.
   private findAllImagesBySrc(src: string): HTMLImageElement[] {
     const results: HTMLImageElement[] = [];
-    const allImages = document.querySelectorAll<HTMLImageElement>('img');
 
-    for (const img of allImages) {
+    // Query light DOM
+    for (const img of document.querySelectorAll<HTMLImageElement>('img')) {
       const imgSrc = img.currentSrc || img.src;
       if (imgSrc === src) {
         results.push(img);
       }
     }
 
+    // Query only tracked shadow roots
+    for (const shadowRoot of this.knownShadowRoots) {
+      if (!shadowRoot.host.isConnected) {
+        this.knownShadowRoots.delete(shadowRoot);
+        continue;
+      }
+      for (const img of shadowRoot.querySelectorAll<HTMLImageElement>('img')) {
+        const imgSrc = img.currentSrc || img.src;
+        if (imgSrc === src) {
+          results.push(img);
+        }
+      }
+    }
+
     return results;
+  }
+
+  /**
+   * Track the shadow root containing this image (if any) for efficient querying.
+   * Walks up the DOM tree to find enclosing shadow roots.
+   */
+  private trackShadowRoot(img: HTMLImageElement): void {
+    let node: Node | null = img;
+    while (node) {
+      const root = node.getRootNode();
+      if (root instanceof ShadowRoot) {
+        this.knownShadowRoots.add(root);
+        // Continue up to find nested shadow roots
+        node = root.host;
+      } else {
+        break;
+      }
+    }
   }
 }
