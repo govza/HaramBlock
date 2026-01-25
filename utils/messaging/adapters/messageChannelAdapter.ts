@@ -46,7 +46,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     if (result.type === 'port') {
       this.port = result.port;
       this.isReady = true;
-      logger.withTag('MessageChannelInjectAdapter').log('Channel established');
+      logger.withTag('MessageChannelInjectAdapter').debug('Channel established');
     } else {
       // Timeout - but keep waiting in background (don't discard the promise)
       logger.withTag('MessageChannelInjectAdapter').warn('Channel timeout, continuing in background...');
@@ -54,7 +54,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
         .then(port => {
           this.port = port;
           this.isReady = true;
-          logger.withTag('MessageChannelInjectAdapter').log('Channel established (late)');
+          logger.withTag('MessageChannelInjectAdapter').debug('Channel established (late)');
         })
         .catch(error => {
           logger.withTag('MessageChannelInjectAdapter').error('Channel failed:', error);

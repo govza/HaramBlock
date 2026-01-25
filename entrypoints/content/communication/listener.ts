@@ -50,10 +50,6 @@ export function onImagePredictions(callback: (data: ImagePredictionsMessage) => 
   void (
     backgroundRpc.onImagePredictions(data => {
       if (isActive) {
-        logger.withTag('listener').debug(
-          'onImagePredictions:',
-          data.predictions.map(pred => `${pred.src} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`),
-        );
         callback(data);
       }
     }) as unknown as Promise<string>
@@ -83,12 +79,6 @@ export function onFramePredictions(callback: (data: FramePredictionsMessage) => 
   void (
     backgroundRpc.onFramePredictions(data => {
       if (isActive) {
-        logger.withTag('listener').debug(
-          'onFramePredictions:',
-          data.predictions.map(
-            pred => `${pred.videoUrl}#${pred.frameIndex} => ${pred.predictions[0]?.probability.toFixed(2) ?? 'N/A'}`,
-          ),
-        );
         callback(data);
       }
     }) as unknown as Promise<string>
