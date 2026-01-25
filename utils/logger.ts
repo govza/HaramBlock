@@ -89,13 +89,18 @@ const customReporter: ConsolaReporter = {
     const { tag, type, args } = logObj;
     const beautifiedArgs = args.map(beautifyUrls);
 
+    const color = typeColors[type] ?? '#2ecc71';
+    const label = tag ? `${tag}:${type}` : type;
+    const style = `background: ${color}; border-radius: 0.5em; color: white; font-weight: bold; padding: 2px 0.5em;`;
+
     if (type === 'error') {
-      const prefix = tag ? `[${tag}] [error]` : '[error]';
-      console.error(prefix, ...beautifiedArgs);
+      console.error(`%c${label}`, style, ...beautifiedArgs);
+    } else if (type === 'debug') {
+      // eslint-disable-next-line no-console
+      console.debug(`%c${label}`, style, ...beautifiedArgs);
+    } else if (type === 'warn') {
+      console.warn(`%c${label}`, style, ...beautifiedArgs);
     } else {
-      const color = typeColors[type] ?? '#2ecc71';
-      const label = tag ? `${tag}:${type}` : type;
-      const style = `background: ${color}; border-radius: 0.5em; color: white; font-weight: bold; padding: 2px 0.5em;`;
       // eslint-disable-next-line no-console
       console.log(`%c${label}`, style, ...beautifiedArgs);
     }
