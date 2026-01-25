@@ -15,9 +15,9 @@ videos, keeping you focused.
 - **Adjustable Strictness** — Set your own threshold
 - **Cross-Browser** — Works on Chrome and Firefox
 
-## Screenshot
+## Screenshots
 
-![HaramBlock filtering images on DuckDuckGo](docs/images/demo-filtering.png)
+![HaramBlock in action](docs/images/slideshow.gif)
 
 ## Installation
 
