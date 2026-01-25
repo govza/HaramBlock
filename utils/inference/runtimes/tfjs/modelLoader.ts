@@ -24,6 +24,7 @@ let currentModelId: string = DEFAULT_MODEL_ID;
 let model: tf.GraphModel | null = null;
 let loadingPromise: Promise<{ model: tf.GraphModel; config: ModelMetadata }> | null = null;
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
+let cachedBackend: string = 'unknown';
 
 export async function discoverModels(): Promise<void> {
   const resolvedDefaultId = await discoverModelsShared(MODEL_PATHS, availableModels);
@@ -38,7 +39,8 @@ async function setupBackend(): Promise<void> {
   const backend = IS_CHROME ? 'webgpu' : 'webgl';
   await tf.setBackend(backend);
   await tf.ready();
-  logger.withTag('modelLoader').info(`TensorFlow backend: ${tf.getBackend()}`);
+  cachedBackend = tf.getBackend() ?? 'unknown';
+  logger.withTag('modelLoader').info(`TensorFlow backend: ${cachedBackend}`);
 }
 
 async function warmupModel(modelToWarm: tf.GraphModel): Promise<void> {
@@ -151,6 +153,10 @@ export async function loadModel(): Promise<{ model: tf.GraphModel; config: Model
 
 export function isModelReady(): boolean {
   return model !== null;
+}
+
+export function getBackend(): string {
+  return cachedBackend;
 }
 
 export function getCurrentModelId(): string {

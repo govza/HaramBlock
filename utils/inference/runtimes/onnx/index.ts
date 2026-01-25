@@ -1,6 +1,7 @@
 export {
   cleanup,
   getAvailableModels,
+  getBackend,
   getCurrentModelId,
   initializeModel,
   isModelReady,

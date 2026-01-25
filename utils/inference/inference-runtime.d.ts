@@ -21,5 +21,6 @@ declare module '@inference-runtime' {
   export function getCurrentModelId(): string | null;
   export function getAvailableModels(): ModelDefinition[];
   export function isModelReady(): boolean;
+  export function getBackend(): string;
   export function cleanup(): Promise<void>;
 }
