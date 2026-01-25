@@ -5,22 +5,22 @@ import type { ModelMetadata } from '@/utils/types';
 export async function loadImageBitmap(imageSrc: string): Promise<{
   imageBitmap: ImageBitmap;
   fetchTime: number;
-  bitmapTime: number;
+  decodeTime: number;
 }> {
   try {
     const fetchStartTime = Date.now();
     const blob = await fetchImageBlob(imageSrc);
     const fetchTime = Date.now() - fetchStartTime;
 
-    const bitmapStartTime = Date.now();
+    const decodeStartTime = Date.now();
     const imageBitmap = await createBitmapFromBlob(blob);
-    const bitmapTime = Date.now() - bitmapStartTime;
+    const decodeTime = Date.now() - decodeStartTime;
 
     logger
       .withTag('preprocessing')
-      .debug(`Successfully loaded image from: ${imageSrc} (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms)`);
+      .debug(`Successfully loaded image from: ${imageSrc} (fetch: ${fetchTime}ms, decode: ${decodeTime}ms)`);
 
-    return { imageBitmap, fetchTime, bitmapTime };
+    return { imageBitmap, fetchTime, decodeTime };
   } catch (error) {
     logger.withTag('preprocessing').error('Failed to load image:', error);
     throw new Error(`Failed to load image from ${imageSrc.substring(0, 50)}...`, { cause: error });

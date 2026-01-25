@@ -59,6 +59,7 @@ let currentModelId: string = DEFAULT_MODEL_ID;
 let session: ort.InferenceSession | null = null;
 let loadingPromise: Promise<{ session: ort.InferenceSession; config: ModelMetadata }> | null = null;
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
+let cachedBackend: string = 'unknown';
 
 export async function discoverModels(): Promise<void> {
   const resolvedDefaultId = await discoverModelsShared(MODEL_PATHS, availableModels);
@@ -167,6 +168,7 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
 
         if (loadedSession) {
           session = loadedSession;
+          cachedBackend = backend;
           logger.withTag('modelLoader').info(`Model loaded successfully with ${backend.toUpperCase()}`);
           return { session, config };
         }
@@ -190,6 +192,10 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
 
 export function isModelReady(): boolean {
   return session !== null;
+}
+
+export function getBackend(): string {
+  return cachedBackend;
 }
 
 export function getCurrentModelId(): string {

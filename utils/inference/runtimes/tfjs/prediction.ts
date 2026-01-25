@@ -5,7 +5,7 @@ import { calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskT
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap } from '@/utils/inference/preprocessing';
-import { loadModel } from '@/utils/inference/runtimes/tfjs/modelLoader';
+import { getBackend, loadModel } from '@/utils/inference/runtimes/tfjs/modelLoader';
 import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
 
@@ -50,15 +50,17 @@ function tensorFromImageBitmap(imageBitmap: ImageBitmap, imgsz: [number, number]
 }
 
 export async function processInferenceTask(task: InferenceTask): Promise<IImagePrediction> {
-  const startTime = Date.now();
-
   try {
+    // Calculate queue time immediately to avoid double-counting fetch/decode time
+    const taskStartAt = Date.now();
+    const queueTime = task.queueStartAt ? taskStartAt - task.queueStartAt : 0;
+
     const { model, config } = await loadModel();
 
     // Use provided bitmap/blob (from MessageChannel/structured clone) or fetch from URL
     let imageBitmap: ImageBitmap;
     let fetchTime = 0;
-    let bitmapTime = 0;
+    let decodeTime = 0;
     let imageWidth: number;
     let imageHeight: number;
 
@@ -67,24 +69,26 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
       imageBitmap = task.bitmap;
       imageWidth = task.originalWidth || imageBitmap.width;
       imageHeight = task.originalHeight || imageBitmap.height;
-      logger.withTag('prediction').debug(`Using pre-loaded bitmap for ${task.imageSrc}`);
+      fetchTime = task.fetchTime ?? 0;
+      decodeTime = task.decodeTime ?? 0;
     } else if (task.blob) {
       // Convert blob to bitmap (Firefox structured clone path)
-      const bitmapStartTime = Date.now();
+      const decodeStartTime = Date.now();
       imageBitmap = await createImageBitmap(task.blob);
-      bitmapTime = Date.now() - bitmapStartTime;
+      decodeTime = Date.now() - decodeStartTime;
       imageWidth = task.originalWidth || imageBitmap.width;
       imageHeight = task.originalHeight || imageBitmap.height;
-      logger.withTag('prediction').debug(`Created bitmap from blob for ${task.imageSrc} in ${bitmapTime}ms`);
+      fetchTime = task.fetchTime ?? 0;
     } else {
-      // Fetch and decode image from URL
+      // Fetch and decode image from URL (fallback path - background does all work)
       const loaded = await loadImageBitmap(task.imageSrc);
-      ({ imageBitmap, fetchTime, bitmapTime } = loaded);
+      ({ imageBitmap, fetchTime, decodeTime } = loaded);
       imageWidth = imageBitmap.width;
       imageHeight = imageBitmap.height;
     }
 
-    const inferenceStartTime = Date.now();
+    const inferenceStartAt = Date.now();
+
     const rawThreshold = 1 - task.hostSettings.strictness;
     const scoreThreshold = Math.min(0.9, Math.max(0.05, rawThreshold));
 
@@ -96,10 +100,13 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
       imageWidth,
       imageHeight,
     );
-    const inferenceTime = Date.now() - inferenceStartTime;
+    const inferenceEndAt = Date.now();
+    const inferenceTime = inferenceEndAt - inferenceStartAt;
+
+    // Calculate E2E time: from content script request start to inference completion
+    const e2eTime = task.requestStartAt ? inferenceEndAt - task.requestStartAt : 0;
 
     const predictions = edgeBoundingBoxCorrection(rawPredictions, imageBitmap.width, imageBitmap.height);
-    const processingTimeMs = Date.now() - startTime;
     const timestamp = Date.now();
 
     const cacheMetadata = createCacheMetadataFromMediaMetadata(task.mediaMetadata);
@@ -123,17 +130,14 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
       maskTransform,
       processingTime: {
         fetchTime,
-        bitmapTime,
+        decodeTime,
+        queueTime,
         inferenceTime,
+        e2eTime,
+        backend: getBackend(),
       },
       forcedVisibility: null,
     };
-
-    logger
-      .withTag('prediction')
-      .info(
-        `Completed image inference task for ${task.imageSrc} in ${processingTimeMs}ms (fetch: ${fetchTime}ms, bitmap: ${bitmapTime}ms, inference: ${inferenceTime}ms) with ${predictions.length} predictions`,
-      );
 
     return result;
   } catch (error) {

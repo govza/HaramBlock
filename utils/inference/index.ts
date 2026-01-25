@@ -4,6 +4,7 @@
  * Public API:
  * - initializeInference(): Initialize the library (call once at startup)
  * - processInferenceTask(task): Process an image inference task
+ * - getInferenceBackend(): Get the current backend (webgpu/webgl/wasm)
  *
  * Runtime is selected at build time via WXT module:
  * - Chrome: ONNX Runtime Web
@@ -12,7 +13,7 @@
  * All other implementation details are internal and not exported.
  */
 
-import { initializeModel, processInferenceTask as runTask } from '@inference-runtime';
+import { getBackend, initializeModel, processInferenceTask as runTask } from '@inference-runtime';
 
 import type { IImagePrediction, InferenceTask } from '@/utils/types';
 
@@ -39,4 +40,13 @@ export async function initializeInference(): Promise<void> {
  */
 export function processInferenceTask(task: InferenceTask): Promise<IImagePrediction> {
   return (runTask as (task: InferenceTask) => Promise<IImagePrediction>)(task);
+}
+
+/**
+ * Get the current inference backend.
+ * Returns the cached backend string (webgpu/webgl/wasm/unknown).
+ * This is a simple property lookup - no performance overhead.
+ */
+export function getInferenceBackend(): string {
+  return (getBackend as () => string)();
 }
