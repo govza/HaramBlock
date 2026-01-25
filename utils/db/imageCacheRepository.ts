@@ -47,6 +47,17 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
   }
 
   /**
+   * Find all valid (non-expired) predictions
+   */
+  async findAllValid(): Promise<IImagePrediction[]> {
+    if (isCacheDisabled) {
+      return [];
+    }
+    const allRecords = await this.findAll();
+    return allRecords.filter(record => this.isValidPrediction(record));
+  }
+
+  /**
    * Find predictions by both src and hostname
    */
   async findBySrcAndHostname(src: string, hostname: string): Promise<IImagePrediction[]> {
