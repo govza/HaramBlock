@@ -48,9 +48,12 @@ export interface IImagePrediction {
   cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
   processingTime: {
-    fetchTime: number; // Image fetching duration in milliseconds
-    bitmapTime: number; // Bitmap creation duration in milliseconds
-    inferenceTime: number; // Model inference duration in milliseconds
+    fetchTime: number; // Fetch duration in milliseconds (may hit cache or network)
+    decodeTime: number; // createImageBitmap duration in milliseconds
+    queueTime: number; // Time waiting in queue before inference in milliseconds
+    inferenceTime: number; // Model preprocessing + inference + postprocessing in milliseconds
+    e2eTime: number; // End-to-end time from content request start to inference completion
+    backend: string; // Inference backend used (webgpu/webgl/wasm)
   };
   forcedVisibility: null | 'visible' | 'blocked';
 }
@@ -68,7 +71,7 @@ export interface IVideoFramePrediction {
   predictions: IElementPrediction[]; // Object predictions for this frame
   processingTime: {
     frameExtractionTime: number; // Time to extract frame from video in milliseconds
-    bitmapTime: number; // Bitmap creation duration in milliseconds
+    decodeTime: number; // createImageBitmap duration in milliseconds
     inferenceTime: number; // Model inference duration in milliseconds
   };
 }
@@ -86,9 +89,12 @@ export interface IFramePrediction {
   cacheMetadata: ICacheMetadata;
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
   processingTime: {
-    fetchTime: number; // Frame extraction duration in milliseconds
-    bitmapTime: number; // Bitmap creation duration in milliseconds
-    inferenceTime: number; // Model inference duration in milliseconds
+    fetchTime: number; // Fetch duration in milliseconds (may hit cache or network)
+    decodeTime: number; // createImageBitmap duration in milliseconds
+    queueTime: number; // Time waiting in queue before inference in milliseconds
+    inferenceTime: number; // Model preprocessing + inference + postprocessing in milliseconds
+    e2eTime: number; // End-to-end time from content request start to inference completion
+    backend: string; // Inference backend used (webgpu/webgl/wasm)
   };
 }
 

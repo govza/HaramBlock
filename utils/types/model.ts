@@ -12,6 +12,12 @@ export interface InferenceTask {
   blob?: Blob; // Blob (from Firefox structured clone) - converted to bitmap by inference library
   originalWidth?: number; // Original image dimensions (when bitmap or blob is provided)
   originalHeight?: number;
+  // Timing
+  requestStartAt?: number; // Timestamp when content script started processing (before fetch/decode)
+  receivedAt?: number; // Timestamp when background received the message
+  queueStartAt?: number; // Timestamp when task was enqueued
+  fetchTime?: number; // Fetch duration (content-side, may hit cache or network)
+  decodeTime?: number; // Time to createImageBitmap (content-side, Chrome only)
 }
 
 export enum ProcessingStatus {
