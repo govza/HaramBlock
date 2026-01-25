@@ -94,40 +94,59 @@ async function sendImageForInference(
   priority: number,
 ): Promise<void> {
   try {
+    // Capture start time BEFORE any fetch/decode work
+    const requestStartAt = Date.now();
+
     const src = image.currentSrc || image.src;
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
-    const base = { src, width, height, hostname, metadata, priority };
 
     const transferKind = await resolveImageTransferKind();
     let payload: IImageTransfer | null = null;
 
     // Try the configured transfer kind first, fall back to URL on failure.
-    const fetchImageBlob = async (): Promise<Blob> => {
+    const fetchImageBlob = async (): Promise<{ blob: Blob; fetchTime: number }> => {
+      const fetchStart = Date.now();
       const response = await fetch(src, { cache: 'force-cache' });
       if (!response.ok) {
         throw new Error(`Failed to fetch image (${response.status})`);
       }
-      return response.blob();
+      const blob = await response.blob();
+      return { blob, fetchTime: Date.now() - fetchStart };
     };
 
     if (transferKind === 'bitmap') {
       try {
-        const bitmap = await createImageBitmap(await fetchImageBlob());
-        payload = { ...base, kind: 'bitmap', bitmap };
+        const { blob, fetchTime } = await fetchImageBlob();
+        const decodeStart = Date.now();
+        const bitmap = await createImageBitmap(blob);
+        const decodeTime = Date.now() - decodeStart;
+        payload = {
+          src,
+          width,
+          height,
+          hostname,
+          metadata,
+          priority,
+          requestStartAt,
+          fetchTime,
+          decodeTime,
+          kind: 'bitmap',
+          bitmap,
+        };
       } catch (error) {
         logger.withTag('sender').warn('Bitmap transfer failed, falling back to URL:', error);
       }
     } else if (transferKind === 'blob') {
       try {
-        const blob = await fetchImageBlob();
-        payload = { ...base, kind: 'blob', blob };
+        const { blob, fetchTime } = await fetchImageBlob();
+        payload = { src, width, height, hostname, metadata, priority, requestStartAt, fetchTime, kind: 'blob', blob };
       } catch (error) {
         logger.withTag('sender').warn('Blob transfer failed, falling back to URL:', error);
       }
     }
 
-    const finalPayload = payload ?? { ...base, kind: 'url' };
+    const finalPayload = payload ?? { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url' };
     await backgroundRpc.postInferenceImage(finalPayload);
   } catch (error) {
     logger.withTag('sender').error('Failed to send image for inference:', error);
@@ -157,8 +176,6 @@ export async function requestImageInference(
     expires: image.dataset.expires || null,
   };
 
-  const src = image.currentSrc || image.src;
-  logger.withTag('sender').info(`Sending image for inference: ${src}`);
   await sendImageForInference(hostname, image, metadata, priority);
 }
 
@@ -281,9 +298,6 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       default:
         throw new Error(`Unsupported video frame transfer kind: ${transferKind as string}`);
     }
-
-    const frameLabel = frameIndex === -1 ? 'thumbnail' : `frame ${frameIndex}`;
-    logger.withTag('sender').debug(`Sending video ${frameLabel} for inference: ${videoUrl}`);
 
     await backgroundRpc.postInferenceVideoFrame(payload);
   } catch (error) {
