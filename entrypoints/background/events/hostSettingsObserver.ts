@@ -39,7 +39,6 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
     for (const [hostname, settings] of currentMap) {
       const previous = previousSettings.get(hostname);
       if (!previous || !areSettingsEqual(previous, settings)) {
-        logger.withTag('hostSettingsObserver').debug('Settings changed for:', hostname);
         onSettingsChanged(hostname);
       }
     }
@@ -47,7 +46,6 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
     // Detect deleted settings
     for (const hostname of previousSettings.keys()) {
       if (!currentMap.has(hostname)) {
-        logger.withTag('hostSettingsObserver').debug('Settings deleted for:', hostname);
         onSettingsChanged(hostname);
       }
     }
@@ -64,5 +62,5 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
     },
   });
 
-  logger.withTag('hostSettingsObserver').log('Initialized liveQuery observer for hostSettings');
+  logger.withTag('hostSettingsObserver').info('Initialized liveQuery observer for hostSettings');
 }

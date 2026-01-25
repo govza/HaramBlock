@@ -37,22 +37,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     hostSettings: IHostSettings,
     skipObserverSetup = false,
   ): void {
-    logger.withTag('maskOverlay').debug('createMaskOverlays called', {
-      hasImagePrediction: Boolean(imagePrediction),
-      predictionsLength: imagePrediction?.predictions.length || 0,
-      imageComplete: image.complete,
-      imageNaturalWidth: image.naturalWidth,
-      imageSrc: image.src || image.currentSrc,
-    });
-
     if (!imagePrediction.predictions.length || !image.complete || image.naturalWidth === 0) {
-      logger.withTag('maskOverlay').debug('Early return from createMaskOverlays', {
-        hasImagePrediction: Boolean(imagePrediction),
-        predictionsLength: imagePrediction?.predictions.length || 0,
-        imageComplete: image.complete,
-        imageNaturalWidth: image.naturalWidth,
-        imageSrc: image.src || image.currentSrc,
-      });
       this.clearMaskOverlay(image);
       return;
     }
@@ -189,11 +174,6 @@ class ImageMaskOverlay implements IMediaOverlay {
     const imageRect = image.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
     const parentRect = parent.getBoundingClientRect();
-
-    logger.withTag('maskOverlay').debug('Creating single mask overlay', {
-      imageRect: { width: imageRect.width, height: imageRect.height },
-      imageSrc: image.src || image.currentSrc,
-    });
 
     // Create single overlay container for all masks
     const overlay = document.createElement('div');
@@ -448,13 +428,6 @@ const renderUnifiedCanvasMask = (
   const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
   const smallW = Math.max(1, Math.floor(dWidth / blockSize));
   const smallH = Math.max(1, Math.floor(dHeight / blockSize));
-
-  logger.withTag('maskOverlay').debug('Rendering unified canvas mask', {
-    displaySize: { width: dWidth, height: dHeight },
-    originalSize: { width: originalWidth, height: originalHeight },
-    blockSize,
-    imageSrc: image.src || image.currentSrc,
-  });
 
   const tmp = document.createElement('canvas');
   tmp.width = smallW;

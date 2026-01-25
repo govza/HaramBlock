@@ -48,12 +48,12 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
         this.messageCallbacks.forEach(callback => callback(enrichedMessage));
       },
     );
-    logger.withTag('CompositeProvideAdapter').log('Browser runtime listener initialized');
+    logger.withTag('CompositeProvideAdapter').debug('Browser runtime listener initialized');
   }
 
   private initializeMessageChannel(): void {
     globalThis.addEventListener('message', this.handleGlobalMessage);
-    logger.withTag('CompositeProvideAdapter').log('MessageChannel listener initialized');
+    logger.withTag('CompositeProvideAdapter').debug('MessageChannel listener initialized');
   }
 
   private handleGlobalMessage = (event: Event): void => {
@@ -88,7 +88,6 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     // ACK to content script
     try {
       port.postMessage({ type: 'READY' });
-      logger.withTag('CompositeProvideAdapter').log('MessageChannel port established');
     } catch (error) {
       logger.withTag('CompositeProvideAdapter').error('Failed to ACK on port:', error);
     }
