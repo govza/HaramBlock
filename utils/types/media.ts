@@ -45,6 +45,10 @@ interface IImageTransferBase {
   metadata: IImageMetadata;
   hostname: string;
   priority: number;
+  // Timing from content script
+  requestStartAt: number; // Timestamp when content script started processing (before fetch/decode)
+  fetchTime?: number; // Fetch duration (content-side, may hit cache or network)
+  decodeTime?: number; // Time to createImageBitmap (content-side, Chrome only)
 }
 
 // Chrome primary: ImageBitmap via MessageChannel (zero-copy transfer)
