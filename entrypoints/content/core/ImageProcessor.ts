@@ -17,6 +17,13 @@ import {
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
+import {
+  cancelContentTiming,
+  completeContentTiming,
+  markReceived,
+  markSent,
+  startContentTiming,
+} from '@/utils/logging';
 
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -116,6 +123,9 @@ export class ImageProcessor {
       return;
     }
 
+    // Start timing for this image (new processing path)
+    startContentTiming(src, this.hostSettings.hostname);
+
     // Apply blur if not already present (idempotent)
     if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
@@ -194,6 +204,10 @@ export class ImageProcessor {
    * Clean up when image removed from DOM.
    */
   handleRemoved(img: HTMLImageElement): void {
+    const src = img.currentSrc || img.src;
+    if (src) {
+      cancelContentTiming(src);
+    }
     const timeout = this.srcChangeDebounce.get(img);
     if (timeout) {
       clearTimeout(timeout);
@@ -262,28 +276,33 @@ export class ImageProcessor {
         this.pendingInference.delete(src);
         // Re-process with the actual loaded URL instead of just aborting
         this.process(img);
+        cancelContentTiming(src);
         return;
       }
 
       // Check size
       if (this.isBelowMinSize(img)) {
         this.pendingInference.delete(src);
+        completeContentTiming(src, { status: 'skipped' });
         finalizeImageProcessing(img, 'skipped');
         return;
       }
 
       try {
+        markSent(src);
         const isVisible = this.visibilityMap.get(img) ?? false;
         const priority = isVisible ? PRIORITY_VISIBLE : PRIORITY_OFFSCREEN;
         await requestImageInference(this.hostSettings.hostname, img, priority);
-      } catch {
+      } catch (err) {
         this.pendingInference.delete(src);
+        completeContentTiming(src, { status: 'error', error: err instanceof Error ? err : undefined });
         finalizeImageProcessing(img, 'skipped');
       }
     };
 
     const handleError = () => {
       this.pendingInference.delete(src);
+      completeContentTiming(src, { status: 'error' });
       finalizeImageProcessing(img, 'skipped');
     };
 
@@ -329,6 +348,9 @@ export class ImageProcessor {
       return;
     }
 
+    // Mark that we received the prediction
+    markReceived(prediction.src);
+
     const apply = async () => {
       // Double-check src after any async wait
       const srcNow = img.currentSrc || img.src;
@@ -343,16 +365,30 @@ export class ImageProcessor {
       const hasDetections = prediction.predictions.length > 0;
       finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
 
+      // Determine overlay type based on what styling is applied
+      let overlayType: string | undefined;
+
       if (prediction.forcedVisibility === 'blocked') {
         applyBlacklistStyling(img, this.hostSettings);
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+        overlayType = 'blur';
       } else if (prediction.forcedVisibility === 'visible') {
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+        overlayType = undefined; // Whitelisted, no overlay
       } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
+        overlayType = this.hostSettings.outline; // 'bbox' or 'segment'
       } else {
         registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+        overlayType = undefined; // No detections, no overlay
       }
+
+      // Log the completion with overlay type
+      completeContentTiming(prediction.src, {
+        status: 'success',
+        detectionsCount: prediction.predictions.length,
+        overlayType,
+      });
     };
 
     // Wait for load if needed
