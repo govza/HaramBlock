@@ -51,20 +51,21 @@ export const mergeContentEvent = async (contentEvent: WideEvent): Promise<WideEv
     // Find most recent background event with same reqId (search from end)
     const bgIndex = events.findLastIndex(e => e.reqId === contentEvent.reqId && e.context === 'background');
 
-    if (bgIndex === -1) {
+    const bgEvent = events[bgIndex];
+    if (bgIndex === -1 || !bgEvent) {
       return null;
     }
 
     // Merge content fields into background event
     const merged: WideEvent = {
-      ...events[bgIndex],
+      ...bgEvent,
       sendMs: contentEvent.sendMs,
       waitMs: contentEvent.waitMs,
       styleMs: contentEvent.styleMs,
       overlayType: contentEvent.overlayType,
-      detectionsCount: contentEvent.detectionsCount ?? events[bgIndex].detectionsCount,
-      status: contentEvent.status === 'error' ? 'error' : events[bgIndex].status,
-      error: contentEvent.error ?? events[bgIndex].error,
+      detectionsCount: contentEvent.detectionsCount ?? bgEvent.detectionsCount,
+      status: contentEvent.status === 'error' ? 'error' : bgEvent.status,
+      error: contentEvent.error ?? bgEvent.error,
     };
 
     events[bgIndex] = merged;
