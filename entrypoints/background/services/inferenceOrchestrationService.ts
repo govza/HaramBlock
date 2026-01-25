@@ -1,5 +1,6 @@
-import { processInferenceTask } from '@/utils/inference';
+import { getInferenceBackend, processInferenceTask } from '@/utils/inference';
 import { logger } from '@/utils/logger';
+import { emitEvent } from '@/utils/logging';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
@@ -16,9 +17,28 @@ type OnImagePredictionsCallback = (predictions: IImagePrediction[], hostname: st
 type OnFramePredictionsCallback = (predictions: IFramePrediction[], hostname: string) => void;
 
 export type InferenceInput =
-  | { kind: 'src'; imageSrc: string }
-  | { kind: 'bitmap'; imageSrc: string; bitmap: ImageBitmap; originalWidth: number; originalHeight: number }
-  | { kind: 'blob'; imageSrc: string; blob: Blob; originalWidth: number; originalHeight: number };
+  | { kind: 'src'; imageSrc: string; requestStartAt?: number; receivedAt?: number }
+  | {
+      kind: 'bitmap';
+      imageSrc: string;
+      bitmap: ImageBitmap;
+      originalWidth: number;
+      originalHeight: number;
+      requestStartAt?: number;
+      receivedAt?: number;
+      fetchTime?: number;
+      decodeTime?: number;
+    }
+  | {
+      kind: 'blob';
+      imageSrc: string;
+      blob: Blob;
+      originalWidth: number;
+      originalHeight: number;
+      requestStartAt?: number;
+      receivedAt?: number;
+      fetchTime?: number;
+    };
 
 export type ScheduleArgs = {
   input: InferenceInput;
@@ -50,6 +70,7 @@ export class InferenceOrchestrationService {
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
     const { input, hostname, hostSettings, mediaMetadata } = args;
     const { imageSrc } = input;
+    const startTime = Date.now();
 
     // Only check cache for images, not video frames
     if (mediaMetadata.kind === 'image') {
@@ -57,14 +78,23 @@ export class InferenceOrchestrationService {
         const cachedPredictions = await this.imageCacheService.getCachedPredictionsBySrc(imageSrc);
 
         if (cachedPredictions && cachedPredictions.length > 0) {
-          logger.withTag('inferenceOrchestrationService').debug(`Cache hit for ${imageSrc} on src`);
-          await this.imageCacheService.cachePredictions(
-            cachedPredictions.map(prediction => ({
-              ...prediction,
-              hostname,
-            })),
-          );
-          this.sendImagePredictionsToContent(cachedPredictions, hostname);
+          const predictionsWithHostname = cachedPredictions.map(prediction => ({
+            ...prediction,
+            hostname,
+          }));
+          await this.imageCacheService.cachePredictions(predictionsWithHostname);
+          this.sendImagePredictionsToContent(predictionsWithHostname, hostname);
+
+          emitEvent({
+            src: imageSrc,
+            hostname,
+            context: 'background',
+            status: 'cached',
+            totalMs: Date.now() - startTime,
+            cacheHit: true,
+            detectionsCount: cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0),
+            backend: getInferenceBackend(),
+          });
           return;
         }
       } catch (error) {
@@ -74,6 +104,7 @@ export class InferenceOrchestrationService {
       }
     }
 
+    const queueStartAt = Date.now();
     const baseTask = {
       imageSrc,
       hostname,
@@ -81,6 +112,9 @@ export class InferenceOrchestrationService {
       hostSettings,
       mediaMetadata,
       priority: args.priority,
+      requestStartAt: input.requestStartAt,
+      receivedAt: input.receivedAt,
+      queueStartAt,
     };
 
     let task: InferenceTask;
@@ -90,6 +124,8 @@ export class InferenceOrchestrationService {
         bitmap: input.bitmap,
         originalWidth: input.originalWidth,
         originalHeight: input.originalHeight,
+        fetchTime: input.fetchTime,
+        decodeTime: input.decodeTime,
       };
     } else if (input.kind === 'blob') {
       task = {
@@ -97,13 +133,11 @@ export class InferenceOrchestrationService {
         blob: input.blob,
         originalWidth: input.originalWidth,
         originalHeight: input.originalHeight,
+        fetchTime: input.fetchTime,
       };
     } else {
       task = baseTask;
     }
-
-    const taskType = input.kind;
-    logger.withTag('inferenceOrchestrationService').debug(`Scheduling ${taskType} inference task for ${hostname}`);
 
     this.queueService.enqueue(task).catch(error => {
       logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task for ${imageSrc}:`, error);
@@ -115,7 +149,32 @@ export class InferenceOrchestrationService {
       try {
         const imagePrediction = await processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
+
+        emitEvent({
+          src: task.imageSrc,
+          hostname: task.hostname,
+          context: 'background',
+          status: 'success',
+          totalMs: Date.now() - task.createdAt.getTime(),
+          fetchMs: imagePrediction.processingTime.fetchTime,
+          decodeMs: imagePrediction.processingTime.decodeTime,
+          queueMs: imagePrediction.processingTime.queueTime,
+          inferenceMs: imagePrediction.processingTime.inferenceTime,
+          e2eMs: imagePrediction.processingTime.e2eTime,
+          detectionsCount: imagePrediction.predictions.length,
+          cacheHit: false,
+          backend: getInferenceBackend(),
+        });
       } catch (error) {
+        emitEvent({
+          src: task.imageSrc,
+          hostname: task.hostname,
+          context: 'background',
+          status: 'error',
+          totalMs: Date.now() - task.createdAt.getTime(),
+          error: error instanceof Error ? error : new Error(String(error)),
+          backend: getInferenceBackend(),
+        });
         logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
       }
     });
@@ -157,7 +216,6 @@ export class InferenceOrchestrationService {
       if (this.onImagePredictionsCallback) {
         this.onImagePredictionsCallback(predictions, hostname);
       }
-      logger.withTag('inferenceOrchestrationService').debug(`Sent ${predictions.length} image predictions`);
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error('Error sending image predictions:', error);
     }
@@ -168,7 +226,6 @@ export class InferenceOrchestrationService {
       if (this.onFramePredictionsCallback) {
         this.onFramePredictionsCallback(predictions, hostname);
       }
-      logger.withTag('inferenceOrchestrationService').debug(`Sent ${predictions.length} frame predictions`);
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error('Error sending frame predictions:', error);
     }

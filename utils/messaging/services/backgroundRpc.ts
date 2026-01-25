@@ -1,9 +1,11 @@
 import { logger } from '@/utils/logger';
+import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type { WideEvent } from '@/utils/logging/types';
 import type {
   IHostSettings,
   IImagePrediction,
@@ -40,11 +42,7 @@ export class BackgroundRpc {
 
   async getCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
     try {
-      const predictions = await this.imageCacheService.getCachedPredictionsByHostname(hostname);
-      if (predictions.length > 0) {
-        logger.withTag('backgroundRpc').log(`Retrieved ${predictions.length} cached predictions for: ${hostname}`);
-      }
-      return predictions;
+      return await this.imageCacheService.getCachedPredictionsByHostname(hostname);
     } catch (error) {
       logger.withTag('backgroundRpc').error('Error retrieving cached predictions:', hostname, error);
       throw error;
@@ -54,10 +52,39 @@ export class BackgroundRpc {
   async updateToggleState(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
     try {
       await this.imageCacheService.updateToggleState(src, forcedVisibility);
-      logger.withTag('backgroundRpc').debug(`Updated toggle state for ${src}: ${forcedVisibility}`);
     } catch (error) {
       logger.withTag('backgroundRpc').error('Failed to update toggle state:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Merge content timing into existing background event.
+   * If no matching background event exists, store as separate event.
+   */
+  async storeContentEvent(event: WideEvent): Promise<void> {
+    const merged = await mergeContentEvent(event);
+    const logSettings = await import('@/utils/logging/logSettings');
+    const settings = await logSettings.getLogSettings();
+    const shouldLog = settings.consoleEnabled || import.meta.env.DEV;
+
+    if (merged) {
+      // Log the merged event to console if enabled
+      if (shouldLog) {
+        const prefix = `[${merged.reqId}]`;
+        const summary = `${merged.status} ${merged.hostname} +${merged.totalMs}ms`;
+        // eslint-disable-next-line no-console
+        console.log(prefix, summary, merged);
+      }
+    } else {
+      // No matching background event found - store and log as standalone content event
+      await storeWideEvent(event);
+      if (shouldLog) {
+        const prefix = `[${event.reqId}]`;
+        const summary = `${event.status} ${event.hostname} +${event.totalMs}ms (content-only)`;
+        // eslint-disable-next-line no-console
+        console.log(prefix, summary, event);
+      }
     }
   }
 
@@ -67,19 +94,13 @@ export class BackgroundRpc {
    * Firefox: Receives Blob via browser.runtime (structured clone), converts to ImageBitmap
    */
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
+    const receivedAt = Date.now();
     const { hostname, src, width, height, metadata, priority } = imageData;
 
     if (!hostname) {
       logger.withTag('backgroundRpc').error('Hostname is required for inference request');
       return;
     }
-
-    logger.withTag('backgroundRpc').debug('postInferenceImage called', {
-      kind: imageData?.kind,
-      hostname,
-    });
-
-    logger.withTag('backgroundRpc').log(`Inference request (${imageData.kind}) for ${src} from: ${hostname}`);
 
     try {
       const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
@@ -93,6 +114,10 @@ export class BackgroundRpc {
             bitmap: imageData.bitmap,
             originalWidth: width,
             originalHeight: height,
+            requestStartAt: imageData.requestStartAt,
+            receivedAt,
+            fetchTime: imageData.fetchTime,
+            decodeTime: imageData.decodeTime,
           },
           hostname,
           hostSettings,
@@ -100,9 +125,17 @@ export class BackgroundRpc {
           priority,
         });
       } else if (imageData.kind === 'blob') {
-        const bitmap = await createImageBitmap(imageData.blob);
         await this.inferenceService.scheduleInferenceTask({
-          input: { kind: 'bitmap', imageSrc: src, bitmap, originalWidth: width, originalHeight: height },
+          input: {
+            kind: 'blob',
+            imageSrc: src,
+            blob: imageData.blob,
+            originalWidth: width,
+            originalHeight: height,
+            requestStartAt: imageData.requestStartAt,
+            receivedAt,
+            fetchTime: imageData.fetchTime,
+          },
           hostname,
           hostSettings,
           mediaMetadata,
@@ -110,7 +143,7 @@ export class BackgroundRpc {
         });
       } else {
         await this.inferenceService.scheduleInferenceTask({
-          input: { kind: 'src', imageSrc: src },
+          input: { kind: 'src', imageSrc: src, requestStartAt: imageData.requestStartAt, receivedAt },
           hostname,
           hostSettings,
           mediaMetadata,
