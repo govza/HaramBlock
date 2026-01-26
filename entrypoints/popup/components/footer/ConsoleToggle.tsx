@@ -18,7 +18,7 @@ export const ConsoleToggle = () => {
 
   return (
     <button
-      className='cursor-pointer p-1'
+      className='cursor-pointer'
       onClick={handleClick}
       title={enabled ? 'Disable console logs' : 'Enable console logs'}
     >

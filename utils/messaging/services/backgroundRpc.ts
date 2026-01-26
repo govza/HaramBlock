@@ -1,3 +1,5 @@
+import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
+
 import { logger } from '@/utils/logger';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 
@@ -221,6 +223,18 @@ export class BackgroundRpc {
 
   notifyHostSettingsChanged(hostname: string): void {
     this.emitHostSettingsUpdated(hostname);
+  }
+
+  getAvailableModels() {
+    return Promise.resolve(getAvailableModels());
+  }
+
+  getCurrentModelId() {
+    return Promise.resolve(getCurrentModelId());
+  }
+
+  async setCurrentModel(modelId: string) {
+    await switchModel(modelId);
   }
 
   // ============ Subscription Methods (replaces onMessage listeners) ============

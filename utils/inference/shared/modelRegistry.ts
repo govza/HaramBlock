@@ -19,15 +19,15 @@ export interface ModelDefinition {
 export const MODEL_PATHS = ['/models/afeef-y-320-3-20250124', '/models/aeef-y-640-82-20250124'];
 
 /** Preferred default model ID. Falls back to first discovered model if not found. */
-export const DEFAULT_MODEL_ID = 'y640';
+export const DEFAULT_MODEL_ID = 'y320';
 
 /** Default model configuration used before metadata is loaded */
 export const DEFAULT_CONFIG: ModelMetadata = {
   names: { 0: 'person', 1: 'zfa', 2: 'zma' },
-  imgsz: [640, 640],
+  imgsz: [320, 320],
   normalize: null,
   namesToCheck: ['zfa', 'zma'],
-  outputShape: [160, 160],
+  outputShape: [80, 80],
   inputName: 'images',
   outputNames: {
     detections: 'output0',
