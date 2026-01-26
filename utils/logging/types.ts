@@ -24,6 +24,7 @@ export interface WideEvent {
   cacheHit?: boolean;
   overlayType?: string;
   backend?: string;
+  modelId?: string;
 
   error?: {
     message: string;

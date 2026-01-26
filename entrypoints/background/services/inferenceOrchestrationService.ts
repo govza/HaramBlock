@@ -1,3 +1,5 @@
+import { getCurrentModelId } from '@inference-runtime';
+
 import { getInferenceBackend, processInferenceTask } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { emitEvent } from '@/utils/logging';
@@ -94,6 +96,7 @@ export class InferenceOrchestrationService {
             cacheHit: true,
             detectionsCount: cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0),
             backend: getInferenceBackend(),
+            modelId: getCurrentModelId() ?? undefined,
           });
           return;
         }
@@ -164,6 +167,7 @@ export class InferenceOrchestrationService {
           detectionsCount: imagePrediction.predictions.length,
           cacheHit: false,
           backend: getInferenceBackend(),
+          modelId: getCurrentModelId() ?? undefined,
         });
       } catch (error) {
         emitEvent({
@@ -174,6 +178,7 @@ export class InferenceOrchestrationService {
           totalMs: Date.now() - task.createdAt.getTime(),
           error: error instanceof Error ? error : new Error(String(error)),
           backend: getInferenceBackend(),
+          modelId: getCurrentModelId() ?? undefined,
         });
         logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
       }
