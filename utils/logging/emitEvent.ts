@@ -32,6 +32,7 @@ export interface EmitEventParams {
   cacheHit?: boolean;
   overlayType?: string;
   backend?: string;
+  modelId?: string;
   error?: Error;
 }
 
@@ -56,6 +57,7 @@ export const emitEvent = (params: EmitEventParams): void => {
     cacheHit: params.cacheHit,
     overlayType: params.overlayType,
     backend: params.backend,
+    modelId: params.modelId,
     error: params.error ? { message: params.error.message, type: params.error.name } : undefined,
     version: getVersion(),
   };
