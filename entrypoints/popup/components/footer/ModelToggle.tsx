@@ -23,6 +23,7 @@ export const ModelToggle = () => {
     const currentIndex = models.findIndex(m => m.id === currentId);
     const nextIndex = (currentIndex + 1) % models.length;
     const nextModel = models[nextIndex];
+    if (!nextModel) return;
 
     setIsLoading(true);
     void backgroundRpc.setCurrentModel(nextModel.id).then(() => {
