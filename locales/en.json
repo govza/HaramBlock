@@ -101,5 +101,9 @@
   "FlipCard": {
     "switchToDefaultSettings": "Switch to default settings",
     "switchToSiteSettings": "Switch to site settings"
+  },
+  "HelpPanel": {
+    "tooltip": "Hover over icons to see tooltips with descriptions",
+    "contact": "Any questions? I'm here to help:"
   }
 }
