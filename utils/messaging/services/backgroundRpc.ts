@@ -1,5 +1,3 @@
-import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
-
 import { logger } from '@/utils/logger';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 
@@ -225,15 +223,38 @@ export class BackgroundRpc {
     this.emitHostSettingsUpdated(hostname);
   }
 
-  getAvailableModels() {
-    return Promise.resolve(getAvailableModels());
+  async getAvailableModels(timeoutMs = 2000, pollMs = 100) {
+    const { getAvailableModels } = await import('@inference-runtime');
+    const start = Date.now();
+
+    return new Promise(resolve => {
+      const check = () => {
+        const models = getAvailableModels();
+
+        if (Array.isArray(models) && models.length > 0) {
+          resolve(models);
+          return;
+        }
+
+        if (Date.now() - start >= timeoutMs) {
+          resolve(models);
+          return;
+        }
+
+        setTimeout(check, pollMs);
+      };
+
+      check();
+    });
   }
 
-  getCurrentModelId() {
-    return Promise.resolve(getCurrentModelId());
+  async getCurrentModelId() {
+    const { getCurrentModelId } = await import('@inference-runtime');
+    return getCurrentModelId();
   }
 
   async setCurrentModel(modelId: string) {
+    const { switchModel } = await import('@inference-runtime');
     await switchModel(modelId);
   }
 
