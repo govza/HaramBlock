@@ -223,7 +223,7 @@ export class BackgroundRpc {
     this.emitHostSettingsUpdated(hostname);
   }
 
-  async getAvailableModels(timeoutMs = 2000, pollMs = 100) {
+  async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string }[]> {
     const { getAvailableModels } = await import('@inference-runtime');
     const start = Date.now();
 
