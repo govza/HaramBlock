@@ -12,7 +12,7 @@ Feature: Image Masking
   Scenario: Segment outline on large images
     Given I set the global policy to "process"
     And the outline type is set to "segment"
-    When I go to the "not-safe" basic gallery with "2" "large" images
+    When I go to the "not-safe" basic gallery with "3" "large" images
     And I wait for image processing
     Then I should see at least "1" segment mask overlays with canvas
 
