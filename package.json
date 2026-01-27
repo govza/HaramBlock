@@ -16,6 +16,7 @@
   },
   "scripts": {
     "dev": "wxt",
+    "dev:no-gpu": "cross-env NO_GPU=true wxt",
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
