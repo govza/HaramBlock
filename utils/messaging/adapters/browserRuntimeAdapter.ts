@@ -73,7 +73,7 @@ export class InjectAdapter implements Adapter<MessageMeta> {
   sendMessage: SendMessage<MessageMeta> = message => {
     void browser.runtime.sendMessage(browser.runtime.id, {
       ...message,
-      meta: { ...message.meta, url: document.location.href, injector: this.injector },
+      meta: { ...message.meta, url: self.location.href, injector: this.injector },
     });
   };
 
