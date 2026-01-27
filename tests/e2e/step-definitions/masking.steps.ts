@@ -46,12 +46,24 @@ Given('the outline type is set to {string}', async (outlineType: string) => {
 Then('I should see at least {string} segment mask overlays with canvas', async (count: string) => {
   const minExpected = parseInt(count, 10);
   const canvasSelector = `${Selectors.SEGMENT_OVERLAY} canvas`;
-  const actualCount = await getElementCount(canvasSelector);
-  expect(actualCount).toBeGreaterThanOrEqual(minExpected);
+
+  await browser.waitUntil(
+    async () => {
+      const actualCount = await getElementCount(canvasSelector);
+      return actualCount >= minExpected;
+    },
+    { timeout: 30000, timeoutMsg: `Expected at least ${minExpected} segment mask overlays, but timed out` },
+  );
 });
 
 Then('I should see at least {string} bounding box overlays', async (count: string) => {
   const minExpected = parseInt(count, 10);
-  const actualCount = await getElementCount(Selectors.BBOX_OVERLAY);
-  expect(actualCount).toBeGreaterThanOrEqual(minExpected);
+
+  await browser.waitUntil(
+    async () => {
+      const actualCount = await getElementCount(Selectors.BBOX_OVERLAY);
+      return actualCount >= minExpected;
+    },
+    { timeout: 30000, timeoutMsg: `Expected at least ${minExpected} bounding box overlays, but timed out` },
+  );
 });
