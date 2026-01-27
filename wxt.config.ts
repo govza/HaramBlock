@@ -4,7 +4,7 @@ import { defineConfig, type WxtViteConfig } from 'wxt';
 // eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
-const DEBUG_MODE = process.argv.includes('--debug');
+const NO_GPU = Boolean(process.env.NO_GPU);
 
 const debugChromiumArgs = [
   '--disable-dev-shm-usage',
@@ -21,7 +21,7 @@ export default defineConfig({
     }) as WxtViteConfig,
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   webExt: {
-    chromiumArgs: DEBUG_MODE ? debugChromiumArgs : [],
+    chromiumArgs: NO_GPU ? debugChromiumArgs : [],
   },
   manifestVersion: 3,
   manifest: {
