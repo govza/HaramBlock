@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 import { config as baseConfig } from './wdio.conf.js';
 import { getChromeExtensionPath, getFirefoxExtensionPath } from '../utils/extension-path.js';
 
-const TEST_CI = false;
-export const IS_CI = Boolean(process.env.CI) || TEST_CI;
+const DEBUG_CI_MODE = process.argv.includes('--debug');
+export const IS_CI = Boolean(process.env.CI) || DEBUG_CI_MODE;
 const IS_FIREFOX = Boolean(process.env.IS_FIREFOX);
 
 const outputDir = resolve(import.meta.dirname, '../../../.output');
@@ -32,7 +32,7 @@ if (IS_FIREFOX) {
 }
 
 const ciChromeArgs = [
-  ...(!TEST_CI ? ['--headless=new'] : []),
+  ...(!DEBUG_CI_MODE ? ['--headless=new'] : []),
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--enable-unsafe-swiftshader',

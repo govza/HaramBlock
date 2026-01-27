@@ -4,6 +4,15 @@ import { defineConfig, type WxtViteConfig } from 'wxt';
 // eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
+const DEBUG_MODE = process.argv.includes('--debug');
+
+const debugChromiumArgs = [
+  '--disable-dev-shm-usage',
+  '--enable-unsafe-swiftshader',
+  '--disable-gpu',
+  '--disable-gpu-compositing',
+];
+
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   vite: () =>
@@ -12,13 +21,7 @@ export default defineConfig({
     }) as WxtViteConfig,
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   webExt: {
-    chromiumArgs: [
-      // Uncomment for debugging no-gpu environments
-      // '--disable-dev-shm-usage',
-      // '--enable-unsafe-swiftshader',
-      // '--disable-gpu',
-      // '--disable-gpu-compositing',
-    ],
+    chromiumArgs: DEBUG_MODE ? debugChromiumArgs : [],
   },
   manifestVersion: 3,
   manifest: {
