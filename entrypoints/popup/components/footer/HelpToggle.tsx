@@ -7,7 +7,13 @@ interface HelpToggleProps {
 
 export const HelpToggle = ({ isOpen, onToggle }: HelpToggleProps) => {
   return (
-    <button className='cursor-pointer' onClick={onToggle} title={isOpen ? 'Close help' : 'Open help'}>
+    <button
+      className='cursor-pointer'
+      onClick={onToggle}
+      title={isOpen ? 'Close help' : 'Open help'}
+      aria-label={isOpen ? 'Close help' : 'Open help'}
+      aria-expanded={isOpen}
+    >
       <svg
         xmlns='http://www.w3.org/2000/svg'
         fill='none'

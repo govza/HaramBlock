@@ -26,10 +26,16 @@ export const ModelToggle = () => {
     if (!nextModel) return;
 
     setIsLoading(true);
-    void backgroundRpc.setCurrentModel(nextModel.id).then(() => {
-      setCurrentId(nextModel.id);
-      setIsLoading(false);
-    });
+    void (async () => {
+      try {
+        await backgroundRpc.setCurrentModel(nextModel.id);
+        setCurrentId(nextModel.id);
+      } catch (error) {
+        console.error('Failed to switch model:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   };
 
   const currentModel = models.find(m => m.id === currentId);
