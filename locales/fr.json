@@ -97,5 +97,13 @@
     "reportBug": "Signaler un bug",
     "featureRequest": "Demande de fonctionnalité",
     "documentation": "Documentation"
+  },
+  "FlipCard": {
+    "switchToDefaultSettings": "Basculer vers les paramètres par défaut",
+    "switchToSiteSettings": "Basculer vers les paramètres du site"
+  },
+  "HelpPanel": {
+    "tooltip": "Survolez les icônes pour voir les info-bulles avec descriptions",
+    "contact": "Des questions ? Je suis là pour aider :"
   }
 }

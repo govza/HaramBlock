@@ -97,5 +97,13 @@
     "reportBug": "الإبلاغ عن خطأ",
     "featureRequest": "طلب ميزة",
     "documentation": "التوثيق"
+  },
+  "FlipCard": {
+    "switchToDefaultSettings": "التبديل إلى الإعدادات الافتراضية",
+    "switchToSiteSettings": "التبديل إلى إعدادات الموقع"
+  },
+  "HelpPanel": {
+    "tooltip": "مرر فوق الأيقونات لرؤية تلميحات مع الوصف",
+    "contact": "أي أسئلة؟ أنا هنا للمساعدة:"
   }
 }
