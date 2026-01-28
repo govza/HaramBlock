@@ -97,5 +97,13 @@
     "reportBug": "Fehler melden",
     "featureRequest": "Funktionsanfrage",
     "documentation": "Dokumentation"
+  },
+  "FlipCard": {
+    "switchToDefaultSettings": "Zu Standardeinstellungen wechseln",
+    "switchToSiteSettings": "Zu Website-Einstellungen wechseln"
+  },
+  "HelpPanel": {
+    "tooltip": "Fahren Sie mit der Maus über Symbole, um Tooltips mit Beschreibungen anzuzeigen",
+    "contact": "Fragen? Ich bin hier, um zu helfen:"
   }
 }

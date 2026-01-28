@@ -4,7 +4,7 @@ import { defineConfig, type WxtViteConfig } from 'wxt';
 // eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
-const NO_GPU = Boolean(process.env.NO_GPU);
+const NO_GPU = process.env.NO_GPU === 'true' || process.env.NO_GPU === '1';
 
 const debugChromiumArgs = [
   '--disable-dev-shm-usage',

@@ -97,5 +97,13 @@
     "reportBug": "Hata bildir",
     "featureRequest": "Özellik İsteği",
     "documentation": "Dokümantasyon"
+  },
+  "FlipCard": {
+    "switchToDefaultSettings": "Varsayılan ayarlara geç",
+    "switchToSiteSettings": "Site ayarlarına geç"
+  },
+  "HelpPanel": {
+    "tooltip": "Açıklamalı ipuçlarını görmek için simgelerin üzerine gelin",
+    "contact": "Sorularınız mı var? Yardımcı olmak için buradayım:"
   }
 }
