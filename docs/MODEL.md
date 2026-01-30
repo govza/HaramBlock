@@ -75,6 +75,7 @@ const models = getAvailableModels();
 
 | ID   | Directory                              | Input Size | Classes | Runtimes    |
 | ---- | -------------------------------------- | ---------- | ------- | ----------- |
+| i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       | ONNX + TFJS |
 | y320 | `public/models/afeef-y-320-3-20250124` | 320×320    | 3       | ONNX + TFJS |
 | y640 | `public/models/aeef-y-640-82-20250124` | 640×640    | 82      | ONNX + TFJS |
 
