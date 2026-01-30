@@ -5,7 +5,12 @@ import { calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskT
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap } from '@/utils/inference/preprocessing';
-import { getBackend, loadModel } from '@/utils/inference/runtimes/tfjs/modelLoader';
+import {
+  getBackend,
+  getMaskTensorIndex,
+  isMaskLayoutNHWC,
+  loadModel,
+} from '@/utils/inference/runtimes/tfjs/modelLoader';
 import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
 
@@ -211,12 +216,23 @@ async function processSegmentationResults(
   scoreThreshold: number,
 ): Promise<IElementPrediction[]> {
   try {
-    if (result.length < 3 || !result[0] || !result[2]) {
-      throw new Error('Invalid segmentation model output: expected at least 3 tensors');
+    const maskIdx = getMaskTensorIndex();
+    if (result.length <= maskIdx || !result[0] || !result[maskIdx]) {
+      throw new Error(
+        `Invalid segmentation model output: expected tensor at index ${maskIdx}, got ${result.length} tensors`,
+      );
     }
 
     const detectionTensor = result[0].squeeze();
-    const maskWeightTensor = result[2].squeeze();
+
+    // Get mask prototypes and handle NHWC vs NCHW layout
+    // NHWC: [H, W, C] after squeeze - can reshape directly to [H*W, C]
+    // NCHW: [C, H, W] after squeeze - need to transpose to [H, W, C] first
+    const maskSqueezed = result[maskIdx].squeeze();
+    const maskWeightTensor = isMaskLayoutNHWC() ? maskSqueezed : maskSqueezed.transpose([1, 2, 0]);
+    // Track if we created an intermediate tensor that needs separate disposal
+    const needsTransposeDisposal = !isMaskLayoutNHWC();
+
     const scoreSlice = detectionTensor.slice([0, 4], [-1, 1]).squeeze();
 
     const boxIndexes = scoreSlice.greater(scoreThreshold);
@@ -346,6 +362,9 @@ async function processSegmentationResults(
     filteredDetections.dispose();
     vectors.dispose();
     maskWeightReshaped.dispose();
+    if (needsTransposeDisposal) {
+      maskWeightTensor.dispose();
+    }
     transponsedVectors.dispose();
     dotProduct.dispose();
     probabilityMap.dispose();
