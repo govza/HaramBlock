@@ -1,4 +1,5 @@
 import { EMAIL_PATH, GITHUB_PATH, GLOBE_PATH } from '@/components/ui/icons';
+import { PerformanceStats } from '@/entrypoints/popup/components/PerformanceStats';
 import { t } from '@/utils/i18n';
 
 interface HelpPanelProps {
@@ -38,6 +39,8 @@ export const HelpPanel = ({ isOpen }: HelpPanelProps) => {
                 </svg>
               </a>
             </div>
+
+            <PerformanceStats isActive={isOpen} />
           </div>
         )}
       </div>
