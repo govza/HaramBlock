@@ -26,6 +26,10 @@ let loadingPromise: Promise<{ model: tf.GraphModel; config: ModelMetadata }> | n
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
 let cachedBackend: string = 'unknown';
 
+// TFJS-specific runtime config detected during warmup
+let maskTensorIndex: number = 1; // Default: output[1] contains mask prototypes
+let maskLayoutNHWC: boolean = true; // Default: TFJS typically outputs NHWC
+
 export async function discoverModels(): Promise<void> {
   const resolvedDefaultId = await discoverModelsShared(MODEL_PATHS, availableModels);
   // Update currentModelId if it was never explicitly set (still at initial default)
@@ -62,6 +66,8 @@ async function warmupModel(modelToWarm: tf.GraphModel): Promise<void> {
       const warmupResult = await modelToWarm.executeAsync(dummyInput);
 
       if (Array.isArray(warmupResult)) {
+        // Detect mask tensor index and layout from output shapes
+        detectMaskTensorLayout(warmupResult);
         warmupResult.forEach(tensor => tensor.dispose());
       } else {
         warmupResult.dispose();
@@ -75,6 +81,43 @@ async function warmupModel(modelToWarm: tf.GraphModel): Promise<void> {
   } catch (error) {
     logger.withTag('modelLoader').error('Error during model warmup:', error);
   }
+}
+
+/**
+ * Detect which output tensor contains mask prototypes and its layout (NHWC vs NCHW).
+ * Called once during warmup to avoid per-inference overhead.
+ */
+function detectMaskTensorLayout(outputs: tf.Tensor[]): void {
+  const [outH, outW] = config.outputShape;
+
+  for (let i = 1; i < outputs.length; i++) {
+    const tensor = outputs[i];
+    if (!tensor || tensor.rank !== 4) continue;
+
+    const dims = tensor.shape;
+    // Check for NHWC format: [batch, H, W, C] where H=outH, W=outW
+    if (dims[1] === outH && dims[2] === outW) {
+      maskTensorIndex = i;
+      maskLayoutNHWC = true;
+      logger.withTag('modelLoader').info(`Detected mask tensor at index ${i} with NHWC layout [${dims.join(',')}]`);
+      return;
+    }
+    // Check for NCHW format: [batch, C, H, W] where H=outH, W=outW
+    if (dims[2] === outH && dims[3] === outW) {
+      maskTensorIndex = i;
+      maskLayoutNHWC = false;
+      logger.withTag('modelLoader').info(`Detected mask tensor at index ${i} with NCHW layout [${dims.join(',')}]`);
+      return;
+    }
+  }
+
+  logger
+    .withTag('modelLoader')
+    .warn(
+      `Could not detect mask tensor with output shape [${outH}, ${outW}]. ` +
+        `Using defaults (index=${maskTensorIndex}, NHWC=${maskLayoutNHWC}). ` +
+        `Available shapes: ${outputs.map(t => `[${t.shape.join(',')}]`).join(', ')}`,
+    );
 }
 
 export async function initializeModel(modelId?: string): Promise<void> {
@@ -159,6 +202,14 @@ export function getBackend(): string {
   return cachedBackend;
 }
 
+export function getMaskTensorIndex(): number {
+  return maskTensorIndex;
+}
+
+export function isMaskLayoutNHWC(): boolean {
+  return maskLayoutNHWC;
+}
+
 export function getCurrentModelId(): string {
   return currentModelId;
 }
@@ -190,6 +241,9 @@ export function cleanup(): Promise<void> {
       model.dispose();
       model = null;
     }
+    // Reset runtime config to defaults for next model load
+    maskTensorIndex = 1;
+    maskLayoutNHWC = true;
   } catch (error) {
     logger.withTag('modelLoader').error('Error during model cleanup:', error);
   }
