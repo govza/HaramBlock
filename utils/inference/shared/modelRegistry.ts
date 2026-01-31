@@ -16,7 +16,7 @@ export interface ModelDefinition {
  * This is the SINGLE SOURCE OF TRUTH for available models.
  * To add a new model, add its path here.
  */
-export const MODEL_PATHS = ['/models/afeef-y26-320-20260129', '/models/aeef-y-640-82-20250124'];
+export const MODEL_PATHS = ['/models/afeef-y26-320-20260129', '/models/afeef-y26-640-20260129'];
 
 /** Preferred default model ID. Falls back to first discovered model if not found. */
 export const DEFAULT_MODEL_ID = 'i320';
