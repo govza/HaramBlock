@@ -21,7 +21,7 @@ web pages, applying AI predictions to filter or style content based on user pref
   JavaScript features.
 - Vite: A build tool that compiles the TypeScript code and bundles the extension for deployment.
 - Tailwind CSS: A utility-first CSS framework used for styling the popup UI.
-- TensorFlow.js: Used for running AI models directly in the browser to process images and videos.
+- ONNX Runtime Web: Used for running AI models directly in the browser to process images and videos.
 
 ## Coding Standards
 
