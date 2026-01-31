@@ -152,8 +152,10 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
   const modelPath = `${modelDef.basePath}/best.onnx`;
 
   loadingPromise = (async () => {
-    // Try WebGPU first, fall back to WASM
-    const backends = ['webgpu', 'wasm'] as const;
+    // Firefox's WebGPU is slow (~410ms vs WASM ~98ms), prefer WASM
+    // Chrome's WebGPU is fast (~42ms vs WASM ~253ms), prefer WebGPU
+    const isFirefox = navigator.userAgent.includes('Firefox');
+    const backends = isFirefox ? (['wasm', 'webgpu'] as const) : (['webgpu', 'wasm'] as const);
 
     for (const backend of backends) {
       try {
