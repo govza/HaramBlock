@@ -10,7 +10,7 @@ HaramBlock uses **comctx** (RPC library) with adaptive transport selection:
 - **Chrome**: MessageChannel with ImageBitmap (zero-copy transfer) + WebGPU inference
 - **Firefox**: Blob transfer via browser.runtime (structured clone) + WebGL inference
 
-The system automatically selects the optimal transport and TensorFlow.js backend based on browser.
+The system automatically selects the optimal transport based on browser.
 
 ### Browser-Specific Transfer Rules
 
@@ -217,25 +217,6 @@ The MessageChannel has multiple timeout layers to prevent hanging:
 | `initialize()` race            | 3s      | Quick availability check  |
 | `establishChannel()` READY ACK | 10s     | SW acknowledgment timeout |
 | `waitForReady()`               | 15s     | Hard timeout for callers  |
-
-## TensorFlow.js Backend Selection
-
-Backend is selected based on browser for optimal performance:
-
-```typescript
-// utils/inference/modelLoader.ts
-import { IS_CHROME } from '@/utils/constants/environment';
-
-const backend = IS_CHROME ? 'webgpu' : 'webgl';
-await tf.setBackend(backend);
-```
-
-| Browser | Backend | Inference Time |
-| ------- | ------- | -------------- |
-| Chrome  | WebGPU  | ~80ms          |
-| Firefox | WebGL   | ~190ms         |
-
-Firefox's WebGPU implementation is ~2x slower than WebGL, so we use WebGL for better performance.
 
 ## RPC Protocol (comctx)
 

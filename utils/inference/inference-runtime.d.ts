@@ -1,8 +1,6 @@
 /**
  * Type declarations for @inference-runtime alias.
- * The actual implementation is selected at build time by the WXT module:
- * - Chrome: utils/inference/runtimes/onnx
- * - Firefox: utils/inference/runtimes/tfjs
+ * The implementation is in utils/inference/runtimes/onnx
  */
 
 import type { IImagePrediction, InferenceTask } from '@/utils/types';

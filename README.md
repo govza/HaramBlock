@@ -65,9 +65,9 @@ To generate store-ready ZIPs instead, use `pnpm zip` / `pnpm zip:firefox` (outpu
 
 ## How It Works
 
-HaramBlock uses TensorFlow.js to run computer vision models directly in your browser. When you visit
-a webpage, the extension scans images and video frames, applies AI detection, and blurs any content
-that exceeds your configured strictness threshold.
+HaramBlock uses ONNX Runtime Web to run computer vision models directly in your browser. When you
+visit a webpage, the extension scans images and video frames, applies AI detection, and blurs any
+content that exceeds your configured strictness threshold.
 
 ## Documentation
 

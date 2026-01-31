@@ -1,13 +1,8 @@
 # YOLO11n-Seg Instance Segmentation Model
 
-## Dual Runtime Architecture
+## Inference Runtime
 
-The extension supports two inference runtimes selected at build time:
-
-- **Chrome**: ONNX Runtime Web (WebGPU/WASM backend)
-- **Firefox**: TensorFlow.js (WebGL backend)
-
-The runtime is selected automatically via the WXT module `modules/inference-runtime.ts`.
+The extension uses ONNX Runtime Web with WebGPU backend (WASM fallback) for AI inference.
 
 ## Model Discovery System
 
@@ -20,10 +15,8 @@ models without code changes.
    `{name}-y-{size}-{classes}-{date}`
    - Example: `public/models/afeef-y-640-82-20250124/`
 2. Add the ONNX model file as `best.onnx`
-3. Add the TensorFlow.js model in `best_web_model/` subdirectory (`model.json` + weight shards)
-4. Add a `metadata.yaml` with required fields (see below)
-5. Add the path to `MODEL_PATHS` array in `utils/inference/shared/modelRegistry.ts` (single source
-   of truth for both runtimes)
+3. Add a `metadata.yaml` with required fields (see below)
+4. Add the path to `MODEL_PATHS` array in `utils/inference/shared/modelRegistry.ts`
 
 ### Directory Contract
 
@@ -31,11 +24,8 @@ Each model directory should contain:
 
 ```
 public/models/{name}-y-{size}-{classes}-{date}/
-├── best.onnx                 # ONNX model (Chrome)
-├── best_web_model/           # TensorFlow.js model (Firefox)
-│   ├── model.json
-│   └── group1-shard*.bin
-└── metadata.yaml             # Shared metadata
+├── best.onnx                 # ONNX model
+└── metadata.yaml             # Model metadata
 ```
 
 ### Required Metadata Fields
@@ -73,25 +63,22 @@ const models = getAvailableModels();
 
 ## Available Models
 
-| ID   | Directory                              | Input Size | Classes | Runtimes    |
-| ---- | -------------------------------------- | ---------- | ------- | ----------- |
-| i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       | ONNX + TFJS |
-| y640 | `public/models/aeef-y-640-82-20250124` | 640×640    | 82      | ONNX + TFJS |
+| ID   | Directory                              | Input Size | Classes |
+| ---- | -------------------------------------- | ---------- | ------- |
+| i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       |
+| y640 | `public/models/afeef-y26-640-20260129` | 640×640    | 3       |
 
 ## Model Location
 
-- ONNX: `public/models/{model-dir}/best.onnx`
-- TensorFlow.js: `public/models/{model-dir}/best_web_model/model.json`
+- `public/models/{model-dir}/best.onnx`
 
 ## Architecture
 
 - **Model**: YOLO11n-seg (Ultralytics)
 - **Task**: Instance segmentation
-- **Format**: ONNX with NMS (Chrome) / TensorFlow.js GraphModel (Firefox)
+- **Format**: ONNX with NMS
 - **Input Size**: 320x320 or 640x640
-- **Runtime**:
-  - Chrome: ONNX Runtime Web (WebGPU with WASM fallback)
-  - Firefox: TensorFlow.js (WebGL with CPU fallback)
+- **Runtime**: ONNX Runtime Web (WebGPU with WASM fallback)
 
 ## Input Specification
 
