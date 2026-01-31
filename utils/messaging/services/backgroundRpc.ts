@@ -1,5 +1,8 @@
+import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
+
 import { logger } from '@/utils/logger';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
+import { getLogSettings } from '@/utils/logging/logSettings';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -64,8 +67,7 @@ export class BackgroundRpc {
    */
   async storeContentEvent(event: WideEvent): Promise<void> {
     const merged = await mergeContentEvent(event);
-    const logSettings = await import('@/utils/logging/logSettings');
-    const settings = await logSettings.getLogSettings();
+    const settings = await getLogSettings();
     const shouldLog = settings.consoleEnabled || import.meta.env.DEV;
 
     if (merged) {
@@ -224,7 +226,6 @@ export class BackgroundRpc {
   }
 
   async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string }[]> {
-    const { getAvailableModels } = await import('@inference-runtime');
     const start = Date.now();
 
     return new Promise(resolve => {
@@ -248,13 +249,11 @@ export class BackgroundRpc {
     });
   }
 
-  async getCurrentModelId() {
-    const { getCurrentModelId } = await import('@inference-runtime');
-    return getCurrentModelId();
+  getCurrentModelId(): Promise<string | null> {
+    return Promise.resolve(getCurrentModelId());
   }
 
   async setCurrentModel(modelId: string) {
-    const { switchModel } = await import('@inference-runtime');
     await switchModel(modelId);
   }
 
