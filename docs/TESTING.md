@@ -77,6 +77,28 @@ pnpm zip:firefox
 pnpm e2e:firefox
 ```
 
+#### Firefox Android Manual Testing
+
+To test the extension on Firefox for Android:
+
+1. **Enable USB debugging** on your Android device (Settings → Developer options)
+2. **Enable remote debugging** in Firefox Android (Settings → Advanced → Remote debugging via USB)
+3. **Connect your device** via USB and verify with `adb devices`
+
+```bash
+# Build the Firefox extension
+pnpm build:firefox
+
+# Run on Firefox Android (replace DEVICE_ID with your device)
+web-ext run -s .output/firefox-mv3 --target=firefox-android --adb-device=DEVICE_ID --firefox-apk=org.mozilla.firefox
+
+# Or use Firefox Nightly (recommended for development)
+web-ext run -s .output/firefox-mv3 --target=firefox-android --adb-device=DEVICE_ID --firefox-apk=org.mozilla.fenix
+```
+
+Use [scrcpy](https://github.com/Genymobile/scrcpy) to mirror your Android screen to your PC for
+easier testing.
+
 ### Project Structure
 
 ```
