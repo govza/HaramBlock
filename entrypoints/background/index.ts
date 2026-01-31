@@ -6,6 +6,7 @@ import {
   InferenceOrchestrationService,
   IconService,
 } from '@/entrypoints/background/services';
+import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
@@ -36,12 +37,18 @@ export default defineBackground({
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 
+    // Initialize auto model service
+    const autoModelService = new AutoModelService();
+
     // Wire up inference service to emit predictions via BackgroundRpc
+    // Also trigger auto model evaluation after predictions
     inferenceService.setOnImagePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitImagePredictions(predictions, hostname);
+      void autoModelService.evaluate();
     });
     inferenceService.setOnFramePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitFramePredictions(predictions, hostname);
+      void autoModelService.evaluate();
     });
 
     // Initialize all event listeners
@@ -53,7 +60,7 @@ export default defineBackground({
       void iconService.updateIconForActiveTab();
     });
 
-    // Initialize inference library
-    void initializeInference();
+    // Initialize inference library, then auto model service
+    void initializeInference().then(() => autoModelService.initialize());
   },
 });

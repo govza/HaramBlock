@@ -3,6 +3,7 @@ import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-r
 import { logger } from '@/utils/logger';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 import { getLogSettings } from '@/utils/logging/logSettings';
+import { getModelSettings, setModelSettings, type ModelPreference } from '@/utils/modelSettings';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -225,7 +226,7 @@ export class BackgroundRpc {
     this.emitHostSettingsUpdated(hostname);
   }
 
-  async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string }[]> {
+  async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string; inputSize: number }[]> {
     const start = Date.now();
 
     return new Promise(resolve => {
@@ -255,6 +256,23 @@ export class BackgroundRpc {
 
   async setCurrentModel(modelId: string) {
     await switchModel(modelId);
+  }
+
+  async getModelPreference(): Promise<ModelPreference> {
+    const settings = await getModelSettings();
+    return settings.preference;
+  }
+
+  async setModelPreference(preference: ModelPreference): Promise<void> {
+    await setModelSettings({ preference });
+
+    if (preference !== 'auto') {
+      await switchModel(preference);
+    }
+  }
+
+  getEffectiveModelId(): Promise<string> {
+    return Promise.resolve(getCurrentModelId());
   }
 
   // ============ Subscription Methods (replaces onMessage listeners) ============
