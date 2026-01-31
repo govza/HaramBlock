@@ -58,6 +58,7 @@ const availableModels: Map<string, ModelDefinition> = new Map();
 let currentModelId: string = DEFAULT_MODEL_ID;
 let session: ort.InferenceSession | null = null;
 let loadingPromise: Promise<{ session: ort.InferenceSession; config: ModelMetadata }> | null = null;
+let loadingModelId: string | null = null; // Track which model is currently being loaded
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
 let cachedBackend: string = 'unknown';
 
@@ -139,8 +140,9 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
     return { session, config };
   }
 
-  // Prevent concurrent loads
-  if (loadingPromise !== null) {
+  // Prevent concurrent loads for the SAME model
+  // If loading a different model, don't use the existing promise (it would return wrong session)
+  if (loadingPromise !== null && loadingModelId === currentModelId) {
     return loadingPromise;
   }
 
@@ -151,6 +153,7 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
 
   const modelPath = `${modelDef.basePath}/best.onnx`;
 
+  loadingModelId = currentModelId;
   loadingPromise = (async () => {
     // Firefox's WebGPU is slow (~410ms vs WASM ~98ms), prefer WASM
     // Chrome's WebGPU is fast (~42ms vs WASM ~253ms), prefer WebGPU
@@ -189,6 +192,7 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
     return await loadingPromise;
   } finally {
     loadingPromise = null;
+    loadingModelId = null;
   }
 }
 
@@ -229,6 +233,12 @@ export { ort };
 
 export async function cleanup(): Promise<void> {
   try {
+    // Wait for any in-progress load to complete before cleanup
+    // This prevents the old session from being assigned after cleanup
+    if (loadingPromise !== null) {
+      await loadingPromise.catch(() => {});
+    }
+
     if (session) {
       await session.release();
       session = null;
