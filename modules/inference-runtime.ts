@@ -5,15 +5,20 @@ import { addAlias, addViteConfig, defineWxtModule } from 'wxt/modules';
 export default defineWxtModule({
   name: 'inference-runtime',
   setup(wxt) {
-    const isFirefox = wxt.config.browser === 'firefox';
+    // Environment variable override (ONNX is default for all browsers)
+    const envOverride = process.env.INFERENCE_RUNTIME?.toLowerCase();
+    const hasValidOverride = envOverride === 'tfjs' || envOverride === 'onnx';
 
-    // Select runtime based on target browser
-    // Use relative path from project root (addAlias doesn't resolve @/ prefix)
-    const runtimePath = isFirefox ? 'utils/inference/runtimes/tfjs' : 'utils/inference/runtimes/onnx';
+    // Final runtime selection (ONNX default, TensorFlow.js only if explicitly requested)
+    const useOnnx = hasValidOverride ? envOverride === 'onnx' : true;
+    const useTfjs = !useOnnx;
+
+    // Select runtime path (relative from project root, addAlias doesn't resolve @/ prefix)
+    const runtimePath = useTfjs ? 'utils/inference/runtimes/tfjs' : 'utils/inference/runtimes/onnx';
     addAlias(wxt, '@inference-runtime', runtimePath);
 
-    // ONNX-specific aliases for Chrome builds (force WebGPU bundle, no dynamic imports)
-    if (!isFirefox) {
+    // ONNX-specific aliases (force WebGPU bundle, no dynamic imports)
+    if (useOnnx) {
       addViteConfig(wxt, () => ({
         resolve: {
           alias: {
@@ -33,6 +38,9 @@ export default defineWxtModule({
       }));
     }
 
-    wxt.logger.info(`Inference runtime: ${isFirefox ? 'TensorFlow.js' : 'ONNX'}`);
+    // Log with override indicator
+    const runtimeName = useTfjs ? 'TensorFlow.js' : 'ONNX';
+    const isOverridden = hasValidOverride && envOverride !== browserDefault;
+    wxt.logger.info(`Inference runtime: ${runtimeName}${isOverridden ? ' (overridden)' : ''}`);
   },
 });
