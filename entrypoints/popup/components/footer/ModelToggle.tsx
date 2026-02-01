@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { t } from '@/utils/i18n';
 import { backgroundRpc } from '@/utils/messaging/popup';
 
 import type { ModelPreference } from '@/utils/modelSettings';
@@ -9,6 +10,7 @@ export const ModelToggle = () => {
   const [preference, setPreference] = useState<ModelPreference | null>(null);
   const [effectiveId, setEffectiveId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -41,6 +43,7 @@ export const ModelToggle = () => {
     const nextPreference = options[nextIndex] as ModelPreference;
 
     setIsLoading(true);
+    setHasError(false);
     void (async () => {
       try {
         await backgroundRpc.setModelPreference(nextPreference);
@@ -49,6 +52,8 @@ export const ModelToggle = () => {
         setEffectiveId(newEffective);
       } catch (error) {
         console.error('Failed to switch model:', error);
+        setHasError(true);
+        setTimeout(() => setHasError(false), 2000);
       } finally {
         setIsLoading(false);
       }
@@ -60,16 +65,23 @@ export const ModelToggle = () => {
   const isAtMax = effectiveId === sortedModels[sortedModels.length - 1]?.id;
   const autoLabel = isAtMax ? 'auto' : '^auto';
   const displayId = isAuto ? autoLabel : preference;
-  const tooltip = isAuto
-    ? `Auto mode - currently using ${effectiveId ?? '...'}. Click to switch.`
-    : `Model: ${models.find(m => m.id === preference)?.name ?? preference}. Click to switch.`;
+
+  const getTooltip = () => {
+    if (hasError) return t('ModelToggle.errorTooltip');
+    if (isAuto) return t('ModelToggle.autoTooltip', [effectiveId ?? '...']);
+    return t('ModelToggle.manualTooltip', [models.find(m => m.id === preference)?.name ?? preference ?? '']);
+  };
+
+  const baseClasses =
+    'cursor-pointer rounded border px-0.5 py-px text-[10px] font-medium disabled:cursor-wait disabled:opacity-50';
+  const stateClasses = hasError ? 'border-red-500 text-red-500' : 'border-current';
 
   return (
     <button
-      className='cursor-pointer rounded border border-current px-0.5 py-px text-[10px] font-medium disabled:cursor-wait disabled:opacity-50'
+      className={`${baseClasses} ${stateClasses}`}
       onClick={handleClick}
       disabled={isLoading || models.length === 0}
-      title={tooltip}
+      title={getTooltip()}
     >
       {displayId ?? '...'}
     </button>
