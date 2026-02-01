@@ -16,7 +16,7 @@ declare module '@inference-runtime' {
   export function initializeModel(modelId?: string): Promise<void>;
   export function processInferenceTask(task: InferenceTask): Promise<IImagePrediction>;
   export function switchModel(modelId: string): Promise<void>;
-  export function getCurrentModelId(): string | null;
+  export function getCurrentModelId(): string;
   export function getAvailableModels(): ModelDefinition[];
   export function isModelReady(): boolean;
   export function getBackend(): string;
