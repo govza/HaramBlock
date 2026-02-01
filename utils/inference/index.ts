@@ -4,11 +4,9 @@
  * Public API:
  * - initializeInference(): Initialize the library (call once at startup)
  * - processInferenceTask(task): Process an image inference task
- * - getInferenceBackend(): Get the current backend (webgpu/webgl/wasm)
+ * - getInferenceBackend(): Get the current backend (webgpu/wasm)
  *
- * Runtime is selected at build time via WXT module:
- * - Chrome: ONNX Runtime Web
- * - Firefox: TensorFlow.js
+ * Runtime: ONNX Runtime Web (WebGPU with WASM fallback)
  *
  * All other implementation details are internal and not exported.
  */
