@@ -4,6 +4,65 @@
 
 The extension uses ONNX Runtime Web with WebGPU backend (WASM fallback) for AI inference.
 
+### Service Worker Limitations
+
+Service workers have two critical restrictions that break standard ONNX Runtime Web usage:
+
+1. **No dynamic `import()`** - The HTML specification disallows dynamic imports in
+   ServiceWorkerGlobalScope. ONNX Runtime internally uses `import()` to load its WASM loader module.
+
+2. **No SharedArrayBuffer** - Service workers are not cross-origin isolated (no COOP/COEP headers),
+   so SharedArrayBuffer is unavailable. The standard ONNX WASM loader requires this for
+   multi-threading.
+
+### Workarounds
+
+**Service Worker Polyfills** - `utils/inference/serviceWorkerPolyfills.ts` must be imported
+**before** any ONNX Runtime imports. This patches `window` and `XMLHttpRequest`.
+
+**WebGPU Bundle** - We use `ort.webgpu.bundle.min.mjs` which has the WASM glue code inlined,
+avoiding dynamic `import()` for the JavaScript module.
+
+**Asyncify WASM Preload** - We manually preload the asyncify WASM variant which uses async/await
+patterns instead of SharedArrayBuffer:
+
+```typescript
+const WASM_PATH = '/ort/ort-wasm-simd-threaded.asyncify.wasm';
+const wasmBinary = await fetch(WASM_PATH).then(r => r.arrayBuffer());
+ort.env.wasm.wasmBinary = wasmBinary;
+```
+
+**Single-Threaded Configuration**:
+
+```typescript
+ort.env.wasm.numThreads = 1; // No Web Workers in service workers
+ort.env.wasm.proxy = false; // Direct execution, no worker proxy
+```
+
+### Backend Selection
+
+Chrome's WebGPU is fast (~42ms inference), Firefox's is slow (~410ms). We prefer:
+
+- **Chrome**: WebGPU first, WASM fallback
+- **Firefox**: WASM first, WebGPU fallback
+
+### WASM Files
+
+```
+public/ort/
+├── ort-wasm-simd-threaded.asyncify.mjs   # Asyncify JS glue (not used directly)
+├── ort-wasm-simd-threaded.asyncify.wasm  # Asyncify WASM binary (preloaded)
+├── ort-wasm-simd-threaded.mjs            # Standard JS glue (not used)
+└── ort-wasm-simd-threaded.wasm           # Standard WASM (not used)
+```
+
+### Known Warnings
+
+- **"Unknown CPU vendor"** - Harmless. ONNX Runtime tries CPUID detection which doesn't work in
+  WASM. Falls back to generic code paths.
+- **"powerPreference ignored"** - Chrome bug on Windows (crbug.com/369219127). Doesn't affect
+  functionality.
+
 ## Model Discovery System
 
 Models are discovered dynamically at runtime from `metadata.yaml` files. This allows adding new
@@ -60,6 +119,43 @@ const id = getCurrentModelId();
 // List all discovered models
 const models = getAvailableModels();
 ```
+
+## Auto Model Selection
+
+The extension can automatically switch between models based on inference performance. This adapts to
+the user's hardware capabilities.
+
+### User Preferences
+
+Users can choose:
+
+- **Auto** - Extension monitors performance and switches models automatically
+- **Specific model** - User manually selects a model (stored and restored on startup)
+
+Preference is stored in `browser.storage.local` under `modelSettings`.
+
+### Auto Selection Algorithm
+
+When `preference === 'auto'`, the `AutoModelService` evaluates performance:
+
+| Parameter             | Value   | Description                                    |
+| --------------------- | ------- | ---------------------------------------------- |
+| `REQUIRED_SAMPLES`    | 100     | Samples needed before making decisions         |
+| `DEBOUNCE_MS`         | 1 hour  | Minimum time between evaluations               |
+| `COOLDOWN_MS`         | 6 hours | Minimum time after a switch before re-evaluate |
+| `UPGRADE_THRESHOLD`   | 70ms    | Median below this triggers upgrade (Chrome)    |
+| `DOWNGRADE_THRESHOLD` | 120ms   | Median above this triggers downgrade (Chrome)  |
+
+**Decision flow:**
+
+1. Collect last 100 inference times from cache
+2. Calculate median inference time
+3. If median < 70ms and larger model available → upgrade
+4. If median > 120ms and smaller model available → downgrade
+5. After switch, wait 6 hours before next evaluation
+
+Models are sorted by input size (320×320 < 640×640), so "upgrade" means switching to a larger, more
+accurate model, while "downgrade" means switching to a smaller, faster model.
 
 ## Available Models
 
