@@ -110,5 +110,9 @@
     "autoTooltip": "Mode automatique - utilise actuellement $1. Cliquez pour changer.",
     "manualTooltip": "Modèle : $1. Cliquez pour changer.",
     "errorTooltip": "Échec du changement de modèle"
+  },
+  "ConsoleToggle": {
+    "enable": "Activer les journaux de console",
+    "disable": "Désactiver les journaux de console"
   }
 }

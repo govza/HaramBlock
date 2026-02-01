@@ -110,5 +110,9 @@
     "autoTooltip": "Auto mode - currently using $1. Click to switch.",
     "manualTooltip": "Model: $1. Click to switch.",
     "errorTooltip": "Failed to switch model"
+  },
+  "ConsoleToggle": {
+    "enable": "Enable console logs",
+    "disable": "Disable console logs"
   }
 }
