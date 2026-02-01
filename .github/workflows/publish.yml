@@ -88,10 +88,14 @@ jobs:
       - name: Create GitHub Release
         if: ${{ !inputs.dry_run }}
         run: |
-          gh release create v${{ steps.version.outputs.version }} \
-            --title "v${{ steps.version.outputs.version }}" \
-            --generate-notes \
-            .output/*.zip
+          if gh release view v${{ steps.version.outputs.version }} > /dev/null 2>&1; then
+            echo "Release v${{ steps.version.outputs.version }} already exists, skipping"
+          else
+            gh release create v${{ steps.version.outputs.version }} \
+              --title "v${{ steps.version.outputs.version }}" \
+              --generate-notes \
+              .output/*.zip
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
 
