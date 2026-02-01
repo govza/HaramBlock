@@ -105,5 +105,10 @@
   "HelpPanel": {
     "tooltip": "Fahren Sie mit der Maus über Symbole, um Tooltips mit Beschreibungen anzuzeigen",
     "contact": "Fragen? Ich bin hier, um zu helfen:"
+  },
+  "ModelToggle": {
+    "autoTooltip": "Automatischer Modus - verwendet derzeit $1. Klicken zum Wechseln.",
+    "manualTooltip": "Modell: $1. Klicken zum Wechseln.",
+    "errorTooltip": "Modellwechsel fehlgeschlagen"
   }
 }

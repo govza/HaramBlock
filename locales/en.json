@@ -105,5 +105,10 @@
   "HelpPanel": {
     "tooltip": "Hover over icons to see tooltips with descriptions",
     "contact": "Any questions? I'm here to help:"
+  },
+  "ModelToggle": {
+    "autoTooltip": "Auto mode - currently using $1. Click to switch.",
+    "manualTooltip": "Model: $1. Click to switch.",
+    "errorTooltip": "Failed to switch model"
   }
 }

@@ -105,5 +105,10 @@
   "HelpPanel": {
     "tooltip": "Açıklamalı ipuçlarını görmek için simgelerin üzerine gelin",
     "contact": "Sorularınız mı var? Yardımcı olmak için buradayım:"
+  },
+  "ModelToggle": {
+    "autoTooltip": "Otomatik mod - şu anda $1 kullanılıyor. Değiştirmek için tıklayın.",
+    "manualTooltip": "Model: $1. Değiştirmek için tıklayın.",
+    "errorTooltip": "Model değiştirilemedi"
   }
 }
