@@ -284,7 +284,7 @@ export class ImageProcessor {
       if (this.isBelowMinSize(img)) {
         this.pendingInference.delete(src);
         completeContentTiming(src, { status: 'skipped' });
-        finalizeImageProcessing(img, 'skipped');
+        this.finalizeAllImagesForSrc(src, 'skipped');
         return;
       }
 
@@ -296,14 +296,14 @@ export class ImageProcessor {
       } catch (err) {
         this.pendingInference.delete(src);
         completeContentTiming(src, { status: 'error', error: err instanceof Error ? err : undefined });
-        finalizeImageProcessing(img, 'skipped');
+        this.finalizeAllImagesForSrc(src, 'skipped');
       }
     };
 
     const handleError = () => {
       this.pendingInference.delete(src);
       completeContentTiming(src, { status: 'error' });
-      finalizeImageProcessing(img, 'skipped');
+      this.finalizeAllImagesForSrc(src, 'skipped');
     };
 
     if (img.complete && img.naturalWidth > 0) {
@@ -334,6 +334,17 @@ export class ImageProcessor {
     const w = img.naturalWidth || img.width;
     const h = img.naturalHeight || img.height;
     return w < this.hostSettings.minSize.width || h < this.hostSettings.minSize.height;
+  }
+
+  /**
+   * Finalize all images with the given src. Used when one image is skipped/errors
+   * to ensure other deduplicated images with the same src are also finalized.
+   */
+  private finalizeAllImagesForSrc(src: string, status: 'safe' | 'unsafe' | 'skipped'): void {
+    const images = this.findImagesBySrc(src);
+    for (const img of images) {
+      finalizeImageProcessing(img, status);
+    }
   }
 
   // ===========================================================================
