@@ -114,5 +114,9 @@
   "ConsoleToggle": {
     "enable": "Activer les journaux de console",
     "disable": "Désactiver les journaux de console"
+  },
+  "HelpToggle": {
+    "open": "Ouvrir l'aide",
+    "close": "Fermer l'aide"
   }
 }
