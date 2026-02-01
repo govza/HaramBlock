@@ -1,6 +1,6 @@
 import { logger } from '@/utils/logger';
 
-export type ModelPreference = string;
+export type ModelPreference = 'auto' | (string & {});
 
 export interface ModelSettings {
   preference: ModelPreference;
