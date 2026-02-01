@@ -13,6 +13,7 @@ APIs, and implementation details). If you’re a user, start with the project
   - [REACTIVE_SETTINGS.md](REACTIVE_SETTINGS.md) (per-site settings storage + UI reactivity)
   - [POPUP.md](POPUP.md) (popup UI components and state management)
 - **Video filtering details**: [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
+- **AI model and inference**: [MODEL.md](MODEL.md)
 - **Running tests**: [TESTING.md](TESTING.md)
 
 ## Project Map (High Level)
