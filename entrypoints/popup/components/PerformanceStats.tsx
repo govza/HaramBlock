@@ -113,7 +113,7 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
   }, [currentHostname, imageCacheRepository, isGlobalMode, isActive]);
 
   return (
-    <div className='mt-3 pt-2 border-t border-gray-700'>
+    <div>
       <div className='flex items-center justify-between mb-2'>
         <div className='text-sm font-mono'>📊 Performance Statistics</div>
         <div className='flex items-center gap-1'>

@@ -20,7 +20,9 @@ export const HelpPanel = ({ isOpen }: HelpPanelProps) => {
       <div className='overflow-hidden'>
         {isOpen && (
           <div className='border-t border-gray-600 bg-gray-800 text-gray-300 px-3 py-2 text-xs'>
-            <div>{t('HelpPanel.tooltip')}</div>
+            <PerformanceStats isActive={isOpen} />
+
+            <div className='mt-3 pt-2 border-t border-gray-700'>{t('HelpPanel.tooltip')}</div>
             <div className='flex items-center gap-2 mt-2'>
               <span>{t('HelpPanel.contact')}</span>
               <a href={LINKS.github} target='_blank' rel='noopener noreferrer' title='GitHub' aria-label='GitHub'>
@@ -39,8 +41,6 @@ export const HelpPanel = ({ isOpen }: HelpPanelProps) => {
                 </svg>
               </a>
             </div>
-
-            <PerformanceStats isActive={isOpen} />
           </div>
         )}
       </div>
