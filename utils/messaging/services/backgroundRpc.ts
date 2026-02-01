@@ -264,11 +264,10 @@ export class BackgroundRpc {
   }
 
   async setModelPreference(preference: ModelPreference): Promise<void> {
-    await setModelSettings({ preference });
-
     if (preference !== 'auto') {
       await switchModel(preference);
     }
+    await setModelSettings({ preference });
   }
 
   getEffectiveModelId(): Promise<string> {
