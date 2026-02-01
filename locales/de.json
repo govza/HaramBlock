@@ -110,5 +110,9 @@
     "autoTooltip": "Automatischer Modus - verwendet derzeit $1. Klicken zum Wechseln.",
     "manualTooltip": "Modell: $1. Klicken zum Wechseln.",
     "errorTooltip": "Modellwechsel fehlgeschlagen"
+  },
+  "ConsoleToggle": {
+    "enable": "Konsolenprotokolle aktivieren",
+    "disable": "Konsolenprotokolle deaktivieren"
   }
 }
