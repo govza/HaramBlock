@@ -4,6 +4,7 @@ import { initHostSettingsObserver, IconEventListener } from '@/entrypoints/backg
 import {
   HostSettingsService,
   ImageCacheService,
+  ModelService,
   QueueService,
   InferenceOrchestrationService,
   IconService,
@@ -21,6 +22,7 @@ export default defineBackground({
     const hostSettingsService = new HostSettingsService();
     const imageCacheService = new ImageCacheService();
     const iconService = new IconService();
+    const modelService = new ModelService();
     const queueService = new QueueService();
 
     const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
@@ -37,6 +39,7 @@ export default defineBackground({
       imageCacheService,
       inferenceService,
       iconService,
+      modelService,
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 

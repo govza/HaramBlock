@@ -7,6 +7,7 @@ import type { HostSettingsService } from '@/entrypoints/background/services/host
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type { ModelService } from '@/entrypoints/background/services/modelService';
 
 export { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 export { ProvideAdapter, InjectAdapter } from '@/utils/messaging/adapters/browserRuntimeAdapter';
@@ -27,7 +28,8 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
     imageCacheService: ImageCacheService,
     inferenceService: InferenceOrchestrationService,
     iconService: IconService,
-  ) => new BackgroundRpc(hostSettingsService, imageCacheService, inferenceService, iconService),
+    modelService: ModelService,
+  ) => new BackgroundRpc(hostSettingsService, imageCacheService, inferenceService, iconService, modelService),
   {
     namespace: '__haramblock__',
     // Chrome: Enable transferable extraction for MessageChannel (zero-copy ImageBitmap)

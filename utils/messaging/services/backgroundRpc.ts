@@ -1,15 +1,14 @@
-import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
-
 import { logger } from '@/utils/logger';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 import { getLogSettings } from '@/utils/logging/logSettings';
-import { getModelSettings, setModelSettings, type ModelPreference } from '@/utils/modelSettings';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type { ModelService } from '@/entrypoints/background/services/modelService';
 import type { WideEvent } from '@/utils/logging/types';
+import type { ModelPreference } from '@/utils/modelSettings';
 import type {
   IHostSettings,
   IImagePrediction,
@@ -36,6 +35,7 @@ export class BackgroundRpc {
     private imageCacheService: ImageCacheService,
     private inferenceService: InferenceOrchestrationService,
     private iconService: IconService,
+    private modelService: ModelService,
   ) {}
 
   // ============ Request-Response Methods (replaces controllers) ============
@@ -227,51 +227,27 @@ export class BackgroundRpc {
   }
 
   async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string; inputSize: number }[]> {
-    const start = Date.now();
-
-    return new Promise(resolve => {
-      const check = () => {
-        const models = getAvailableModels();
-
-        if (Array.isArray(models) && models.length > 0) {
-          resolve(models);
-          return;
-        }
-
-        if (Date.now() - start >= timeoutMs) {
-          resolve(models);
-          return;
-        }
-
-        setTimeout(check, pollMs);
-      };
-
-      check();
-    });
+    return this.modelService.getAvailableModels(timeoutMs, pollMs);
   }
 
   getCurrentModelId(): Promise<string | null> {
-    return Promise.resolve(getCurrentModelId());
+    return Promise.resolve(this.modelService.getCurrentModelId());
   }
 
   async setCurrentModel(modelId: string) {
-    await switchModel(modelId);
+    await this.modelService.switchModel(modelId);
   }
 
   async getModelPreference(): Promise<ModelPreference> {
-    const settings = await getModelSettings();
-    return settings.preference;
+    return this.modelService.getModelPreference();
   }
 
   async setModelPreference(preference: ModelPreference): Promise<void> {
-    if (preference !== 'auto') {
-      await switchModel(preference);
-    }
-    await setModelSettings({ preference });
+    await this.modelService.setModelPreference(preference);
   }
 
   getEffectiveModelId(): Promise<string> {
-    return Promise.resolve(getCurrentModelId());
+    return Promise.resolve(this.modelService.getCurrentModelId());
   }
 
   // ============ Subscription Methods (replaces onMessage listeners) ============
