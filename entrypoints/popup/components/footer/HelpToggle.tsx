@@ -1,4 +1,5 @@
 import { HELP_PATH } from '@/components/ui/icons';
+import { t } from '@/utils/i18n';
 
 interface HelpToggleProps {
   isOpen: boolean;
@@ -6,14 +7,10 @@ interface HelpToggleProps {
 }
 
 export const HelpToggle = ({ isOpen, onToggle }: HelpToggleProps) => {
+  const label = isOpen ? t('HelpToggle.close') : t('HelpToggle.open');
+
   return (
-    <button
-      className='cursor-pointer'
-      onClick={onToggle}
-      title={isOpen ? 'Close help' : 'Open help'}
-      aria-label={isOpen ? 'Close help' : 'Open help'}
-      aria-expanded={isOpen}
-    >
+    <button className='cursor-pointer' onClick={onToggle} title={label} aria-label={label} aria-expanded={isOpen}>
       <svg
         xmlns='http://www.w3.org/2000/svg'
         fill='none'

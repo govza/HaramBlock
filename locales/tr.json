@@ -114,5 +114,9 @@
   "ConsoleToggle": {
     "enable": "Konsol günlüklerini etkinleştir",
     "disable": "Konsol günlüklerini devre dışı bırak"
+  },
+  "HelpToggle": {
+    "open": "Yardımı aç",
+    "close": "Yardımı kapat"
   }
 }

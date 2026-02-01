@@ -114,5 +114,9 @@
   "ConsoleToggle": {
     "enable": "Enable console logs",
     "disable": "Disable console logs"
+  },
+  "HelpToggle": {
+    "open": "Open help",
+    "close": "Close help"
   }
 }

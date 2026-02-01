@@ -114,5 +114,9 @@
   "ConsoleToggle": {
     "enable": "Konsolenprotokolle aktivieren",
     "disable": "Konsolenprotokolle deaktivieren"
+  },
+  "HelpToggle": {
+    "open": "Hilfe öffnen",
+    "close": "Hilfe schließen"
   }
 }
