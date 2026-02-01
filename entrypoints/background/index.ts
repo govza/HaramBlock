@@ -1,3 +1,5 @@
+import { switchModel } from '@inference-runtime';
+
 import { initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
 import {
   HostSettingsService,
@@ -10,6 +12,7 @@ import { AutoModelService } from '@/entrypoints/background/services/autoModelSer
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
+import { getModelSettings } from '@/utils/modelSettings';
 
 export default defineBackground({
   type: 'module',
@@ -60,7 +63,13 @@ export default defineBackground({
       void iconService.updateIconForActiveTab();
     });
 
-    // Initialize inference library, then auto model service
-    void initializeInference().then(() => autoModelService.initialize());
+    // Initialize inference library, apply stored preference, then auto model service
+    void initializeInference().then(async () => {
+      const settings = await getModelSettings();
+      if (settings.preference !== 'auto') {
+        await switchModel(settings.preference);
+      }
+      await autoModelService.initialize();
+    });
   },
 });
