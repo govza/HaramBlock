@@ -8,9 +8,9 @@ const IS_CHROME = import.meta.env.CHROME === true;
 
 const UPGRADE_THRESHOLD = IS_CHROME ? 70 : 100;
 const DOWNGRADE_THRESHOLD = IS_CHROME ? 120 : 180;
-const MIN_SAMPLES = 10;
-const COOLDOWN_MS = 30_000;
-const DEBOUNCE_MS = 5_000;
+const REQUIRED_SAMPLES = 100;
+const DEBOUNCE_MS = 60 * 60 * 1000; // 1 hour
+const COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 const log = logger.withTag('autoModel');
 
@@ -70,8 +70,8 @@ export class AutoModelService {
 
     this.lastCheckTime = now;
 
-    const predictions = await this.imageCacheRepository.findAllValid();
-    if (predictions.length < MIN_SAMPLES) return;
+    const predictions = await this.imageCacheRepository.findRecent(REQUIRED_SAMPLES);
+    if (predictions.length < REQUIRED_SAMPLES) return;
 
     const inferenceTimes = predictions.map(p => p.processingTime.inferenceTime);
     const median = calculateMedian(inferenceTimes);
