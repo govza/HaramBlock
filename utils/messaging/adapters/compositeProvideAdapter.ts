@@ -165,7 +165,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
       switch (meta?.injector) {
         case 'content': {
-          if (meta.tabId) {
+          if (typeof meta.tabId === 'number' && meta.tabId >= 0) {
             await browser.tabs.sendMessage(meta.tabId, cleanMessage).catch((error: Error) => {
               // Tab might be closed - silently ignore
               if (error.message?.includes('Receiving end does not exist')) {

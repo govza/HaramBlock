@@ -15,7 +15,7 @@ export class ProvideAdapter implements Adapter<MessageMeta> {
   sendMessage: SendMessage<MessageMeta> = async message => {
     switch (message.meta?.injector) {
       case 'content': {
-        if (message.meta.tabId) {
+        if (typeof message.meta.tabId === 'number' && message.meta.tabId >= 0) {
           await browser.tabs.sendMessage(message.meta.tabId, message);
         } else if (message.meta.url) {
           const tabs = await browser.tabs.query({ url: message.meta.url });
