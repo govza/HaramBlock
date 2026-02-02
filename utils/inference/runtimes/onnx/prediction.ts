@@ -62,21 +62,27 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     const rawThreshold = 1 - task.hostSettings.strictness;
     const scoreThreshold = Math.min(0.9, Math.max(0.05, rawThreshold));
 
-    const rawPredictions = await getFramePredictions(
-      imageBitmap,
-      session,
-      config,
-      scoreThreshold,
-      imageWidth,
-      imageHeight,
-    );
+    // Use try/finally to ensure bitmap cleanup even on inference errors
+    let rawPredictions: IElementPrediction[];
+    let bitmapWidth: number;
+    let bitmapHeight: number;
+    try {
+      rawPredictions = await getFramePredictions(imageBitmap, session, config, scoreThreshold, imageWidth, imageHeight);
+      bitmapWidth = imageBitmap.width;
+      bitmapHeight = imageBitmap.height;
+    } finally {
+      // Release GPU memory - ImageBitmap is no longer needed after inference
+      imageBitmap.close();
+    }
+
     const inferenceEndAt = Date.now();
     const inferenceTime = inferenceEndAt - inferenceStartAt;
 
     // Calculate E2E time: from content script request start to inference completion
     const e2eTime = task.requestStartAt ? inferenceEndAt - task.requestStartAt : 0;
 
-    const predictions = edgeBoundingBoxCorrection(rawPredictions, imageBitmap.width, imageBitmap.height);
+    const predictions = edgeBoundingBoxCorrection(rawPredictions, bitmapWidth, bitmapHeight);
+
     const timestamp = Date.now();
 
     const cacheMetadata = createCacheMetadataFromMediaMetadata(task.mediaMetadata);
