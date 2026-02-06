@@ -61,8 +61,7 @@ export default defineBackground({
     iconEventListener.initialize();
 
     // Initialize hostSettings observer to react to database changes
-    initHostSettingsObserver(hostname => {
-      backgroundRpc.emitHostSettingsUpdated(hostname);
+    initHostSettingsObserver(() => {
       void iconService.updateIconForActiveTab();
     });
 
