@@ -1,11 +1,13 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { createContext, useContext, useState, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
+import { useSafeLiveQuery } from '@/hooks/useSafeLiveQuery';
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
-import { hostSettingsRepository, type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import { isIncognito } from '@/utils/db/db';
+import { createHostSettingsRepository, type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
+import { backgroundRpc } from '@/utils/messaging/popup';
 
 import type { IHostSettings } from '@/utils/types';
 
@@ -42,8 +44,10 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
 
   const currentHostname = isGlobalMode ? DEFAULT_GLOBAL_KEY : detectedHostname;
   const effectiveHostname = useMemo(() => getEffectiveHostname(currentHostname), [currentHostname]);
-  // Use repository's findByHostname which handles global fallback logic
-  const hostSettingsData = useLiveQuery(
+
+  const hostSettingsRepository = useMemo(() => createHostSettingsRepository(isIncognito), []);
+
+  const hostSettingsData = useSafeLiveQuery(
     () => hostSettingsRepository.findByHostname(effectiveHostname),
     [effectiveHostname],
   );
@@ -59,6 +63,19 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
 
   const switchToGlobal = () => setIsGlobalMode(true);
   const switchToLocal = () => setIsGlobalMode(false);
+
+  // Update toolbar icon when policy changes (skip initial load)
+  const prevPolicyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevPolicyRef.current === null) {
+      prevPolicyRef.current = hostSettings.policy;
+      return;
+    }
+    if (prevPolicyRef.current !== hostSettings.policy) {
+      prevPolicyRef.current = hostSettings.policy;
+      void backgroundRpc.updateIcon(effectiveHostname);
+    }
+  }, [hostSettings.policy, effectiveHostname]);
 
   if (error) {
     return <div>Error: {error}</div>;
