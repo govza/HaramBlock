@@ -6,6 +6,7 @@ import { logger } from '@/utils/logger';
 import type { IHostSettings } from '@/utils/types';
 
 type SettingsChangedCallback = (hostname: string) => void;
+const SESSION_STORAGE_PREFIX = 'hostSettings:';
 
 const areSettingsEqual = (a: IHostSettings, b: IHostSettings): boolean => {
   return (
@@ -62,5 +63,26 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
     },
   });
 
-  logger.withTag('hostSettingsObserver').info('Initialized liveQuery observer for hostSettings');
+  // Private/incognito host settings are stored in browser.storage.session.
+  // Listen for those writes/deletes so the same callback path is triggered.
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'session') {
+      return;
+    }
+
+    const changedHostnames = new Set<string>();
+    for (const key of Object.keys(changes)) {
+      if (!key.startsWith(SESSION_STORAGE_PREFIX)) {
+        continue;
+      }
+      const hostname = key.slice(SESSION_STORAGE_PREFIX.length);
+      if (hostname) {
+        changedHostnames.add(hostname);
+      }
+    }
+
+    changedHostnames.forEach(hostname => onSettingsChanged(hostname));
+  });
+
+  logger.withTag('hostSettingsObserver').info('Initialized hostSettings observers (Dexie + session storage)');
 }
