@@ -4,13 +4,13 @@ import { t } from '@/utils/i18n';
 import type { OutlineType } from '@/utils/types';
 
 export const Outline = () => {
-  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
   const isDisabled = hostSettings.policy !== 'process';
 
   const handleChange = (outline: OutlineType) => {
     if (isDisabled) return;
-    void hostSettingsRepository.setOutline(hostSettings.hostname, outline);
+    void hostSettingsRepository.setOutline(hostSettings.hostname, outline).then(markDirty);
   };
 
   return (

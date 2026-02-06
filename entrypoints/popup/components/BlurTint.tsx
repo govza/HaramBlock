@@ -2,18 +2,18 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const BlurTint = () => {
-  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
   const isDisabled = hostSettings.policy !== 'process' && hostSettings.policy !== 'blacklist';
 
   const handleGrayscaleToggle = () => {
     if (isDisabled) return;
-    void hostSettingsRepository.setGrayscale(hostSettings.hostname, !hostSettings.masking.grayscale);
+    void hostSettingsRepository.setGrayscale(hostSettings.hostname, !hostSettings.masking.grayscale).then(markDirty);
   };
 
   const handleDarkToggle = () => {
     if (isDisabled) return;
-    void hostSettingsRepository.setDark(hostSettings.hostname, !hostSettings.masking.dark);
+    void hostSettingsRepository.setDark(hostSettings.hostname, !hostSettings.masking.dark).then(markDirty);
   };
 
   return (

@@ -2,7 +2,7 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const PixelationScale = () => {
-  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
   const isHidden = hostSettings.policy !== 'process' || hostSettings.outline !== 'segment';
 
@@ -11,6 +11,7 @@ export const PixelationScale = () => {
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(event.target.value, 10);
     await hostSettingsRepository.setPixelationScale(hostSettings.hostname, value);
+    markDirty();
   };
 
   return (

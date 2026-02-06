@@ -2,7 +2,7 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const BlurIntensity = () => {
-  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
   // Show for blacklist (always) or process mode with bbox outline
   const isHidden =
@@ -13,6 +13,7 @@ export const BlurIntensity = () => {
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(event.target.value, 10);
     await hostSettingsRepository.setBlurIntensity(hostSettings.hostname, value);
+    markDirty();
   };
 
   return (

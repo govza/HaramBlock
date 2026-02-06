@@ -18,18 +18,18 @@ const SwitchRow = ({ label, checked, disabled, onChange, testId }: SwitchRowProp
 );
 
 export const QuickToggleSetting = () => {
-  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
   const isDisabled = hostSettings.policy !== 'process';
 
   const handleUnsafeChange = (enabled: boolean) => {
     if (isDisabled) return;
-    void hostSettingsRepository.setQuickToggleUnsafe(hostSettings.hostname, enabled);
+    void hostSettingsRepository.setQuickToggleUnsafe(hostSettings.hostname, enabled).then(markDirty);
   };
 
   const handleSafeChange = (enabled: boolean) => {
     if (isDisabled) return;
-    void hostSettingsRepository.setQuickToggleSafe(hostSettings.hostname, enabled);
+    void hostSettingsRepository.setQuickToggleSafe(hostSettings.hostname, enabled).then(markDirty);
   };
 
   return (
