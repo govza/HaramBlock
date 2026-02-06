@@ -1,4 +1,3 @@
-import { onHostSettingsUpdatedForHostname } from '@/entrypoints/content/communication/listener';
 import { requestHostData } from '@/entrypoints/content/communication/sender';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
@@ -24,7 +23,6 @@ export async function useHostData(
   let predictions: IImagePrediction[] = [];
   let isLoading = true;
 
-  // Function to fetch both settings and predictions from background
   const fetchData = async (): Promise<{
     settings: IHostSettings;
     predictions: IImagePrediction[];
@@ -39,7 +37,6 @@ export async function useHostData(
     return hostData;
   };
 
-  // Function to refresh all data
   const refresh = async (): Promise<void> => {
     isLoading = true;
     const data = await fetchData();
@@ -47,38 +44,18 @@ export async function useHostData(
     ({ predictions } = data);
     isLoading = false;
 
-    // Call the update callback if provided
     if (onDataUpdate) {
       onDataUpdate({ settings, predictions });
     }
   };
 
-  // Fetch initial data
   await refresh();
-
-  // This triggers for both hostname-specific AND global settings changes
-  const unsubscribe = onHostSettingsUpdatedForHostname(effectiveHostname, () => {
-    // Only reload if settings actually changed for this hostname
-    globalThis.setTimeout(() => {
-      void fetchData().then(newData => {
-        if (JSON.stringify(newData.settings) !== JSON.stringify(settings)) {
-          globalThis.location.reload();
-        }
-      });
-    }, 500);
-  });
-
-  const messageCleanup = unsubscribe;
 
   return {
     settings,
     predictions,
     isLoading: () => isLoading,
     refresh,
-    cleanup: () => {
-      if (messageCleanup) {
-        messageCleanup();
-      }
-    },
+    cleanup: () => {},
   };
 }
