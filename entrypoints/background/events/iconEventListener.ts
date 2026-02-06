@@ -13,7 +13,6 @@ export class IconEventListener {
   }
 
   public initialize(): void {
-    // Tab event listeners
     // Update extension icon when a tab's URL changes OR when page status changes (including refresh)
     browser.tabs.onUpdated.addListener((tabId: number, changeInfo, tab) => {
       if (changeInfo.url || changeInfo.status === 'complete') {
@@ -24,7 +23,7 @@ export class IconEventListener {
         }
       }
     });
-    // Update extension icon when a tab is removed
+    // Update extension icon when a tab is activated
     browser.tabs.onActivated.addListener(activeInfo => {
       browser.tabs
         .get(activeInfo.tabId)
