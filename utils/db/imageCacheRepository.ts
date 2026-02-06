@@ -1,9 +1,10 @@
 import { BaseRepository } from '@/utils/db/baseRepository';
-import { imageDb } from '@/utils/db/db';
+import { imageDb, isIncognito } from '@/utils/db/db';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { type IImagePrediction } from '@/utils/types';
 
-const isCacheDisabled = import.meta.env.MODE === 'no-cache';
+// Cache is disabled in private browsing (IndexedDB doesn't work) or no-cache mode
+const isCacheDisabled = isIncognito || import.meta.env.MODE === 'no-cache';
 
 /**
  * Repository for managing image prediction cache records
@@ -107,6 +108,9 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
    * Delete predictions by hostname
    */
   async deleteByHostname(hostname: string): Promise<number> {
+    if (isCacheDisabled) {
+      return 0;
+    }
     const effectiveHostname = getEffectiveHostname(hostname);
     return this.where('hostname').equals(effectiveHostname).delete();
   }
@@ -115,6 +119,9 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
    * Delete predictions older than timestamp
    */
   async deleteOlderThan(timestamp: number): Promise<number> {
+    if (isCacheDisabled) {
+      return 0;
+    }
     return this.where('timestamp').below(timestamp).delete();
   }
 
@@ -122,6 +129,9 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
    * Delete expired cache entries based on cache metadata
    */
   async deleteExpired(): Promise<number> {
+    if (isCacheDisabled) {
+      return 0;
+    }
     const allRecords = await this.table.toArray();
     const expiredIds: string[] = [];
 
@@ -142,6 +152,9 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
    * Count predictions by hostname
    */
   async countByHostname(hostname: string): Promise<number> {
+    if (isCacheDisabled) {
+      return 0;
+    }
     const effectiveHostname = getEffectiveHostname(hostname);
     return this.where('hostname').equals(effectiveHostname).count();
   }
