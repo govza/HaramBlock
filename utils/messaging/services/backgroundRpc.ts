@@ -17,7 +17,6 @@ import type {
   IVideoFrameTransfer,
 } from '@/utils/types';
 
-type HostSettingsCallback = (hostname: string) => void;
 type ImagePredictionsCallback = (data: { predictions: IImagePrediction[]; hostname: string }) => void;
 type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostname: string }) => void;
 
@@ -26,7 +25,6 @@ type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostna
  * Provided by background, consumed by content scripts and popup
  */
 export class BackgroundRpc {
-  private hostSettingsCallbacks = new Map<string, HostSettingsCallback>();
   private imagePredictionsCallbacks = new Map<string, ImagePredictionsCallback>();
   private framePredictionsCallbacks = new Map<string, FramePredictionsCallback>();
 
@@ -222,10 +220,6 @@ export class BackgroundRpc {
     }
   }
 
-  notifyHostSettingsChanged(hostname: string): void {
-    this.emitHostSettingsUpdated(hostname);
-  }
-
   async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string; inputSize: number }[]> {
     return this.modelService.getAvailableModels(timeoutMs, pollMs);
   }
@@ -254,16 +248,6 @@ export class BackgroundRpc {
   // Note: These return subscription IDs instead of functions because functions can't be
   // serialized over MessageChannel. Use the corresponding off* methods to unsubscribe.
 
-  onHostSettingsUpdated(callback: HostSettingsCallback): string {
-    const id = crypto.randomUUID();
-    this.hostSettingsCallbacks.set(id, callback);
-    return id;
-  }
-
-  offHostSettingsUpdated(subscriptionId: string): void {
-    this.hostSettingsCallbacks.delete(subscriptionId);
-  }
-
   onImagePredictions(callback: ImagePredictionsCallback): string {
     const id = crypto.randomUUID();
     this.imagePredictionsCallbacks.set(id, callback);
@@ -285,10 +269,6 @@ export class BackgroundRpc {
   }
 
   // ============ Emit Methods ============
-
-  emitHostSettingsUpdated(hostname: string): void {
-    this.hostSettingsCallbacks.forEach(callback => callback(hostname));
-  }
 
   emitImagePredictions(predictions: IImagePrediction[], hostname: string): void {
     this.imagePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
