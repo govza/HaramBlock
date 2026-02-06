@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react';
 
 import { useHostname } from '@/hooks/useHostname';
 import { useSafeLiveQuery } from '@/hooks/useSafeLiveQuery';
@@ -21,6 +21,9 @@ type HostDataType = {
   switchToGlobal: () => void;
   switchToLocal: () => void;
   isGlobalMode: boolean;
+  isDirty: boolean;
+  markDirty: () => void;
+  reloadTab: () => void;
 };
 
 const HostDataContext = createContext<HostDataType>({
@@ -32,6 +35,9 @@ const HostDataContext = createContext<HostDataType>({
   switchToGlobal: () => {},
   switchToLocal: () => {},
   isGlobalMode: false,
+  isDirty: false,
+  markDirty: () => {},
+  reloadTab: () => {},
 });
 
 type HostDataProviderProps = {
@@ -77,6 +83,19 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
     }
   }, [hostSettings.policy, effectiveHostname]);
 
+  const [isDirty, setIsDirty] = useState(false);
+  const markDirty = useCallback(() => setIsDirty(true), []);
+
+  const reloadTab = useCallback(() => {
+    void browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+      const tabId = tabs[0]?.id;
+      if (tabId !== undefined) {
+        void browser.tabs.reload(tabId);
+      }
+    });
+    setIsDirty(false);
+  }, []);
+
   if (error) {
     return <div>Error: {error}</div>;
   }
@@ -93,6 +112,9 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
         switchToGlobal,
         switchToLocal,
         isGlobalMode,
+        isDirty,
+        markDirty,
+        reloadTab,
       }}
     >
       {children}

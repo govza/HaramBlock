@@ -1,15 +1,15 @@
 import { useCallback, useMemo } from 'react';
 
-import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
+import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH, REFRESH_PATH } from '@/components/ui/icons';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 
 export const PolicyButton = () => {
-  const { hostSettings, hostSettingsRepository } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, isDirty, markDirty, reloadTab } = useHostDataContext();
 
   const togglePolicy = useCallback(() => {
-    void hostSettingsRepository.togglePolicy(hostSettings.hostname);
-  }, [hostSettingsRepository, hostSettings.hostname]);
+    void hostSettingsRepository.togglePolicy(hostSettings.hostname).then(markDirty);
+  }, [hostSettingsRepository, hostSettings.hostname, markDirty]);
 
   const config = useMemo(() => {
     switch (hostSettings.policy) {
@@ -35,20 +35,31 @@ export const PolicyButton = () => {
   }, [hostSettings.policy]);
 
   return (
-    <div className='mb-2'>
+    <div className='mb-2 flex gap-2'>
       <button
         onClick={togglePolicy}
-        className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg p-2 transition-colors ${config.bgColor}`}
+        className={`flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg p-2 transition-colors ${config.bgColor}`}
         aria-label={`${t('HostSettings.Policy.title')}: ${config.label}`}
         data-testid='policy-toggle'
         data-policy={hostSettings.policy}
       >
-        <svg className='h-6 w-6' viewBox='0 0 24 24'>
+        <svg className='h-6 w-6 shrink-0' viewBox='0 0 24 24'>
           <title>{config.label}</title>
           <path fill='white' d={config.icon} />
         </svg>
         <span className='font-medium'>{config.label}</span>
       </button>
+      {isDirty && (
+        <button
+          onClick={reloadTab}
+          className='flex cursor-pointer items-center justify-center rounded-lg bg-accent px-3 transition-colors hover:bg-accent-light'
+          data-testid='update-button'
+        >
+          <svg className='h-5 w-5' viewBox='0 0 24 24'>
+            <path fill='white' d={REFRESH_PATH} />
+          </svg>
+        </button>
+      )}
     </div>
   );
 };
