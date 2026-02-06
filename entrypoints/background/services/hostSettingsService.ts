@@ -1,4 +1,4 @@
-import { hostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import { createHostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { logger } from '@/utils/logger';
 
@@ -9,23 +9,16 @@ import type { IHostSettings } from '@/utils/types';
  * Coordinates between controllers and data layer
  */
 export class HostSettingsService {
-  private repository = hostSettingsRepository;
-
-  /**
-   * Retrieve host settings for a given hostname
-   * @param hostname - The hostname to retrieve settings for
-   * @returns Promise resolving to host settings
-   */
-  async getHostSettings(hostname: string): Promise<IHostSettings> {
+  async getHostSettings(hostname: string, isIncognito = false): Promise<IHostSettings> {
     if (!hostname) {
       throw new Error('Hostname is required');
     }
 
-    // Normalize the hostname using centralized logic
     const effectiveHostname = getEffectiveHostname(hostname);
 
     try {
-      return await this.repository.findByHostname(effectiveHostname);
+      const repository = createHostSettingsRepository(isIncognito);
+      return await repository.findByHostname(effectiveHostname);
     } catch (error) {
       logger
         .withTag('hostSettingsService')

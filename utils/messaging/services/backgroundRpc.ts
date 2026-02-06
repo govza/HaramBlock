@@ -40,8 +40,8 @@ export class BackgroundRpc {
 
   // ============ Request-Response Methods (replaces controllers) ============
 
-  async getHostSettings(hostname: string): Promise<IHostSettings> {
-    return this.hostSettingsService.getHostSettings(hostname);
+  async getHostSettings(hostname: string, isIncognito = false): Promise<IHostSettings> {
+    return this.hostSettingsService.getHostSettings(hostname, isIncognito);
   }
 
   async getCachedPredictions(hostname: string): Promise<IImagePrediction[]> {

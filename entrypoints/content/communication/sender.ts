@@ -23,7 +23,8 @@ import type {
  */
 export async function requestHostSettings(hostname: string): Promise<IHostSettings> {
   try {
-    const result = await backgroundRpc.getHostSettings(hostname);
+    const isIncognito = browser.extension.inIncognitoContext;
+    const result = await backgroundRpc.getHostSettings(hostname, isIncognito);
     if (!result) {
       throw new Error('No host settings returned from background script');
     }
