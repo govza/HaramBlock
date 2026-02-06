@@ -14,6 +14,7 @@ vi.mock('@/utils/db/db', () => ({
       delete: vi.fn(),
     },
   },
+  isIncognito: false,
 }));
 
 // Mock the hostnameUtil module
