@@ -42,3 +42,6 @@ export class ImageDatabase extends Dexie {
 }
 
 export const imageDb = new ImageDatabase();
+
+/** Whether running in incognito/private browsing mode */
+export const isIncognito = browser.extension.inIncognitoContext;

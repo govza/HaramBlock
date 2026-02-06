@@ -1,24 +1,92 @@
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { BaseRepository } from '@/utils/db/baseRepository';
-import { hostSettingsDb } from '@/utils/db/db';
+import { hostSettingsDb, isIncognito } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 
 import type { IHostSettings, OutlineType, HostPolicy } from '@/utils/types';
 
+const STORAGE_PREFIX = 'hostSettings:';
+
 /**
  * Repository for managing host settings records
- * Provides database operations and business logic for host settings
+ * Uses storage.session in private browsing mode (ephemeral), IndexedDB otherwise
  */
 export class HostSettingsRepository extends BaseRepository<IHostSettings, string> {
-  constructor() {
+  private readonly useSessionStorage: boolean;
+
+  constructor(isIncognitoOverride = false) {
     super(hostSettingsDb.hostSettings);
+    this.useSessionStorage = isIncognito || isIncognitoOverride;
+  }
+
+  // ============ Storage.session methods for private browsing (ephemeral) ============
+
+  private storageKey(hostname: string): string {
+    return `${STORAGE_PREFIX}${hostname}`;
+  }
+
+  private async storageGet(hostname: string): Promise<IHostSettings | undefined> {
+    const key = this.storageKey(hostname);
+    const result = await browser.storage.session.get(key);
+    const value = result[key];
+    if (value && typeof value === 'object' && 'hostname' in value) {
+      return value as IHostSettings;
+    }
+    return undefined;
+  }
+
+  private async storagePut(settings: IHostSettings): Promise<void> {
+    const key = this.storageKey(settings.hostname);
+    await browser.storage.session.set({ [key]: settings });
+  }
+
+  private async storageGetAll(): Promise<IHostSettings[]> {
+    const all = await browser.storage.session.get(null);
+    return Object.entries(all)
+      .filter(([key]) => key.startsWith(STORAGE_PREFIX))
+      .map(([, value]) => value as IHostSettings);
+  }
+
+  private async storageDelete(hostname: string): Promise<void> {
+    const key = this.storageKey(hostname);
+    await browser.storage.session.remove(key);
+  }
+
+  // ============ Unified methods that choose storage based on mode ============
+
+  private async get(hostname: string): Promise<IHostSettings | undefined> {
+    if (this.useSessionStorage) {
+      return this.storageGet(hostname);
+    }
+    return this.table.get(hostname);
+  }
+
+  private async put(settings: IHostSettings): Promise<void> {
+    if (this.useSessionStorage) {
+      await this.storagePut(settings);
+    } else {
+      await this.table.put(settings);
+    }
+  }
+
+  private async remove(hostname: string): Promise<void> {
+    if (this.useSessionStorage) {
+      await this.storageDelete(hostname);
+    } else {
+      await this.table.delete(hostname);
+    }
+  }
+
+  async findAll(): Promise<IHostSettings[]> {
+    if (this.useSessionStorage) {
+      return this.storageGetAll();
+    }
+    return this.table.toArray();
   }
 
   /**
    * Find host settings by hostname, returns default if not found
    * Uses stored global settings as base for non-global hostnames
-   * @param hostname - The hostname to find settings for
-   * @returns Host settings for the hostname
    */
   async findByHostname(hostname: string): Promise<IHostSettings> {
     const effectiveHostname = getEffectiveHostname(hostname);
@@ -27,7 +95,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     // Get the base settings - for non-global hostnames, use stored global settings
     let baseSettings = DEFAULT_HOST_SETTINGS;
     if (!isGlobal) {
-      const storedGlobal = await this.table.get(DEFAULT_GLOBAL_KEY);
+      const storedGlobal = await this.get(DEFAULT_GLOBAL_KEY);
       if (storedGlobal) {
         baseSettings = {
           ...DEFAULT_HOST_SETTINGS,
@@ -38,7 +106,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
       }
     }
 
-    const stored = await this.table.get(effectiveHostname);
+    const stored = await this.get(effectiveHostname);
     return {
       ...baseSettings,
       ...stored,
@@ -62,7 +130,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
       hostname: effectiveHostname,
       isGlobal: isGlobalPage(effectiveHostname),
     };
-    await this.save(hostSettings);
+    await this.put(hostSettings);
     return hostSettings;
   }
 
@@ -72,7 +140,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
    */
   async saveSettings(settings: IHostSettings): Promise<void> {
     try {
-      await this.table.put(settings);
+      await this.put(settings);
     } catch (error) {
       throw new Error('Failed to save host settings', { cause: error });
     }
@@ -194,8 +262,18 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     }
 
     // Regular deletion for non-global hosts
-    await super.delete(effectiveHostname);
+    await this.remove(effectiveHostname);
   }
 }
 
-export const hostSettingsRepository = new HostSettingsRepository();
+const instances = new Map<boolean, HostSettingsRepository>();
+
+/** Get a cached repository instance - pass true for incognito/private browsing contexts */
+export function createHostSettingsRepository(isIncognito = false): HostSettingsRepository {
+  let instance = instances.get(isIncognito);
+  if (!instance) {
+    instance = new HostSettingsRepository(isIncognito);
+    instances.set(isIncognito, instance);
+  }
+  return instance;
+}
