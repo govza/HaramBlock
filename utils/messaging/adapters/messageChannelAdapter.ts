@@ -26,6 +26,12 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     void this.initialize();
   }
 
+  private resetState(): void {
+    this.channelPromise = null;
+    this.port = null;
+    this.isReady = false;
+  }
+
   private async initialize(): Promise<void> {
     if (this.channelPromise) {
       return; // Already initializing
@@ -57,12 +63,13 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
             this.isReady = true;
             logger.withTag('MessageChannelInjectAdapter').debug('Channel established (late)');
           })
-          .catch(error => {
-            logger.withTag('MessageChannelInjectAdapter').error('Channel failed:', error);
+          .catch(() => {
+            this.resetState();
           });
       }
     } catch {
       // Extension context invalidated (e.g. after extension reload)
+      this.resetState();
     }
   }
 
@@ -206,6 +213,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
         logger.withTag('MessageChannelInjectAdapter').error('Hard timeout waiting for channel');
         return false;
       } catch {
+        this.resetState();
         return false;
       }
     }
