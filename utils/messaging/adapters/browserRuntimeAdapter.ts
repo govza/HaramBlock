@@ -71,17 +71,33 @@ export class InjectAdapter implements Adapter<MessageMeta> {
   }
 
   sendMessage: SendMessage<MessageMeta> = message => {
-    void browser.runtime.sendMessage(browser.runtime.id, {
-      ...message,
-      meta: { ...message.meta, url: self.location.href, injector: this.injector },
-    });
+    try {
+      void browser.runtime
+        .sendMessage(browser.runtime.id, {
+          ...message,
+          meta: { ...message.meta, url: self.location.href, injector: this.injector },
+        })
+        .catch(() => {});
+    } catch {
+      // Extension context invalidated (e.g. after extension reload)
+    }
   };
 
   onMessage: OnMessage<MessageMeta> = callback => {
     const handler = (message?: Partial<Message<MessageMeta>>) => {
       callback(message);
     };
-    browser.runtime.onMessage.addListener(handler);
-    return () => browser.runtime.onMessage.removeListener(handler);
+    try {
+      browser.runtime.onMessage.addListener(handler);
+    } catch {
+      return () => {};
+    }
+    return () => {
+      try {
+        browser.runtime.onMessage.removeListener(handler);
+      } catch {
+        // Extension context invalidated
+      }
+    };
   };
 }

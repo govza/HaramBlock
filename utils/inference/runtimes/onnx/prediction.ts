@@ -153,8 +153,6 @@ async function getFramePredictions(
     const feeds: Record<string, typeof inputTensor> = { [config.inputName]: inputTensor };
     const results = await session.run(feeds);
 
-    logger.withTag('prediction').debug(`ONNX outputs: ${Object.keys(results).join(', ')}`);
-
     // Get prototype dimensions from masks output (if available)
     const masksOutput = results[config.outputNames.masks];
     const protoDims = masksOutput?.dims as number[] | undefined;
@@ -268,13 +266,6 @@ function processSegmentation(
     protoWidth = protoDims[3] ?? 0;
   }
 
-  logger
-    .withTag('prediction')
-    .debug(
-      `Processing YOLO output: ${numDetections} detections, ${numFeatures} features, ` +
-        `prototypes: ${prototypes ? `${protoHeight}x${protoWidth}` : 'none'}`,
-    );
-
   // Build target class index map
   const targetClassIndices: Set<number> = new Set();
   for (const targetName of config.namesToCheck) {
@@ -380,8 +371,6 @@ function processSegmentation(
 
     predictions.push(prediction);
   }
-
-  logger.withTag('prediction').debug(`Processed YOLO segmentation: ${predictions.length} target detections`);
 
   return predictions;
 }

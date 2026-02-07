@@ -31,34 +31,38 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
       return; // Already initializing
     }
 
-    this.channelPromise = this.establishChannel();
+    try {
+      this.channelPromise = this.establishChannel();
 
-    // Race with timeout for quick availability check
-    const timeoutPromise = new Promise<'timeout'>(resolve => {
-      setTimeout(() => resolve('timeout'), 3000);
-    });
+      // Race with timeout for quick availability check
+      const timeoutPromise = new Promise<'timeout'>(resolve => {
+        setTimeout(() => resolve('timeout'), 3000);
+      });
 
-    const result = await Promise.race([
-      this.channelPromise.then(port => ({ type: 'port' as const, port })),
-      timeoutPromise.then(t => ({ type: t })),
-    ]);
+      const result = await Promise.race([
+        this.channelPromise.then(port => ({ type: 'port' as const, port })),
+        timeoutPromise.then(t => ({ type: t })),
+      ]);
 
-    if (result.type === 'port') {
-      this.port = result.port;
-      this.isReady = true;
-      logger.withTag('MessageChannelInjectAdapter').debug('Channel established');
-    } else {
-      // Timeout - but keep waiting in background (don't discard the promise)
-      logger.withTag('MessageChannelInjectAdapter').warn('Channel timeout, continuing in background...');
-      this.channelPromise
-        .then(port => {
-          this.port = port;
-          this.isReady = true;
-          logger.withTag('MessageChannelInjectAdapter').debug('Channel established (late)');
-        })
-        .catch(error => {
-          logger.withTag('MessageChannelInjectAdapter').error('Channel failed:', error);
-        });
+      if (result.type === 'port') {
+        this.port = result.port;
+        this.isReady = true;
+        logger.withTag('MessageChannelInjectAdapter').debug('Channel established');
+      } else {
+        // Timeout - but keep waiting in background (don't discard the promise)
+        logger.withTag('MessageChannelInjectAdapter').warn('Channel timeout, continuing in background...');
+        this.channelPromise
+          .then(port => {
+            this.port = port;
+            this.isReady = true;
+            logger.withTag('MessageChannelInjectAdapter').debug('Channel established (late)');
+          })
+          .catch(error => {
+            logger.withTag('MessageChannelInjectAdapter').error('Channel failed:', error);
+          });
+      }
+    } catch {
+      // Extension context invalidated (e.g. after extension reload)
     }
   }
 
