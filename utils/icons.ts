@@ -24,6 +24,7 @@ export const getIconPaths = (policy: HostPolicy): Record<string, string> => {
         '128': `${iconBasePath}icon128-whitelist.png`,
       };
     case 'process':
+    case 'process-images':
     default:
       return {
         '16': `${iconBasePath}16.png`,
