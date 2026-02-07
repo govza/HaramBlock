@@ -157,7 +157,10 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     const policyOrder: HostPolicy[] = ['process', 'process-images', 'whitelist', 'blacklist'];
     const currentIndex = policyOrder.indexOf(settings.policy);
     const nextIndex = (currentIndex + 1) % policyOrder.length;
-    settings.policy = policyOrder[nextIndex];
+    const nextPolicy = policyOrder[nextIndex];
+    if (nextPolicy !== undefined) {
+      settings.policy = nextPolicy;
+    }
 
     await this.saveSettings(settings);
     return settings;
