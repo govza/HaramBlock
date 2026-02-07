@@ -2,7 +2,7 @@ import { Given, Then } from '@wdio/cucumber-framework';
 
 import { Selectors } from '../constants/index.js';
 
-const VALID_POLICIES = ['whitelist', 'blacklist', 'process'];
+const VALID_POLICIES = ['whitelist', 'blacklist', 'process', 'process-images'];
 
 const checkAllImagesBlacklisted = async (): Promise<boolean> => {
   const images = await $$(Selectors.GALLERY_IMAGE).getElements();
@@ -55,7 +55,7 @@ Given('I set the global policy to {string}', async (policy: string) => {
   await browser.url(`${extensionPath}/popup.html`);
 
   const policyButton = await $('[data-testid="policy-toggle"]').getElement();
-  await clickUntilPolicy(policyButton, policy, 3);
+  await clickUntilPolicy(policyButton, policy, 4);
 
   await browser.pause(500);
 });
