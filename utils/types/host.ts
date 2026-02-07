@@ -1,4 +1,4 @@
-export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
+export type HostPolicy = 'whitelist' | 'blacklist' | 'process' | 'process-images';
 export type OutlineType = 'bbox' | 'segment';
 
 export interface IMaskingSettings {

@@ -83,13 +83,18 @@ describe('HostSettingsRepository', () => {
       mockPut.mockResolvedValue(TEST_HOSTNAME);
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
 
-      // Test the policy cycle: whitelist -> blacklist -> process -> whitelist
+      // Test the policy cycle: process -> process-images -> whitelist -> blacklist -> process
+      // Starting from whitelist (STANDARD_SETTINGS)
       let settings = await repository.togglePolicy(TEST_HOSTNAME);
       expect(settings.policy).toBe('blacklist');
 
       mockGet.mockResolvedValue(settings);
       settings = await repository.togglePolicy(TEST_HOSTNAME);
       expect(settings.policy).toBe('process');
+
+      mockGet.mockResolvedValue(settings);
+      settings = await repository.togglePolicy(TEST_HOSTNAME);
+      expect(settings.policy).toBe('process-images');
 
       mockGet.mockResolvedValue(settings);
       settings = await repository.togglePolicy(TEST_HOSTNAME);

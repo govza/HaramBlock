@@ -1,6 +1,12 @@
 import { useCallback, useMemo } from 'react';
 
-import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH, REFRESH_PATH } from '@/components/ui/icons';
+import {
+  EYE_AUTO_PATH,
+  EYE_BLOCKED_PATH,
+  EYE_VISIBLE_PATH,
+  REFRESH_PATH,
+  IMAGE_ONLY_PATH,
+} from '@/components/ui/icons';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 
@@ -24,6 +30,12 @@ export const PolicyButton = () => {
           label: t('HostSettings.Policy.blacklist'),
           icon: EYE_BLOCKED_PATH,
           bgColor: 'bg-danger-dark hover:bg-danger',
+        };
+      case 'process-images':
+        return {
+          label: t('HostSettings.Policy.processImages'),
+          icon: IMAGE_ONLY_PATH,
+          bgColor: 'bg-teal-600 hover:bg-teal-500',
         };
       default:
         return {
