@@ -99,7 +99,7 @@ export const applyInitialVideoStyling = (video: HTMLVideoElement, hostSettings: 
 export const applyInitialImageStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {
   if (hostSettings.policy === 'blacklist') {
     applyBlacklistStyling(image, hostSettings);
-  } else if (hostSettings.policy === 'process') {
+  } else if (hostSettings.policy === 'process' || hostSettings.policy === 'process-images') {
     image.classList.add('haramblock-initial-blur');
   }
 };
