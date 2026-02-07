@@ -61,6 +61,7 @@
       "description": "Yapay zekanın içeriği nasıl işleyeceğini kontrol edin",
       "blacklist": "Tümünü engelle",
       "process": "Tümünü işle",
+      "processImages": "Resimleri işle",
       "whitelist": "Tümüne izin ver"
     },
     "Strictness": {

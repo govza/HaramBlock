@@ -147,20 +147,17 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   }
 
   /**
-   * Toggle policy between whitelist -> blacklist -> process -> whitelist
+   * Toggle policy: process -> process-images -> whitelist -> blacklist -> process
    * @param hostname - The hostname to toggle policy for
    * @returns Updated host settings
    */
   async togglePolicy(hostname: string): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
 
-    if (settings.policy === 'whitelist') {
-      settings.policy = 'blacklist';
-    } else if (settings.policy === 'blacklist') {
-      settings.policy = 'process';
-    } else {
-      settings.policy = 'whitelist';
-    }
+    const policyOrder: HostPolicy[] = ['process', 'process-images', 'whitelist', 'blacklist'];
+    const currentIndex = policyOrder.indexOf(settings.policy);
+    const nextIndex = (currentIndex + 1) % policyOrder.length;
+    settings.policy = policyOrder[nextIndex];
 
     await this.saveSettings(settings);
     return settings;

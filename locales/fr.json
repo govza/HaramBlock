@@ -61,6 +61,7 @@
       "description": "Contrôlez comment l'IA traite le contenu",
       "blacklist": "Tout bloquer",
       "process": "Tout traiter",
+      "processImages": "Traiter les images",
       "whitelist": "Tout autoriser"
     },
     "Strictness": {

@@ -6,7 +6,7 @@ import type { OutlineType } from '@/utils/types';
 export const Outline = () => {
   const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
-  const isDisabled = hostSettings.policy !== 'process';
+  const isDisabled = hostSettings.policy !== 'process' && hostSettings.policy !== 'process-images';
 
   const handleChange = (outline: OutlineType) => {
     if (isDisabled) return;

@@ -61,6 +61,7 @@
       "description": "Control how AI processes content",
       "blacklist": "Block all",
       "process": "Process all",
+      "processImages": "Process images",
       "whitelist": "Allow all"
     },
     "Strictness": {
