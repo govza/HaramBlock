@@ -36,13 +36,16 @@ export class MediaPipeline {
       }
     });
 
-    const unsubFramePreds = onFramePredictions(data => {
-      if (data.hostname === this.opts.hostSettings.hostname) {
-        this.handleFramePredictions(data.predictions);
-      }
-    });
+    this.unsubscribeFns.push(unsubImagePreds);
 
-    this.unsubscribeFns.push(unsubImagePreds, unsubFramePreds);
+    if (this.opts.hostSettings.policy === 'process') {
+      const unsubFramePreds = onFramePredictions(data => {
+        if (data.hostname === this.opts.hostSettings.hostname) {
+          this.handleFramePredictions(data.predictions);
+        }
+      });
+      this.unsubscribeFns.push(unsubFramePreds);
+    }
     this.dom.start(root);
 
     return () => this.stop();
@@ -57,7 +60,7 @@ export class MediaPipeline {
 
   private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
     this.imageProcessor.processAll(images);
-    if (videos.length) {
+    if (videos.length && this.opts.hostSettings.policy === 'process') {
       handleVideos(videos, this.opts.hostSettings);
     }
   }
@@ -76,7 +79,7 @@ export class MediaPipeline {
     for (const el of elements) {
       if (el.tagName === 'IMG') {
         this.imageProcessor.handleSrcChange(el as HTMLImageElement);
-      } else if (el.tagName === 'VIDEO') {
+      } else if (el.tagName === 'VIDEO' && this.opts.hostSettings.policy === 'process') {
         handleVideoAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
       }
     }

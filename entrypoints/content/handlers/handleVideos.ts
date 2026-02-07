@@ -31,8 +31,10 @@ export function handleVideos(videos: HTMLVideoElement[], hostSettings: IHostSett
       markHandled(video, src);
       queueThumbnailForInference(video, src, hostSettings);
     }
-    // Set up playback handler
-    ensurePlaybackHandler(video, hostSettings);
+    // Set up playback handler (only for 'process' policy which includes video)
+    if (hostSettings.policy === 'process') {
+      ensurePlaybackHandler(video, hostSettings);
+    }
   }
 }
 
