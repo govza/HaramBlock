@@ -280,8 +280,8 @@ export class ImageProcessor {
         return;
       }
 
-      // Check size
-      if (this.isBelowMinSize(img)) {
+      // Skip only if all currently pending elements for this src are below threshold.
+      if (this.isBelowMinSizeForSrc(src, img)) {
         this.pendingInference.delete(src);
         completeContentTiming(src, { status: 'skipped' });
         this.finalizeAllImagesForSrc(src, 'skipped');
@@ -331,9 +331,17 @@ export class ImageProcessor {
   }
 
   private isBelowMinSize(img: HTMLImageElement): boolean {
-    const w = img.naturalWidth || img.width;
-    const h = img.naturalHeight || img.height;
+    const w = img.clientWidth || img.naturalWidth;
+    const h = img.clientHeight || img.naturalHeight;
     return w < this.hostSettings.minSize.width || h < this.hostSettings.minSize.height;
+  }
+
+  private isBelowMinSizeForSrc(src: string, seedImg: HTMLImageElement): boolean {
+    const candidates = this.findImagesBySrc(src);
+    if (!candidates.includes(seedImg)) {
+      candidates.push(seedImg);
+    }
+    return candidates.every(candidate => this.isBelowMinSize(candidate));
   }
 
   /**
