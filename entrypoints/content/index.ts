@@ -1,3 +1,4 @@
+import { resetBadgeCount } from '@/entrypoints/content/communication/sender';
 import { MediaPipeline } from '@/entrypoints/content/core/MediaPipeline';
 import { useHostData } from '@/entrypoints/content/hooks/useHostData';
 import {
@@ -22,6 +23,9 @@ export default defineContentScript({
 
     try {
       // Get host settings and cached predictions
+      // Clear stale badge left by previous document in this tab (after RPC is connected)
+      void resetBadgeCount();
+
       const hostData = await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
         // Clean up existing instances
         if (stopPipeline) {

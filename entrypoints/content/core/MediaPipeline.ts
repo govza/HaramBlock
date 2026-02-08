@@ -1,4 +1,5 @@
 import { onImagePredictions, onFramePredictions } from '@/entrypoints/content/communication/listener';
+import { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { ImageProcessor } from '@/entrypoints/content/core/ImageProcessor';
 import {
@@ -13,10 +14,12 @@ import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/
 export class MediaPipeline {
   private readonly dom: DomObserver;
   private readonly imageProcessor: ImageProcessor;
+  private readonly badgeCounter: BadgeCounter;
   private unsubscribeFns: Array<() => void> = [];
 
   constructor(private readonly opts: { hostSettings: IHostSettings }) {
-    this.imageProcessor = new ImageProcessor(opts.hostSettings);
+    this.badgeCounter = new BadgeCounter();
+    this.imageProcessor = new ImageProcessor(opts.hostSettings, this.badgeCounter);
 
     this.dom = new DomObserver({
       onMediaAdded: (images, videos) => this.onMediaAdded(images, videos),
@@ -54,6 +57,7 @@ export class MediaPipeline {
   stop(): void {
     this.dom.stop();
     this.imageProcessor.dispose();
+    this.badgeCounter.dispose();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
   }
