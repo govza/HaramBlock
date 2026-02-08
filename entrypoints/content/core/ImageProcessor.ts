@@ -25,6 +25,7 @@ import {
   startContentTiming,
 } from '@/utils/logging';
 
+import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
 // =============================================================================
@@ -66,7 +67,10 @@ export class ImageProcessor {
   // Track shadow roots that contain processed images (for efficient querying)
   private readonly knownShadowRoots = new Set<ShadowRoot>();
 
-  constructor(private readonly hostSettings: IHostSettings) {
+  constructor(
+    private readonly hostSettings: IHostSettings,
+    private readonly badgeCounter: BadgeCounter,
+  ) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
 
     this.visibilityObserver = new IntersectionObserver(
@@ -108,6 +112,7 @@ export class ImageProcessor {
       // Clear any overlays from previous state and apply blacklist styling
       this.clearOverlays(img);
       applyBlacklistStyling(img, this.hostSettings);
+      this.badgeCounter.trackDetections(img, src, 1);
       return;
     }
 
@@ -234,6 +239,10 @@ export class ImageProcessor {
     this.cache.set(src, updated);
     void requestToggleUpdate(src, forcedVisibility);
 
+    let detectionCount = updated.predictions.length;
+    if (forcedVisibility === 'visible') detectionCount = 0;
+    else if (forcedVisibility === 'blocked') detectionCount = 1;
+
     const images = this.findAllImagesBySrc(src);
     for (const img of images) {
       this.clearOverlays(img);
@@ -244,6 +253,7 @@ export class ImageProcessor {
       }
       // Always register quick toggle for all states
       registerQuickToggle(img, updated, this.hostSettings.quickToggle);
+      this.badgeCounter.trackDetections(img, src, detectionCount);
     }
   }
 
@@ -370,6 +380,12 @@ export class ImageProcessor {
     // Mark that we received the prediction
     markReceived(prediction.src);
 
+    // Track detections synchronously for badge (before async apply)
+    let detectionCount = prediction.predictions.length;
+    if (prediction.forcedVisibility === 'visible') detectionCount = 0;
+    else if (prediction.forcedVisibility === 'blocked') detectionCount = 1;
+    this.badgeCounter.trackDetections(img, prediction.src, detectionCount);
+
     const apply = async () => {
       // Double-check src after any async wait
       const srcNow = img.currentSrc || img.src;
@@ -410,11 +426,19 @@ export class ImageProcessor {
       });
     };
 
-    // Wait for load if needed
+    // Wait for load if needed — use decode() as fallback for cached images
+    // where the load event may have already fired before the listener was attached
     if (img.complete && img.naturalWidth > 0) {
       void apply();
     } else {
-      img.addEventListener('load', () => void apply(), { once: true });
+      let handled = false;
+      const onReady = () => {
+        if (handled) return;
+        handled = true;
+        void apply();
+      };
+      img.decode().then(onReady).catch(onReady);
+      img.addEventListener('load', onReady, { once: true });
     }
   }
 

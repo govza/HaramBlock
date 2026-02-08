@@ -60,6 +60,18 @@ export async function requestToggleUpdate(src: string, forcedVisibility: 'visibl
 }
 
 /**
+ * Reset badge count for the current tab.
+ * Called on new document startup to avoid stale badge values across reloads/navigation.
+ */
+export async function resetBadgeCount(): Promise<void> {
+  try {
+    await backgroundRpc.updateIconBadge(0, globalThis.location.href);
+  } catch (error) {
+    logger.withTag('sender').error('Failed to reset badge count:', error);
+  }
+}
+
+/**
  * Resolve image transfer kind with browser-specific fallback.
  * - Chrome: 'bitmap' primary, falls back to 'url'
  * - Firefox: 'blob' primary, falls back to 'url'
