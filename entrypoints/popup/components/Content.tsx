@@ -1,3 +1,4 @@
+import { BlockedCount } from '@/entrypoints/popup/components/BlockedCount';
 import { BlurIntensity } from '@/entrypoints/popup/components/BlurIntensity';
 import { BlurTint } from '@/entrypoints/popup/components/BlurTint';
 import { Outline } from '@/entrypoints/popup/components/Outline';
@@ -10,6 +11,7 @@ export const Content = () => {
   return (
     <div className='px-2 pt-2'>
       <PolicyButton />
+      <BlockedCount />
       <Outline />
       <Strictness />
       <BlurTint />
