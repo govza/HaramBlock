@@ -1,4 +1,5 @@
 import { logger } from '@/utils/logger';
+import { setRpcContext } from '@/utils/messaging/rpcContext';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
@@ -203,9 +204,13 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
   };
 
   onMessage: OnMessage<MessageMeta> = callback => {
-    this.messageCallbacks.add(callback);
+    const wrapped = (message?: Partial<Message<MessageMeta>>) => {
+      setRpcContext({ tabId: message?.meta?.tabId });
+      callback(message);
+    };
+    this.messageCallbacks.add(wrapped);
     return () => {
-      this.messageCallbacks.delete(callback);
+      this.messageCallbacks.delete(wrapped);
     };
   };
 

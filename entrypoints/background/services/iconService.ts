@@ -8,6 +8,7 @@ import { logger } from '@/utils/logger';
  * Automatically detects private/incognito mode from tab context
  */
 export class IconService {
+  // Update icon for a specific tab given its hostname. Used by RPC handlers via RpcContext.
   async updateIconForTab(tabId: number, hostname: string): Promise<void> {
     try {
       const tab = await browser.tabs.get(tabId);
@@ -20,6 +21,7 @@ export class IconService {
     }
   }
 
+  // Update icon for the currently active tab. Used on extension install/update.
   async updateIconForActiveTab(): Promise<void> {
     try {
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -35,18 +37,7 @@ export class IconService {
     }
   }
 
-  async updateIconForActiveTabWithHostname(hostname: string): Promise<void> {
-    try {
-      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-      const activeTab = tabs[0];
-      if (activeTab?.id) {
-        await this.updateIconForTab(activeTab.id, hostname);
-      }
-    } catch (error) {
-      logger.withTag('iconService').error('Error updating icon for active tab with hostname:', hostname, error);
-    }
-  }
-
+  // Update icon for a tab by extracting hostname from its URL. Used by tab event listeners.
   async updateIconForUrl(tabId: number, url: string): Promise<void> {
     const hostname = extractHostnameFromUrl(url);
     if (hostname) {

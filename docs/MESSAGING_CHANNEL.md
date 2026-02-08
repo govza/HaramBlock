@@ -298,8 +298,8 @@ getCachedPredictions(hostname: string): Promise<IImagePrediction[]>
 // Firefox: receives URL only (kind: 'url'), fetches from cache
 postInferenceImage(imageData: IImageTransfer): Promise<void>
 
-// Extension icon
-updateIcon(hostname: string, tabId?: number): Promise<void>
+// Extension icon (RpcContext auto-injected by adapter, see "RpcContext" section)
+updateIcon(hostname: string): Promise<void>
 
 // Notify content scripts of settings changes
 notifyHostSettingsChanged(hostname: string): void
@@ -452,6 +452,32 @@ const enrichedMessage = {
   }
 };
 ```
+
+### RpcContext — Exposing Sender Tab ID to Handlers
+
+comctx's `createProvide` only passes explicit method arguments to handlers — the enriched message
+meta (which contains `tabId`) is not exposed. `CompositeProvideAdapter` uses a request-scoped module
+variable (`utils/messaging/rpcContext.ts`) to surface sender context to handlers without mutating
+argument lists.
+
+The `onMessage` wrapper calls `setRpcContext({ tabId })` before comctx dispatches. Since JS is
+single-threaded, handlers read `getRpcContext()` synchronously before any `await` and get the
+correct value.
+
+```typescript
+// Caller (content script) — unchanged, no extra args:
+await backgroundRpc.updateIcon("example.com");
+
+// Handler (background) — reads context from module variable:
+async updateIcon(hostname: string): Promise<void> {
+  const { tabId } = getRpcContext(); // must read before any await
+  if (!tabId) return;
+  await this.iconService.updateIconForTab(tabId, hostname);
+}
+```
+
+On the MessageChannel path, `tabId` is undefined because raw ports don't carry sender context —
+methods that require it no-op.
 
 ## Usage
 

@@ -1,6 +1,7 @@
 import { logger } from '@/utils/logger';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 import { getLogSettings } from '@/utils/logging/logSettings';
+import { getRpcContext } from '@/utils/messaging/rpcContext';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -203,17 +204,19 @@ export class BackgroundRpc {
     }
   }
 
-  async updateIcon(hostname: string, tabId?: number): Promise<void> {
+  async updateIcon(hostname: string): Promise<void> {
+    // Read tabId synchronously before any await — set by CompositeProvideAdapter per request
+    const { tabId } = getRpcContext();
+
     if (!hostname) {
       throw new Error('Hostname is required for icon update');
     }
+    if (!tabId) {
+      return;
+    }
 
     try {
-      if (tabId) {
-        await this.iconService.updateIconForTab(tabId, hostname);
-      } else {
-        await this.iconService.updateIconForActiveTabWithHostname(hostname);
-      }
+      await this.iconService.updateIconForTab(tabId, hostname);
     } catch (error) {
       logger.withTag('backgroundRpc').error('Error updating icon:', hostname, error);
       throw error;
