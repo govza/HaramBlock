@@ -36,6 +36,7 @@ export default defineConfig({
       } as never,
     },
     permissions: ['tabs', 'storage'],
+    host_permissions: ['<all_urls>'],
     options_page: 'options.html',
     web_accessible_resources: [
       {
