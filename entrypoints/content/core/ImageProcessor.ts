@@ -252,7 +252,7 @@ export class ImageProcessor {
         void applyPredictionsStyling([img], [updated], this.hostSettings);
       }
       // Always register quick toggle for all states
-      registerQuickToggle(img, updated, this.hostSettings.quickToggle);
+      registerQuickToggle(img, updated, this.hostSettings);
       this.badgeCounter.trackDetections(img, src, detectionCount);
     }
   }
@@ -405,16 +405,16 @@ export class ImageProcessor {
 
       if (prediction.forcedVisibility === 'blocked') {
         applyBlacklistStyling(img, this.hostSettings);
-        registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+        registerQuickToggle(img, prediction, this.hostSettings);
         overlayType = 'blur';
       } else if (prediction.forcedVisibility === 'visible') {
-        registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+        registerQuickToggle(img, prediction, this.hostSettings);
         overlayType = undefined; // Whitelisted, no overlay
       } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
         overlayType = this.hostSettings.outline; // 'bbox' or 'segment'
       } else {
-        registerQuickToggle(img, prediction, this.hostSettings.quickToggle);
+        registerQuickToggle(img, prediction, this.hostSettings);
         overlayType = undefined; // No detections, no overlay
       }
 

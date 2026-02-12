@@ -1,6 +1,6 @@
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
 
-import type { IImagePrediction } from '@/utils/types';
+import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
 type ForcedVisibility = IImagePrediction['forcedVisibility'];
 
@@ -12,6 +12,7 @@ const HIDE_DELAY_MS = 2500;
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
 type RegisteredElement = {
   prediction: IImagePrediction;
+  minSize: IHostSettings['minSize'];
 };
 
 let eyeButton: HTMLButtonElement | null = null;
@@ -73,6 +74,8 @@ function showEye(element: HTMLImageElement): void {
   const registered = registeredElements.get(element);
   if (!registered) return;
 
+  if (element.clientWidth < registered.minSize.width || element.clientHeight < registered.minSize.height) return;
+
   // Hide first when switching to a new element
   eyeButton.style.display = 'none';
 
@@ -126,6 +129,13 @@ function handleClick(e: Event): void {
   // After toggle, get fresh registered data and keep eye visible
   const freshRegistered = registeredElements.get(clickedElement);
   if (freshRegistered) {
+    if (
+      clickedElement.clientWidth < freshRegistered.minSize.width ||
+      clickedElement.clientHeight < freshRegistered.minSize.height
+    ) {
+      hideEye();
+      return;
+    }
     currentElement = clickedElement;
     updateButtonIcon(freshRegistered.prediction);
     positionEye(clickedElement);
@@ -187,8 +197,9 @@ export function initQuickToggle(onToggle: ToggleCallback): void {
 export function registerQuickToggle(
   element: HTMLImageElement,
   prediction: IImagePrediction,
-  quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean },
+  hostSettings: IHostSettings,
 ): void {
+  const { quickToggle, minSize } = hostSettings;
   const hasPredictions = Boolean(prediction.predictions?.length);
   const shouldRegister = hasPredictions ? quickToggle.unsafeEnabled : quickToggle.safeEnabled;
   if (!shouldRegister) return;
@@ -196,10 +207,11 @@ export function registerQuickToggle(
   const existing = registeredElements.get(element);
   if (existing) {
     existing.prediction = prediction;
+    existing.minSize = minSize;
     return;
   }
 
-  registeredElements.set(element, { prediction });
+  registeredElements.set(element, { prediction, minSize });
 
   element.addEventListener('mouseenter', handleMouseEnter);
   element.addEventListener('mouseleave', handleMouseLeave);
