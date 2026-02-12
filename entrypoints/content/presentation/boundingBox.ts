@@ -59,7 +59,7 @@ export const createBlurBoxOverlays = (
   blurStates.set(element, state);
 
   if (element instanceof HTMLImageElement) {
-    registerQuickToggle(element, imagePrediction, hostSettings.quickToggle);
+    registerQuickToggle(element, imagePrediction, hostSettings);
   }
 
   if (!shouldBlock(imagePrediction)) {

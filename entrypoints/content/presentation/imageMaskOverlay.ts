@@ -42,7 +42,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       return;
     }
 
-    registerQuickToggle(image, imagePrediction, hostSettings.quickToggle);
+    registerQuickToggle(image, imagePrediction, hostSettings);
 
     if (!shouldBlock(imagePrediction)) {
       this.removeMaskOverlayOnly(image);
