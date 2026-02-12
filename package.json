@@ -2,7 +2,7 @@
   "name": "haram-block",
   "description": "Gaze protection — blocks and filters inappropriate content, keeping you focused",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "author": {
     "name": "Rasul Abu Muhammad Amin",
