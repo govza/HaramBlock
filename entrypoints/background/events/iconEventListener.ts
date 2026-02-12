@@ -2,8 +2,8 @@ import { IconService } from '@/entrypoints/background/services/iconService';
 import { logger } from '@/utils/logger';
 
 /**
- * IconEventListener handles all browser events related to icon updates
- * Listens to tab events, runtime events, and other browser events that require icon updates
+ * IconEventListener handles all browser events related to icon and badge updates.
+ * Listens to tab events, runtime events, and other browser events that require icon updates.
  */
 export class IconEventListener {
   private readonly iconService: IconService;
@@ -23,6 +23,7 @@ export class IconEventListener {
         }
       }
     });
+
     // Update extension icon when a tab is activated
     browser.tabs.onActivated.addListener(activeInfo => {
       browser.tabs
@@ -37,6 +38,7 @@ export class IconEventListener {
           logger.withTag('iconEventListener').error('Error handling tab activation:', error);
         });
     });
+
     // Runtime event listeners
     browser.runtime.onStartup.addListener(() => {
       void this.iconService.updateIconForActiveTab();

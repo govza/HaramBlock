@@ -204,6 +204,12 @@ export class BackgroundRpc {
     }
   }
 
+  async updateIconBadge(count: number, _url: string): Promise<void> {
+    const { tabId } = getRpcContext();
+    if (!tabId) return;
+    await this.iconService.updateBadgeForTab(tabId, count);
+  }
+
   async updateIcon(hostname: string): Promise<void> {
     // Read tabId synchronously before any await — set by CompositeProvideAdapter per request
     const { tabId } = getRpcContext();
