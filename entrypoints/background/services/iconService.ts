@@ -4,8 +4,8 @@ import { getIconPaths } from '@/utils/icons';
 import { logger } from '@/utils/logger';
 
 /**
- * IconService handles browser extension icon updates
- * Automatically detects private/incognito mode from tab context
+ * IconService handles browser extension icon and badge updates.
+ * Automatically detects private/incognito mode from tab context.
  */
 export class IconService {
   // Update icon for a specific tab given its hostname. Used by RPC handlers via RpcContext.
@@ -42,6 +42,17 @@ export class IconService {
     const hostname = extractHostnameFromUrl(url);
     if (hostname) {
       await this.updateIconForTab(tabId, hostname);
+    }
+  }
+
+  // Update badge text for a specific tab. Shows count if > 0, otherwise clears badge.
+  async updateBadgeForTab(tabId: number, count: number): Promise<void> {
+    try {
+      const action = browser.action ?? browser.browserAction;
+      await action.setBadgeText({ tabId, text: count > 0 ? String(count) : '' });
+      await action.setBadgeBackgroundColor({ tabId, color: '#666' });
+    } catch (error) {
+      logger.withTag('iconService').error('Error updating badge for tab:', error);
     }
   }
 }
