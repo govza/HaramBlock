@@ -34,6 +34,9 @@ export default defineConfig({
         strict_min_version: '142.0',
         data_collection_permissions: { required: ['none'] },
       } as never,
+      gecko_android: {
+        strict_min_version: '142.0',
+      } as never,
     },
     permissions: ['tabs', 'storage'],
     host_permissions: ['<all_urls>'],
