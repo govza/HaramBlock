@@ -141,7 +141,7 @@ function toImagePrediction(framePred: IFramePrediction): IImagePrediction {
     cacheMetadata: framePred.cacheMetadata,
     maskTransform: framePred.maskTransform,
     processingTime: framePred.processingTime,
-    forcedVisibility: null,
+    forcedVisibility: 'auto',
   };
 }
 
