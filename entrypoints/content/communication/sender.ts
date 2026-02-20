@@ -9,6 +9,7 @@ import { logger } from '@/utils/logger';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 
 import type {
+  ForcedVisibility,
   IHostSettings,
   IImagePrediction,
   IImageMetadata,
@@ -51,7 +52,7 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 /**
  * Request background to update toggle state in cache
  */
-export async function requestToggleUpdate(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
+export async function requestToggleUpdate(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
   try {
     await backgroundRpc.updateToggleState(src, forcedVisibility);
   } catch (error) {

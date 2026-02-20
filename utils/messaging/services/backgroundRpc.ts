@@ -11,6 +11,7 @@ import type { ModelService } from '@/entrypoints/background/services/modelServic
 import type { WideEvent } from '@/utils/logging/types';
 import type { ModelPreference } from '@/utils/modelSettings';
 import type {
+  ForcedVisibility,
   IHostSettings,
   IImagePrediction,
   IFramePrediction,
@@ -52,7 +53,7 @@ export class BackgroundRpc {
     }
   }
 
-  async updateToggleState(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
+  async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
     try {
       await this.imageCacheService.updateToggleState(src, forcedVisibility);
     } catch (error) {
