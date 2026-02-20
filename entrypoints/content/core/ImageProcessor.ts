@@ -231,6 +231,10 @@ export class ImageProcessor {
     destroyQuickToggle();
   }
 
+  toggleImage(src: string, forcedVisibility: IImagePrediction['forcedVisibility']): void {
+    this.handleToggle(src, forcedVisibility);
+  }
+
   private handleToggle(src: string, forcedVisibility: IImagePrediction['forcedVisibility']): void {
     const cached = this.cache.get(src);
     if (!cached) return;

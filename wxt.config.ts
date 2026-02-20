@@ -38,7 +38,7 @@ export default defineConfig({
         strict_min_version: '142.0',
       } as never,
     },
-    permissions: ['tabs', 'storage'],
+    permissions: ['tabs', 'storage', 'contextMenus'],
     host_permissions: ['<all_urls>'],
     options_page: 'options.html',
     web_accessible_resources: [

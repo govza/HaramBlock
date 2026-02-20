@@ -119,5 +119,10 @@
   "HelpToggle": {
     "open": "Открыть справку",
     "close": "Закрыть справку"
+  },
+  "ContextMenu": {
+    "blockImage": "Блокировать",
+    "showImage": "Показать",
+    "autoImage": "Авто"
   }
 }
