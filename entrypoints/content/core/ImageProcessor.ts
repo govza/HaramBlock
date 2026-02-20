@@ -248,7 +248,7 @@ export class ImageProcessor {
       this.clearOverlays(img);
       if (forcedVisibility === 'blocked') {
         applyBlacklistStyling(img, this.hostSettings);
-      } else if (forcedVisibility === null && updated.predictions.length > 0) {
+      } else if (forcedVisibility === 'auto' && updated.predictions.length > 0) {
         void applyPredictionsStyling([img], [updated], this.hostSettings);
       }
       // Always register quick toggle for all states

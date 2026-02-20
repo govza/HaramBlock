@@ -125,7 +125,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
         e2eTime,
         backend: getBackend(),
       },
-      forcedVisibility: null,
+      forcedVisibility: 'auto',
     };
 
     return result;

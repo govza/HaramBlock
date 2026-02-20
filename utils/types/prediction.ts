@@ -58,7 +58,7 @@ export interface IImagePrediction {
   forcedVisibility: ForcedVisibility;
 }
 
-export type ForcedVisibility = 'visible' | 'blocked' | null;
+export type ForcedVisibility = 'auto' | 'visible' | 'blocked';
 
 export function shouldBlock(prediction: IImagePrediction): boolean {
   if (prediction.forcedVisibility === 'visible') return false;

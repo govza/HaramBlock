@@ -1,8 +1,6 @@
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
 
-import type { IHostSettings, IImagePrediction } from '@/utils/types';
-
-type ForcedVisibility = IImagePrediction['forcedVisibility'];
+import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/types';
 
 // Delay before showing button after hovering an image
 const SHOW_DELAY_MS = 500;
@@ -23,10 +21,10 @@ let toggleCallback: ToggleCallback | null = null;
 const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
 
 function getNextState(current: ForcedVisibility): ForcedVisibility {
-  // Both unsafe and safe: null → blocked → visible → null
-  if (current === null) return 'blocked';
+  // Both unsafe and safe: auto → blocked → visible → auto
+  if (current === 'auto') return 'blocked';
   if (current === 'blocked') return 'visible';
-  return null;
+  return 'auto';
 }
 
 function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
