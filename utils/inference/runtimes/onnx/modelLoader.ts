@@ -109,7 +109,7 @@ export async function initializeModel(modelId?: string): Promise<void> {
 
   try {
     const metadata = await fetchMetadata(modelDef.basePath);
-    config = createConfigFromMetadata(metadata, config);
+    config = createConfigFromMetadata(metadata, DEFAULT_CONFIG);
     currentModelId = targetModelId;
     logger
       .withTag('modelLoader')
