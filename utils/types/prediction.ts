@@ -55,8 +55,10 @@ export interface IImagePrediction {
     e2eTime: number; // End-to-end time from content request start to inference completion
     backend: string; // Inference backend used (webgpu/webgl/wasm)
   };
-  forcedVisibility: null | 'visible' | 'blocked';
+  forcedVisibility: ForcedVisibility;
 }
+
+export type ForcedVisibility = 'visible' | 'blocked' | null;
 
 export function shouldBlock(prediction: IImagePrediction): boolean {
   if (prediction.forcedVisibility === 'visible') return false;

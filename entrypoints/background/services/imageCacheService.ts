@@ -1,6 +1,6 @@
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 import { logger } from '@/utils/logger';
-import { type IImagePrediction } from '@/utils/types';
+import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
 /**
  * ImageCacheService handles business logic for image prediction cache
@@ -95,7 +95,7 @@ export class ImageCacheService {
   }
 
   // Updates first prediction only. Database uses src as primary key, so only one prediction per src exists.
-  async updateToggleState(src: string, forcedVisibility: 'visible' | 'blocked' | null): Promise<void> {
+  async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
     try {
       const predictions = await this.repository.findBySrc(src);
       const original = predictions[0];
