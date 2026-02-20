@@ -21,6 +21,7 @@ import type {
 
 type ImagePredictionsCallback = (data: { predictions: IImagePrediction[]; hostname: string }) => void;
 type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostname: string }) => void;
+type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedVisibility }) => void;
 
 /**
  * BackgroundRpc consolidates all controller functionality into one RPC service
@@ -29,6 +30,7 @@ type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostna
 export class BackgroundRpc {
   private imagePredictionsCallbacks = new Map<string, ImagePredictionsCallback>();
   private framePredictionsCallbacks = new Map<string, FramePredictionsCallback>();
+  private contextMenuToggleCallbacks = new Map<string, ContextMenuToggleCallback>();
 
   constructor(
     private hostSettingsService: HostSettingsService,
@@ -278,6 +280,16 @@ export class BackgroundRpc {
     this.framePredictionsCallbacks.delete(subscriptionId);
   }
 
+  onContextMenuToggle(callback: ContextMenuToggleCallback): string {
+    const id = crypto.randomUUID();
+    this.contextMenuToggleCallbacks.set(id, callback);
+    return id;
+  }
+
+  offContextMenuToggle(subscriptionId: string): void {
+    this.contextMenuToggleCallbacks.delete(subscriptionId);
+  }
+
   // ============ Emit Methods ============
 
   emitImagePredictions(predictions: IImagePrediction[], hostname: string): void {
@@ -286,5 +298,9 @@ export class BackgroundRpc {
 
   emitFramePredictions(predictions: IFramePrediction[], hostname: string): void {
     this.framePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+  }
+
+  emitContextMenuToggle(src: string, forcedVisibility: ForcedVisibility): void {
+    this.contextMenuToggleCallbacks.forEach(callback => callback({ src, forcedVisibility }));
   }
 }

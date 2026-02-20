@@ -119,5 +119,10 @@
   "HelpToggle": {
     "open": "Open help",
     "close": "Close help"
+  },
+  "ContextMenu": {
+    "blockImage": "Block",
+    "showImage": "Show",
+    "autoImage": "Auto"
   }
 }

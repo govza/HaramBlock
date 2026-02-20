@@ -1,4 +1,8 @@
-import { onImagePredictions, onFramePredictions } from '@/entrypoints/content/communication/listener';
+import {
+  onImagePredictions,
+  onFramePredictions,
+  onContextMenuToggle,
+} from '@/entrypoints/content/communication/listener';
 import { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { ImageProcessor } from '@/entrypoints/content/core/ImageProcessor';
@@ -49,6 +53,12 @@ export class MediaPipeline {
       });
       this.unsubscribeFns.push(unsubFramePreds);
     }
+
+    const unsubToggle = onContextMenuToggle(({ src, forcedVisibility }) => {
+      this.imageProcessor.toggleImage(src, forcedVisibility);
+    });
+    this.unsubscribeFns.push(unsubToggle);
+
     this.dom.start(root);
 
     return () => this.stop();

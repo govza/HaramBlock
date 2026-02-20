@@ -1,6 +1,6 @@
 import { switchModel } from '@inference-runtime';
 
-import { initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
+import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
 import {
   HostSettingsService,
   ImageCacheService,
@@ -28,6 +28,7 @@ export default defineBackground({
     const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
 
     // Initialize event listeners (event handling layer)
+    const contextMenuListener = new ContextMenuListener();
     const iconEventListener = new IconEventListener();
 
     // Initialize and provide BackgroundRpc via comctx
@@ -58,6 +59,9 @@ export default defineBackground({
     });
 
     // Initialize all event listeners
+    contextMenuListener.initialize((src, forcedVisibility) => {
+      backgroundRpc.emitContextMenuToggle(src, forcedVisibility);
+    });
     iconEventListener.initialize();
 
     // Initialize hostSettings observer to react to database changes

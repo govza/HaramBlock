@@ -119,5 +119,10 @@
   "HelpToggle": {
     "open": "فتح المساعدة",
     "close": "إغلاق المساعدة"
+  },
+  "ContextMenu": {
+    "blockImage": "حظر",
+    "showImage": "إظهار",
+    "autoImage": "تلقائي"
   }
 }

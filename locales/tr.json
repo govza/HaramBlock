@@ -119,5 +119,10 @@
   "HelpToggle": {
     "open": "Yardımı aç",
     "close": "Yardımı kapat"
+  },
+  "ContextMenu": {
+    "blockImage": "Engelle",
+    "showImage": "Göster",
+    "autoImage": "Oto"
   }
 }
