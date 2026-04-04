@@ -1,0 +1,25 @@
+description: Ultralytics YOLO26n-seg model
+author: Ultralytics
+date: '2026-03-15'
+stride: 32
+task: segment
+batch: 1
+imgsz:
+- 416
+- 416
+names:
+  0: zfa
+  1: zma
+  2: zsa
+args:
+  batch: 1
+  half: false
+  int8: false
+  nms: false
+channels: 3
+end2end: true
+output_shape:
+- 104
+- 104
+id: i416
+name: "YOLO26n 416\xD7416 (3 classes)"
