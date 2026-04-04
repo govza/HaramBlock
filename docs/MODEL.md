@@ -90,11 +90,11 @@ public/models/{name}-y-{size}-{classes}-{date}/
 ### Required Metadata Fields
 
 ```yaml
-id: y320 # Unique model identifier
-name: YOLO11n 320×320 (3 classes) # Human-readable display name
+id: i416 # Unique model identifier
+name: YOLO26n 416×416 (3 classes) # Human-readable display name
 imgsz: # Input dimensions
-  - 320
-  - 320
+  - 416
+  - 416
 names: # Class mapping
   0: person
   1: zfa
@@ -108,10 +108,7 @@ names: # Class mapping
 await discoverModels();
 
 // Initialize with specific model
-await initializeModel('y320');
-
-// Switch between models at runtime
-await switchModel('y640');
+await initializeModel('i416');
 
 // Get current model ID
 const id = getCurrentModelId();
@@ -154,15 +151,14 @@ When `preference === 'auto'`, the `AutoModelService` evaluates performance:
 4. If median > 120ms and smaller model available → downgrade
 5. After switch, wait 6 hours before next evaluation
 
-Models are sorted by input size (320×320 < 640×640), so "upgrade" means switching to a larger, more
-accurate model, while "downgrade" means switching to a smaller, faster model.
+Models are sorted by input size, so "upgrade" means switching to a larger, more accurate model,
+while "downgrade" means switching to a smaller, faster model.
 
 ## Available Models
 
 | ID   | Directory                              | Input Size | Classes |
 | ---- | -------------------------------------- | ---------- | ------- |
-| i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       |
-| y640 | `public/models/afeef-y26-640-20260129` | 640×640    | 3       |
+| i416 | `public/models/afeef-y26-416-20260315` | 416×416    | 3       |
 
 ## Model Location
 
@@ -173,12 +169,12 @@ accurate model, while "downgrade" means switching to a smaller, faster model.
 - **Model**: YOLO11n-seg (Ultralytics)
 - **Task**: Instance segmentation
 - **Format**: ONNX with NMS
-- **Input Size**: 320x320 or 640x640
+- **Input Size**: 416x416
 - **Runtime**: ONNX Runtime Web (WebGPU with WASM fallback)
 
 ## Input Specification
 
-- **Shape**: `[1, 3, 320, 320]` (NCHW format)
+- **Shape**: `[1, 3, 416, 416]` (NCHW format)
 - **Type**: `float32`
 - **Normalization**: 0-1 range (pixel / 255)
 - **Letterbox padding**: Gray (114, 114, 114)
@@ -187,10 +183,10 @@ accurate model, while "downgrade" means switching to a smaller, faster model.
 
 Two output tensors (with NMS enabled):
 
-| Tensor    | Shape             | Description                                        |
-| --------- | ----------------- | -------------------------------------------------- |
-| `output0` | `[1, N, 38]`      | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32] |
-| `output1` | `[1, 32, 80, 80]` | Prototype masks for mask computation               |
+| Tensor    | Shape               | Description                                        |
+| --------- | ------------------- | -------------------------------------------------- |
+| `output0` | `[1, N, 38]`        | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32] |
+| `output1` | `[1, 32, 104, 104]` | Prototype masks for mask computation               |
 
 ### Target Classes
 
@@ -259,27 +255,27 @@ The `metadata.yaml` file contains model-specific configuration:
 
 ```yaml
 # Required fields
-id: y320 # Unique model identifier
-name: YOLO11n 320×320 # Human-readable display name
+id: i416 # Unique model identifier
+name: YOLO26n 416×416 (3 classes) # Human-readable display name
 imgsz:
-  - 320
-  - 320
+  - 416
+  - 416
 names:
   0: person
   1: zfa
   2: zma
 
 # Optional fields (with defaults)
-description: Ultralytics YOLO11n-seg model
+description: Ultralytics YOLO26n-seg model
 author: Ultralytics
 stride: 32 # Default: 32
 task: segment
 batch: 1
 args:
-  nms: true
+  nms: false
 output_shape: # Default: imgsz / stride
-  - 80
-  - 80
+  - 104
+  - 104
 input_name: images # Default: 'images'
 output_names:
   masks: output1 # Default: 'output1'
