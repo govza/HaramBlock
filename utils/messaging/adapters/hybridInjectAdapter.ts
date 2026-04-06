@@ -3,7 +3,7 @@ import { logger } from '@/utils/logger';
 import { InjectAdapter, type MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import { MessageChannelInjectAdapter } from '@/utils/messaging/adapters/messageChannelAdapter';
 
-import type { Adapter, SendMessage, OnMessage } from 'comctx';
+import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 /**
  * HybridInjectAdapter routes RPC calls based on transferable requirements:
@@ -11,66 +11,84 @@ import type { Adapter, SendMessage, OnMessage } from 'comctx';
  * - Chrome + no transferables → browser.runtime
  * - Firefox → always browser.runtime (structured clone handles blobs/bitmaps)
  */
+type MessageCallback = (message?: Partial<Message<MessageMeta>>) => void;
+type CleanupFn = ReturnType<OnMessage<MessageMeta>>;
+
 export class HybridInjectAdapter implements Adapter<MessageMeta> {
   private runtimeAdapter: InjectAdapter;
-  private channelAdapter: MessageChannelInjectAdapter | null;
+  private channelAdapter: MessageChannelInjectAdapter | null = null;
+  private pendingChannelCallbacks = new Set<MessageCallback>();
+  private channelCleanups = new Map<MessageCallback, CleanupFn>();
 
   constructor() {
     this.runtimeAdapter = new InjectAdapter('content');
-    // Only create MessageChannel adapter on Chrome
-    this.channelAdapter = USE_MESSAGE_CHANNEL ? new MessageChannelInjectAdapter() : null;
   }
 
-  /**
-   * Check if MessageChannel is currently available for transferables.
-   */
+  private getChannelAdapter(): MessageChannelInjectAdapter | null {
+    if (!USE_MESSAGE_CHANNEL) return null;
+    if (!this.channelAdapter) {
+      this.channelAdapter = new MessageChannelInjectAdapter();
+      for (const cb of this.pendingChannelCallbacks) {
+        this.channelCleanups.set(cb, this.channelAdapter.onMessage(cb));
+      }
+      this.pendingChannelCallbacks.clear();
+    }
+    return this.channelAdapter;
+  }
+
   isChannelAvailable(): boolean {
     return this.channelAdapter?.isAvailable() ?? false;
   }
 
-  /**
-   * Wait for MessageChannel to be ready (with timeout).
-   * Returns true if ready, false if timeout or not supported.
-   */
   async waitForChannel(): Promise<boolean> {
-    if (!this.channelAdapter) return false;
-    return this.channelAdapter.waitForReady();
+    const adapter = this.getChannelAdapter();
+    if (!adapter) return false;
+    return adapter.waitForReady();
+  }
+
+  warmupChannel(): void {
+    this.getChannelAdapter();
   }
 
   sendMessage: SendMessage<MessageMeta> = async (message, transfer) => {
     const hasTransferables = transfer && transfer.length > 0;
+    const channelAdapter = hasTransferables ? this.getChannelAdapter() : null;
 
-    if (USE_MESSAGE_CHANNEL && hasTransferables && this.channelAdapter) {
-      // Chrome with transferables: MUST use MessageChannel (ImageBitmap can't be sent via runtime)
-      // Wait for channel if not ready yet - runtime fallback would cause DataCloneError
-      if (!this.channelAdapter.isAvailable()) {
+    if (USE_MESSAGE_CHANNEL && hasTransferables && channelAdapter) {
+      if (!channelAdapter.isAvailable()) {
         logger.withTag('HybridInjectAdapter').debug('Waiting for MessageChannel to be ready...');
-        const ready = await this.channelAdapter.waitForReady();
+        const ready = await channelAdapter.waitForReady();
         if (!ready) {
           logger.withTag('HybridInjectAdapter').error('MessageChannel not available, cannot send transferables');
           throw new Error('MessageChannel not available for transferable data');
         }
       }
       logger.withTag('HybridInjectAdapter').debug(`Routing via MessageChannel (${transfer.length} transferables)`);
-      return this.channelAdapter.sendMessage(message, transfer);
+      return channelAdapter.sendMessage(message, transfer);
     }
 
-    // Firefox or no transferables → browser.runtime
     return this.runtimeAdapter.sendMessage(message, transfer);
   };
 
   onMessage: OnMessage<MessageMeta> = callback => {
-    // Listen on both adapters and forward to the callback
     const runtimeCleanup = this.runtimeAdapter.onMessage(callback);
-    const channelCleanup = this.channelAdapter?.onMessage(callback);
+
+    if (this.channelAdapter) {
+      this.channelCleanups.set(callback, this.channelAdapter.onMessage(callback));
+    } else if (USE_MESSAGE_CHANNEL) {
+      this.pendingChannelCallbacks.add(callback);
+    }
 
     return () => {
       if (typeof runtimeCleanup === 'function') {
         void runtimeCleanup();
       }
+      const channelCleanup = this.channelCleanups.get(callback);
       if (typeof channelCleanup === 'function') {
         void channelCleanup();
       }
+      this.channelCleanups.delete(callback);
+      this.pendingChannelCallbacks.delete(callback);
     };
   };
 }
