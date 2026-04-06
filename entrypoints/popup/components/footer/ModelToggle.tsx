@@ -61,26 +61,33 @@ export const ModelToggle = () => {
   };
 
   const isAuto = preference === 'auto';
+  const singleModel = models.length === 1 ? models[0] : undefined;
   const sortedModels = [...models].sort((a, b) => a.inputSize - b.inputSize);
   const isAtMax = effectiveId === sortedModels[sortedModels.length - 1]?.id;
   const autoLabel = isAtMax ? 'auto' : '^auto';
-  const displayId = isAuto ? autoLabel : preference;
+  const getDisplayId = () => {
+    if (singleModel) return singleModel.id;
+    if (isAuto) return autoLabel;
+    return preference;
+  };
+  const displayId = getDisplayId();
 
   const getTooltip = () => {
     if (hasError) return t('ModelToggle.errorTooltip');
+    if (singleModel) return t('ModelToggle.singleModelTooltip', [singleModel.name]);
     if (isAuto) return t('ModelToggle.autoTooltip', [effectiveId ?? '...']);
     return t('ModelToggle.manualTooltip', [models.find(m => m.id === preference)?.name ?? preference ?? '']);
   };
 
-  const baseClasses =
-    'cursor-pointer rounded border px-0.5 py-px text-[10px] font-medium disabled:cursor-wait disabled:opacity-50';
+  const baseClasses = 'cursor-pointer rounded border px-0.5 py-px text-[10px] font-medium disabled:opacity-50';
+  const cursorClass = isLoading ? 'disabled:cursor-wait' : 'disabled:cursor-default';
   const stateClasses = hasError ? 'border-red-500 text-red-500' : 'border-current';
 
   return (
     <button
-      className={`${baseClasses} ${stateClasses}`}
+      className={`${baseClasses} ${cursorClass} ${stateClasses}`}
       onClick={handleClick}
-      disabled={isLoading || models.length === 0}
+      disabled={isLoading || models.length === 0 || Boolean(singleModel)}
       title={getTooltip()}
     >
       {displayId ?? '...'}
