@@ -110,6 +110,7 @@
   "ModelToggle": {
     "autoTooltip": "Mode automatique - utilise actuellement $1. Cliquez pour changer.",
     "manualTooltip": "Modèle : $1. Cliquez pour changer.",
+    "singleModelTooltip": "Modèle : $1",
     "errorTooltip": "Échec du changement de modèle"
   },
   "ConsoleToggle": {
