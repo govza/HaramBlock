@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { config as baseConfig } from './wdio.conf.js';
@@ -12,23 +12,35 @@ const outputDir = resolve(import.meta.dirname, '../../../.output');
 
 // Chrome: use unpacked extension with --load-extension (avoids "Too many properties to enumerate" error)
 const chromeExtensionPath = resolve(outputDir, 'chrome-mv3');
+const firefoxUnpackedExtensionPath = resolve(outputDir, 'firefox-mv3');
 
 // Firefox: use file path for installAddOn (avoids base64 "Too many properties" error)
 let firefoxExtensionPath: string | undefined;
 if (IS_FIREFOX) {
-  const files = await readdir(outputDir);
-  const firefoxZip = files
-    .filter(file => file.startsWith('haram-block-') && file.endsWith('-firefox.zip'))
-    .sort((a, b) => {
-      const versionA = a.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
-      const versionB = b.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
-      return versionA.localeCompare(versionB, undefined, { numeric: true });
-    })
-    .at(-1);
-  if (!firefoxZip) {
-    throw new Error(`No firefox.zip extension found in ${outputDir}`);
+  try {
+    const unpackedStats = await stat(firefoxUnpackedExtensionPath);
+    if (unpackedStats.isDirectory()) {
+      firefoxExtensionPath = firefoxUnpackedExtensionPath;
+    }
+  } catch {
+    // Fall back to packaged artifact below.
   }
-  firefoxExtensionPath = resolve(outputDir, firefoxZip);
+
+  if (!firefoxExtensionPath) {
+    const files = await readdir(outputDir);
+    const firefoxZip = files
+      .filter(file => file.startsWith('haram-block-') && file.endsWith('-firefox.zip'))
+      .sort((a, b) => {
+        const versionA = a.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
+        const versionB = b.match(/haram-block-(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
+        return versionA.localeCompare(versionB, undefined, { numeric: true });
+      })
+      .at(-1);
+    if (!firefoxZip) {
+      throw new Error(`No firefox build found in ${outputDir}`);
+    }
+    firefoxExtensionPath = resolve(outputDir, firefoxZip);
+  }
 }
 
 const ciChromeArgs = [
