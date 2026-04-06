@@ -110,6 +110,7 @@
   "ModelToggle": {
     "autoTooltip": "الوضع التلقائي - يستخدم حاليًا $1. انقر للتبديل.",
     "manualTooltip": "النموذج: $1. انقر للتبديل.",
+    "singleModelTooltip": "النموذج: $1",
     "errorTooltip": "فشل تبديل النموذج"
   },
   "ConsoleToggle": {
