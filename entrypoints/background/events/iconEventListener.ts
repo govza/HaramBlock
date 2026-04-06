@@ -15,6 +15,10 @@ export class IconEventListener {
   public initialize(): void {
     // Update extension icon when a tab's URL changes OR when page status changes (including refresh)
     browser.tabs.onUpdated.addListener((tabId: number, changeInfo, tab) => {
+      if (changeInfo.status === 'loading') {
+        const action = browser.action ?? browser.browserAction;
+        action.setBadgeText({ tabId, text: '' }).catch(() => {});
+      }
       if (changeInfo.url || changeInfo.status === 'complete') {
         if (tab.url) {
           this.iconService.updateIconForUrl(tabId, tab.url).catch(error => {
