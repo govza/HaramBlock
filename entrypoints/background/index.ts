@@ -1,4 +1,4 @@
-import { switchModel } from '@inference-runtime';
+import { getAvailableModels, switchModel } from '@inference-runtime';
 
 import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
 import {
@@ -13,7 +13,7 @@ import { AutoModelService } from '@/entrypoints/background/services/autoModelSer
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
-import { getModelSettings } from '@/utils/modelSettings';
+import { getModelSettings, setModelSettings } from '@/utils/modelSettings';
 
 export default defineBackground({
   type: 'module',
@@ -73,7 +73,15 @@ export default defineBackground({
     void initializeInference().then(async () => {
       const settings = await getModelSettings();
       if (settings.preference !== 'auto') {
-        await switchModel(settings.preference);
+        const available = getAvailableModels();
+        if (available.some(m => m.id === settings.preference)) {
+          await switchModel(settings.preference);
+        } else {
+          logger
+            .withTag('background')
+            .warn(`Stored preference '${settings.preference}' no longer valid, resetting to auto`);
+          await setModelSettings({ preference: 'auto' });
+        }
       }
       await autoModelService.initialize();
     });
