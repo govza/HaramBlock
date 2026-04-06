@@ -23,10 +23,10 @@ export const DEFAULT_MODEL_ID = 'i416';
 
 /** Default model configuration used before metadata is loaded */
 export const DEFAULT_CONFIG: ModelMetadata = {
-  names: { 0: 'person', 1: 'zfa', 2: 'zma' },
+  names: { 0: 'zfa', 1: 'zma', 2: 'zsa' },
   imgsz: [416, 416],
   normalize: null,
-  namesToCheck: ['zfa', 'zma'],
+  namesToCheck: ['zfa', 'zma', 'zsa'],
   outputShape: [104, 104],
   inputName: 'images',
   outputNames: {

@@ -96,9 +96,9 @@ imgsz: # Input dimensions
   - 416
   - 416
 names: # Class mapping
-  0: person
-  1: zfa
-  2: zma
+  0: zfa
+  1: zma
+  2: zsa
 ```
 
 ### Model Loader API
@@ -190,11 +190,11 @@ Two output tensors (with NMS enabled):
 
 ### Target Classes
 
-| Index | Class  | Description  |
-| ----- | ------ | ------------ |
-| 0     | person | Person       |
-| 1     | zfa    | Female awrah |
-| 2     | zma    | Male awrah   |
+| Index | Class | Description  |
+| ----- | ----- | ------------ |
+| 0     | zfa   | Female awrah |
+| 1     | zma   | Male awrah   |
+| 2     | zsa   | Shared awrah |
 
 ### Postprocessing
 
@@ -261,9 +261,9 @@ imgsz:
   - 416
   - 416
 names:
-  0: person
-  1: zfa
-  2: zma
+  0: zfa
+  1: zma
+  2: zsa
 
 # Optional fields (with defaults)
 description: Ultralytics YOLO26n-seg model
