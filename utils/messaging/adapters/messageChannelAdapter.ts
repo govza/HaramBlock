@@ -74,6 +74,11 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
   }
 
   private async establishChannel(): Promise<MessagePort> {
+    // Wake the service worker before iframe creation so navigator.serviceWorker.ready
+    // resolves quickly inside the iframe. Without this, a dormant SW can cause the
+    // iframe's ready promise to hang on slow machines.
+    await browser.runtime.sendMessage({ type: '__ping__' }).catch(() => {});
+
     const secret = crypto.randomUUID();
     const url = new URL(browser.runtime.getURL('/message-channel.html'));
     url.searchParams.set('secret', secret);
@@ -119,6 +124,10 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     });
 
     if (!readyReceived) {
+      // Clean up iframe
+      if (container.parentNode) {
+        container.parentNode.removeChild(container);
+      }
       throw new Error('Service worker did not ACK MessageChannel');
     }
 
