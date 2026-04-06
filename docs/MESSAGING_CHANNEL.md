@@ -192,6 +192,9 @@ Runtime validation throws if you set an invalid kind for the browser (e.g., `bit
 `HybridInjectAdapter` (`utils/messaging/adapters/hybridInjectAdapter.ts`) decides:
 
 ```typescript
+// Channel adapter is created lazily on first transferable send
+const channelAdapter = hasTransferables ? this.getChannelAdapter() : null;
+
 if (USE_MESSAGE_CHANNEL && hasTransferables && channelAdapter) {
   // Chrome with transferables: MUST use MessageChannel
   // Wait for channel if not ready - runtime fallback would cause DataCloneError
@@ -207,6 +210,15 @@ return runtimeAdapter.sendMessage(message, transfer);
 **Important**: When Chrome has transferables (ImageBitmap), we **must** wait for MessageChannel.
 Falling back to `browser.runtime` would cause a `DataCloneError` because ImageBitmap isn't
 serializable without a transfer list.
+
+**Deferred initialization**: The `MessageChannelInjectAdapter` is not created in the
+`HybridInjectAdapter` constructor. Instead, the content script's `main()` first checks
+`document.contentType` — on non-HTML/image pages (PDF, XML, JSON, plain text) it returns early. On
+supported pages, it calls `warmupMessageChannel()` which triggers `getChannelAdapter()` to create
+the adapter and start the iframe/service-worker handshake. This keeps normal page startup timing
+unchanged while avoiding timeouts on pages where the relay can't reach the service worker. Any
+`onMessage` callbacks registered before the adapter exists are queued and replayed when it is
+created.
 
 ### MessageChannel Timeout Protection
 
@@ -401,7 +413,9 @@ const unsubImagePreds = onImagePredictions(data => {
 
 ### Chrome MessageChannel Setup
 
-1. **Iframe Injection** (`MessageChannelInjectAdapter`):
+1. **Iframe Injection** (`MessageChannelInjectAdapter`, deferred):
+   - Adapter is created by `HybridInjectAdapter.warmupChannel()`, called from content script
+     `main()` after the `contentType` gate passes (skipped on PDF/XML/JSON/plain text pages)
    - Creates hidden iframe with web-accessible URL + secret query param
    - Waits for iframe load
    - Creates `MessageChannel`, transfers `port2` to iframe

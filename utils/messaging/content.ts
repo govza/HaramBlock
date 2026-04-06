@@ -1,4 +1,3 @@
-import { logger } from '@/utils/logger';
 import { injectBackgroundRpc, HybridInjectAdapter } from '@/utils/messaging';
 
 /**
@@ -12,7 +11,6 @@ import { injectBackgroundRpc, HybridInjectAdapter } from '@/utils/messaging';
  * URL is included in meta for all messages (via adapters), allowing background
  * to query tabs by URL when needed - following the comctx pattern.
  */
-logger.withTag('messaging').log('Using HybridInjectAdapter');
 const hybridAdapter = new HybridInjectAdapter();
 export const backgroundRpc = injectBackgroundRpc(hybridAdapter);
 
@@ -30,4 +28,13 @@ export function isMessageChannelAvailable(): boolean {
  */
 export function waitForMessageChannel(): Promise<boolean> {
   return hybridAdapter.waitForChannel();
+}
+
+/**
+ * Eagerly start the MessageChannel handshake.
+ * Call from content script main() after content-type filtering
+ * so PDF/XML pages skip it while normal pages prewarm the channel.
+ */
+export function warmupMessageChannel(): void {
+  hybridAdapter.warmupChannel();
 }

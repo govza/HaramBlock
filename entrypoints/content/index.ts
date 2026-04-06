@@ -6,6 +6,7 @@ import {
   injectPredictionDomStyles,
 } from '@/entrypoints/content/presentation/styleInjecting';
 import { logger } from '@/utils/logger';
+import { warmupMessageChannel } from '@/utils/messaging/content';
 
 let stopPipeline: (() => void) | null = null;
 
@@ -13,13 +14,14 @@ export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_start',
   async main() {
+    const ct = document.contentType;
+    if (!ct || (ct !== 'text/html' && ct !== 'application/xhtml+xml' && !ct.startsWith('image/'))) return;
+
     logger.withTag('content').debug('Starting content script initialization...');
-    // Prevents cached images from being displayed before DOMContentLoaded
+    warmupMessageChannel();
+    // Hides images early to prevent cached images from flashing before DOMContentLoaded
     const hideInitStyle = injectGlobalHidingDomStyles();
-    // Injects styles for predictions
     injectPredictionDomStyles();
-    // Note: MessageChannel transport is now handled automatically by MessageChannelInjectAdapter
-    // when the backgroundRpc singleton is first accessed
 
     try {
       // Get host settings and cached predictions
