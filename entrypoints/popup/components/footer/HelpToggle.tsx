@@ -10,7 +10,14 @@ export const HelpToggle = ({ isOpen, onToggle }: HelpToggleProps) => {
   const label = isOpen ? t('HelpToggle.close') : t('HelpToggle.open');
 
   return (
-    <button className='cursor-pointer' onClick={onToggle} title={label} aria-label={label} aria-expanded={isOpen}>
+    <button
+      className='cursor-pointer'
+      onClick={onToggle}
+      title={label}
+      aria-label={label}
+      aria-expanded={isOpen}
+      data-testid='help-toggle'
+    >
       <svg
         xmlns='http://www.w3.org/2000/svg'
         fill='none'

@@ -122,6 +122,7 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
             onClick={handleConsoleToggle}
             title={consoleEnabled ? t('ConsoleToggle.disable') : t('ConsoleToggle.enable')}
             aria-label={consoleEnabled ? t('ConsoleToggle.disable') : t('ConsoleToggle.enable')}
+            data-testid='console-toggle'
           >
             <svg
               xmlns='http://www.w3.org/2000/svg'
