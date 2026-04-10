@@ -1,4 +1,4 @@
-description: Ultralytics YOLO26n-seg model trained on Q:\Projects\Data Science\afeef\datasets\coco-afeef-yolo\dataset.yaml
+description: Ultralytics YOLO26n-seg model trained on a custom COCO-format dataset
 author: Ultralytics
 date: '2026-01-31T19:52:03.168443'
 version: 8.4.6

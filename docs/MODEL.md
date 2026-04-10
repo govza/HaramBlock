@@ -108,10 +108,10 @@ names: # Class mapping
 await discoverModels();
 
 // Initialize with specific model
-await initializeModel('y320');
+await initializeModel('i320');
 
 // Switch between models at runtime
-await switchModel('y640');
+await switchModel('i640');
 
 // Get current model ID
 const id = getCurrentModelId();
@@ -162,7 +162,7 @@ accurate model, while "downgrade" means switching to a smaller, faster model.
 | ID   | Directory                              | Input Size | Classes |
 | ---- | -------------------------------------- | ---------- | ------- |
 | i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       |
-| y640 | `public/models/afeef-y26-640-20260129` | 640×640    | 3       |
+| i640 | `public/models/afeef-y26-640-20260129` | 640×640    | 3       |
 
 ## Model Location
 
@@ -170,7 +170,7 @@ accurate model, while "downgrade" means switching to a smaller, faster model.
 
 ## Architecture
 
-- **Model**: YOLO11n-seg (Ultralytics)
+- **Model**: YOLO26n-seg (Ultralytics)
 - **Task**: Instance segmentation
 - **Format**: ONNX with NMS
 - **Input Size**: 320x320 or 640x640
@@ -187,10 +187,10 @@ accurate model, while "downgrade" means switching to a smaller, faster model.
 
 Two output tensors (with NMS enabled):
 
-| Tensor    | Shape             | Description                                        |
-| --------- | ----------------- | -------------------------------------------------- |
-| `output0` | `[1, N, 38]`      | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32] |
-| `output1` | `[1, 32, 80, 80]` | Prototype masks for mask computation               |
+| Tensor    | Shape           | Description                                                          |
+| --------- | --------------- | -------------------------------------------------------------------- |
+| `output0` | `[1, N, 38]`    | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32]                   |
+| `output1` | `[1, 32, H, H]` | Prototype masks for mask computation (H=80 for i320, H=160 for i640) |
 
 ### Target Classes
 
@@ -276,7 +276,7 @@ stride: 32 # Default: 32
 task: segment
 batch: 1
 args:
-  nms: true
+  nms: false
 output_shape: # Default: imgsz / stride
   - 80
   - 80
