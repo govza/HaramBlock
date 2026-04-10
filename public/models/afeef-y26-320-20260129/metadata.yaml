@@ -1,0 +1,28 @@
+description: Ultralytics YOLO26n-seg model trained on Q:\Projects\Data Science\afeef\datasets\coco-afeef-yolo\dataset.yaml
+author: Ultralytics
+date: '2026-01-29T07:26:20.616681'
+version: 8.4.8
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: segment
+batch: 1
+imgsz:
+- 320
+- 320
+names:
+  0: person
+  1: zfa
+  2: zma
+args:
+  batch: 1
+  half: false
+  int8: false
+  nms: false
+channels: 3
+end2end: true
+output_shape:
+- 80
+- 80
+id: i320
+name: "YOLO26n 320\xD7320 (3 classes)"

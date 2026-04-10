@@ -16,18 +16,18 @@ export interface ModelDefinition {
  * This is the SINGLE SOURCE OF TRUTH for available models.
  * To add a new model, add its path here.
  */
-export const MODEL_PATHS = ['/models/afeef-y26-416-20260315'];
+export const MODEL_PATHS = ['/models/afeef-y26-320-20260129', '/models/afeef-y26-640-20260129'];
 
 /** Preferred default model ID. Falls back to first discovered model if not found. */
-export const DEFAULT_MODEL_ID = 'i416';
+export const DEFAULT_MODEL_ID = 'i320';
 
 /** Default model configuration used before metadata is loaded */
 export const DEFAULT_CONFIG: ModelMetadata = {
-  names: { 0: 'zfa', 1: 'zma', 2: 'zsa' },
-  imgsz: [416, 416],
+  names: { 0: 'person', 1: 'zfa', 2: 'zma' },
+  imgsz: [320, 320],
   normalize: null,
-  namesToCheck: ['zfa', 'zma', 'zsa'],
-  outputShape: [104, 104],
+  namesToCheck: ['zfa', 'zma'],
+  outputShape: [80, 80],
   inputName: 'images',
   outputNames: {
     detections: 'output0',

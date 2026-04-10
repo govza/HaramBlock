@@ -90,15 +90,15 @@ public/models/{name}-y-{size}-{classes}-{date}/
 ### Required Metadata Fields
 
 ```yaml
-id: i416 # Unique model identifier
-name: YOLO26n 416×416 (3 classes) # Human-readable display name
+id: y320 # Unique model identifier
+name: YOLO11n 320×320 (3 classes) # Human-readable display name
 imgsz: # Input dimensions
-  - 416
-  - 416
+  - 320
+  - 320
 names: # Class mapping
-  0: zfa
-  1: zma
-  2: zsa
+  0: person
+  1: zfa
+  2: zma
 ```
 
 ### Model Loader API
@@ -108,7 +108,10 @@ names: # Class mapping
 await discoverModels();
 
 // Initialize with specific model
-await initializeModel('i416');
+await initializeModel('y320');
+
+// Switch between models at runtime
+await switchModel('y640');
 
 // Get current model ID
 const id = getCurrentModelId();
@@ -151,14 +154,15 @@ When `preference === 'auto'`, the `AutoModelService` evaluates performance:
 4. If median > 120ms and smaller model available → downgrade
 5. After switch, wait 6 hours before next evaluation
 
-Models are sorted by input size, so "upgrade" means switching to a larger, more accurate model,
-while "downgrade" means switching to a smaller, faster model.
+Models are sorted by input size (320×320 < 640×640), so "upgrade" means switching to a larger, more
+accurate model, while "downgrade" means switching to a smaller, faster model.
 
 ## Available Models
 
 | ID   | Directory                              | Input Size | Classes |
 | ---- | -------------------------------------- | ---------- | ------- |
-| i416 | `public/models/afeef-y26-416-20260315` | 416×416    | 3       |
+| i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       |
+| y640 | `public/models/afeef-y26-640-20260129` | 640×640    | 3       |
 
 ## Model Location
 
@@ -169,12 +173,12 @@ while "downgrade" means switching to a smaller, faster model.
 - **Model**: YOLO11n-seg (Ultralytics)
 - **Task**: Instance segmentation
 - **Format**: ONNX with NMS
-- **Input Size**: 416x416
+- **Input Size**: 320x320 or 640x640
 - **Runtime**: ONNX Runtime Web (WebGPU with WASM fallback)
 
 ## Input Specification
 
-- **Shape**: `[1, 3, 416, 416]` (NCHW format)
+- **Shape**: `[1, 3, 320, 320]` (NCHW format)
 - **Type**: `float32`
 - **Normalization**: 0-1 range (pixel / 255)
 - **Letterbox padding**: Gray (114, 114, 114)
@@ -183,18 +187,18 @@ while "downgrade" means switching to a smaller, faster model.
 
 Two output tensors (with NMS enabled):
 
-| Tensor    | Shape               | Description                                        |
-| --------- | ------------------- | -------------------------------------------------- |
-| `output0` | `[1, N, 38]`        | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32] |
-| `output1` | `[1, 32, 104, 104]` | Prototype masks for mask computation               |
+| Tensor    | Shape             | Description                                        |
+| --------- | ----------------- | -------------------------------------------------- |
+| `output0` | `[1, N, 38]`      | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32] |
+| `output1` | `[1, 32, 80, 80]` | Prototype masks for mask computation               |
 
 ### Target Classes
 
-| Index | Class | Description  |
-| ----- | ----- | ------------ |
-| 0     | zfa   | Female awrah |
-| 1     | zma   | Male awrah   |
-| 2     | zsa   | Shared awrah |
+| Index | Class  | Description  |
+| ----- | ------ | ------------ |
+| 0     | person | Person       |
+| 1     | zfa    | Female awrah |
+| 2     | zma    | Male awrah   |
 
 ### Postprocessing
 
@@ -255,27 +259,27 @@ The `metadata.yaml` file contains model-specific configuration:
 
 ```yaml
 # Required fields
-id: i416 # Unique model identifier
-name: YOLO26n 416×416 (3 classes) # Human-readable display name
+id: y320 # Unique model identifier
+name: YOLO11n 320×320 # Human-readable display name
 imgsz:
-  - 416
-  - 416
+  - 320
+  - 320
 names:
-  0: zfa
-  1: zma
-  2: zsa
+  0: person
+  1: zfa
+  2: zma
 
 # Optional fields (with defaults)
-description: Ultralytics YOLO26n-seg model
+description: Ultralytics YOLO11n-seg model
 author: Ultralytics
 stride: 32 # Default: 32
 task: segment
 batch: 1
 args:
-  nms: false
+  nms: true
 output_shape: # Default: imgsz / stride
-  - 104
-  - 104
+  - 80
+  - 80
 input_name: images # Default: 'images'
 output_names:
   masks: output1 # Default: 'output1'
