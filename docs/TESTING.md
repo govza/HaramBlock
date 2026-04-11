@@ -49,21 +49,43 @@ E2E tests use [WebdriverIO](https://webdriver.io/) with [Cucumber](https://cucum
 
 ### Running E2E Tests
 
-**Important:** If you've modified extension code, rebuild before running tests:
+**Important:** If you've modified extension code, rebuild before running tests. `pnpm build` is
+faster for local development; CI uses `pnpm zip` to validate the full packaging pipeline.
 
 ```bash
 # Build extension first (required after code changes)
-pnpm zip
+pnpm build
 
 # Run all e2e tests
 pnpm e2e
 
 # Run tests by tag (e.g., @policy, @masking, @quick-toggle)
-pnpm e2e --cucumberOpts.tagExpression="@policy"
+pnpm e2e -- --debug --cucumberOpts.tagExpression="@policy"
+
+# Run tests by scenario name
+pnpm e2e -- --debug --cucumberOpts.name="Segment outline on large images"
 
 # Run smoke tests only (quick validation)
-pnpm e2e --cucumberOpts.tagExpression="@smoke"
+pnpm e2e -- --debug --cucumberOpts.tagExpression="@smoke"
 ```
+
+#### Debugging E2E Tests
+
+The `--debug` flag is the primary tool for investigating E2E test failures. It runs the tests with
+CI-like settings (no-sandbox, disabled GPU) but keeps the browser **visible** instead of headless,
+so you can watch exactly what the tests are doing:
+
+```bash
+# Run tests with visible browser (CI-like environment)
+pnpm e2e -- --debug
+
+# Combine with tag filters to debug a specific scenario
+pnpm e2e -- --debug --cucumberOpts.tagExpression="@masking"
+```
+
+This is especially useful for reproducing CI-only failures locally — the browser runs with the same
+flags CI uses (SwiftShader, no-sandbox, etc.) but you can see the UI and open DevTools to inspect
+state.
 
 #### Firefox E2E Tests
 
@@ -71,7 +93,7 @@ To run E2E tests on Firefox, build the Firefox extension zip and use the Firefox
 
 ```bash
 # Build Firefox extension
-pnpm zip:firefox
+pnpm build:firefox
 
 # Run E2E tests on Firefox
 pnpm e2e:firefox
@@ -122,6 +144,110 @@ const images = await $$(Selectors.GALLERY_IMAGE).getElements();
 
 // ❌ Avoid - may cause issues with chained promises
 const button = await $('[data-testid="policy-toggle"]');
+```
+
+#### Use WebdriverIO Element Methods Over `browser.execute()`
+
+Prefer built-in element methods over `browser.execute()` for standard DOM interactions:
+
+```typescript
+// ✅ Use element methods
+await element.click();
+await element.moveTo();
+await element.scrollIntoView({ block: 'center' });
+const checked = await checkbox.getProperty('checked');
+const disabled = await checkbox.getProperty('disabled');
+
+// ❌ Avoid browser.execute for standard interactions
+await browser.execute((el: HTMLElement) => el.click(), element);
+await browser.execute(el => (el as HTMLInputElement).checked, checkbox);
+```
+
+Reserve `browser.execute()` for cases where you need to run arbitrary JS in the page context (e.g.,
+checking `document.getElementById()`, dispatching custom events, or accessing APIs not exposed by
+WebdriverIO).
+
+#### Use `waitForDisplayed()` for Visibility Assertions
+
+Use WebdriverIO's built-in `waitForDisplayed()` instead of custom polling loops:
+
+```typescript
+// ✅ Wait for element to become visible
+const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
+await eyeToggle.waitForDisplayed({ timeout: 5000 });
+
+// ✅ Wait for element to become hidden (reverse: true)
+await eyeToggle.waitForDisplayed({
+  timeout: 3000,
+  reverse: true,
+  timeoutMsg: 'Expected element to be hidden'
+});
+
+// ❌ Don't write custom visibility polling
+await browser.waitUntil(async () => await element.isDisplayed(), { timeout: 5000 });
+```
+
+When asserting an element is NOT visible, guard against the element not existing in the DOM:
+
+```typescript
+const element = await $(selector).getElement();
+const exists = await element.isExisting();
+if (!exists) return; // not in DOM — not visible, assertion passes
+
+await element.waitForDisplayed({ reverse: true, timeout: 3000 });
+```
+
+#### Separate Actions from Assertions
+
+Never re-trigger an action inside an assertion polling loop. This is especially important for
+interactions with debounced or delayed UI — re-triggering resets the delay and the assertion can
+never succeed:
+
+```typescript
+// ❌ Bug: re-hovering resets the extension's 500ms show timer on every poll iteration
+await browser.waitUntil(
+  async () => {
+    await image.moveTo(); // resets timer each time
+    return element.isDisplayed(); // checks before timer fires
+  },
+  { timeout: 10000, interval: 1000 }
+);
+
+// ✅ Hover once, then wait for the result
+await image.moveTo();
+await eyeToggle.waitForDisplayed({ timeout: 5500 });
+```
+
+#### Mirror Extension Timing Constants
+
+When tests depend on extension timers (show delays, auto-hide), define matching constants with a
+source reference so they stay in sync:
+
+```typescript
+// Extension timing constants (from quickToggle.ts)
+const SHOW_DELAY_MS = 500;
+const HIDE_DELAY_MS = 2500;
+
+// Use them in timeouts — add buffer for async overhead
+await eyeToggle.waitForDisplayed({ timeout: SHOW_DELAY_MS + 5000 });
+await browser.pause(HIDE_DELAY_MS + 1000);
+```
+
+#### Use `moveTo()` for Hover Interactions
+
+Use WebdriverIO's `moveTo()` for hover, which fires real browser-level mouse events (`mouseenter`,
+`mouseover`, etc.). Don't dispatch synthetic `MouseEvent`s:
+
+```typescript
+// ✅ Real browser hover
+const image = await $(Selectors.GALLERY_IMAGE).getElement();
+await image.scrollIntoView({ block: 'center' });
+await image.moveTo();
+
+// ❌ Don't dispatch synthetic events
+await browser.execute((el: HTMLElement) => {
+  el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+}, image);
 ```
 
 #### Use `Array.from()` for Element Arrays
@@ -179,39 +305,34 @@ Given('I set the policy to {string}', async (policy: string) => { ... });
 When('I set the policy to {string}', async (policy: string) => { ... });
 ```
 
-#### Avoid Explicit Timeouts
+#### Prefer `waitUntil()` Over `browser.pause()`
 
-Never use `browser.pause()` with arbitrary delays when there's something concrete to wait for.
-Instead, use `browser.waitUntil()` with a condition:
+[`browser.pause()`](https://webdriver.io/docs/api/browser/pause/) halts execution for a fixed
+duration. WebdriverIO explicitly recommends against using it to wait for elements — use explicit
+wait commands instead to avoid flaky tests.
 
 ```typescript
-// ❌ Bad - arbitrary timeout
+// ❌ Bad - arbitrary timeout, causes flaky tests
 await browser.pause(5000);
-
-// ✅ Good - wait for specific condition (uses default timeout from config)
-await browser.waitUntil(async () =>
-  browser.execute((img: HTMLElement) => img.complete && img.naturalHeight > 0, image)
-);
 
 // ✅ Good - wait for element attribute
 await browser.waitUntil(async () => (await element.getAttribute('data-processed')) !== null);
+
+// ✅ Good - wait for element to appear
+await element.waitForDisplayed({ timeout: 5000 });
+
+// ✅ Good - wait for element to disappear
+await element.waitForDisplayed({ reverse: true, timeout: 3000 });
+
+// ✅ Good - wait for element to exist in DOM
+await element.waitForExist({ timeout: 5000 });
 ```
 
-Don't specify `{ timeout: ... }` unless you need a value different from the configured default.
-Explicit pauses make tests slow and flaky. Only use them when there's genuinely no observable state
-to wait for (e.g., waiting for React state to settle after a click).
+Acceptable uses of `browser.pause()`:
 
-#### Wait After Popup Clicks
-
-The popup uses React with async state updates. Pause after clicking buttons to allow state to
-settle:
-
-```typescript
-await policyButton.click();
-await browser.pause(300);
-```
-
-No pause is needed after navigation - `waitUntil` assertions handle async waiting.
+- Waiting for React state to settle after a popup click (`300-500ms`)
+- Waiting for a timer-based behavior where there's no observable state change (e.g., auto-hide
+  timeout)
 
 #### Verify State Changes After Toggle Clicks
 
@@ -219,21 +340,18 @@ When toggling settings that persist to IndexedDB, always verify the state actual
 proceeding. Extension state updates are async and may fail silently:
 
 ```typescript
-const isChecked = await checkbox.isSelected();
+const isChecked = await checkbox.getProperty('checked');
 if (isChecked !== enabled) {
-  await browser.execute((el: HTMLElement) => el.click(), label);
-  await browser.pause(500);
-  // Verify the toggle changed
-  const newState = await checkbox.isSelected();
-  if (newState !== enabled) {
-    throw new Error(`Failed to set toggle to ${enabled}. Current state: ${newState}`);
-  }
+  const label = await toggleRow.$('label').getElement();
+  await label.click();
+  await browser.waitUntil(async () => (await checkbox.getProperty('checked')) === enabled, {
+    timeout: 5000,
+    timeoutMsg: `Failed to set toggle to ${enabled}`
+  });
 }
 ```
 
-This pattern catches cases where clicks don't register or state doesn't persist correctly.
-
-### Adding Test IDs to Components
+### Adding Test IDs
 
 Add `data-testid` attributes to components for reliable test targeting:
 
