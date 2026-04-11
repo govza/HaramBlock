@@ -4,11 +4,6 @@ export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 
 export const INFERENCE_TIMEOUT = 80_000;
 
-export const Timeouts = {
-  SCROLL_SETTLE: 200,
-  EYE_TOGGLE_AUTO_HIDE: 3000,
-} as const;
-
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
   BBOX_OVERLAY: '.haramblock-blur-box',

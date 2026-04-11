@@ -12,7 +12,7 @@ const setPolicyProcess = async (): Promise<void> => {
     const current = await policyButton.getAttribute('data-policy');
     if (current === 'process') break;
     // eslint-disable-next-line no-await-in-loop
-    await browser.execute((el: HTMLElement) => el.click(), policyButton);
+    await policyButton.click();
     // eslint-disable-next-line no-await-in-loop
     await browser.pause(300);
   }

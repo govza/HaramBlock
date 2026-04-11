@@ -1,8 +1,52 @@
 import { Given, When, Then } from '@wdio/cucumber-framework';
 
-import { Selectors, Timeouts, INFERENCE_TIMEOUT } from '../constants/index.js';
+import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
 
-const setQuickToggle = async (type: 'safe' | 'unsafe', enabled: boolean): Promise<void> => {
+// Extension timing constants (from quickToggle.ts)
+const SHOW_DELAY_MS = 500;
+const HIDE_DELAY_MS = 2500;
+
+const setQuickToggleState = async (
+  toggleRow: WebdriverIO.Element,
+  checkbox: WebdriverIO.Element,
+  enabled: boolean,
+): Promise<void> => {
+  const isChecked = await checkbox.getProperty('checked');
+  if (isChecked === enabled) return;
+
+  const label = await toggleRow.$('label').getElement();
+  await label.click();
+  await browser.waitUntil(async () => (await checkbox.getProperty('checked')) === enabled, {
+    timeout: 5000,
+    timeoutMsg: `Failed to set quick toggle to ${enabled}`,
+  });
+};
+
+const waitForScrollToSettle = async (): Promise<void> => {
+  let lastScrollX = -1;
+  let lastScrollY = -1;
+  let stablePolls = 0;
+
+  await browser.waitUntil(
+    async () => {
+      const { scrollX, scrollY } = await browser.execute(() => ({
+        scrollX: globalThis.scrollX,
+        scrollY: globalThis.scrollY,
+      }));
+      if (scrollX === lastScrollX && scrollY === lastScrollY) {
+        stablePolls += 1;
+      } else {
+        stablePolls = 0;
+        lastScrollX = scrollX;
+        lastScrollY = scrollY;
+      }
+      return stablePolls >= 2;
+    },
+    { timeout: 5000, interval: 100, timeoutMsg: 'Page scroll did not settle' },
+  );
+};
+
+Given('quick toggle {string} is {string}', async (type: string, state: string) => {
   const extensionPath = await browser.getExtensionPath();
   await browser.url(`${extensionPath}/popup.html`);
 
@@ -13,35 +57,23 @@ const setQuickToggle = async (type: 'safe' | 'unsafe', enabled: boolean): Promis
   const checkbox = await toggleRow.$('input[type="checkbox"]').getElement();
   await checkbox.waitForExist({ timeout: 5000 });
 
-  // Wait for toggle to be enabled (policy must be 'process')
-  await browser.waitUntil(
-    async () => {
-      const isDisabled: boolean = await browser.execute(el => (el as HTMLInputElement).disabled, checkbox);
-      return !isDisabled;
-    },
-    { timeout: 5000, timeoutMsg: 'Quick toggle checkbox is still disabled' },
-  );
+  await browser.waitUntil(async () => !(await checkbox.getProperty('disabled')), {
+    timeout: 5000,
+    timeoutMsg: 'Quick toggle checkbox is still disabled',
+  });
 
-  const getCheckedState = async (): Promise<boolean> => {
-    const checked: boolean = await browser.execute(el => (el as HTMLInputElement).checked, checkbox);
-    return checked;
-  };
-
-  const isChecked = await getCheckedState();
-  if (isChecked !== enabled) {
-    const label = await toggleRow.$('label').getElement();
-    await browser.execute((el: HTMLElement) => el.click(), label);
-    await browser.waitUntil(async () => (await getCheckedState()) === enabled, {
-      timeout: 5000,
-      timeoutMsg: `Failed to set quick toggle ${type} to ${enabled}`,
-    });
-  }
-};
-
-Given('quick toggle {string} is {string}', async (type: string, state: string) => {
-  const toggleType = type as 'safe' | 'unsafe';
+  const isChecked = await checkbox.getProperty('checked');
   const enabled = state === 'enabled';
-  await setQuickToggle(toggleType, enabled);
+  if (isChecked === enabled) {
+    await setQuickToggleState(toggleRow, checkbox, !enabled);
+  }
+  await setQuickToggleState(toggleRow, checkbox, enabled);
+
+  // Wait for IndexedDB write to propagate to background context.
+  // The content script reads settings once at page load via background RPC.
+  // If the write hasn't committed across contexts, the content script gets stale
+  // settings and never registers the quick toggle (eyeButton won't exist in DOM).
+  await browser.pause(2000);
 });
 
 When('I wait for image processing', async () => {
@@ -61,59 +93,78 @@ When('I wait for image processing', async () => {
 When('I hover over the first gallery image', async () => {
   const image = await $(Selectors.GALLERY_IMAGE).getElement();
   await image.scrollIntoView({ block: 'center' });
-  await browser.pause(Timeouts.SCROLL_SETTLE);
+  // The extension's scroll listener hides the eye button and cancels pending show timers.
+  // Hover only after scrolling has fully settled.
+  await waitForScrollToSettle();
+  await image.moveTo();
+  // Headless Chrome may not fire mouseenter from moveTo(); dispatch it as backup
   await browser.execute((el: HTMLElement) => {
-    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
   }, image);
 });
 
 When('I wait for the eye toggle to auto-hide', async () => {
-  await browser.pause(Timeouts.EYE_TOGGLE_AUTO_HIDE);
+  // Wait longer than the extension's HIDE_DELAY_MS (2500ms)
+  await browser.pause(HIDE_DELAY_MS + 1000);
 });
 
 Then('I should see the eye toggle icon', async () => {
   const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
-  await eyeToggle.waitForDisplayed();
+  // Allow enough time for the 500ms show delay
+  await eyeToggle.waitForDisplayed({
+    timeout: SHOW_DELAY_MS + 5000,
+    timeoutMsg: 'Expected eye toggle to be visible',
+  });
 });
 
 Then('I should not see the eye toggle icon', async () => {
   const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
   const exists = await eyeToggle.isExisting();
-  if (exists) {
-    await browser.waitUntil(async () => !(await eyeToggle.isDisplayed()), {
-      timeout: 2000,
-      timeoutMsg: 'Expected eye toggle to be hidden',
-    });
-  }
+  if (!exists) return; // element not in DOM — not visible
+
+  await eyeToggle.waitForDisplayed({
+    timeout: 3000,
+    reverse: true,
+    timeoutMsg: 'Expected eye toggle to be hidden',
+  });
 });
 
 When('I click the eye toggle icon', async () => {
   const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
-  await eyeToggle.waitForDisplayed();
-  await browser.execute((el: HTMLElement) => el.click(), eyeToggle);
+  await eyeToggle.waitForDisplayed({
+    timeout: SHOW_DELAY_MS + 5000,
+    timeoutMsg: 'Eye toggle not visible for click',
+  });
+  await eyeToggle.click();
 });
 
 Then('the first image should be masked', async () => {
-  await browser.waitUntil(async () => {
-    const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
-    const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
-    return overlays.length > 0 || bboxes.length > 0;
-  });
+  await browser.waitUntil(
+    async () => {
+      const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
+      const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
+      return overlays.length > 0 || bboxes.length > 0;
+    },
+    { timeout: 5000, timeoutMsg: 'Expected image to be masked' },
+  );
 });
 
 Then('the first image should not be masked', async () => {
-  await browser.waitUntil(async () => {
-    const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
-    const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
-    return overlays.length === 0 && bboxes.length === 0;
-  });
+  await browser.waitUntil(
+    async () => {
+      const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
+      const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
+      return overlays.length === 0 && bboxes.length === 0;
+    },
+    { timeout: 5000, timeoutMsg: 'Expected image to not be masked' },
+  );
 });
 
 Then('the first image should be blacklisted', async () => {
   const image = await $(Selectors.GALLERY_IMAGE).getElement();
-  await browser.waitUntil(async () => {
-    const attr = await image.getAttribute(Selectors.BLACKLIST_ATTR);
-    return attr !== null;
+  await browser.waitUntil(async () => (await image.getAttribute(Selectors.BLACKLIST_ATTR)) !== null, {
+    timeout: 5000,
+    timeoutMsg: 'Expected image to be blacklisted',
   });
 });
 

@@ -400,8 +400,10 @@ export class ImageProcessor {
       // Clear any existing overlays first
       this.clearOverlays(img);
 
-      // Finalize processing with status based on AI result (not forced visibility)
       const hasDetections = prediction.predictions.length > 0;
+      registerQuickToggle(img, prediction, this.hostSettings);
+
+      // Finalize processing with status based on AI result (not forced visibility)
       finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
 
       // Determine overlay type based on what styling is applied
@@ -409,16 +411,13 @@ export class ImageProcessor {
 
       if (prediction.forcedVisibility === 'blocked') {
         applyBlacklistStyling(img, this.hostSettings);
-        registerQuickToggle(img, prediction, this.hostSettings);
         overlayType = 'blur';
       } else if (prediction.forcedVisibility === 'visible') {
-        registerQuickToggle(img, prediction, this.hostSettings);
         overlayType = undefined; // Whitelisted, no overlay
       } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
         overlayType = this.hostSettings.outline; // 'bbox' or 'segment'
       } else {
-        registerQuickToggle(img, prediction, this.hostSettings);
         overlayType = undefined; // No detections, no overlay
       }
 
