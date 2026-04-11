@@ -10,7 +10,7 @@ const getElementCount = async (selector: string): Promise<number> => {
 const scrollToLoadAllImages = async (): Promise<void> => {
   const footer = await $('footer');
   await footer.waitForExist({ timeout: 5000 });
-  await footer.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  await footer.scrollIntoView({ block: 'end' });
 };
 
 When('I go to the basic gallery with {string} {string} images', async (count: string, size: string) => {
