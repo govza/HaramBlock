@@ -16,7 +16,9 @@ type RegisteredElement = {
 let eyeButton: HTMLButtonElement | null = null;
 let currentElement: HTMLImageElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
+let showTimer: ReturnType<typeof setTimeout> | null = null;
 let toggleCallback: ToggleCallback | null = null;
+let pendingAttachOnReady = false;
 
 const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
 
@@ -67,6 +69,7 @@ function positionEye(element: HTMLElement): void {
 }
 
 function showEye(element: HTMLImageElement): void {
+  createGlobalEyeButton();
   if (!eyeButton) return;
 
   const registered = registeredElements.get(element);
@@ -76,22 +79,25 @@ function showEye(element: HTMLImageElement): void {
 
   // Hide first when switching to a new element
   eyeButton.style.display = 'none';
+  clearHideTimer();
+  clearShowTimer();
 
   currentElement = element;
   updateButtonIcon(registered.prediction);
   positionEye(element);
 
-  setTimeout(() => {
+  showTimer = setTimeout(() => {
+    showTimer = null;
     if (currentElement === element && eyeButton) {
       eyeButton.style.display = 'flex';
+      resetHideTimer();
     }
   }, SHOW_DELAY_MS);
-
-  resetHideTimer();
 }
 
 function hideEye(): void {
   if (!eyeButton) return;
+  clearShowTimer();
   eyeButton.style.display = 'none';
   currentElement = null;
 }
@@ -105,6 +111,13 @@ function clearHideTimer(): void {
   if (hideTimer) {
     clearTimeout(hideTimer);
     hideTimer = null;
+  }
+}
+
+function clearShowTimer(): void {
+  if (showTimer) {
+    clearTimeout(showTimer);
+    showTimer = null;
   }
 }
 
@@ -155,8 +168,31 @@ function handleMouseLeave(): void {
   resetHideTimer();
 }
 
+function attachEyeButton(): void {
+  if (!eyeButton || eyeButton.isConnected) return;
+
+  if (!document.body) {
+    if (pendingAttachOnReady) return;
+    pendingAttachOnReady = true;
+    document.addEventListener(
+      'DOMContentLoaded',
+      () => {
+        pendingAttachOnReady = false;
+        attachEyeButton();
+      },
+      { once: true },
+    );
+    return;
+  }
+
+  document.body.appendChild(eyeButton);
+}
+
 function createGlobalEyeButton(): void {
-  if (eyeButton) return;
+  if (eyeButton) {
+    attachEyeButton();
+    return;
+  }
 
   eyeButton = document.createElement('button');
   eyeButton.className = 'haramblock-eye-toggle';
@@ -169,22 +205,7 @@ function createGlobalEyeButton(): void {
   eyeButton.addEventListener('mouseleave', () => resetHideTimer());
 
   globalThis.addEventListener('scroll', hideEye, { passive: true });
-
-  // { once: true } auto-removes listener. Callback is safe after destroy since eyeButton will be null.
-  if (!document.body) {
-    document.addEventListener(
-      'DOMContentLoaded',
-      () => {
-        if (eyeButton && !eyeButton.isConnected) {
-          document.body.appendChild(eyeButton);
-        }
-      },
-      { once: true },
-    );
-    return;
-  }
-
-  document.body.appendChild(eyeButton);
+  attachEyeButton();
 }
 
 export function initQuickToggle(onToggle: ToggleCallback): void {
@@ -228,6 +249,7 @@ export function unregisterQuickToggle(element: HTMLImageElement): void {
 export function destroyQuickToggle(): void {
   globalThis.removeEventListener('scroll', hideEye);
   clearHideTimer();
+  clearShowTimer();
 
   if (eyeButton) {
     eyeButton.remove();
@@ -236,4 +258,5 @@ export function destroyQuickToggle(): void {
 
   currentElement = null;
   toggleCallback = null;
+  pendingAttachOnReady = false;
 }
