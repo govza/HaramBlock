@@ -23,6 +23,7 @@ web-ext.config.ts
 # Testing
 coverage/
 .nyc_output
+tests/e2e/screenshots/
 
 # Editor directories and files
 .vscode/*
