@@ -25,14 +25,14 @@ Given('the outline type is set to {string}', async (outlineType: string) => {
       const policy = await policyButton.getAttribute('data-policy');
       if (policy === 'process') break;
       // eslint-disable-next-line no-await-in-loop
-      await browser.execute((el: HTMLElement) => el.click(), policyButton);
+      await policyButton.click();
     }
   }
 
   // Set outline type and wait for selected state (class reflects selection)
   const testId = outlineType === 'bbox' ? 'outline-bbox' : 'outline-segment';
   const button = await $(`[data-testid="${testId}"]`).getElement();
-  await browser.execute((el: HTMLElement) => el.click(), button);
+  await button.click();
 
   await browser.waitUntil(
     async () => {

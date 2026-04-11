@@ -26,7 +26,7 @@ const clickUntilPolicy = async (
     if (currentPolicy === targetPolicy) {
       return;
     }
-    await browser.execute((el: HTMLElement) => el.click(), policyButton);
+    await policyButton.click();
     await browser.pause(500);
   }
   /* eslint-enable no-await-in-loop */
