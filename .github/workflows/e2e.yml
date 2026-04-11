@@ -33,6 +33,14 @@ jobs:
       - name: Run E2E tests
         run: pnpm e2e
 
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-e2e-screenshots
+          path: tests/e2e/screenshots/
+          retention-days: 7
+
   firefox:
     name: E2E tests for Firefox
     runs-on: ubuntu-latest
@@ -58,3 +66,11 @@ jobs:
 
       - name: Run E2E tests
         run: pnpm e2e:firefox
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-e2e-screenshots
+          path: tests/e2e/screenshots/
+          retention-days: 7

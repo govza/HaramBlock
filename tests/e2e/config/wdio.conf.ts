@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const e2eDir = join(import.meta.dirname, '..');
@@ -16,6 +17,22 @@ export const config: WebdriverIO.Config = {
   connectionRetryCount: 3,
   framework: 'cucumber',
   reporters: ['spec'],
+  async afterStep(step, scenario, result) {
+    if (!result.passed) {
+      const screenshotsDir = join(e2eDir, 'screenshots');
+      await mkdir(screenshotsDir, { recursive: true });
+      const browserName = browser.capabilities.browserName ?? 'unknown';
+      const timestamp = new Date()
+        .toISOString()
+        .replace('T', '_')
+        .replace(/:/g, '-')
+        .replace('.', '-')
+        .replace('Z', '');
+      const stepName = (step.text ?? 'unknown-step').replace(/\s+/g, '-').slice(0, 50);
+      const scenarioName = (scenario.name ?? 'unknown-scenario').replace(/\s+/g, '-').slice(0, 50);
+      await browser.saveScreenshot(join(screenshotsDir, `${timestamp}_${browserName}_${scenarioName}_${stepName}.png`));
+    }
+  },
   cucumberOpts: {
     require: [join(e2eDir, 'step-definitions/**/*.ts')],
     backtrace: false,
