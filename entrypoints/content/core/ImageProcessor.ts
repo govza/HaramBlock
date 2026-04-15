@@ -314,9 +314,17 @@ export class ImageProcessor {
       }
     };
 
-    const handleError = () => {
+    const handleError = (reason?: unknown) => {
       this.pendingInference.delete(src);
-      completeContentTiming(src, { status: 'error' });
+      let error: Error;
+      if (reason instanceof Error) {
+        error = reason;
+      } else if (reason !== undefined) {
+        error = new Error(typeof reason === 'string' ? reason : JSON.stringify(reason));
+      } else {
+        error = new Error('Image failed to load');
+      }
+      completeContentTiming(src, { status: 'error', error });
       this.finalizeAllImagesForSrc(src, 'skipped');
     };
 
@@ -332,15 +340,17 @@ export class ImageProcessor {
         handled = true;
         void sendRequest();
       };
-      const onFail = () => {
+      const onFail = (reason?: unknown) => {
         if (handled) return;
         handled = true;
-        handleError();
+        handleError(reason);
       };
 
       img.decode().then(onReady).catch(onFail);
       img.addEventListener('load', onReady, { once: true });
-      img.addEventListener('error', onFail, { once: true });
+      img.addEventListener('error', () => onFail(new Error(`Load error: ${img.src.substring(0, 80)}`)), {
+        once: true,
+      });
     }
   }
 

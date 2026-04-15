@@ -17,9 +17,18 @@ export class ContextMenuListener {
   private onToggleCallback: ((src: string, forcedVisibility: ForcedVisibility) => void) | null = null;
 
   initialize(onToggle: (src: string, forcedVisibility: ForcedVisibility) => void): void {
-    this.onToggleCallback = onToggle;
-    this.createMenuItems();
-    this.listenForClicks();
+    if (!browser.contextMenus) {
+      logger.withTag('contextMenuListener').debug('contextMenus API not available, skipping');
+      return;
+    }
+
+    try {
+      this.onToggleCallback = onToggle;
+      this.createMenuItems();
+      this.listenForClicks();
+    } catch (error) {
+      logger.withTag('contextMenuListener').error('Failed to initialize:', error);
+    }
   }
 
   private createMenuItems(): void {
