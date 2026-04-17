@@ -1,6 +1,7 @@
 import { Given, When, Then } from '@wdio/cucumber-framework';
 
 import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
+import { isMobile } from '../utils/platform.js';
 
 // Extension timing constants (from quickToggle.ts)
 const SHOW_DELAY_MS = 500;
@@ -96,11 +97,17 @@ When('I hover over the first gallery image', async () => {
   // The extension's scroll listener hides the eye button and cancels pending show timers.
   // Hover only after scrolling has fully settled.
   await waitForScrollToSettle();
-  await image.moveTo();
-  // Headless Chrome may not fire mouseenter from moveTo(); dispatch it as backup
-  await browser.execute((el: HTMLElement) => {
-    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
-  }, image);
+
+  if (isMobile()) {
+    // Mobile has no hover — a tap on the image triggers the quick toggle eye icon
+    await image.click();
+  } else {
+    await image.moveTo();
+    // Headless Chrome may not fire pointerenter from moveTo(); dispatch it as backup
+    await browser.execute((el: HTMLElement) => {
+      el.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, pointerType: 'mouse' }));
+    }, image);
+  }
 });
 
 When('I wait for the eye toggle to auto-hide', async () => {
