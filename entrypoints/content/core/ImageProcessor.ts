@@ -116,8 +116,13 @@ export class ImageProcessor {
       return;
     }
 
-    // Skip if already has overlay for current src
+    // Skip if already has overlay for current src, but re-stamp the processed
+    // attribute (mobile srcset changes can clear it while the overlay persists).
     if (this.hasOverlayForSrc(img, src)) {
+      const cached = this.cache.get(src);
+      if (cached) {
+        finalizeImageProcessing(img, cached.predictions.length > 0 ? 'unsafe' : 'safe');
+      }
       return;
     }
 
