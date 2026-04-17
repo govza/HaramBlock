@@ -157,14 +157,14 @@ function handleClick(e: Event): void {
   resetHideTimer();
 }
 
-function handleMouseEnter(e: Event): void {
+function handlePointerEnter(e: Event): void {
   const target = e.currentTarget as HTMLImageElement;
   if (registeredElements.has(target)) {
     showEye(target);
   }
 }
 
-function handleMouseLeave(): void {
+function handlePointerLeave(): void {
   resetHideTimer();
 }
 
@@ -201,8 +201,8 @@ function createGlobalEyeButton(): void {
   eyeButton.appendChild(createSvgIcon('blocked'));
 
   eyeButton.addEventListener('click', handleClick);
-  eyeButton.addEventListener('mouseenter', () => clearHideTimer());
-  eyeButton.addEventListener('mouseleave', () => resetHideTimer());
+  eyeButton.addEventListener('pointerenter', () => clearHideTimer());
+  eyeButton.addEventListener('pointerleave', () => resetHideTimer());
 
   globalThis.addEventListener('scroll', hideEye, { passive: true });
   attachEyeButton();
@@ -232,14 +232,14 @@ export function registerQuickToggle(
 
   registeredElements.set(element, { prediction, minSize });
 
-  element.addEventListener('mouseenter', handleMouseEnter);
-  element.addEventListener('mouseleave', handleMouseLeave);
+  element.addEventListener('pointerenter', handlePointerEnter);
+  element.addEventListener('pointerleave', handlePointerLeave);
 }
 
 export function unregisterQuickToggle(element: HTMLImageElement): void {
   registeredElements.delete(element);
-  element.removeEventListener('mouseenter', handleMouseEnter);
-  element.removeEventListener('mouseleave', handleMouseLeave);
+  element.removeEventListener('pointerenter', handlePointerEnter);
+  element.removeEventListener('pointerleave', handlePointerLeave);
 
   if (currentElement === element) {
     hideEye();

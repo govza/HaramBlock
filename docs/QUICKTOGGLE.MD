@@ -25,7 +25,8 @@ view content I deem appropriate while keeping protection active for other images
 
 ### Toggle Button
 
-- SVG eye button appears on **hover** over registered images
+- SVG eye button appears on **hover** (desktop) or **tap** (mobile) over registered images
+- Uses pointer events (`pointerenter`/`pointerleave`) so each mobile tap fires fresh — avoids the synthetic-mouse sticky-hover bug where a second tap on the same image would not re-trigger the button
 - Positioned in top-right corner of the image (fixed position, follows viewport)
 - Semi-transparent background (`rgba(0, 0, 0, 0.6)`), auto-hides after 2.5s
 - Icon shows the **next state** (what clicking will do)
