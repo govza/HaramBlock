@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   chrome:
@@ -72,5 +73,67 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firefox-e2e-screenshots
+          path: tests/e2e/screenshots/
+          retention-days: 7
+
+  android:
+    name: E2E tests for Android (Firefox Nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      AVD_NAME: test
+      ADB_DEVICE_SERIAL: emulator-5554
+      ANDROID_MANAGE_EMULATOR: false
+      ANDROID_SINGLE_SESSION: true
+      ANDROID_PAGE_LOAD_STRATEGY: none
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Firefox extension
+        run: pnpm build:firefox
+
+      - name: Cache Firefox Nightly APK
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/firefox-nightly
+          key: fenix-nightly-${{ runner.os }}-x86_64-${{ github.run_id }}
+          restore-keys: |
+            fenix-nightly-${{ runner.os }}-x86_64-
+
+      - name: Run Android E2E tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: pnpm e2e:android
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-e2e-screenshots
           path: tests/e2e/screenshots/
           retention-days: 7
