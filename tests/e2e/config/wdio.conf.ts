@@ -28,8 +28,13 @@ export const config: WebdriverIO.Config = {
         .replace(/:/g, '-')
         .replace('.', '-')
         .replace('Z', '');
-      const stepName = (step.text ?? 'unknown-step').replace(/\s+/g, '-').slice(0, 50);
-      const scenarioName = (scenario.name ?? 'unknown-scenario').replace(/\s+/g, '-').slice(0, 50);
+      const sanitize = (s: string) =>
+        s
+          .replace(/[<>:"/\\|?*]+/g, '')
+          .replace(/\s+/g, '-')
+          .slice(0, 50);
+      const stepName = sanitize(step.text ?? 'unknown-step');
+      const scenarioName = sanitize(scenario.name ?? 'unknown-scenario');
       await browser.saveScreenshot(join(screenshotsDir, `${timestamp}_${browserName}_${scenarioName}_${stepName}.png`));
     }
   },
@@ -42,7 +47,7 @@ export const config: WebdriverIO.Config = {
     snippets: true,
     source: true,
     strict: false,
-    tagExpression: '',
+    tags: '',
     timeout: 120000,
     ignoreUndefinedDefinitions: false,
   },
