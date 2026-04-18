@@ -1,10 +1,13 @@
 import { BeforeAll } from '@wdio/cucumber-framework';
 
-import { IS_CI } from '../config/wdio.browser.conf.js';
+import { isMobile } from '../utils/platform.js';
+
+const IS_CI = Boolean(process.env.CI) || process.argv.includes('--debug');
 
 const setPolicyProcess = async (): Promise<void> => {
   const extensionPath = await browser.getExtensionPath();
   await browser.url(`${extensionPath}/popup.html`);
+  await $('[data-testid="policy-toggle"]').waitForDisplayed({ timeout: 15000 });
 
   const policyButton = await $('[data-testid="policy-toggle"]').getElement();
   for (let i = 0; i < 3; i++) {
@@ -19,7 +22,7 @@ const setPolicyProcess = async (): Promise<void> => {
 };
 
 BeforeAll(async () => {
-  if (!IS_CI) return;
+  if (!IS_CI || isMobile()) return;
 
   try {
     await setPolicyProcess();

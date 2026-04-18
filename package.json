@@ -34,6 +34,7 @@
     "test:unit": "vitest",
     "e2e": "wdio run ./tests/e2e/config/wdio.browser.conf.ts",
     "e2e:firefox": "cross-env IS_FIREFOX=true wdio run ./tests/e2e/config/wdio.browser.conf.ts",
+    "e2e:android": "wdio run ./tests/e2e/config/wdio.android.conf.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

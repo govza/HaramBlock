@@ -121,6 +121,93 @@ web-ext run -s .output/firefox-mv3 --target=firefox-android --adb-device=DEVICE_
 Use [scrcpy](https://github.com/Genymobile/scrcpy) to mirror your Android screen to your PC for
 easier testing.
 
+#### Firefox Android Emulator E2E Tests
+
+Automated E2E tests can run on Firefox Nightly inside an Android emulator using geckodriver directly
+(no Appium). This reuses the existing Cucumber features. Hover-dependent scenarios (`@quick-toggle`,
+`@quick-toggle-click`) use tap/click instead of hover on mobile.
+
+**Prerequisites:**
+
+1. **Android SDK** with emulator and platform-tools (`adb`)
+2. **An Android emulator AVD** (API 34+ recommended, x86_64 with Google APIs)
+3. **geckodriver** npm package (included in devDependencies)
+
+The local test harness handles the rest automatically: it starts the emulator if not already
+running, downloads and installs Firefox Nightly from archive.mozilla.org (cached in
+`node_modules/.cache/firefox-nightly/`), launches geckodriver with `--allow-system-access`, and
+installs the extension as a temporary addon.
+
+In GitHub Actions, the emulator is owned by `reactivecircus/android-emulator-runner`. The WDIO
+Android config expects that action-managed emulator to already be booted when `CI=true`. The CI
+workflow sets `ANDROID_SINGLE_SESSION=true` so all features run in one WebDriver session, since
+repeated geckodriver sessions can leave Fenix profile resources locked on CI.
+
+**Setup:**
+
+```bash
+# 1. Build the Firefox extension
+pnpm build:firefox
+
+# 2. (Optional) Start the emulator manually, or let the harness start it
+emulator -avd Pixel_3a_API_34_extension_level_7_x86_64
+```
+
+**Running tests:**
+
+```bash
+# Run all mobile-compatible tests
+pnpm e2e:android
+
+# Run tests by tag
+pnpm e2e:android -- --cucumberOpts.tags="@whitelist"
+
+# Run smoke tests only
+pnpm e2e:android -- --cucumberOpts.tags="@smoke"
+```
+
+**Environment variables:**
+
+| Variable                           | Description                                            | Default                                    |
+| ---------------------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| `AVD_NAME`                         | Android emulator AVD name                              | `Pixel_3a_API_34_extension_level_7_x86_64` |
+| `ANDROID_HOME`                     | Android SDK path                                       | `$LOCALAPPDATA/Android/Sdk`                |
+| `ADB_DEVICE_SERIAL`                | ADB device serial (from `adb devices`)                 | `emulator-5554`                            |
+| `FENIX_APK`                        | Path to a local Firefox Nightly APK (skips download)   | _(auto-download)_                          |
+| `ANDROID_MANAGE_EMULATOR`          | Start the emulator from WDIO if no device is attached  | `true` locally, `false` in CI              |
+| `ANDROID_SINGLE_SESSION`           | Reuse one WebDriver session for all feature files      | `true` locally, `false` in CI              |
+| `ANDROID_PAGE_LOAD_STRATEGY`       | Firefox Android page-load strategy                     | `none`                                     |
+| `ANDROID_CLEANUP_BETWEEN_SESSIONS` | Force-stop and clear Firefox state before each session | `false`                                    |
+| `ANDROID_E2E_TAGS`                 | Optional Cucumber tag expression                       | _(all Android specs)_                      |
+
+**How it works:**
+
+1. `onPrepare` verifies the emulator is booted, starts it only when configured to do so, installs
+   Firefox Nightly, enables ADB root when available, and clears Firefox state
+2. `before` hook pushes the extension to the device via ADB, installs it as a temporary addon via
+   the `moz/addon/install` endpoint, then resolves the `moz-extension://` UUID by reading the
+   `extensions.webextensions.uuids` pref through the privileged Marionette chrome context
+3. Tests run against Firefox Nightly on the emulator using the same Cucumber step definitions as
+   desktop
+
+**Notes:**
+
+- geckodriver is spawned directly (no Appium) to avoid `platformName` mismatch issues
+- The `--allow-system-access` flag on geckodriver enables the Marionette chrome context, which is
+  needed to resolve the extension's internal UUID via XPCOM
+- Local runs default to one WebDriver session (CI runs would default to per-feature, so the CI
+  workflow sets `ANDROID_SINGLE_SESSION=true` explicitly) because repeated Firefox Android sessions
+  can leave Fenix/geckodriver state locked; set `ANDROID_SINGLE_SESSION=false` only when debugging
+  session isolation
+- `ANDROID_CLEANUP_BETWEEN_SESSIONS=true` clears Fenix/geckodriver state before each new session,
+  but it should only be used with `ANDROID_SINGLE_SESSION=false`
+- For a smaller local or CI smoke run, set `ANDROID_E2E_TAGS="@smoke"` or pass
+  `--cucumberOpts.tags="@smoke"`
+- Hover-dependent steps automatically use tap/click on mobile (detected via the `platformName`
+  capability)
+- Emulator is slower than desktop — timeouts are increased accordingly (180s cucumber, 15s waitfor)
+- If geckodriver gets stuck from a previous run, kill it: `npx kill-port 4444`
+
 ### Project Structure
 
 ```
