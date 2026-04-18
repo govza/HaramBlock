@@ -7,6 +7,11 @@ settings:
 overrides:
   publish-browser-extension: ^4.0.0
 
+patchedDependencies:
+  '@wdio/utils@9.27.0':
+    hash: 4ujwydu2wbx6dlyvvdtrcj7vza
+    path: patches/@wdio__utils@9.27.0.patch
+
 importers:
 
   .:
@@ -6499,7 +6504,7 @@ snapshots:
       '@wdio/logger': 9.18.0
       '@wdio/protocols': 9.27.0
       '@wdio/types': 9.27.0
-      '@wdio/utils': 9.27.0
+      '@wdio/utils': 9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)
       async-exit-hook: 2.0.1
       chalk: 5.6.2
       chokidar: 4.0.3
@@ -6528,7 +6533,7 @@ snapshots:
     dependencies:
       '@wdio/logger': 9.18.0
       '@wdio/types': 9.27.0
-      '@wdio/utils': 9.27.0
+      '@wdio/utils': 9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)
       deepmerge-ts: 7.1.5
       glob: 10.5.0
       import-meta-resolve: 4.2.0
@@ -6547,7 +6552,7 @@ snapshots:
       '@types/node': 20.19.27
       '@wdio/logger': 9.18.0
       '@wdio/types': 9.27.0
-      '@wdio/utils': 9.27.0
+      '@wdio/utils': 9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)
       glob: 10.5.0
       import-meta-resolve: 4.2.0
       is-glob: 4.0.3
@@ -6620,7 +6625,7 @@ snapshots:
       '@wdio/globals': 9.27.0(expect-webdriverio@5.6.5)(webdriverio@9.27.0)
       '@wdio/logger': 9.18.0
       '@wdio/types': 9.27.0
-      '@wdio/utils': 9.27.0
+      '@wdio/utils': 9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)
       deepmerge-ts: 7.1.5
       expect-webdriverio: 5.6.5(@wdio/globals@9.27.0)(@wdio/logger@9.18.0)(webdriverio@9.27.0)
       webdriver: 9.27.0
@@ -6645,7 +6650,7 @@ snapshots:
     dependencies:
       '@types/node': 20.19.27
 
-  '@wdio/utils@9.27.0':
+  '@wdio/utils@9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)':
     dependencies:
       '@puppeteer/browsers': 2.11.0
       '@wdio/logger': 9.18.0
@@ -10391,7 +10396,7 @@ snapshots:
       '@wdio/logger': 9.18.0
       '@wdio/protocols': 9.27.0
       '@wdio/types': 9.27.0
-      '@wdio/utils': 9.27.0
+      '@wdio/utils': 9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)
       deepmerge-ts: 7.1.5
       https-proxy-agent: 7.0.6
       undici: 6.22.0
@@ -10413,7 +10418,7 @@ snapshots:
       '@wdio/protocols': 9.27.0
       '@wdio/repl': 9.16.2
       '@wdio/types': 9.27.0
-      '@wdio/utils': 9.27.0
+      '@wdio/utils': 9.27.0(patch_hash=4ujwydu2wbx6dlyvvdtrcj7vza)
       archiver: 7.0.1
       aria-query: 5.3.2
       cheerio: 1.1.2
