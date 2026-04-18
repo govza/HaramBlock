@@ -3,7 +3,7 @@ import { Given, Then } from '@wdio/cucumber-framework';
 import { Selectors } from '../constants/index.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
-  const elements = await $$(selector).getElements();
+  const elements = await $$(selector);
   return elements.length;
 };
 
@@ -16,7 +16,7 @@ Given('the outline type is set to {string}', async (outlineType: string) => {
   await browser.url(`${extensionPath}/popup.html`);
 
   // Ensure policy is "process" for AI detection
-  const policyButton = await $('[data-testid="policy-toggle"]').getElement();
+  const policyButton = await $('[data-testid="policy-toggle"]');
   const currentPolicy = await policyButton.getAttribute('data-policy');
   if (currentPolicy !== 'process') {
     // Click until we get to "process" (cycles: whitelist -> blacklist -> process)
@@ -31,7 +31,7 @@ Given('the outline type is set to {string}', async (outlineType: string) => {
 
   // Set outline type and wait for selected state (class reflects selection)
   const testId = outlineType === 'bbox' ? 'outline-bbox' : 'outline-segment';
-  const button = await $(`[data-testid="${testId}"]`).getElement();
+  const button = await $(`[data-testid="${testId}"]`);
   await button.click();
 
   await browser.waitUntil(

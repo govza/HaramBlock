@@ -17,7 +17,7 @@ let subscribed = false;
 const findDisplayedElement = async (selector: string, timeout: number): Promise<WebdriverIO.Element> => {
   await browser.waitUntil(
     async () => {
-      const matches = await $$(selector).getElements();
+      const matches = await $$(selector);
       for (const match of matches) {
         if (await match.isDisplayed()) {
           return true;
@@ -32,7 +32,7 @@ const findDisplayedElement = async (selector: string, timeout: number): Promise<
     },
   );
 
-  const matches = await $$(selector).getElements();
+  const matches = await $$(selector);
   for (const match of matches) {
     if (await match.isDisplayed()) {
       return match;

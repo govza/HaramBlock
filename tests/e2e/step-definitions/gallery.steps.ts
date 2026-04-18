@@ -4,7 +4,7 @@ import { buildGalleryUrl, GalleryMode, Selectors, type GallerySizeType } from '.
 import { isMobile } from '../utils/platform.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
-  const elements = await $$(selector).getElements();
+  const elements = await $$(selector);
   return elements.length;
 };
 
