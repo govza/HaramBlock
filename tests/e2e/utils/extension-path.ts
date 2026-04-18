@@ -5,9 +5,9 @@ let cachedExtensionPath: string | null = null;
 const getChromeExtensionPath = async (browser: WebdriverIO.Browser) => {
   await browser.url('chrome://extensions/');
 
-  const extensionsManager = await $('extensions-manager').getElement();
-  const itemList = await extensionsManager.shadow$('#container > #viewManager > extensions-item-list').getElement();
-  const extensionItem = await itemList.shadow$('extensions-item').getElement();
+  const extensionsManager = await $('extensions-manager');
+  const itemList = await extensionsManager.shadow$('#container > #viewManager > extensions-item-list');
+  const extensionItem = await itemList.shadow$('extensions-item');
 
   const extensionId = await extensionItem.getAttribute('id');
 
@@ -20,7 +20,7 @@ const getChromeExtensionPath = async (browser: WebdriverIO.Browser) => {
 
 const getFirefoxExtensionPath = async (browser: WebdriverIO.Browser) => {
   await browser.url('about:debugging#/runtime/this-firefox');
-  const uuidElement = await browser.$('//dt[contains(text(), "Internal UUID")]/following-sibling::dd').getElement();
+  const uuidElement = await browser.$('//dt[contains(text(), "Internal UUID")]/following-sibling::dd');
   const internalUUID = await uuidElement.getText();
 
   if (!internalUUID) {

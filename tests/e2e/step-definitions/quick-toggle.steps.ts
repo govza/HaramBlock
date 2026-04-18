@@ -15,7 +15,7 @@ const setQuickToggleState = async (
   const isChecked = await checkbox.getProperty('checked');
   if (isChecked === enabled) return;
 
-  const label = await toggleRow.$('label').getElement();
+  const label = await toggleRow.$('label');
   await label.click();
   await browser.waitUntil(async () => (await checkbox.getProperty('checked')) === enabled, {
     timeout: 5000,
@@ -52,10 +52,10 @@ Given('quick toggle {string} is {string}', async (type: string, state: string) =
   await browser.url(`${extensionPath}/popup.html`);
 
   const testId = type === 'unsafe' ? 'quick-toggle-unsafe' : 'quick-toggle-safe';
-  const toggleRow = await $(`[data-testid="${testId}"]`).getElement();
+  const toggleRow = await $(`[data-testid="${testId}"]`);
   await toggleRow.waitForDisplayed({ timeout: 5000 });
 
-  const checkbox = await toggleRow.$('input[type="checkbox"]').getElement();
+  const checkbox = await toggleRow.$('input[type="checkbox"]');
   await checkbox.waitForExist({ timeout: 5000 });
 
   await browser.waitUntil(async () => !(await checkbox.getProperty('disabled')), {
@@ -78,7 +78,7 @@ Given('quick toggle {string} is {string}', async (type: string, state: string) =
 });
 
 When('I wait for image processing', async () => {
-  const image = await $(Selectors.GALLERY_IMAGE).getElement();
+  const image = await $(Selectors.GALLERY_IMAGE);
   await browser.waitUntil(
     async () => {
       const safe = await image.getAttribute('data-haramblock-processed-safe');
@@ -92,7 +92,7 @@ When('I wait for image processing', async () => {
 });
 
 When('I hover over the first gallery image', async () => {
-  const image = await $(Selectors.GALLERY_IMAGE).getElement();
+  const image = await $(Selectors.GALLERY_IMAGE);
   await image.scrollIntoView({ block: 'center' });
   // The extension's scroll listener hides the eye button and cancels pending show timers.
   // Hover only after scrolling has fully settled.
@@ -116,7 +116,7 @@ When('I wait for the eye toggle to auto-hide', async () => {
 });
 
 Then('I should see the eye toggle icon', async () => {
-  const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
+  const eyeToggle = await $(Selectors.EYE_TOGGLE);
   // Allow enough time for the 500ms show delay
   await eyeToggle.waitForDisplayed({
     timeout: SHOW_DELAY_MS + 5000,
@@ -125,7 +125,7 @@ Then('I should see the eye toggle icon', async () => {
 });
 
 Then('I should not see the eye toggle icon', async () => {
-  const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
+  const eyeToggle = await $(Selectors.EYE_TOGGLE);
   const exists = await eyeToggle.isExisting();
   if (!exists) return; // element not in DOM — not visible
 
@@ -137,7 +137,7 @@ Then('I should not see the eye toggle icon', async () => {
 });
 
 When('I click the eye toggle icon', async () => {
-  const eyeToggle = await $(Selectors.EYE_TOGGLE).getElement();
+  const eyeToggle = await $(Selectors.EYE_TOGGLE);
   await eyeToggle.waitForDisplayed({
     timeout: SHOW_DELAY_MS + 5000,
     timeoutMsg: 'Eye toggle not visible for click',
@@ -148,8 +148,8 @@ When('I click the eye toggle icon', async () => {
 Then('the first image should be masked', async () => {
   await browser.waitUntil(
     async () => {
-      const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
-      const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
+      const overlays = await $$(Selectors.SEGMENT_OVERLAY);
+      const bboxes = await $$(Selectors.BBOX_OVERLAY);
       return overlays.length > 0 || bboxes.length > 0;
     },
     { timeout: 5000, timeoutMsg: 'Expected image to be masked' },
@@ -159,8 +159,8 @@ Then('the first image should be masked', async () => {
 Then('the first image should not be masked', async () => {
   await browser.waitUntil(
     async () => {
-      const overlays = await $$(Selectors.SEGMENT_OVERLAY).getElements();
-      const bboxes = await $$(Selectors.BBOX_OVERLAY).getElements();
+      const overlays = await $$(Selectors.SEGMENT_OVERLAY);
+      const bboxes = await $$(Selectors.BBOX_OVERLAY);
       return overlays.length === 0 && bboxes.length === 0;
     },
     { timeout: 5000, timeoutMsg: 'Expected image to not be masked' },
@@ -168,7 +168,7 @@ Then('the first image should not be masked', async () => {
 });
 
 Then('the first image should be blacklisted', async () => {
-  const image = await $(Selectors.GALLERY_IMAGE).getElement();
+  const image = await $(Selectors.GALLERY_IMAGE);
   await browser.waitUntil(async () => (await image.getAttribute(Selectors.BLACKLIST_ATTR)) !== null, {
     timeout: 5000,
     timeoutMsg: 'Expected image to be blacklisted',
@@ -176,7 +176,7 @@ Then('the first image should be blacklisted', async () => {
 });
 
 Then('the first image should not be blacklisted', async () => {
-  const image = await $(Selectors.GALLERY_IMAGE).getElement();
+  const image = await $(Selectors.GALLERY_IMAGE);
   const attr = await image.getAttribute(Selectors.BLACKLIST_ATTR);
   expect(attr).toBeNull();
 });

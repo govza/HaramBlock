@@ -9,7 +9,7 @@ const setPolicyProcess = async (): Promise<void> => {
   await browser.url(`${extensionPath}/popup.html`);
   await $('[data-testid="policy-toggle"]').waitForDisplayed({ timeout: 15000 });
 
-  const policyButton = await $('[data-testid="policy-toggle"]').getElement();
+  const policyButton = await $('[data-testid="policy-toggle"]');
   for (let i = 0; i < 3; i++) {
     // eslint-disable-next-line no-await-in-loop
     const current = await policyButton.getAttribute('data-policy');

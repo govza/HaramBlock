@@ -6,11 +6,11 @@ When('I open the extension popup', async () => {
 });
 
 Then('the popup should be visible', async () => {
-  const popup = await $('body').getElement();
+  const popup = await $('body');
   await expect(popup).toBeExisting();
 });
 
 Then('the popup should display the version number', async () => {
-  const versionElement = await $('p*=v').getElement();
+  const versionElement = await $('p*=v');
   await expect(versionElement).toBeExisting();
 });

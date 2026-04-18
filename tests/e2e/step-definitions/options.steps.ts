@@ -6,6 +6,6 @@ When('I open the extension options page', async () => {
 });
 
 Then('the options page should be visible', async () => {
-  const optionsPage = await $('body').getElement();
+  const optionsPage = await $('body');
   await expect(optionsPage).toBeExisting();
 });

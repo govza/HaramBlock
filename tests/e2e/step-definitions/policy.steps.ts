@@ -5,7 +5,7 @@ import { Selectors } from '../constants/index.js';
 const VALID_POLICIES = ['whitelist', 'blacklist', 'process', 'process-images'];
 
 const checkAllImagesBlacklisted = async (): Promise<boolean> => {
-  const images = await $$(Selectors.GALLERY_IMAGE).getElements();
+  const images = await $$(Selectors.GALLERY_IMAGE);
   if (images.length === 0) return false;
 
   const results = await Promise.all(Array.from(images).map(img => img.getAttribute(Selectors.BLACKLIST_ATTR)));
@@ -54,7 +54,7 @@ Given('I set the global policy to {string}', async (policy: string) => {
   // Open popup directly - it will show global settings by default
   await browser.url(`${extensionPath}/popup.html`);
 
-  const policyButton = await $('[data-testid="policy-toggle"]').getElement();
+  const policyButton = await $('[data-testid="policy-toggle"]');
   await clickUntilPolicy(policyButton, policy, 4);
 
   await browser.pause(500);
