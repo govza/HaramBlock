@@ -60,13 +60,13 @@ pnpm build
 pnpm e2e
 
 # Run tests by tag (e.g., @policy, @masking, @quick-toggle)
-pnpm e2e -- --debug --cucumberOpts.tagExpression="@policy"
+pnpm e2e -- --debug --cucumberOpts.tags="@policy"
 
 # Run tests by scenario name
 pnpm e2e -- --debug --cucumberOpts.name="Segment outline on large images"
 
 # Run smoke tests only (quick validation)
-pnpm e2e -- --debug --cucumberOpts.tagExpression="@smoke"
+pnpm e2e -- --debug --cucumberOpts.tags="@smoke"
 ```
 
 #### Debugging E2E Tests
@@ -80,7 +80,7 @@ so you can watch exactly what the tests are doing:
 pnpm e2e -- --debug
 
 # Combine with tag filters to debug a specific scenario
-pnpm e2e -- --debug --cucumberOpts.tagExpression="@masking"
+pnpm e2e -- --debug --cucumberOpts.tags="@masking"
 ```
 
 This is especially useful for reproducing CI-only failures locally — the browser runs with the same
