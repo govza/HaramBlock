@@ -2,7 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { config as baseConfig } from './wdio.conf.js';
-import { getChromeExtensionPath, getFirefoxExtensionPath } from '../utils/extension-path.js';
+import { getExtensionPath } from '../utils/extension-path.js';
 
 const DEBUG_CI_MODE = process.argv.includes('--debug');
 export const IS_CI = Boolean(process.env.CI) || DEBUG_CI_MODE;
@@ -118,10 +118,8 @@ export const config: WebdriverIO.Config = {
           throw new Error(`Failed to install addon: ${error}`);
         }
       });
-
-      browser.addCommand('getExtensionPath', () => getFirefoxExtensionPath(browser));
-    } else if (browserName === 'chrome') {
-      browser.addCommand('getExtensionPath', () => getChromeExtensionPath(browser));
     }
+
+    browser.addCommand('getExtensionPath', () => getExtensionPath(browser));
   },
 };
