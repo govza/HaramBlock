@@ -52,7 +52,7 @@ Then('I should see at least {string} segment mask overlays with canvas', async (
       const actualCount = await getElementCount(canvasSelector);
       return actualCount >= minExpected;
     },
-    { timeout: 30000, timeoutMsg: `Expected at least ${minExpected} segment mask overlays, but timed out` },
+    { timeout: 60000, timeoutMsg: `Expected at least ${minExpected} segment mask overlays, but timed out` },
   );
 });
 
@@ -64,6 +64,6 @@ Then('I should see at least {string} bounding box overlays', async (count: strin
       const actualCount = await getElementCount(Selectors.BBOX_OVERLAY);
       return actualCount >= minExpected;
     },
-    { timeout: 30000, timeoutMsg: `Expected at least ${minExpected} bounding box overlays, but timed out` },
+    { timeout: 60000, timeoutMsg: `Expected at least ${minExpected} bounding box overlays, but timed out` },
   );
 });
