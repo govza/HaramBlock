@@ -14,34 +14,6 @@ interface LogEntryAddedEvent {
 let capturedLogs: LogEntry[] = [];
 let subscribed = false;
 
-const findDisplayedElement = async (selector: string, timeout: number): Promise<WebdriverIO.Element> => {
-  await browser.waitUntil(
-    async () => {
-      const matches = await $$(selector);
-      for (const match of matches) {
-        if (await match.isDisplayed()) {
-          return true;
-        }
-      }
-      return false;
-    },
-    {
-      timeout,
-      interval: 250,
-      timeoutMsg: `No displayed element found for selector: ${selector}`,
-    },
-  );
-
-  const matches = await $$(selector);
-  for (const match of matches) {
-    if (await match.isDisplayed()) {
-      return match;
-    }
-  }
-
-  throw new Error(`No displayed element found for selector: ${selector}`);
-};
-
 const normalizeLogEntry = (rawEntry: LogEntryAddedEvent): LogEntry | null => {
   const entry = rawEntry.entry ?? rawEntry;
   const text = typeof entry.text === 'string' ? entry.text : null;
@@ -83,10 +55,12 @@ Given('extension console logging is enabled', async () => {
   const extensionPath = await browser.getExtensionPath();
   await browser.url(`${extensionPath}/popup.html`);
 
-  const helpBtn = await findDisplayedElement('[data-testid="help-toggle"]', 15000);
+  const helpBtn = await $('[data-testid="help-toggle"]');
+  await helpBtn.waitForDisplayed({ timeout: 15000 });
   await helpBtn.click();
 
-  const consoleBtn = await findDisplayedElement('[data-testid="console-toggle"]', 5000);
+  const consoleBtn = await $('[data-testid="console-toggle"]');
+  await consoleBtn.waitForDisplayed({ timeout: 5000 });
   await consoleBtn.click();
   await browser.pause(500);
 });
