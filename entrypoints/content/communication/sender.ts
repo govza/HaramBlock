@@ -160,6 +160,10 @@ async function sendImageForInference(
       }
     }
 
+    if (!payload && src.startsWith('blob:')) {
+      throw new Error(`Cannot process blob URL: inaccessible from extension contexts`);
+    }
+
     const finalPayload = payload ?? { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url' };
     await backgroundRpc.postInferenceImage(finalPayload);
   } catch (error) {
