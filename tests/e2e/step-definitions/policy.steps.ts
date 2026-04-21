@@ -53,6 +53,7 @@ Given('I set the global policy to {string}', async (policy: string) => {
   const extensionPath = await browser.getExtensionPath();
   // Open popup directly - it will show global settings by default
   await browser.url(`${extensionPath}/popup.html`);
+  await $('[data-testid="policy-toggle"]').waitForDisplayed({ timeout: 15000 });
 
   const policyButton = await $('[data-testid="policy-toggle"]');
   await clickUntilPolicy(policyButton, policy, 4);
