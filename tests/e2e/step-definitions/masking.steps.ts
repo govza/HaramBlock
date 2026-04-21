@@ -14,6 +14,7 @@ const getElementCount = async (selector: string): Promise<number> => {
 Given('the outline type is set to {string}', async (outlineType: string) => {
   const extensionPath = await browser.getExtensionPath();
   await browser.url(`${extensionPath}/popup.html`);
+  await $('[data-testid="policy-toggle"]').waitForDisplayed({ timeout: 15000 });
 
   // Ensure policy is "process" for AI detection
   const policyButton = await $('[data-testid="policy-toggle"]');
