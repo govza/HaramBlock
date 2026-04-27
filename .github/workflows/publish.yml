@@ -3,6 +3,16 @@ name: Publish Extension
 on:
   workflow_dispatch:
     inputs:
+      version_bump:
+        description: "Bump version before publishing"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
       target:
         description: "Publish target"
         required: true
@@ -20,11 +30,39 @@ on:
         type: boolean
 
 jobs:
+  bump-version:
+    name: Bump Version
+    if: inputs.version_bump != 'none'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        run: npm version ${{ inputs.version_bump }} --no-git-tag-version
+
+      - name: Commit and push
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git add package.json
+          git commit -m "Bump package version to $VERSION"
+          git push
+
   test:
     name: Run Tests
+    needs: bump-version
+    if: always() && (needs.bump-version.result == 'success' || needs.bump-version.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - uses: pnpm/action-setup@v4
 
@@ -47,7 +85,8 @@ jobs:
 
   publish:
     name: Build & Publish
-    needs: test
+    needs: [bump-version, test]
+    if: always() && (needs.bump-version.result == 'success' || needs.bump-version.result == 'skipped') && needs.test.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -65,6 +104,8 @@ jobs:
       EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - uses: pnpm/action-setup@v4
 
