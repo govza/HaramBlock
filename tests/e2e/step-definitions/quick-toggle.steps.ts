@@ -7,17 +7,29 @@ import { isMobile } from '../utils/platform.js';
 const SHOW_DELAY_MS = 500;
 const HIDE_DELAY_MS = 2500;
 
+const quickToggleSelectors = (type: string) => {
+  const testId = type === 'unsafe' ? 'quick-toggle-unsafe' : 'quick-toggle-safe';
+  return {
+    row: `[data-testid="${testId}"]`,
+    label: `[data-testid="${testId}"] label`,
+    checkbox: `[data-testid="${testId}"] input[type="checkbox"]`,
+  };
+};
+
+const isCheckboxChecked = async (selector: string): Promise<boolean> =>
+  browser.execute(
+    (sel: string) => globalThis.document.querySelector<HTMLInputElement>(sel)?.checked ?? false,
+    selector,
+  );
+
 const setQuickToggleState = async (
-  toggleRow: WebdriverIO.Element,
-  checkbox: WebdriverIO.Element,
+  selectors: ReturnType<typeof quickToggleSelectors>,
   enabled: boolean,
 ): Promise<void> => {
-  const isChecked = await checkbox.getProperty('checked');
-  if (isChecked === enabled) return;
+  if ((await isCheckboxChecked(selectors.checkbox)) === enabled) return;
 
-  const label = await toggleRow.$('label');
-  await label.click();
-  await browser.waitUntil(async () => (await checkbox.getProperty('checked')) === enabled, {
+  await $(selectors.label).click();
+  await browser.waitUntil(async () => (await isCheckboxChecked(selectors.checkbox)) === enabled, {
     timeout: 5000,
     timeoutMsg: `Failed to set quick toggle to ${enabled}`,
   });
@@ -51,29 +63,28 @@ Given('quick toggle {string} is {string}', async (type: string, state: string) =
   const extensionPath = await browser.getExtensionPath();
   await browser.url(`${extensionPath}/popup.html`);
 
-  const testId = type === 'unsafe' ? 'quick-toggle-unsafe' : 'quick-toggle-safe';
-  const toggleRow = await $(`[data-testid="${testId}"]`);
-  await toggleRow.waitForDisplayed({ timeout: 5000 });
+  const sel = quickToggleSelectors(type);
+  await $(sel.row).waitForDisplayed({ timeout: 5000 });
+  await $(sel.checkbox).waitForExist({ timeout: 5000 });
 
-  const checkbox = await toggleRow.$('input[type="checkbox"]');
-  await checkbox.waitForExist({ timeout: 5000 });
+  await browser.waitUntil(
+    async () => {
+      const disabled = await browser.execute(
+        (s: string) => globalThis.document.querySelector<HTMLInputElement>(s)?.disabled ?? true,
+        sel.checkbox,
+      );
+      return !disabled;
+    },
+    { timeout: 5000, timeoutMsg: 'Quick toggle checkbox is still disabled' },
+  );
 
-  await browser.waitUntil(async () => !(await checkbox.getProperty('disabled')), {
-    timeout: 5000,
-    timeoutMsg: 'Quick toggle checkbox is still disabled',
-  });
-
-  const isChecked = await checkbox.getProperty('checked');
   const enabled = state === 'enabled';
-  if (isChecked === enabled) {
-    await setQuickToggleState(toggleRow, checkbox, !enabled);
+  if ((await isCheckboxChecked(sel.checkbox)) === enabled) {
+    await setQuickToggleState(sel, !enabled);
   }
-  await setQuickToggleState(toggleRow, checkbox, enabled);
+  await setQuickToggleState(sel, enabled);
 
   // Wait for IndexedDB write to propagate to background context.
-  // The content script reads settings once at page load via background RPC.
-  // If the write hasn't committed across contexts, the content script gets stale
-  // settings and never registers the quick toggle (eyeButton won't exist in DOM).
   await browser.pause(2000);
 });
 
