@@ -2,7 +2,7 @@
   "name": "haram-block",
   "description": "Gaze protection — blocks and filters inappropriate content, keeping you focused",
   "private": true,
-  "version": "1.2.6",
+  "version": "1.2.7",
   "type": "module",
   "author": {
     "name": "Rasul Abu Muhammad Amin",
@@ -45,8 +45,13 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx}": ["prettier --write", "eslint --fix"],
-    "*.{json,md,css,html}": ["prettier --write"]
+    "*.{js,jsx,ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,css,html}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@wxt-dev/i18n": "^0.2.5",
