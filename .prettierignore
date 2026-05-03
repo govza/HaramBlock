@@ -15,7 +15,6 @@ package-lock.json
 
 # Assets and models
 public/models/
-public/ort/
 *.bin
 *.pb
 *.tflite
