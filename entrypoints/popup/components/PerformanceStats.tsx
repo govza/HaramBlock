@@ -143,22 +143,25 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
         {isInitialLoading && <div className='text-gray-400'>Loading stats...</div>}
         {!isInitialLoading && stats && (
           <div className='grid grid-cols-[auto_auto_auto_auto] gap-x-3 gap-y-1'>
-            <span className='text-gray-400'>Detections</span>
+            <span className='text-gray-400'>Detections{'\t'}</span>
             <span className='text-white'>
               {stats.totalDetections} <span className='text-gray-400'>on</span> {stats.totalImages}
+              {'\t'}
             </span>
-            <span className='text-gray-400'>Inference</span>
+            <span className='text-gray-400'>Inference{'\t'}</span>
             <span className='text-white'>
               {Math.round(stats.medianInference)}
               <span className='text-gray-400'>ms</span>
+              {'\n'}
             </span>
 
-            <span className='text-gray-400'>Throughput</span>
+            <span className='text-gray-400'>Throughput{'\t'}</span>
             <span className='text-white'>
               {stats.throughput.toFixed(1)}
               <span className='text-gray-400'>/s</span>
+              {'\t'}
             </span>
-            <span className='text-gray-400'>E2E</span>
+            <span className='text-gray-400'>E2E{'\t'}</span>
             <span className='text-white'>
               {Math.round(stats.medianDelay)}
               <span className='text-gray-400'>ms</span>
