@@ -20,10 +20,9 @@ import type { ModelMetadata } from '@/utils/types';
 // Configure ONNX Runtime for service worker environment
 // - numThreads=1: Single-threaded (SharedArrayBuffer not available in service workers)
 // - proxy=false: Direct execution (no worker proxy needed)
-// - logLevel: 'fatal' suppresses harmless "Unknown CPU vendor" error from CPUID detection
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
-ort.env.logLevel = 'fatal';
+ort.env.logLevel = 'warning';
 
 /**
  * WASM binary selection for service worker environment:

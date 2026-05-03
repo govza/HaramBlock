@@ -58,8 +58,6 @@ public/ort/
 
 ### Known Warnings
 
-- **"Unknown CPU vendor"** - Harmless. ONNX Runtime tries CPUID detection which doesn't work in
-  WASM. Falls back to generic code paths.
 - **"powerPreference ignored"** - Chrome bug on Windows (crbug.com/369219127). Doesn't affect
   functionality.
 
