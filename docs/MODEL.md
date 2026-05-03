@@ -48,12 +48,15 @@ Chrome's WebGPU is fast (~42ms inference), Firefox's is slow (~410ms). We prefer
 
 ### WASM Files
 
+Copied automatically from `node_modules/onnxruntime-web/dist/` to `ort/` in the build output via the
+`build:publicAssets` hook in `modules/inference-runtime.ts`:
+
 ```
-public/ort/
-├── ort-wasm-simd-threaded.asyncify.mjs   # Asyncify JS glue (not used directly)
-├── ort-wasm-simd-threaded.asyncify.wasm  # Asyncify WASM binary (preloaded)
-├── ort-wasm-simd-threaded.mjs            # Standard JS glue (not used)
-└── ort-wasm-simd-threaded.wasm           # Standard WASM (not used)
+ort/
+├── ort-wasm-simd-threaded.asyncify.mjs   # Asyncify JS glue
+├── ort-wasm-simd-threaded.asyncify.wasm  # Asyncify WASM binary (preloaded at runtime)
+├── ort-wasm-simd-threaded.mjs            # Standard JS glue
+└── ort-wasm-simd-threaded.wasm           # Standard WASM binary
 ```
 
 ### Known Warnings
