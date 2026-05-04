@@ -51,3 +51,6 @@ web-ext-artifacts/
 
 # Documentation that should preserve formatting
 CHANGELOG.md
+
+# Package manifest (allow manual formatting of lint-staged config, etc.)
+package.json
