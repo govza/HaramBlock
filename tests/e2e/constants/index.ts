@@ -13,8 +13,8 @@ export const Selectors = {
 } as const;
 
 export const GalleryMode = {
-  SAFE: 'safe',
-  NOT_SAFE: 'not-safe',
+  SAFE: 'sf-neutral',
+  NOT_SAFE: 'nsf-female',
 } as const;
 
 export const GallerySize = {
