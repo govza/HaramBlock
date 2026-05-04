@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { addAlias, addViteConfig, defineWxtModule } from 'wxt/modules';
@@ -41,10 +40,9 @@ export default defineWxtModule({
       const distDir = path.resolve(wxt.config.root, 'node_modules/onnxruntime-web/dist');
 
       for (const file of ORT_WASM_FILES) {
-        const filePath = path.join(distDir, file);
         assets.push({
           relativeDest: `ort/${file}`,
-          contents: fs.readFileSync(filePath),
+          absoluteSrc: path.join(distDir, file),
         });
       }
 
