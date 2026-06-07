@@ -39,11 +39,6 @@ export const onModelSettingsChange = (callback: (settings: ModelSettings) => voi
       callback(change.newValue as ModelSettings);
     }
   };
-  browser.storage.local.onChanged.addListener(
-    listener as Parameters<typeof browser.storage.local.onChanged.addListener>[0],
-  );
-  return () =>
-    browser.storage.local.onChanged.removeListener(
-      listener as Parameters<typeof browser.storage.local.onChanged.removeListener>[0],
-    );
+  browser.storage.local.onChanged.addListener(listener);
+  return () => browser.storage.local.onChanged.removeListener(listener);
 };

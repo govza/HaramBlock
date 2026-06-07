@@ -27,11 +27,6 @@ export const onLogSettingsChange = (callback: (settings: LogSettings) => void): 
       callback(change.newValue as LogSettings);
     }
   };
-  browser.storage.local.onChanged.addListener(
-    listener as Parameters<typeof browser.storage.local.onChanged.addListener>[0],
-  );
-  return () =>
-    browser.storage.local.onChanged.removeListener(
-      listener as Parameters<typeof browser.storage.local.onChanged.removeListener>[0],
-    );
+  browser.storage.local.onChanged.addListener(listener);
+  return () => browser.storage.local.onChanged.removeListener(listener);
 };
