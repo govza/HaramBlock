@@ -1,5 +1,75 @@
 # Testing Guide
 
+## Testing Strategy
+
+We optimize for development speed over coverage metrics. Tests exist to catch real bugs, not to hit
+a number.
+
+### Two Layers
+
+#### 1. Unit Tests (Vitest)
+
+**Scope:** Complex business logic only — calculations, non-obvious transformations, tricky
+conditionals. If a function is straightforward enough that reading it tells you what it does, skip
+the test.
+
+**What to test:**
+
+- Prediction filtering, scoring, and threshold logic
+- Cache eviction and expiry calculations
+- Image size/dimension calculations
+- Settings merge and resolution (global → per-host)
+- Hostname parsing and URL normalization
+- Any pure function with edge cases that aren't obvious from the code
+
+**What NOT to test:**
+
+- Simple getters/setters, pass-through wiring, or trivial CRUD
+- React components (covered by E2E)
+- Messaging adapters (covered by E2E)
+- Anything where the test would just restate the implementation
+
+**Rule of thumb:** If the test would break every time the implementation changes without catching a
+real bug, don't write it.
+
+#### 2. E2E Feature Tests (WebdriverIO + Cucumber)
+
+**Scope:** Smoke-level coverage of critical user-facing features. Each feature has a happy-path
+scenario and key edge cases. These tests validate that the full extension pipeline works — from DOM
+observation through inference to visual output.
+
+**What to test:**
+
+- Policy switching (whitelist/blacklist/process) and persistence
+- Image detection and blur/masking application
+- Quick toggle interaction (hover → show → click → toggle)
+- Popup settings changes reflected in content script behavior
+- Cross-browser basics (Chrome, Firefox desktop, Firefox Android)
+
+**What NOT to test:**
+
+- Internal service wiring or adapter details
+- Every permutation of settings — pick representative combos
+- Performance benchmarks (separate concern)
+
+**Approach:** Keep scenarios short and focused on observable behavior. Prefer fewer, more meaningful
+scenarios over exhaustive permutation testing. Tag critical paths with `@smoke`.
+
+### General Principles
+
+- **No coverage targets.** We don't chase percentages. A codebase that changes fast needs tests that
+  are cheap to maintain.
+- **Test behavior, not implementation.** Tests should survive refactors. If a test breaks because
+  you renamed an internal variable, it was a bad test.
+- **E2E first for new features.** When adding a feature, write the E2E scenario first. Only add unit
+  tests if the feature has complex logic that E2E can't efficiently cover.
+- **Fix forward.** When a bug is found, decide: does it need a unit test (logic bug in a pure
+  function) or an E2E scenario (interaction/integration bug)? Add the appropriate one, not both.
+
+---
+
+## Tools
+
 This project uses [Vitest](https://vitest.dev/) for unit testing, following the
 [WXT testing guide](https://wxt.dev/guide/essentials/unit-testing.html).
 
