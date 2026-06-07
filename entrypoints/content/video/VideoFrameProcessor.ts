@@ -61,7 +61,7 @@ export class VideoFrameProcessor {
     this.video.addEventListener('pause', this.handlePause);
     this.video.addEventListener('ended', this.handleEnded);
     this.video.addEventListener('emptied', this.handleEmptied);
-    globalThis.window.addEventListener('hb:inference-timing', this.inferenceTimingListener as EventListener);
+    globalThis.window.addEventListener('hb:inference-timing', this.inferenceTimingListener);
 
     if (!this.video.paused && !this.video.ended && this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
       this.prepareForPlayback();
@@ -85,7 +85,7 @@ export class VideoFrameProcessor {
       this.video.removeEventListener('emptied', this.handleEmptied);
       this.installed = false;
     }
-    globalThis.window.removeEventListener('hb:inference-timing', this.inferenceTimingListener as EventListener);
+    globalThis.window.removeEventListener('hb:inference-timing', this.inferenceTimingListener);
   }
 
   private onPlay(): void {

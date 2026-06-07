@@ -51,9 +51,12 @@ export const createBlurBoxOverlays = (
     parent.style.position = 'relative';
   }
 
-  const state =
-    blurStates.get(element) ??
-    ({ resizeObserver: null, viewportHandler: null, currentPrediction: undefined, parent: null } as BlurOverlayState);
+  const state = blurStates.get(element) ?? {
+    resizeObserver: null,
+    viewportHandler: null,
+    currentPrediction: undefined,
+    parent: null,
+  };
   state.currentPrediction = imagePrediction;
   state.parent = parent;
   blurStates.set(element, state);
@@ -135,7 +138,7 @@ export const createBlurBoxOverlays = (
   if (!state.viewportHandler) {
     state.viewportHandler = () => render();
     globalThis.addEventListener('resize', state.viewportHandler);
-    globalThis.addEventListener('scroll', state.viewportHandler, { passive: true } as AddEventListenerOptions);
+    globalThis.addEventListener('scroll', state.viewportHandler, { passive: true });
   }
 };
 
