@@ -1,5 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig, type WxtViteConfig } from 'wxt';
+import { defineConfig } from 'wxt';
 
 // eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
@@ -15,10 +15,9 @@ const debugChromiumArgs = [
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
-  vite: () =>
-    ({
-      plugins: [toUtf8(), tailwindcss()],
-    }) as WxtViteConfig,
+  vite: () => ({
+    plugins: [toUtf8(), tailwindcss()],
+  }),
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   webExt: {
     chromiumArgs: NO_GPU ? debugChromiumArgs : [],
@@ -33,10 +32,10 @@ export default defineConfig({
         id: 'admin@haramblock.com',
         strict_min_version: '142.0',
         data_collection_permissions: { required: ['none'] },
-      } as never,
+      },
       gecko_android: {
         strict_min_version: '142.0',
-      } as never,
+      },
     },
     permissions: ['tabs', 'storage', 'contextMenus'],
     host_permissions: ['<all_urls>'],
