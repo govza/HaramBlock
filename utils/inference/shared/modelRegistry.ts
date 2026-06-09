@@ -11,29 +11,31 @@ export interface ModelDefinition {
   inputSize: number;
 }
 
+const NON_TARGET_CLASSES = new Set(['background', 'safe_person', 'person']);
+
 /**
  * Model directory paths - each contains metadata.yaml and model files.
  * This is the SINGLE SOURCE OF TRUTH for available models.
- * To add a new model, add its path here.
  */
-export const MODEL_PATHS = ['/models/afeef-y26-320-20260129', '/models/afeef-y26-640-20260129'];
+export const MODEL_PATHS = ['/models/afeef-y26-sem-320-20260610'];
 
 /** Preferred default model ID. Falls back to first discovered model if not found. */
-export const DEFAULT_MODEL_ID = 'i320';
+export const DEFAULT_MODEL_ID = 'sem-i320';
 
 /** Default model configuration used before metadata is loaded */
 export const DEFAULT_CONFIG: ModelMetadata = {
-  names: { 0: 'person', 1: 'zfa', 2: 'zma' },
+  names: { 0: 'background', 1: 'aurat_female', 2: 'aurat_male', 3: 'safe_person' },
   imgsz: [320, 320],
   normalize: null,
-  namesToCheck: ['zfa', 'zma'],
-  outputShape: [80, 80],
+  namesToCheck: ['aurat_female', 'aurat_male'],
+  outputShape: [320, 320],
   inputName: 'images',
   outputNames: {
     detections: 'output0',
     masks: 'output1',
   },
   stride: 32,
+  task: 'semantic',
 };
 
 /**
@@ -55,11 +57,14 @@ export async function fetchMetadata(basePath: string): Promise<YamlModelMetadata
 export function createConfigFromMetadata(metadata: YamlModelMetadata, defaults: ModelMetadata): ModelMetadata {
   const imgsz = metadata.imgsz || defaults.imgsz;
   const stride = metadata.stride || defaults.stride;
+  const names = metadata.names || defaults.names;
+  const task = metadata.task === 'semantic' ? 'semantic' : 'segment';
   return {
     ...defaults,
-    names: metadata.names || defaults.names,
+    names,
     imgsz,
     normalize: metadata.normalize || null,
+    namesToCheck: Object.values(names).filter(name => !NON_TARGET_CLASSES.has(name)),
     outputShape: metadata.output_shape || [imgsz[0] / stride, imgsz[1] / stride],
     inputName: metadata.input_name || defaults.inputName,
     outputNames: {
@@ -67,6 +72,7 @@ export function createConfigFromMetadata(metadata: YamlModelMetadata, defaults: 
       masks: metadata.output_names?.masks || 'output1',
     },
     stride,
+    task,
   };
 }
 

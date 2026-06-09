@@ -42,7 +42,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
 
       // Race with timeout for quick availability check
       const timeoutPromise = new Promise<'timeout'>(resolve => {
-        setTimeout(() => resolve('timeout'), 3000);
+        setTimeout(() => resolve('timeout'), 5000);
       });
 
       const result = await Promise.race([
