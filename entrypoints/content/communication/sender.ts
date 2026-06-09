@@ -92,6 +92,70 @@ async function resolveImageTransferKind(): Promise<ImageTransferKind> {
   return IMAGE_TRANSFER_KIND;
 }
 
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 2000;
+
+async function buildPayload(
+  hostname: string,
+  image: HTMLImageElement,
+  metadata: IImageMetadata,
+  priority: number,
+): Promise<IImageTransfer> {
+  const requestStartAt = Date.now();
+  const src = image.currentSrc || image.src;
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+
+  const transferKind = await resolveImageTransferKind();
+
+  const fetchImageBlob = async (): Promise<{ blob: Blob; fetchTime: number }> => {
+    const fetchStart = Date.now();
+    const response = await fetch(src, { cache: 'force-cache' });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image (${response.status})`);
+    }
+    const blob = await response.blob();
+    return { blob, fetchTime: Date.now() - fetchStart };
+  };
+
+  if (transferKind === 'bitmap') {
+    try {
+      const { blob, fetchTime } = await fetchImageBlob();
+      const decodeStart = Date.now();
+      const bitmap = await createImageBitmap(blob);
+      const decodeTime = Date.now() - decodeStart;
+      return {
+        src,
+        width,
+        height,
+        hostname,
+        metadata,
+        priority,
+        requestStartAt,
+        fetchTime,
+        decodeTime,
+        kind: 'bitmap',
+        bitmap,
+      };
+    } catch (error) {
+      logger.withTag('sender').warn('Bitmap transfer failed, falling back to URL:', error);
+    }
+  } else if (transferKind === 'blob') {
+    try {
+      const { blob, fetchTime } = await fetchImageBlob();
+      return { src, width, height, hostname, metadata, priority, requestStartAt, fetchTime, kind: 'blob', blob };
+    } catch (error) {
+      logger.withTag('sender').warn('Blob transfer failed, falling back to URL:', error);
+    }
+  }
+
+  if (src.startsWith('blob:')) {
+    throw new Error(`Cannot process blob URL: inaccessible from extension contexts`);
+  }
+
+  return { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url' };
+}
+
 /**
  * Send image for inference using comctx RPC.
  * Transfer kind is configured in environment.ts:
@@ -100,6 +164,7 @@ async function resolveImageTransferKind(): Promise<ImageTransferKind> {
  * - 'url': URL only, background fetches from cache
  *
  * If the configured transfer kind fails (missing MessageChannel or fetch/CORS errors), falls back to 'url'.
+ * Retries on heartbeat/provider errors since the service worker may restart.
  */
 async function sendImageForInference(
   hostname: string,
@@ -107,69 +172,24 @@ async function sendImageForInference(
   metadata: IImageMetadata,
   priority: number,
 ): Promise<void> {
-  try {
-    // Capture start time BEFORE any fetch/decode work
-    const requestStartAt = Date.now();
+  let lastError: unknown;
 
-    const src = image.currentSrc || image.src;
-    const width = image.naturalWidth || image.width;
-    const height = image.naturalHeight || image.height;
-
-    const transferKind = await resolveImageTransferKind();
-    let payload: IImageTransfer | null = null;
-
-    // Try the configured transfer kind first, fall back to URL on failure.
-    const fetchImageBlob = async (): Promise<{ blob: Blob; fetchTime: number }> => {
-      const fetchStart = Date.now();
-      const response = await fetch(src, { cache: 'force-cache' });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image (${response.status})`);
-      }
-      const blob = await response.blob();
-      return { blob, fetchTime: Date.now() - fetchStart };
-    };
-
-    if (transferKind === 'bitmap') {
-      try {
-        const { blob, fetchTime } = await fetchImageBlob();
-        const decodeStart = Date.now();
-        const bitmap = await createImageBitmap(blob);
-        const decodeTime = Date.now() - decodeStart;
-        payload = {
-          src,
-          width,
-          height,
-          hostname,
-          metadata,
-          priority,
-          requestStartAt,
-          fetchTime,
-          decodeTime,
-          kind: 'bitmap',
-          bitmap,
-        };
-      } catch (error) {
-        logger.withTag('sender').warn('Bitmap transfer failed, falling back to URL:', error);
-      }
-    } else if (transferKind === 'blob') {
-      try {
-        const { blob, fetchTime } = await fetchImageBlob();
-        payload = { src, width, height, hostname, metadata, priority, requestStartAt, fetchTime, kind: 'blob', blob };
-      } catch (error) {
-        logger.withTag('sender').warn('Blob transfer failed, falling back to URL:', error);
-      }
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const payload = await buildPayload(hostname, image, metadata, priority);
+      await backgroundRpc.postInferenceImage(payload);
+      return;
+    } catch (error) {
+      lastError = error;
+      const isProviderError = error instanceof Error && error.message.includes('Provider unavailable');
+      if (!isProviderError || attempt === MAX_RETRIES) break;
+      logger.withTag('sender').warn(`Inference send failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
     }
-
-    if (!payload && src.startsWith('blob:')) {
-      throw new Error(`Cannot process blob URL: inaccessible from extension contexts`);
-    }
-
-    const finalPayload = payload ?? { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url' };
-    await backgroundRpc.postInferenceImage(finalPayload);
-  } catch (error) {
-    logger.withTag('sender').error('Failed to send image for inference:', error);
-    throw error;
   }
+
+  logger.withTag('sender').error('Failed to send image for inference:', lastError);
+  throw lastError;
 }
 
 /**

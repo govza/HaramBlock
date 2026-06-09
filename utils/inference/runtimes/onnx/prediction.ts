@@ -87,23 +87,15 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
 
     const cacheMetadata = createCacheMetadataFromMediaMetadata(task.mediaMetadata);
 
-    // Calculate mask transform parameters for mask overlays
-    // Since masks are now cropped to remove letterbox padding, use simple scale (no offset)
-    const [modelHeight, modelWidth] = config.imgsz;
-    const [protoHeight, protoWidth] = config.outputShape;
-    const letterboxParams = calculateLetterboxParams(
-      imageWidth,
-      imageHeight,
-      modelWidth,
-      modelHeight,
-      protoWidth,
-      protoHeight,
-    );
+    // Derive mask transform from actual mask dimensions in predictions.
+    // The mask is already cropped (no letterbox padding), so it maps directly to the original image.
+    const firstMask = predictions.find(p => p.masks && p.masks.runs.length > 0)?.masks;
+    const maskW = firstMask?.width ?? 1;
+    const maskH = firstMask?.height ?? 1;
 
-    // Cropped mask maps directly to original image (scale only, no offset)
     const maskTransform: IMaskTransform = {
-      scaleX: imageWidth / letterboxParams.contentProtoWidth,
-      scaleY: imageHeight / letterboxParams.contentProtoHeight,
+      scaleX: imageWidth / maskW,
+      scaleY: imageHeight / maskH,
       offsetX: 0,
       offsetY: 0,
     };
@@ -135,9 +127,6 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
   }
 }
 
-/**
- * Get predictions for a single image frame using YOLO instance segmentation.
- */
 async function getFramePredictions(
   imageBitmap: ImageBitmap,
   session: ort.InferenceSession,
@@ -149,56 +138,84 @@ async function getFramePredictions(
   const [modelHeight, modelWidth] = config.imgsz;
 
   try {
-    // Preprocess image to NCHW Float32Array
     const tensorData = preprocessImage(imageBitmap, config);
-
-    // Create ONNX tensor
     const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, modelHeight, modelWidth]);
 
-    // Run inference
     const feeds: Record<string, typeof inputTensor> = { [config.inputName]: inputTensor };
     const results = await session.run(feeds);
 
-    // Get prototype dimensions from masks output (if available)
-    const masksOutput = results[config.outputNames.masks];
-    const protoDims = masksOutput?.dims as number[] | undefined;
-    const protoHeight = protoDims?.[2] ?? config.outputShape[0];
-    const protoWidth = protoDims?.[3] ?? config.outputShape[1];
+    const typedResults = results as Record<string, { data: ArrayLike<number>; dims: readonly number[] }>;
 
-    // Calculate letterbox transform for coordinate conversion (includes prototype space offsets)
-    const letterboxParams = calculateLetterboxParams(
-      originalWidth,
-      originalHeight,
-      modelWidth,
-      modelHeight,
-      protoWidth,
-      protoHeight,
-    );
+    let predictions: IElementPrediction[];
 
-    // Also get scale factors for bounding box conversion
-    const { scaleX, scaleY, offsetX, offsetY } = calculateScaleFactors(
-      originalWidth,
-      originalHeight,
-      modelWidth,
-      modelHeight,
-    );
+    if (config.task === 'semantic') {
+      const semanticOutput = typedResults['output0'];
+      const outDims = semanticOutput?.dims;
+      const outH = (outDims?.[2] as number) ?? config.outputShape[0];
+      const outW = (outDims?.[3] as number) ?? config.outputShape[1];
 
-    // Process YOLO segmentation output
-    // Cast results to expected type - YOLO outputs are always numeric tensors
-    const predictions = processSegmentation(
-      results as Record<string, { data: ArrayLike<number>; dims: readonly number[] }>,
-      config,
-      scoreThreshold,
-      modelWidth,
-      modelHeight,
-      scaleX,
-      scaleY,
-      offsetX,
-      offsetY,
-      letterboxParams,
-    );
+      const letterboxParams = calculateLetterboxParams(
+        originalWidth,
+        originalHeight,
+        modelWidth,
+        modelHeight,
+        outW,
+        outH,
+      );
+      const { scaleX, scaleY, offsetX, offsetY } = calculateScaleFactors(
+        originalWidth,
+        originalHeight,
+        modelWidth,
+        modelHeight,
+      );
 
-    // Cleanup
+      predictions = processSemanticSegmentation(
+        typedResults,
+        config,
+        scoreThreshold,
+        modelWidth,
+        modelHeight,
+        scaleX,
+        scaleY,
+        offsetX,
+        offsetY,
+        letterboxParams,
+      );
+    } else {
+      const masksOutput = results[config.outputNames.masks];
+      const protoDims = masksOutput?.dims as number[] | undefined;
+      const protoHeight = protoDims?.[2] ?? config.outputShape[0];
+      const protoWidth = protoDims?.[3] ?? config.outputShape[1];
+
+      const letterboxParams = calculateLetterboxParams(
+        originalWidth,
+        originalHeight,
+        modelWidth,
+        modelHeight,
+        protoWidth,
+        protoHeight,
+      );
+      const { scaleX, scaleY, offsetX, offsetY } = calculateScaleFactors(
+        originalWidth,
+        originalHeight,
+        modelWidth,
+        modelHeight,
+      );
+
+      predictions = processInstanceSegmentation(
+        typedResults,
+        config,
+        scoreThreshold,
+        modelWidth,
+        modelHeight,
+        scaleX,
+        scaleY,
+        offsetX,
+        offsetY,
+        letterboxParams,
+      );
+    }
+
     inputTensor.dispose();
     for (const key of Object.keys(results)) {
       results[key]?.dispose();
@@ -212,18 +229,166 @@ async function getFramePredictions(
 }
 
 /**
+ * Process semantic segmentation output.
+ * Output: [batch, num_classes, H, W] - per-pixel class logits.
+ * Creates one prediction per target class found, with a full-resolution mask.
+ */
+function processSemanticSegmentation(
+  results: Record<string, { data: ArrayLike<number>; dims: readonly number[] }>,
+  config: ModelMetadata,
+  scoreThreshold: number,
+  modelWidth: number,
+  modelHeight: number,
+  scaleX: number,
+  scaleY: number,
+  offsetX: number,
+  offsetY: number,
+  letterboxParams: ReturnType<typeof calculateLetterboxParams>,
+): IElementPrediction[] {
+  const output = results['output0'];
+  if (!output) {
+    logger.withTag('prediction').error(`Missing 'output0' tensor. Available: ${Object.keys(results).join(', ')}`);
+    return [];
+  }
+
+  const data = output.data as Float32Array;
+  const dims = output.dims as number[];
+  const numClasses = dims[1] ?? 0;
+  const outH = dims[2] ?? 0;
+  const outW = dims[3] ?? 0;
+  const spatial = outH * outW;
+
+  // Build target class index map
+  const targetClassIndices: Set<number> = new Set();
+  for (const targetName of config.namesToCheck) {
+    const entry = Object.entries(config.names).find(([, name]) => name === targetName);
+    if (entry) targetClassIndices.add(Number(entry[0]));
+  }
+
+  // Letterbox crop bounds in output space
+  const { protoOffsetX, protoOffsetY } = letterboxParams;
+  const cropLeft = Math.round(protoOffsetX - 0.1);
+  const cropTop = Math.round(protoOffsetY - 0.1);
+  const cropRight = Math.round(outW - protoOffsetX + 0.1);
+  const cropBottom = Math.round(outH - protoOffsetY + 0.1);
+  const croppedWidth = cropRight - cropLeft;
+  const croppedHeight = cropBottom - cropTop;
+
+  // Subsample to match YOLO prototype resolution (model_size / 4) for blocky mask edges
+  const step = Math.max(1, Math.round((outW * 4) / modelWidth));
+  const subW = Math.ceil(croppedWidth / step);
+  const subH = Math.ceil(croppedHeight / step);
+
+  interface ClassAccumulator {
+    mask: Uint8Array;
+    confSum: number;
+    pixelCount: number;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  }
+
+  const classData = new Map<number, ClassAccumulator>();
+  for (const classId of targetClassIndices) {
+    classData.set(classId, {
+      mask: new Uint8Array(subW * subH),
+      confSum: 0,
+      pixelCount: 0,
+      minX: subW,
+      minY: subH,
+      maxX: 0,
+      maxY: 0,
+    });
+  }
+
+  let bufferIdx = 0;
+  for (let sy = 0; sy < subH; sy++) {
+    const y = Math.min(cropTop + sy * step, cropBottom - 1);
+    for (let sx = 0; sx < subW; sx++) {
+      const x = Math.min(cropLeft + sx * step, cropRight - 1);
+
+      let maxLogit = -Infinity;
+      let maxClass = 0;
+      for (let c = 0; c < numClasses; c++) {
+        const logit = data[c * spatial + y * outW + x] ?? 0;
+        if (logit > maxLogit) {
+          maxLogit = logit;
+          maxClass = c;
+        }
+      }
+
+      const acc = classData.get(maxClass);
+      if (acc) {
+        let expSum = 0;
+        for (let c = 0; c < numClasses; c++) {
+          expSum += Math.exp((data[c * spatial + y * outW + x] ?? 0) - maxLogit);
+        }
+        const prob = 1 / expSum;
+
+        if (prob >= scoreThreshold) {
+          acc.mask[bufferIdx] = 1;
+          acc.confSum += prob;
+          acc.pixelCount++;
+
+          if (sx < acc.minX) acc.minX = sx;
+          if (sy < acc.minY) acc.minY = sy;
+          if (sx > acc.maxX) acc.maxX = sx;
+          if (sy > acc.maxY) acc.maxY = sy;
+        }
+      }
+
+      bufferIdx++;
+    }
+  }
+
+  const predictions: IElementPrediction[] = [];
+
+  const contentWidth = modelWidth - 2 * offsetX;
+  const contentHeight = modelHeight - 2 * offsetY;
+  const pixelScaleX = contentWidth / croppedWidth;
+  const pixelScaleY = contentHeight / croppedHeight;
+
+  for (const classId of targetClassIndices) {
+    const acc = classData.get(classId);
+    if (!acc || acc.pixelCount === 0) continue;
+
+    const meanConf = acc.confSum / acc.pixelCount;
+    const className = config.names[classId] ?? `class_${classId}`;
+
+    const boxX1 = acc.minX * step * pixelScaleX * scaleX;
+    const boxY1 = acc.minY * step * pixelScaleY * scaleY;
+    const boxX2 = (acc.maxX + 1) * step * pixelScaleX * scaleX;
+    const boxY2 = (acc.maxY + 1) * step * pixelScaleY * scaleY;
+
+    predictions.push({
+      classId,
+      className,
+      probability: meanConf,
+      boundingBox: {
+        x: Math.floor(boxX1),
+        y: Math.floor(boxY1),
+        width: Math.round(boxX2 - boxX1),
+        height: Math.round(boxY2 - boxY1),
+      },
+      masks: encodeMaskRLE(acc.mask, subW, subH),
+    });
+  }
+
+  return predictions;
+}
+
+/**
  * Process YOLO instance segmentation output.
- * Handles YOLO11 seg model output format with NMS enabled.
  *
  * Expected output format (with nms=True):
  * - detections: [batch, num_dets, 38] = [x1, y1, x2, y2, conf, cls, mask_coeffs(32)]
  * - masks: [batch, 32, mask_h, mask_w] = prototype masks
  *
- * Output tensor names are configurable via config.outputNames (defaults: output0, output1).
  * The final instance mask = sigmoid(mask_coeffs @ prototypes)
  * Masks are cropped to remove letterbox padding before encoding.
  */
-function processSegmentation(
+function processInstanceSegmentation(
   results: Record<string, { data: ArrayLike<number>; dims: readonly number[] }>,
   config: ModelMetadata,
   scoreThreshold: number,
@@ -237,7 +402,6 @@ function processSegmentation(
 ): IElementPrediction[] {
   const predictions: IElementPrediction[] = [];
 
-  // Get output tensors using configurable names from metadata
   const { detections: detectionsName, masks: masksName } = config.outputNames;
   const detectionsOutput = results[detectionsName];
   const masksOutput = results[masksName];
@@ -252,27 +416,22 @@ function processSegmentation(
   const detections = detectionsOutput.data as Float32Array;
   const detsDims = detectionsOutput.dims as number[];
 
-  // Dims: detections [batch, num_dets, features]
   const numDetections = detsDims[1] ?? 0;
   const numFeatures = detsDims[2] ?? 0;
 
-  // Check if we have mask coefficients (38 = 4 box + 1 conf + 1 cls + 32 coeffs)
   const hasMaskCoeffs = numFeatures >= 38;
   const numMaskCoeffs = hasMaskCoeffs ? 32 : 0;
 
-  // Get prototype masks if available
   let prototypes: Float32Array | undefined;
   let protoHeight = 0;
   let protoWidth = 0;
   if (masksOutput && hasMaskCoeffs) {
     prototypes = masksOutput.data as Float32Array;
     const protoDims = masksOutput.dims as number[];
-    // masks: [batch, 32, mask_h, mask_w]
     protoHeight = protoDims[2] ?? 0;
     protoWidth = protoDims[3] ?? 0;
   }
 
-  // Build target class index map
   const targetClassIndices: Set<number> = new Set();
   for (const targetName of config.namesToCheck) {
     const entry = Object.entries(config.names).find(([, name]) => name === targetName);
@@ -284,7 +443,6 @@ function processSegmentation(
   for (let i = 0; i < numDetections; i++) {
     const baseIdx = i * numFeatures;
 
-    // YOLO output format: [x1, y1, x2, y2, conf, cls, ...mask_coeffs]
     const x1 = detections[baseIdx] ?? 0;
     const y1 = detections[baseIdx + 1] ?? 0;
     const x2 = detections[baseIdx + 2] ?? 0;
@@ -292,52 +450,42 @@ function processSegmentation(
     const confidence = detections[baseIdx + 4] ?? 0;
     const classId = Math.round(detections[baseIdx + 5] ?? 0);
 
-    // Skip if below threshold or not a target class
     if (confidence < scoreThreshold || !targetClassIndices.has(classId)) {
       continue;
     }
 
     const className = config.names[classId] ?? `class_${classId}`;
 
-    // Apply letterbox offset and scale to original image coordinates
-    // YOLO outputs pixel coordinates in model space
     const modelX1 = x1 - offsetX;
     const modelY1 = y1 - offsetY;
     const modelX2 = x2 - offsetX;
     const modelY2 = y2 - offsetY;
 
-    // Skip if entirely in padding area
     const contentWidth = modelWidth - 2 * offsetX;
     const contentHeight = modelHeight - 2 * offsetY;
     if (modelX2 < 0 || modelY2 < 0 || modelX1 > contentWidth || modelY1 > contentHeight) {
       continue;
     }
 
-    // Clamp to valid range
     const clampedX1 = Math.max(0, modelX1);
     const clampedY1 = Math.max(0, modelY1);
     const clampedX2 = Math.min(contentWidth, modelX2);
     const clampedY2 = Math.min(contentHeight, modelY2);
 
-    // Compute instance mask from coefficients and prototypes
     let encodedMask;
     if (prototypes && hasMaskCoeffs && protoHeight > 0 && protoWidth > 0) {
-      // Extract mask coefficients for this detection
       const coeffs: number[] = [];
       for (let c = 0; c < numMaskCoeffs; c++) {
         coeffs.push(detections[baseIdx + 6 + c] ?? 0);
       }
 
-      // Get letterbox crop bounds in prototype space
       const { protoOffsetX, protoOffsetY } = letterboxParams;
 
-      // Calculate crop boundaries (with rounding matching Python reference)
       const cropLeft = Math.round(protoOffsetX - 0.1);
       const cropTop = Math.round(protoOffsetY - 0.1);
       const cropRight = Math.round(protoWidth - protoOffsetX + 0.1);
       const cropBottom = Math.round(protoHeight - protoOffsetY + 0.1);
 
-      // Compute mask and crop in one pass using reusable flat buffer
       const croppedWidth = cropRight - cropLeft;
       const croppedHeight = cropBottom - cropTop;
       const buffer = getMaskBuffer(croppedWidth * croppedHeight);
@@ -347,18 +495,15 @@ function processSegmentation(
         for (let x = cropLeft; x < cropRight; x++) {
           let sum = 0;
           for (let c = 0; c < numMaskCoeffs; c++) {
-            // prototypes: [1, 32, H, W] - access as prototypes[c * H * W + y * W + x]
             const protoVal = prototypes[c * protoHeight * protoWidth + y * protoWidth + x] ?? 0;
             sum += (coeffs[c] ?? 0) * protoVal;
           }
-          // Apply sigmoid and threshold
           const maskVal = 1 / (1 + Math.exp(-sum));
           buffer[bufferIdx++] = maskVal > 0.5 ? 1 : 0;
         }
       }
       encodedMask = encodeMaskRLE(buffer, croppedWidth, croppedHeight);
     } else {
-      // Empty mask placeholder
       encodedMask = { width: 0, height: 0, startValue: 0 as const, runs: [] };
     }
 

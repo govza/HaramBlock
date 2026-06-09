@@ -101,4 +101,6 @@ export interface ModelMetadata {
   };
   /** Model stride for calculating output dimensions */
   stride: number;
+  /** Model task type: 'segment' for instance segmentation, 'semantic' for semantic segmentation */
+  task: 'segment' | 'semantic';
 }

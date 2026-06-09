@@ -1,4 +1,4 @@
-# YOLO11n-Seg Instance Segmentation Model
+# YOLO26n Semantic Segmentation Model
 
 ## Inference Runtime
 
@@ -71,9 +71,8 @@ models without code changes.
 
 ### Adding a New Model
 
-1. Create a directory under `public/models/` with naming convention:
-   `{name}-y-{size}-{classes}-{date}`
-   - Example: `public/models/afeef-y-640-82-20250124/`
+1. Create a directory under `public/models/` with naming convention: `{name}-y-{task}-{size}-{date}`
+   (e.g. `afeef-y26-sem-320-20260610`)
 2. Add the ONNX model file as `best.onnx`
 3. Add a `metadata.yaml` with required fields (see below)
 4. Add the path to `MODEL_PATHS` array in `utils/inference/shared/modelRegistry.ts`
@@ -83,7 +82,7 @@ models without code changes.
 Each model directory should contain:
 
 ```
-public/models/{name}-y-{size}-{classes}-{date}/
+public/models/{name}-y-{task}-{size}-{date}/
 ├── best.onnx                 # ONNX model
 └── metadata.yaml             # Model metadata
 ```
@@ -91,15 +90,17 @@ public/models/{name}-y-{size}-{classes}-{date}/
 ### Required Metadata Fields
 
 ```yaml
-id: y320 # Unique model identifier
-name: YOLO11n 320×320 (3 classes) # Human-readable display name
+id: sem-i320 # Unique model identifier
+name: YOLO26n-sem 320×320 (4 classes) # Human-readable display name
+task: semantic # 'semantic' or 'segment'
 imgsz: # Input dimensions
   - 320
   - 320
 names: # Class mapping
-  0: person
-  1: zfa
-  2: zma
+  0: background
+  1: aurat_female
+  2: aurat_male
+  3: safe_person
 ```
 
 ### Model Loader API
@@ -109,10 +110,10 @@ names: # Class mapping
 await discoverModels();
 
 // Initialize with specific model
-await initializeModel('i320');
+await initializeModel('sem-i320');
 
 // Switch between models at runtime
-await switchModel('i640');
+await switchModel('sem-i320');
 
 // Get current model ID
 const id = getCurrentModelId();
@@ -121,60 +122,18 @@ const id = getCurrentModelId();
 const models = getAvailableModels();
 ```
 
-## Auto Model Selection
-
-The extension can automatically switch between models based on inference performance. This adapts to
-the user's hardware capabilities.
-
-### User Preferences
-
-Users can choose:
-
-- **Auto** - Extension monitors performance and switches models automatically
-- **Specific model** - User manually selects a model (stored and restored on startup)
-
-Preference is stored in `browser.storage.local` under `modelSettings`.
-
-### Auto Selection Algorithm
-
-When `preference === 'auto'`, the `AutoModelService` evaluates performance:
-
-| Parameter             | Value   | Description                                    |
-| --------------------- | ------- | ---------------------------------------------- |
-| `REQUIRED_SAMPLES`    | 100     | Samples needed before making decisions         |
-| `DEBOUNCE_MS`         | 1 hour  | Minimum time between evaluations               |
-| `COOLDOWN_MS`         | 6 hours | Minimum time after a switch before re-evaluate |
-| `UPGRADE_THRESHOLD`   | 70ms    | Median below this triggers upgrade (Chrome)    |
-| `DOWNGRADE_THRESHOLD` | 120ms   | Median above this triggers downgrade (Chrome)  |
-
-**Decision flow:**
-
-1. Collect last 100 inference times from cache
-2. Calculate median inference time
-3. If median < 70ms and larger model available → upgrade
-4. If median > 120ms and smaller model available → downgrade
-5. After switch, wait 6 hours before next evaluation
-
-Models are sorted by input size (320×320 < 640×640), so "upgrade" means switching to a larger, more
-accurate model, while "downgrade" means switching to a smaller, faster model.
-
 ## Available Models
 
-| ID   | Directory                              | Input Size | Classes |
-| ---- | -------------------------------------- | ---------- | ------- |
-| i320 | `public/models/afeef-y26-320-20260129` | 320×320    | 3       |
-| i640 | `public/models/afeef-y26-640-20260129` | 640×640    | 3       |
-
-## Model Location
-
-- `public/models/{model-dir}/best.onnx`
+| ID       | Directory                                  | Input Size | Output Size | Classes | Task     |
+| -------- | ------------------------------------------ | ---------- | ----------- | ------- | -------- |
+| sem-i320 | `public/models/afeef-y26-sem-320-20260610` | 320×320    | 320×320     | 4       | semantic |
 
 ## Architecture
 
-- **Model**: YOLO26n-seg (Ultralytics)
-- **Task**: Instance segmentation
-- **Format**: ONNX with NMS
-- **Input Size**: 320x320 or 640x640
+- **Model**: YOLO26n-sem (Ultralytics)
+- **Task**: Semantic segmentation
+- **Format**: ONNX
+- **Input Size**: 320×320
 - **Runtime**: ONNX Runtime Web (WebGPU with WASM fallback)
 
 ## Input Specification
@@ -186,42 +145,40 @@ accurate model, while "downgrade" means switching to a smaller, faster model.
 
 ## Output Specification
 
-Two output tensors (with NMS enabled):
+Single output tensor — per-pixel class logits:
 
-| Tensor    | Shape           | Description                                                          |
-| --------- | --------------- | -------------------------------------------------------------------- |
-| `output0` | `[1, N, 38]`    | Detections: [x1, y1, x2, y2, conf, cls, coeffs*32]                   |
-| `output1` | `[1, 32, H, H]` | Prototype masks for mask computation (H=80 for i320, H=160 for i640) |
+| Tensor    | Shape              | Description                                   |
+| --------- | ------------------ | --------------------------------------------- |
+| `output0` | `[1, 4, 320, 320]` | Per-pixel logits for each class (NCHW layout) |
 
 ### Target Classes
 
-| Index | Class  | Description  |
-| ----- | ------ | ------------ |
-| 0     | person | Person       |
-| 1     | zfa    | Female awrah |
-| 2     | zma    | Male awrah   |
+| Index | Class        | Description            |
+| ----- | ------------ | ---------------------- |
+| 0     | background   | Background (not awrah) |
+| 1     | aurat_female | Female awrah           |
+| 2     | aurat_male   | Male awrah             |
+| 3     | safe_person  | Safe person            |
 
 ### Postprocessing
 
 ```typescript
-// 1. Extract detection data from output0
-const x1 = output0[i * 38];     // Pixel coordinates
-const y1 = output0[i * 38 + 1];
-const x2 = output0[i * 38 + 2];
-const y2 = output0[i * 38 + 3];
-const conf = output0[i * 38 + 4];  // Confidence score
-const cls = output0[i * 38 + 5];   // Class ID
+// For each pixel in the (letterbox-cropped) output:
+// 1. Find argmax class across all channels
+for (let c = 0; c < numClasses; c++) {
+  logit = output0[c * H * W + y * W + x];
+  if (logit > maxLogit) { maxLogit = logit; maxClass = c; }
+}
 
-// 2. Extract mask coefficients (32 values)
-const coeffs = output0.slice(i * 38 + 6, i * 38 + 38);
+// 2. If target class (aurat_female or aurat_male), compute softmax probability
+if (isTargetClass(maxClass)) {
+  prob = 1 / sum(exp(logit_c - maxLogit) for all c);  // numerically stable softmax
+  if (prob >= scoreThreshold) mask[y][x] = 1;
+}
 
-// 3. Compute instance mask: sigmoid(coeffs @ prototypes)
-for (y, x in mask_grid):
-  mask[y][x] = sigmoid(sum(coeffs[c] * prototypes[c, y, x]))
-
-// 4. Apply letterbox inverse transform to original image coordinates
-// 5. Binarize masks (threshold > 0.5)
-// 6. Encode masks as RLE
+// 3. Per-class masks are cropped to remove letterbox padding
+// 4. Bounding box derived from mask pixel extents
+// 5. Encode masks as RLE
 ```
 
 ### Mask RLE Encoding
@@ -230,7 +187,7 @@ Masks are stored using Run-Length Encoding (RLE) for efficient caching:
 
 ```typescript
 interface IRLEMask {
-  width: number; // Mask dimensions (prototype resolution)
+  width: number; // Mask dimensions
   height: number;
   startValue: 0 | 1; // What the first run represents
   runs: number[]; // Alternating run lengths
@@ -250,7 +207,7 @@ interface IRLEMask {
 
 **Storage benefits:**
 
-- Sparse masks (small detected regions) compress well: `[25000, 50, 550]` for a 160×160 mask
+- Sparse masks (small detected regions) compress well
 - Empty masks are essentially free: `{ runs: [] }`
 - Self-contained format with embedded dimensions for portability
 
@@ -260,33 +217,30 @@ The `metadata.yaml` file contains model-specific configuration:
 
 ```yaml
 # Required fields
-id: y320 # Unique model identifier
-name: YOLO11n 320×320 # Human-readable display name
+id: sem-i320 # Unique model identifier
+name: YOLO26n-sem 320×320 # Human-readable display name
+task: semantic # 'semantic' for semantic seg, 'segment' for instance seg
 imgsz:
-  - 320
-  - 320
+  - 640
+  - 640
 names:
-  0: person
-  1: zfa
-  2: zma
+  0: background
+  1: aurat_female
+  2: aurat_male
+  3: safe_person
 
 # Optional fields (with defaults)
-description: Ultralytics YOLO11n-seg model
+description: Ultralytics YOLO26n-sem model
 author: Ultralytics
 stride: 32 # Default: 32
-task: segment
 batch: 1
-args:
-  nms: false
 output_shape: # Default: imgsz / stride
-  - 80
-  - 80
+  - 320
+  - 320
 input_name: images # Default: 'images'
-output_names:
-  masks: output1 # Default: 'output1'
 ```
 
 ## Files
 
-- `best.onnx` - ONNX model file with built-in NMS
+- `best.onnx` - ONNX model file
 - `metadata.yaml` - Model metadata (classes, configuration)
