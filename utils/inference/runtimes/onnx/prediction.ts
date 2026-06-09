@@ -138,12 +138,17 @@ async function getFramePredictions(
   const [modelHeight, modelWidth] = config.imgsz;
 
   try {
+    const preprocessT0 = performance.now();
     const tensorData = preprocessImage(imageBitmap, config);
     const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, modelHeight, modelWidth]);
+    const preprocessTime = performance.now() - preprocessT0;
 
     const feeds: Record<string, typeof inputTensor> = { [config.inputName]: inputTensor };
+    const runT0 = performance.now();
     const results = await session.run(feeds);
+    const sessionRunTime = performance.now() - runT0;
 
+    const postprocessT0 = performance.now();
     const typedResults = results as Record<string, { data: ArrayLike<number>; dims: readonly number[] }>;
 
     let predictions: IElementPrediction[];
@@ -216,9 +221,19 @@ async function getFramePredictions(
       );
     }
 
+    const postprocessTime = performance.now() - postprocessT0;
+
     inputTensor.dispose();
     for (const key of Object.keys(results)) {
       results[key]?.dispose();
+    }
+
+    if (import.meta.env.DEV) {
+      logger
+        .withTag('profiler')
+        .info(
+          `preprocess: ${preprocessTime.toFixed(1)}ms | session.run: ${sessionRunTime.toFixed(1)}ms | postprocess: ${postprocessTime.toFixed(1)}ms`,
+        );
     }
 
     return predictions;
