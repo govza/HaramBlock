@@ -15,8 +15,8 @@ import { getBackend, initializeModel, processInferenceTask as runInferenceTask }
 
 import type { InferenceTask } from '@/utils/types';
 
-export async function initializeInference(): Promise<void> {
-  await initializeModel();
+export async function initializeInference(modelId?: string): Promise<void> {
+  await initializeModel(modelId);
 }
 
 export function processInferenceTask(task: InferenceTask) {

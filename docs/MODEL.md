@@ -41,10 +41,21 @@ ort.env.wasm.proxy = false; // Direct execution, no worker proxy
 
 ### Backend Selection
 
-Chrome's WebGPU is fast (~42ms inference), Firefox's is slow (~410ms). We prefer:
+WebGPU is preferred whenever the browser exposes the WebGPU API, with a conservative Firefox
+default. WASM remains the fallback for browsers, browser builds, or devices where WebGPU is
+unavailable or ONNX Runtime cannot create a WebGPU session:
 
-- **Chrome**: WebGPU first, WASM fallback
-- **Firefox**: WASM first, WebGPU fallback
+- **Chrome / Chromium**: WebGPU first, WASM fallback
+- **Firefox default builds**: WASM first, to avoid startup hangs in the extension service worker
+- **Firefox WebGPU test builds**: WebGPU first, WASM fallback
+- **Browsers without WebGPU**: WASM only
+
+To test Firefox WebGPU explicitly:
+
+```bash
+pnpm run dev:firefox:webgpu
+pnpm run build:firefox:webgpu
+```
 
 ### WASM Files
 
@@ -129,6 +140,40 @@ const models = getAvailableModels();
 | sem-i320 | `public/models/afeef-y26-sem-320-20260610` | 320×320    | 320×320     | 4       | semantic |
 | sem-i448 | `public/models/afeef-y26-sem-448-20260610` | 448×448    | 448×448     | 4       | semantic |
 | sem-i640 | `public/models/afeef-y26-sem-640-20260610` | 640×640    | 640×640     | 4       | semantic |
+
+### Browser Performance (79 images)
+
+Measured with the 20260607 exports; timings are size-dependent and remain representative, but
+detection counts may differ slightly with the 20260610 weights.
+
+**Chrome (WebGPU)**
+
+| Model    | Detections | Inference | Throughput | E2E    |
+| -------- | ---------- | --------- | ---------- | ------ |
+| sem-i320 | 66/79      | ~22ms     | 42.3/s     | 1271ms |
+| sem-i448 | 73/79      | ~25ms     | 34.2/s     | 1576ms |
+| sem-i640 | 74/79      | ~36ms     | 26.8/s     | 1820ms |
+
+**Firefox (WASM)**
+
+| Model    | Detections | Inference | Throughput | E2E     |
+| -------- | ---------- | --------- | ---------- | ------- |
+| sem-i320 | 64/79      | ~58ms     | 16.8/s     | 4036ms  |
+| sem-i448 | 72/79      | ~110ms    | 8.9/s      | 6444ms  |
+| sem-i640 | 74/79      | ~247ms    | 4.0/s      | 11887ms |
+
+**Firefox (WebGPU, NHWC)**
+
+| Model    | Detections | Inference | Throughput | E2E    |
+| -------- | ---------- | --------- | ---------- | ------ |
+| sem-i320 | 64/79      | ~94ms     | 10.5/s     | 4039ms |
+| sem-i448 | 72/79      | ~91ms     | 10.9/s     | 4199ms |
+| sem-i640 | 74/79      | ~89ms     | 11.0/s     | 4226ms |
+
+Firefox WebGPU inference is near-constant across model sizes (~90ms) due to GPU parallelism
+absorbing larger inputs. The bottleneck is dispatch/readback overhead, not computation. WebGPU loses
+to WASM at 320 (94 vs 58ms) but wins at 448+ and is ~2.8x faster at 640. Cold start incurs a ~6.7s
+shader compilation penalty (warmup 1), with subsequent warmups at ~100ms.
 
 ## Architecture
 

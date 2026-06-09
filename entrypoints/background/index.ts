@@ -1,4 +1,4 @@
-import { getAvailableModels, switchModel } from '@inference-runtime';
+import { getAvailableModels } from '@inference-runtime';
 
 import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
 import {
@@ -69,21 +69,38 @@ export default defineBackground({
       void iconService.updateIconForActiveTab();
     });
 
-    // Initialize inference library, apply stored preference, then auto model service
-    void initializeInference().then(async () => {
+    // Initialize inference library with the stored model preference, then auto model service.
+    void (async () => {
       const settings = await getModelSettings();
-      if (settings.preference !== 'auto') {
-        const available = getAvailableModels();
-        if (available.some(m => m.id === settings.preference)) {
-          await switchModel(settings.preference);
-        } else {
+      const preferredModelId = settings.preference === 'auto' ? undefined : settings.preference;
+
+      try {
+        await initializeInference(preferredModelId);
+      } catch (error) {
+        if (preferredModelId) {
           logger
             .withTag('background')
-            .warn(`Stored preference '${settings.preference}' no longer valid, resetting to auto`);
+            .warn(`Stored preference '${preferredModelId}' could not be loaded, resetting to auto`, error);
+          await setModelSettings({ preference: 'auto' });
+          await initializeInference();
+        } else {
+          throw error;
+        }
+      }
+
+      if (preferredModelId) {
+        const available = getAvailableModels();
+        if (!available.some(m => m.id === preferredModelId)) {
+          logger
+            .withTag('background')
+            .warn(`Stored preference '${preferredModelId}' no longer valid, resetting to auto`);
           await setModelSettings({ preference: 'auto' });
         }
       }
+
       await autoModelService.initialize();
+    })().catch(error => {
+      logger.withTag('background').error('Failed to initialize inference:', error);
     });
   },
 });
