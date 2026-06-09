@@ -127,6 +127,8 @@ const models = getAvailableModels();
 | ID       | Directory                                  | Input Size | Output Size | Classes | Task     |
 | -------- | ------------------------------------------ | ---------- | ----------- | ------- | -------- |
 | sem-i320 | `public/models/afeef-y26-sem-320-20260610` | 320×320    | 320×320     | 4       | semantic |
+| sem-i448 | `public/models/afeef-y26-sem-448-20260610` | 448×448    | 448×448     | 4       | semantic |
+| sem-i640 | `public/models/afeef-y26-sem-640-20260610` | 640×640    | 640×640     | 4       | semantic |
 
 ## Architecture
 

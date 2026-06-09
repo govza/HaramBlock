@@ -17,7 +17,11 @@ const NON_TARGET_CLASSES = new Set(['background', 'safe_person', 'person']);
  * Model directory paths - each contains metadata.yaml and model files.
  * This is the SINGLE SOURCE OF TRUTH for available models.
  */
-export const MODEL_PATHS = ['/models/afeef-y26-sem-320-20260610'];
+export const MODEL_PATHS = [
+  '/models/afeef-y26-sem-320-20260610',
+  '/models/afeef-y26-sem-448-20260610',
+  '/models/afeef-y26-sem-640-20260610',
+];
 
 /** Preferred default model ID. Falls back to first discovered model if not found. */
 export const DEFAULT_MODEL_ID = 'sem-i320';
