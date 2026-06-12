@@ -41,21 +41,13 @@ ort.env.wasm.proxy = false; // Direct execution, no worker proxy
 
 ### Backend Selection
 
-WebGPU is preferred whenever the browser exposes the WebGPU API, with a conservative Firefox
-default. WASM remains the fallback for browsers, browser builds, or devices where WebGPU is
-unavailable or ONNX Runtime cannot create a WebGPU session:
+WebGPU is preferred whenever the browser exposes the WebGPU API (`navigator.gpu`), with WASM as the
+fallback. The decision is made at runtime, so a single build covers all platforms:
 
 - **Chrome / Chromium**: WebGPU first, WASM fallback
-- **Firefox default builds**: WASM first, to avoid startup hangs in the extension service worker
-- **Firefox WebGPU test builds**: WebGPU first, WASM fallback
-- **Browsers without WebGPU**: WASM only
-
-To test Firefox WebGPU explicitly:
-
-```bash
-pnpm run dev:firefox:webgpu
-pnpm run build:firefox:webgpu
-```
+- **Firefox desktop (141+)**: WebGPU first (with the queue-poking workaround), WASM fallback
+- **Firefox Android and other browsers without WebGPU**: WASM (no `navigator.gpu`)
+- **WebGPU session creation failure** (blocklisted GPU, driver issues): automatic WASM fallback
 
 ### WASM Files
 
@@ -69,6 +61,17 @@ ort/
 ├── ort-wasm-simd-threaded.mjs            # Standard JS glue
 └── ort-wasm-simd-threaded.wasm           # Standard WASM binary
 ```
+
+### Firefox Bug: 100ms GPU Device Polling
+
+Firefox polls WebGPU from a 100ms timer instead of when work completes, so the `mapAsync` readback
+ending every `session.run` stalls ~100ms regardless of model size. Workaround
+(`utils/inference/runtimes/onnx/webgpuQueuePoker.ts`, Firefox+WebGPU only): poke the queue with
+empty command buffers while a run is pending, which drains the readback in a few ms.
+
+Open upstream at [Bugzilla 1870699](https://bugzilla.mozilla.org/show_bug.cgi?id=1870699). Once a
+Firefox release fixes it (plain `webgpu` matches `webgpu-poke-t` under `pnpm bench`), delete the
+poker and its branch in `runSession()`.
 
 ### Known Warnings
 
@@ -162,7 +165,7 @@ detection counts may differ slightly with the 20260610 weights.
 | sem-i448 | 72/79      | ~110ms    | 8.9/s      | 6444ms  |
 | sem-i640 | 74/79      | ~247ms    | 4.0/s      | 11887ms |
 
-**Firefox (WebGPU, NHWC)**
+**Firefox (WebGPU, NHWC, before queue-poking workaround)**
 
 | Model    | Detections | Inference | Throughput | E2E    |
 | -------- | ---------- | --------- | ---------- | ------ |
@@ -170,10 +173,34 @@ detection counts may differ slightly with the 20260610 weights.
 | sem-i448 | 72/79      | ~91ms     | 10.9/s     | 4199ms |
 | sem-i640 | 74/79      | ~89ms     | 11.0/s     | 4226ms |
 
-Firefox WebGPU inference is near-constant across model sizes (~90ms) due to GPU parallelism
-absorbing larger inputs. The bottleneck is dispatch/readback overhead, not computation. WebGPU loses
-to WASM at 320 (94 vs 58ms) but wins at 448+ and is ~2.8x faster at 640. Cold start incurs a ~6.7s
-shader compilation penalty (warmup 1), with subsequent warmups at ~100ms.
+**Firefox (WebGPU + queue poking)**
+
+| Model    | Detections | Inference | Throughput | E2E    |
+| -------- | ---------- | --------- | ---------- | ------ |
+| sem-i320 | 68/79      | ~18ms     | 49.7/s     | 1314ms |
+| sem-i448 | 72/79      | ~22ms     | 38.2/s     | 1575ms |
+| sem-i640 | 74/79      | ~36ms     | 24.0/s     | 2255ms |
+
+With queue poking, Firefox WebGPU matches Chrome WebGPU and scales with model size again; the flat
+~90-100ms above is the [polling bug](#firefox-bug-100ms-gpu-device-polling). Cold start still incurs
+a ~6.7s shader compilation penalty (Firefox has no pipeline cache).
+
+### Standalone Harness Results (Playwright, NVIDIA Ampere, June 2026)
+
+Measured with `pnpm bench` (see `scripts/benchmark/README.md`) - same machine, Chromium vs Firefox,
+mean `session.run` latency:
+
+| Size | Chromium WebGPU | Firefox WebGPU | Firefox WebGPU + queue poke |
+| ---- | --------------- | -------------- | --------------------------- |
+| 320  | 12.0ms (83/s)   | 100.3ms (10/s) | 27.3ms (37/s)               |
+| 448  | 13.6ms (74/s)   | 100.3ms (10/s) | 29.6ms (34/s)               |
+| 640  | 17.4ms (57/s)   | 100.3ms (10/s) | 37.2ms (27/s)               |
+
+Other options benchmarked on Firefox (graph capture, `gpu-buffer` output location, JSEP bundle, JSPI
+bundle, NCHW layout) all stayed pinned at ~100ms - the poll tick dominates everything, so only queue
+poking helps. On Chromium, graph capture and the JSPI bundle each shave ~2-3ms off the ~12ms
+baseline; not worth the GPU-tensor I/O complexity at this latency. JSPI is not available in stable
+Firefox. Concurrent `session.run` calls hang the asyncify bundle - queue concurrency must stay at 1.
 
 ## Architecture
 
