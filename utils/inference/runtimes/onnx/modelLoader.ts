@@ -18,7 +18,6 @@ import { logger } from '@/utils/logger';
 
 import type { ModelMetadata } from '@/utils/types';
 
-declare const __ENABLE_FIREFOX_WEBGPU__: boolean;
 declare const __WEBGPU_WARMUP_RUNS__: number;
 
 // Configure ONNX Runtime for service worker environment
@@ -76,11 +75,6 @@ function getWarmupRuns(): number {
 function getBackendPreference(): Backend[] {
   if (!('gpu' in navigator)) {
     logger.withTag('modelLoader').info('WebGPU API unavailable, using WASM backend');
-    return ['wasm'];
-  }
-
-  if (import.meta.env.FIREFOX && !__ENABLE_FIREFOX_WEBGPU__) {
-    logger.withTag('modelLoader').info('Firefox WebGPU disabled for default builds, using WASM backend');
     return ['wasm'];
   }
 
