@@ -5,7 +5,6 @@ import { defineConfig } from 'wxt';
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
 const NO_GPU = process.env.NO_GPU === 'true' || process.env.NO_GPU === '1';
-const FIREFOX_WEBGPU = process.env.FIREFOX_WEBGPU === 'true' || process.env.FIREFOX_WEBGPU === '1';
 const WEBGPU_WARMUP_RUNS = Number.parseInt(process.env.WEBGPU_WARMUP_RUNS ?? '2', 10);
 
 const debugChromiumArgs = [
@@ -20,7 +19,6 @@ export default defineConfig({
   vite: () => ({
     plugins: [toUtf8(), tailwindcss()],
     define: {
-      __ENABLE_FIREFOX_WEBGPU__: JSON.stringify(FIREFOX_WEBGPU),
       __WEBGPU_WARMUP_RUNS__: JSON.stringify(Number.isFinite(WEBGPU_WARMUP_RUNS) ? WEBGPU_WARMUP_RUNS : 2),
     },
   }),
