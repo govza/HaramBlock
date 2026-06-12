@@ -14,6 +14,7 @@ APIs, and implementation details). If you’re a user, start with the project
   - [POPUP.md](POPUP.md) (popup UI components and state management)
 - **Video filtering details**: [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
 - **AI model and inference**: [MODEL.md](MODEL.md)
+- **Planned: parallel GPU inference**: [PLAN.md](PLAN.md)
 - **Running tests**: [TESTING.md](TESTING.md)
 
 ## Project Map (High Level)
