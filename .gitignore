@@ -40,3 +40,5 @@ tests/e2e/screenshots/
 .github/chatmodes/*
 .github/playwright.config.json
 .claude/*
+
+scripts/benchmark/results/

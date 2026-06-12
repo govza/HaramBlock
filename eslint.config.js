@@ -203,6 +203,21 @@ export default [
       'import/no-default-export': 'off',
     },
   },
+  // Benchmark scripts override (plain .mjs run in Node and browser pages)
+  {
+    files: ['scripts/benchmark/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        GPUBufferUsage: 'readonly',
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-await-in-loop': 'off',
+    },
+  },
   // E2E tests override
   {
     files: ['tests/e2e/**/*.ts'],
