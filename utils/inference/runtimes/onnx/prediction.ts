@@ -3,7 +3,7 @@ import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/b
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
-import { getBackend, loadModel, ort } from '@/utils/inference/runtimes/onnx/modelLoader';
+import { getBackend, loadModel, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
 import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
 
@@ -145,7 +145,7 @@ async function getFramePredictions(
 
     const feeds: Record<string, typeof inputTensor> = { [config.inputName]: inputTensor };
     const runT0 = performance.now();
-    const results = await session.run(feeds);
+    const results = await runSession(session, feeds);
     const sessionRunTime = performance.now() - runT0;
 
     const postprocessT0 = performance.now();

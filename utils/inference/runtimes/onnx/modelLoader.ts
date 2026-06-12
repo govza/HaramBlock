@@ -4,6 +4,7 @@ import '@/utils/inference/serviceWorkerPolyfills';
 // WebGPU bundle import - resolved via wxt.config.ts alias (no dynamic imports)
 import * as ort from 'onnxruntime-web';
 
+import { runWithQueuePoke } from '@/utils/inference/runtimes/onnx/webgpuQueuePoker';
 import {
   createConfigFromMetadata,
   DEFAULT_CONFIG,
@@ -94,6 +95,25 @@ function createSessionOptions(backend: Backend): ort.InferenceSession.SessionOpt
   };
 }
 
+// Firefox delivers WebGPU readbacks on a ~100ms poll tick; see webgpuQueuePoker.ts
+function needsFirefoxQueuePoke(): boolean {
+  return import.meta.env.FIREFOX && cachedBackend === 'webgpu';
+}
+
+export async function runSession(
+  sessionToRun: ort.InferenceSession,
+  feeds: Record<string, ort.Tensor>,
+): Promise<ort.InferenceSession.OnnxValueMapType> {
+  if (needsFirefoxQueuePoke()) {
+    // Fetch the device on every run: ONNX Runtime creates a NEW GPUDevice after a model
+    // switch (session release + create), and poking a stale device's queue does nothing.
+    // The getter resolves immediately since the WebGPU session already exists here.
+    const gpuDevice = await ort.env.webgpu.device;
+    return runWithQueuePoke(gpuDevice, () => sessionToRun.run(feeds));
+  }
+  return sessionToRun.run(feeds);
+}
+
 function getWarmupLabel(index: number): string {
   if (index === 0) return 'shader compile';
   if (index === 1) return 'steady-state';
@@ -114,7 +134,7 @@ async function runSingleWarmup(sessionToWarm: ort.InferenceSession, height: numb
   const feeds: Record<string, ort.Tensor> = { [config.inputName]: dummyTensor };
 
   const t0 = performance.now();
-  const results = await sessionToWarm.run(feeds);
+  const results = await runSession(sessionToWarm, feeds);
   const elapsed = performance.now() - t0;
 
   for (const key of Object.keys(results)) {
