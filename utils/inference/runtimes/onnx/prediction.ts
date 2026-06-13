@@ -2,7 +2,7 @@ import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/c
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
-import { getBackend, loadModel, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
+import { acquireModelRuntime, getBackend, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
 import { getPostprocessor, type TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors';
 import { logger } from '@/utils/logger';
 
@@ -14,8 +14,6 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     // Calculate queue time immediately to avoid double-counting fetch/decode time
     const taskStartAt = Date.now();
     const queueTime = task.queueStartAt ? taskStartAt - task.queueStartAt : 0;
-
-    const { session, config } = await loadModel();
 
     // Use provided bitmap/blob (from MessageChannel/structured clone) or fetch from URL
     let imageBitmap: ImageBitmap;
@@ -56,8 +54,22 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
     let rawPredictions: IElementPrediction[];
     let bitmapWidth: number;
     let bitmapHeight: number;
+    let inferenceBackend = getBackend();
     try {
-      rawPredictions = await getFramePredictions(imageBitmap, session, config, scoreThreshold, imageWidth, imageHeight);
+      const runtime = await acquireModelRuntime();
+      inferenceBackend = runtime.backend;
+      try {
+        rawPredictions = await getFramePredictions(
+          imageBitmap,
+          runtime.session,
+          runtime.config,
+          scoreThreshold,
+          imageWidth,
+          imageHeight,
+        );
+      } finally {
+        runtime.release();
+      }
       bitmapWidth = imageBitmap.width;
       bitmapHeight = imageBitmap.height;
     } finally {
@@ -105,7 +117,7 @@ export async function processInferenceTask(task: InferenceTask): Promise<IImageP
         queueTime,
         inferenceTime,
         e2eTime,
-        backend: getBackend(),
+        backend: inferenceBackend,
       },
       forcedVisibility: 'auto',
     };

@@ -59,12 +59,28 @@ export type { ModelDefinition };
 // Built dynamically from metadata during discoverModels()
 const availableModels: Map<string, ModelDefinition> = new Map();
 
+interface ModelRuntime {
+  session: ort.InferenceSession;
+  config: ModelMetadata;
+  modelId: string;
+  backend: Backend;
+}
+
+interface ModelRuntimeLease extends ModelRuntime {
+  release: () => void;
+}
+
 let currentModelId: string = DEFAULT_MODEL_ID;
 let session: ort.InferenceSession | null = null;
-let loadingPromise: Promise<{ session: ort.InferenceSession; config: ModelMetadata }> | null = null;
+let sessionConfig: ModelMetadata | null = null;
+let sessionModelId: string | null = null;
+let loadingPromise: Promise<ModelRuntime> | null = null;
 let loadingModelId: string | null = null; // Track which model is currently being loaded
 let config: ModelMetadata = { ...DEFAULT_CONFIG };
-let cachedBackend: string = 'unknown';
+let cachedBackend: Backend | 'unknown' = 'unknown';
+let activeRuntimeLeases = 0;
+let switchPromise: Promise<void> | null = null;
+let idleResolvers: Array<() => void> = [];
 
 type Backend = 'webgpu' | 'wasm';
 
@@ -87,6 +103,40 @@ function createSessionOptions(backend: Backend): ort.InferenceSession.SessionOpt
     graphOptimizationLevel: 'all',
     logSeverityLevel: 4, // Fatal only - suppress expected EP assignment warnings
   };
+}
+
+function releaseRuntimeLease(): void {
+  activeRuntimeLeases = Math.max(0, activeRuntimeLeases - 1);
+  if (activeRuntimeLeases === 0) {
+    const resolvers = idleResolvers;
+    idleResolvers = [];
+    resolvers.forEach(resolve => resolve());
+  }
+}
+
+async function waitForRuntimeLeasesToDrain(): Promise<void> {
+  if (activeRuntimeLeases === 0) return;
+  await new Promise<void>(resolve => idleResolvers.push(resolve));
+}
+
+export async function acquireModelRuntime(): Promise<ModelRuntimeLease> {
+  while (switchPromise) {
+    // eslint-disable-next-line no-await-in-loop -- Wait through any back-to-back model switches.
+    await switchPromise;
+  }
+
+  activeRuntimeLeases += 1;
+
+  try {
+    const runtime = await loadModel();
+    return {
+      ...runtime,
+      release: releaseRuntimeLease,
+    };
+  } catch (error) {
+    releaseRuntimeLease();
+    throw error;
+  }
 }
 
 // Firefox delivers WebGPU readbacks on a ~100ms poll tick; see webgpuQueuePoker.ts
@@ -122,10 +172,15 @@ export async function discoverModels(): Promise<void> {
   }
 }
 
-async function runSingleWarmup(sessionToWarm: ort.InferenceSession, height: number, width: number): Promise<number> {
+async function runSingleWarmup(
+  sessionToWarm: ort.InferenceSession,
+  modelConfig: ModelMetadata,
+  height: number,
+  width: number,
+): Promise<number> {
   const dummyData = new Float32Array(1 * 3 * height * width);
   const dummyTensor = new ort.Tensor('float32', dummyData, [1, 3, height, width]);
-  const feeds: Record<string, ort.Tensor> = { [config.inputName]: dummyTensor };
+  const feeds: Record<string, ort.Tensor> = { [modelConfig.inputName]: dummyTensor };
 
   const t0 = performance.now();
   const results = await runSession(sessionToWarm, feeds);
@@ -138,16 +193,16 @@ async function runSingleWarmup(sessionToWarm: ort.InferenceSession, height: numb
   return elapsed;
 }
 
-async function warmupModel(sessionToWarm: ort.InferenceSession): Promise<void> {
+async function warmupModel(sessionToWarm: ort.InferenceSession, modelConfig: ModelMetadata): Promise<void> {
   try {
-    const [height, width] = config.imgsz;
+    const [height, width] = modelConfig.imgsz;
 
     const warmupTimes: number[] = [];
     const warmupRuns = getWarmupRuns();
 
     for (let i = 0; i < warmupRuns; i++) {
       // eslint-disable-next-line no-await-in-loop -- Warmup intentionally serializes runs to prime shader variants.
-      warmupTimes.push(await runSingleWarmup(sessionToWarm, height, width));
+      warmupTimes.push(await runSingleWarmup(sessionToWarm, modelConfig, height, width));
     }
 
     if (import.meta.env.DEV) {
@@ -203,14 +258,18 @@ export async function initializeModel(modelId?: string): Promise<void> {
     ort.env.wasm.wasmBinary = wasmBinary;
     logger.withTag('modelLoader').info(`WASM binary loaded: ${wasmBinary.byteLength} bytes`);
 
-    const { session: loadedSession } = await loadModel();
-    await warmupModel(loadedSession);
+    const { session: loadedSession, config: loadedConfig } = await loadModel();
+    await warmupModel(loadedSession, loadedConfig);
 
     if (import.meta.env.DEV) {
       logger.withTag('profiler').info(`Total init E2E: ${(performance.now() - initT0).toFixed(1)}ms`);
     }
 
-    logger.withTag('modelLoader').info('ONNX model loaded and ready for inference');
+    logger
+      .withTag('modelLoader')
+      .info(
+        `ONNX model loaded and ready for inference: ${currentModelId} (${modelDef.name}, ${cachedBackend.toUpperCase()})`,
+      );
   } catch (error) {
     currentModelId = previousModelId;
     config = previousConfig;
@@ -219,9 +278,14 @@ export async function initializeModel(modelId?: string): Promise<void> {
   }
 }
 
-export async function loadModel(): Promise<{ session: ort.InferenceSession; config: ModelMetadata }> {
+export async function loadModel(): Promise<ModelRuntime> {
   if (session !== null) {
-    return { session, config };
+    return {
+      session,
+      config: sessionConfig ?? config,
+      modelId: sessionModelId ?? currentModelId,
+      backend: cachedBackend === 'unknown' ? 'wasm' : cachedBackend,
+    };
   }
 
   // Prevent concurrent loads for the SAME model
@@ -236,6 +300,8 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
   }
 
   const modelPath = `${modelDef.basePath}/best.onnx`;
+  const targetConfig = config;
+  const targetModelId = currentModelId;
 
   loadingModelId = currentModelId;
   loadingPromise = (async () => {
@@ -254,6 +320,8 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
 
         if (loadedSession) {
           session = loadedSession;
+          sessionConfig = targetConfig;
+          sessionModelId = targetModelId;
           cachedBackend = backend;
           if (import.meta.env.DEV) {
             logger
@@ -261,7 +329,7 @@ export async function loadModel(): Promise<{ session: ort.InferenceSession; conf
               .info(`Session creation (${backend}): ${(performance.now() - sessionT0).toFixed(1)}ms`);
           }
           logger.withTag('modelLoader').info(`Model loaded successfully with ${backend.toUpperCase()}`);
-          return { session, config };
+          return { session, config: targetConfig, modelId: targetModelId, backend };
         }
       } catch (error) {
         logger.withTag('modelLoader').warn(`Failed to load model with ${backend.toUpperCase()}:`, error);
@@ -304,13 +372,33 @@ export async function switchModel(modelId: string): Promise<void> {
     return;
   }
 
-  logger.withTag('modelLoader').info(`Switching model from ${currentModelId} to ${modelId}...`);
+  if (switchPromise) {
+    await switchPromise;
+  }
 
-  // Release current session
-  await cleanup();
+  if (modelId === currentModelId && session !== null) {
+    logger.withTag('modelLoader').info(`Model ${modelId} is already loaded`);
+    return;
+  }
 
-  // Load new model
-  await initializeModel(modelId);
+  const previousModelId = currentModelId;
+  logger.withTag('modelLoader').info(`Switching model from ${previousModelId} to ${modelId}...`);
+
+  switchPromise = (async () => {
+    await waitForRuntimeLeasesToDrain();
+
+    // Release current session
+    await cleanup();
+
+    // Load new model
+    await initializeModel(modelId);
+  })();
+
+  try {
+    await switchPromise;
+  } finally {
+    switchPromise = null;
+  }
 
   logger.withTag('modelLoader').info(`Successfully switched to model ${modelId}`);
 }
@@ -328,6 +416,8 @@ export async function cleanup(): Promise<void> {
     if (session) {
       await session.release();
       session = null;
+      sessionConfig = null;
+      sessionModelId = null;
     }
   } catch (error) {
     logger.withTag('modelLoader').error('Error during model cleanup:', error);
