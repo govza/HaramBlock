@@ -176,14 +176,19 @@ Opens the extension's options page via `browser.runtime.openOptionsPage()`.
 
 ### ModelToggle
 
-Cycles through available AI models. Communicates with the background service worker via
-`backgroundRpc`:
+Cycles the model preference: `auto → model1 → model2 → … → auto` (skipping the model already
+effective when leaving `auto`). Communicates with the background service worker via `backgroundRpc`:
 
 ```ts
 backgroundRpc.getAvailableModels();
-backgroundRpc.getCurrentModelId();
-backgroundRpc.setCurrentModel(id);
+backgroundRpc.getModelPreference();
+backgroundRpc.setModelPreference(preference); // 'auto' | model id
+backgroundRpc.getEffectiveModelId();
 ```
+
+The button shows a compact label — first letter of the model id plus its input size, so `sem-i320`
+renders as `s320`. In auto mode it shows the effective model inline as `^auto - s320`; the `^` marks
+that auto can still upgrade and is dropped (`auto - s640`) once the largest model is active.
 
 ### AppVersion
 
