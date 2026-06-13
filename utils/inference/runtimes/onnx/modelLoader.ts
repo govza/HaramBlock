@@ -174,6 +174,12 @@ export async function initializeModel(modelId?: string): Promise<void> {
     throw new Error(`Model '${targetModelId}' not found. Available: ${[...availableModels.keys()].join(', ')}`);
   }
 
+  // Preserve the last good model. currentModelId/config are advanced as soon as metadata
+  // loads, but loadModel() can still fail afterwards (corrupt model, no usable backend).
+  // Roll back on failure so a fallback doesn't re-target the model that just failed.
+  const previousModelId = currentModelId;
+  const previousConfig = config;
+
   try {
     const metadata = await fetchMetadata(modelDef.basePath);
     config = createConfigFromMetadata(metadata, DEFAULT_CONFIG);
@@ -206,6 +212,8 @@ export async function initializeModel(modelId?: string): Promise<void> {
 
     logger.withTag('modelLoader').info('ONNX model loaded and ready for inference');
   } catch (error) {
+    currentModelId = previousModelId;
+    config = previousConfig;
     logger.withTag('modelLoader').error('Failed to load ONNX model:', error);
     throw error;
   }

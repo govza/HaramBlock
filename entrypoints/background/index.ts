@@ -77,25 +77,27 @@ export default defineBackground({
       try {
         await initializeInference(preferredModelId);
       } catch (error) {
-        if (preferredModelId) {
-          logger
-            .withTag('background')
-            .warn(`Stored preference '${preferredModelId}' could not be loaded, resetting to auto`, error);
-          await setModelSettings({ preference: 'auto' });
-          await initializeInference();
-        } else {
+        if (!preferredModelId) {
           throw error;
         }
-      }
 
-      if (preferredModelId) {
-        const available = getAvailableModels();
-        if (!available.some(m => m.id === preferredModelId)) {
-          logger
-            .withTag('background')
-            .warn(`Stored preference '${preferredModelId}' no longer valid, resetting to auto`);
+        // The preferred model failed to load. initializeModel rolls currentModelId back to
+        // the default on failure, so the no-arg call falls back to a model that loads.
+        // Only forget the preference when the model is genuinely gone from the registry
+        // (renamed/removed) - a transient load failure shouldn't discard a deliberate choice.
+        const stillAvailable = getAvailableModels().some(m => m.id === preferredModelId);
+        logger
+          .withTag('background')
+          .warn(
+            `Stored preference '${preferredModelId}' failed to load${
+              stillAvailable ? '' : ' (no longer available)'
+            }, falling back to default`,
+            error,
+          );
+        if (!stillAvailable) {
           await setModelSettings({ preference: 'auto' });
         }
+        await initializeInference();
       }
 
       await autoModelService.initialize();
