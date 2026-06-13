@@ -108,7 +108,6 @@
     "contact": "Sorularınız mı var? Yardımcı olmak için buradayım:"
   },
   "ModelToggle": {
-    "autoTooltip": "Otomatik mod - şu anda $1 kullanılıyor. Değiştirmek için tıklayın.",
     "manualTooltip": "Model: $1. Değiştirmek için tıklayın.",
     "singleModelTooltip": "Model: $1",
     "errorTooltip": "Model değiştirilemedi"

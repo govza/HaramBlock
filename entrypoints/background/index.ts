@@ -9,40 +9,13 @@ import {
   InferenceOrchestrationService,
   IconService,
 } from '@/entrypoints/background/services';
-import {
-  AutoModelService,
-  BALANCED_MODEL_ID,
-  BASELINE_MODEL_ID,
-} from '@/entrypoints/background/services/autoModelService';
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
-import { getModelSettings, setModelSettings, type ModelSettings } from '@/utils/modelSettings';
+import { getModelSettings, setModelSettings } from '@/utils/modelSettings';
 
-function getStartupModelId(settings: ModelSettings): string | undefined {
-  if (settings.preference !== 'auto') {
-    return settings.preference;
-  }
-
-  const hasWebGpu = 'gpu' in navigator;
-  if (hasWebGpu && settings.autoSelectedModelId === BALANCED_MODEL_ID) {
-    return settings.autoSelectedModelId;
-  }
-
-  if (hasWebGpu && !settings.autoSelectedModelId) {
-    return BALANCED_MODEL_ID;
-  }
-
-  if (hasWebGpu && settings.autoSelectedModelId === BASELINE_MODEL_ID) {
-    return BALANCED_MODEL_ID;
-  }
-
-  if (settings.autoSelectedModelId) {
-    return settings.autoSelectedModelId;
-  }
-
-  return undefined;
-}
+// First-run default when WebGPU is available; without it the registry baseline (sem-i320) loads.
+const WEBGPU_DEFAULT_MODEL_ID = 'sem-i448';
 
 export default defineBackground({
   type: 'module',
@@ -73,18 +46,12 @@ export default defineBackground({
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 
-    // Initialize auto model service
-    const autoModelService = new AutoModelService();
-
     // Wire up inference service to emit predictions via BackgroundRpc
-    // Also trigger auto model evaluation after predictions
     inferenceService.setOnImagePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitImagePredictions(predictions, hostname);
-      void autoModelService.evaluate();
     });
     inferenceService.setOnFramePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitFramePredictions(predictions, hostname);
-      void autoModelService.evaluate();
     });
 
     // Initialize all event listeners
@@ -98,11 +65,11 @@ export default defineBackground({
       void iconService.updateIconForActiveTab();
     });
 
-    // Initialize inference library with the stored model preference, then auto model service.
+    // Initialize inference with the stored model, or a sensible first-run default: WebGPU can run
+    // the larger 448 comfortably, while WASM stays on the 320 baseline (448 is ~110ms on WASM).
     void (async () => {
-      const settings = await getModelSettings();
-      const isAuto = settings.preference === 'auto';
-      const preferredModelId = getStartupModelId(settings);
+      const { preference } = await getModelSettings();
+      const preferredModelId = preference ?? ('gpu' in navigator ? WEBGPU_DEFAULT_MODEL_ID : undefined);
 
       try {
         await initializeInference(preferredModelId);
@@ -111,25 +78,23 @@ export default defineBackground({
           throw error;
         }
 
-        // The stored model failed to load. initializeModel rolls currentModelId back to the default
-        // on failure, so the no-arg call falls back to a model that loads. Only forget the reference
+        // The model failed to load. initializeModel rolls currentModelId back to the default on
+        // failure, so the no-arg call falls back to a model that loads. Only forget a stored choice
         // when it's genuinely gone from the registry - a transient failure shouldn't discard it.
         const stillAvailable = getAvailableModels().some(m => m.id === preferredModelId);
         logger
           .withTag('background')
           .warn(
-            `Stored model '${preferredModelId}' failed to load${
+            `Model '${preferredModelId}' failed to load${
               stillAvailable ? '' : ' (no longer available)'
             }, falling back to default`,
             error,
           );
         if (!stillAvailable) {
-          await setModelSettings(isAuto ? { autoSelectedModelId: undefined } : { preference: 'auto' });
+          await setModelSettings({ preference: undefined });
         }
         await initializeInference();
       }
-
-      await autoModelService.initialize();
     })().catch(error => {
       logger.withTag('background').error('Failed to initialize inference:', error);
     });
