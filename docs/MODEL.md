@@ -144,6 +144,28 @@ const models = getAvailableModels();
 | sem-i448 | `public/models/afeef-y26-sem-448-20260610` | 448×448    | 448×448     | 4       | semantic |
 | sem-i640 | `public/models/afeef-y26-sem-640-20260610` | 640×640    | 640×640     | 4       | semantic |
 
+### Auto Model Policy
+
+`sem-i320` is the baseline default and remains the default for non-WebGPU backends. In auto mode,
+WebGPU sessions start at `sem-i448` as the balanced default (a head start, since each adaptive step
+is rate-limited) because it captures most of the detection improvement over 320 at much less cost
+than 640.
+
+The auto switcher is driven by a **single signal**: p75 inference latency over the latest cached
+predictions. It steps one model up or down per evaluation, with a hysteresis band to avoid
+oscillation. It evaluates at most once per hour after 100 samples, with a six-hour cooldown after a
+switch:
+
+- A single target `THRESHOLD_INFERENCE_MS` (40ms) with a `THRESHOLD_TOLERANCE_MS` (10ms) deadband.
+- **Upgrade** one size when p75 inference latency is below target − tolerance (30ms).
+- **Downgrade** one size when p75 inference latency is above target + tolerance (50ms).
+- Within the 30–50ms band the model holds steady.
+- `sem-i640` is WebGPU-only — on WASM it is ~247ms, so the switcher never selects it without WebGPU.
+
+On WebGPU the smaller sizes run under the 30ms upgrade point, so a capable GPU climbs until a model
+lands inside the 30–50ms band (`sem-i640` at ~36ms). On WASM `sem-i320` already exceeds the upgrade
+point (~58ms), so non-WebGPU sessions naturally settle at the baseline without any backend rule.
+
 ### Browser Performance (79 images)
 
 Measured with the 20260607 exports; timings are size-dependent and remain representative, but
@@ -207,12 +229,12 @@ Firefox. Concurrent `session.run` calls hang the asyncify bundle - queue concurr
 - **Model**: YOLO26n-sem (Ultralytics)
 - **Task**: Semantic segmentation
 - **Format**: ONNX
-- **Input Size**: 320×320
+- **Input Size**: 320×320 baseline; 448×448 / 640×640 available through model switching
 - **Runtime**: ONNX Runtime Web (WebGPU with WASM fallback)
 
 ## Input Specification
 
-- **Shape**: `[1, 3, 320, 320]` (NCHW format)
+- **Shape**: `[1, 3, H, W]` (NCHW format, where `H×W` is the active model input size)
 - **Type**: `float32`
 - **Normalization**: 0-1 range (pixel / 255)
 - **Letterbox padding**: Gray (114, 114, 114)
@@ -221,9 +243,9 @@ Firefox. Concurrent `session.run` calls hang the asyncify bundle - queue concurr
 
 Single output tensor — per-pixel class logits:
 
-| Tensor    | Shape              | Description                                   |
-| --------- | ------------------ | --------------------------------------------- |
-| `output0` | `[1, 4, 320, 320]` | Per-pixel logits for each class (NCHW layout) |
+| Tensor    | Shape          | Description                                   |
+| --------- | -------------- | --------------------------------------------- |
+| `output0` | `[1, 4, H, W]` | Per-pixel logits for each class (NCHW layout) |
 
 ### Target Classes
 
