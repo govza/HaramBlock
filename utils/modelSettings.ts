@@ -4,6 +4,7 @@ export type ModelPreference = 'auto' | (string & {});
 
 export interface ModelSettings {
   preference: ModelPreference;
+  autoSelectedModelId?: string;
 }
 
 const STORAGE_KEY = 'modelSettings';
