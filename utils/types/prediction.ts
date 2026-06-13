@@ -53,7 +53,7 @@ export interface IImagePrediction {
     queueTime: number; // Time waiting in queue before inference in milliseconds
     inferenceTime: number; // Model preprocessing + inference + postprocessing in milliseconds
     e2eTime: number; // End-to-end time from content request start to inference completion
-    backend: string; // Inference backend used (webgpu/webgl/wasm)
+    backend: string; // Inference backend used (webgpu/wasm)
   };
   forcedVisibility: ForcedVisibility;
 }
@@ -96,7 +96,7 @@ export interface IFramePrediction {
     queueTime: number; // Time waiting in queue before inference in milliseconds
     inferenceTime: number; // Model preprocessing + inference + postprocessing in milliseconds
     e2eTime: number; // End-to-end time from content request start to inference completion
-    backend: string; // Inference backend used (webgpu/webgl/wasm)
+    backend: string; // Inference backend used (webgpu/wasm)
   };
 }
 

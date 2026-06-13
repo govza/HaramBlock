@@ -47,7 +47,8 @@ fallback. The decision is made at runtime, so a single build covers all platform
 - **Chrome / Chromium**: WebGPU first, WASM fallback
 - **Firefox desktop (141+)**: WebGPU first (with the queue-poking workaround), WASM fallback
 - **Firefox Android and other browsers without WebGPU**: WASM (no `navigator.gpu`)
-- **WebGPU session creation failure** (blocklisted GPU, driver issues): automatic WASM fallback
+- **WebGPU session creation failure** (blocklisted GPU, driver issues): automatic WASM fallback for
+  the selected model
 
 ### WASM Files
 
@@ -150,11 +151,12 @@ Model selection is **manual**. The popup's model toggle (`ModelToggle`) cycles t
 models in ascending input-size order and persists the choice as `preference` in
 `browser.storage.local` (key `modelSettings`), so it survives service-worker restarts.
 
-On first run, before any choice is made, the default depends on the backend: WebGPU starts at the
-balanced `sem-i448` (it runs ~25ms there), while non-WebGPU starts at the `sem-i320` baseline (the
-registry `DEFAULT_MODEL_ID`, since `sem-i448` is ~110ms on WASM). The check uses
-`'gpu' in navigator` at startup; if WebGPU is present but session creation fails, the load falls
-back to the baseline. Switch up to `sem-i640` (highest quality) or down as needed from the toggle.
+On first run, before any choice is made, the startup default uses WebGPU API availability as a
+proxy: browsers exposing `navigator.gpu` start at the balanced `sem-i448` (it runs ~25ms on WebGPU),
+while browsers without WebGPU start at the `sem-i320` baseline (the registry `DEFAULT_MODEL_ID`,
+since `sem-i448` is ~110ms on WASM). If WebGPU is present but the session falls back to WASM, the
+selected model remains `sem-i448`; use the popup toggle to move down to `sem-i320` if the WASM path
+is too slow. Switch up to `sem-i640` (highest quality) or down as needed from the toggle.
 
 `sem-i640` is WebGPU-only in practice — on WASM it runs at ~247ms — so prefer `sem-i320` /
 `sem-i448` without WebGPU. See the performance tables below for the size/latency trade-off per

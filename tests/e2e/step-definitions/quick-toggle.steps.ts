@@ -28,7 +28,9 @@ const setQuickToggleState = async (
 ): Promise<void> => {
   if ((await isCheckboxChecked(selectors.checkbox)) === enabled) return;
 
-  await $(selectors.label).click();
+  await browser.execute((sel: string) => {
+    globalThis.document.querySelector<HTMLElement>(sel)?.click();
+  }, selectors.label);
   await browser.waitUntil(async () => (await isCheckboxChecked(selectors.checkbox)) === enabled, {
     timeout: 5000,
     timeoutMsg: `Failed to set quick toggle to ${enabled}`,
@@ -79,9 +81,6 @@ Given('quick toggle {string} is {string}', async (type: string, state: string) =
   );
 
   const enabled = state === 'enabled';
-  if ((await isCheckboxChecked(sel.checkbox)) === enabled) {
-    await setQuickToggleState(sel, !enabled);
-  }
   await setQuickToggleState(sel, enabled);
 
   // Wait for IndexedDB write to propagate to background context.
