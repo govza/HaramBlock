@@ -35,7 +35,7 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
     // Chrome: Enable transferable extraction for MessageChannel (zero-copy ImageBitmap)
     // Firefox: Disable - use structured clone which handles ImageBitmap natively
     transfer: USE_MESSAGE_CHANNEL,
-    // Increase timeout to handle slow service worker wake-up + WebGL/model initialization
+    // Increase timeout to handle slow service worker wake-up + model initialization
     heartbeatTimeout: 25000,
   },
 );

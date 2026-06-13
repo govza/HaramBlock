@@ -84,7 +84,7 @@ interface WideEvent {
   detectionsCount?: number;
   cacheHit?: boolean;
   overlayType?: string; // blur | bbox | segment | full
-  backend?: string; // webgpu | webgl | wasm
+  backend?: string; // webgpu | wasm
   error?: { message: string; type: string };
 
   version: string;

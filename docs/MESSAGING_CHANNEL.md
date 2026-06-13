@@ -7,10 +7,11 @@ different transport mechanisms optimized for Chrome and Firefox.
 
 HaramBlock uses **comctx** (RPC library) with adaptive transport selection:
 
-- **Chrome**: MessageChannel with ImageBitmap (zero-copy transfer) + WebGPU inference
-- **Firefox**: Blob transfer via browser.runtime (structured clone) + WebGL inference
+- **Chrome**: MessageChannel with ImageBitmap (zero-copy transfer)
+- **Firefox**: Blob transfer via browser.runtime (structured clone)
 
-The system automatically selects the optimal transport based on browser.
+The system automatically selects the optimal transport based on browser. Inference backend selection
+is separate: ONNX Runtime tries WebGPU first when `navigator.gpu` exists, then falls back to WASM.
 
 ### Browser-Specific Transfer Rules
 
@@ -79,7 +80,7 @@ interface MessageMeta {
 6. Service worker's `CompositeProvideAdapter` receives port and ACKs with `{ type: 'READY' }`
 7. comctx sends RPC call with ImageBitmap as transferable (zero-copy!)
 8. `CompositeProvideAdapter` routes to `BackgroundRpc.postInferenceImage()`
-9. Inference runs with WebGPU backend (~80ms)
+9. Inference runs with the active ONNX backend (WebGPU first, WASM fallback)
 10. Response sent back via same MessageChannel port
 
 **Data Flow**:
@@ -87,7 +88,7 @@ interface MessageMeta {
 ```
 Content: fetch() → Blob → ImageBitmap (decode once)
 Transfer: ImageBitmap ──────────────► (zero-copy, ~0MB)
-Background: ImageBitmap → tensor (WebGPU inference)
+Background: ImageBitmap → tensor → ONNX inference
 ```
 
 ### Firefox Path (Blob Primary, URL Fallback)
@@ -104,7 +105,7 @@ Background: ImageBitmap → tensor (WebGPU inference)
 6. Message enriched with `tabId` from `sender.tab.id`
 7. Routes to `BackgroundRpc.postInferenceImage()`
 8. Background creates ImageBitmap from Blob
-9. Inference runs with WebGL backend (~190ms)
+9. Inference runs with the active ONNX backend (WebGPU first when available, otherwise WASM)
 10. Response sent back via `browser.tabs.sendMessage()`
 
 **Fallback** (url - on fetch/CORS errors):
@@ -117,7 +118,7 @@ Background: ImageBitmap → tensor (WebGPU inference)
 ```
 Content: fetch() → Blob
 Transfer: Blob ──────────────► (structured clone, data copied)
-Background: Blob → ImageBitmap → tensor (WebGL inference)
+Background: Blob → ImageBitmap → tensor → ONNX inference
 ```
 
 ### Image Transfer Types
@@ -385,29 +386,31 @@ const unsubImagePreds = onImagePredictions(data => {
 
 ## Performance Comparison
 
-### Chrome (MessageChannel + WebGPU)
+### Chrome (MessageChannel + ONNX)
 
-| Step                   | Time      | Notes             |
-| ---------------------- | --------- | ----------------- |
-| Content fetch + bitmap | ~10ms     | Decode in content |
-| Transfer ImageBitmap   | ~0ms      | Zero-copy!        |
-| Inference (WebGPU)     | ~80ms     | GPU accelerated   |
-| **Total**              | **~90ms** |                   |
+| Step                   | Time   | Notes             |
+| ---------------------- | ------ | ----------------- |
+| Content fetch + bitmap | ~10ms  | Decode in content |
+| Transfer ImageBitmap   | ~0ms   | Zero-copy!        |
+| Inference              | varies | WebGPU or WASM    |
+| **Total**              | varies |                   |
 
-### Firefox (Blob + WebGL)
+### Firefox (Blob + ONNX)
 
-| Step                 | Time       | Notes                 |
-| -------------------- | ---------- | --------------------- |
-| Content fetch + blob | ~10ms      | Fetch in content      |
-| Transfer Blob        | varies     | Structured clone copy |
-| createImageBitmap    | ~4ms       | Decode in background  |
-| Inference (WebGL)    | ~190ms     | GPU accelerated       |
-| **Total**            | **~210ms** |                       |
+| Step                 | Time   | Notes                 |
+| -------------------- | ------ | --------------------- |
+| Content fetch + blob | ~10ms  | Fetch in content      |
+| Transfer Blob        | varies | Structured clone copy |
+| createImageBitmap    | ~4ms   | Decode in background  |
+| Inference            | varies | WebGPU or WASM        |
+| **Total**            | varies |                       |
 
 ### Why Firefox is Slower
 
-1. **WebGL vs WebGPU**: Firefox's WebGPU is immature (~430ms), WebGL is faster (~190ms)
-2. **Still ~2x slower than Chrome**: Browser-level GPU implementation differences
+1. **Transport copy**: Firefox uses structured-clone blob transfer instead of zero-copy ImageBitmap
+   transfer over MessageChannel.
+2. **Backend availability**: Firefox without WebGPU runs ONNX on WASM; Firefox WebGPU uses the
+   queue-poking workaround documented in `docs/MODEL.md`.
 
 ## Implementation Details
 
@@ -530,7 +533,8 @@ everything automatically.
 
 ## Known Issues
 
-1. **Firefox WebGPU**: ~2x slower than WebGL, so we use WebGL
+1. **Firefox transport**: blob transfer copies data, so it is slower than Chrome's zero-copy
+   MessageChannel path
 2. **SW dormancy**: MessagePorts close when service worker sleeps, re-established on next call
 
 ## References
