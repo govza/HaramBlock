@@ -9,11 +9,40 @@ import {
   InferenceOrchestrationService,
   IconService,
 } from '@/entrypoints/background/services';
-import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
+import {
+  AutoModelService,
+  BALANCED_MODEL_ID,
+  BASELINE_MODEL_ID,
+} from '@/entrypoints/background/services/autoModelService';
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
-import { getModelSettings, setModelSettings } from '@/utils/modelSettings';
+import { getModelSettings, setModelSettings, type ModelSettings } from '@/utils/modelSettings';
+
+function getStartupModelId(settings: ModelSettings): string | undefined {
+  if (settings.preference !== 'auto') {
+    return settings.preference;
+  }
+
+  const hasWebGpu = 'gpu' in navigator;
+  if (hasWebGpu && settings.autoSelectedModelId === BALANCED_MODEL_ID) {
+    return settings.autoSelectedModelId;
+  }
+
+  if (hasWebGpu && !settings.autoSelectedModelId) {
+    return BALANCED_MODEL_ID;
+  }
+
+  if (hasWebGpu && settings.autoSelectedModelId === BASELINE_MODEL_ID) {
+    return BALANCED_MODEL_ID;
+  }
+
+  if (settings.autoSelectedModelId) {
+    return settings.autoSelectedModelId;
+  }
+
+  return undefined;
+}
 
 export default defineBackground({
   type: 'module',
@@ -73,7 +102,7 @@ export default defineBackground({
     void (async () => {
       const settings = await getModelSettings();
       const isAuto = settings.preference === 'auto';
-      const preferredModelId = isAuto ? settings.autoSelectedModelId : settings.preference;
+      const preferredModelId = getStartupModelId(settings);
 
       try {
         await initializeInference(preferredModelId);

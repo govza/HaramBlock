@@ -4,8 +4,8 @@ import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 import { logger } from '@/utils/logger';
 import { getModelSettings, onModelSettingsChange, setModelSettings } from '@/utils/modelSettings';
 
-const BASELINE_MODEL_ID = 'sem-i320';
-const BALANCED_MODEL_ID = 'sem-i448';
+export const BASELINE_MODEL_ID = 'sem-i320';
+export const BALANCED_MODEL_ID = 'sem-i448';
 const MAX_QUALITY_MODEL_ID = 'sem-i640';
 
 const WEBGPU_BACKEND = 'webgpu';
@@ -53,10 +53,10 @@ export class AutoModelService {
       this.autoModeEnabled = newSettings.preference === 'auto';
 
       if (!wasEnabled && this.autoModeEnabled) {
-        log.info('Auto mode enabled, resetting timers');
+        log.info('Auto mode re-enabled, restarting auto session at balanced default');
         this.lastSwitchTime = 0;
         this.lastCheckTime = 0;
-        void this.applyStartupModel();
+        void this.applyAutoModel(true);
       }
     });
 
@@ -64,7 +64,7 @@ export class AutoModelService {
       `Initialized, auto: ${this.autoModeEnabled}, p${LATENCY_PERCENTILE} inference target ${THRESHOLD_INFERENCE_MS}±${THRESHOLD_TOLERANCE_MS}ms`,
     );
 
-    await this.applyStartupModel();
+    await this.applyAutoModel(false);
   }
 
   async evaluate(): Promise<void> {
@@ -74,10 +74,10 @@ export class AutoModelService {
     if (now - this.lastCheckTime < DEBOUNCE_MS) return;
     if (now - this.lastSwitchTime < COOLDOWN_MS) return;
 
-    this.lastCheckTime = now;
-
     const predictions = await this.imageCacheRepository.findRecent(REQUIRED_SAMPLES);
     if (predictions.length < REQUIRED_SAMPLES) return;
+
+    this.lastCheckTime = now;
 
     const inferenceTimes = predictions.map(p => p.processingTime.inferenceTime);
     const inferenceLatency = calculatePercentile(inferenceTimes, LATENCY_PERCENTILE);
@@ -106,6 +106,8 @@ export class AutoModelService {
         log.info(`Downgrading: ${currentModelId} → ${prevModel} (${stat} > ${downgradeAbove}ms)`);
         if (await this.runSwitch(prevModel)) this.lastSwitchTime = now;
       }
+    } else {
+      log.debug(`Keeping ${currentModelId} (${stat}, target band ${upgradeBelow}-${downgradeAbove}ms)`);
     }
   }
 
@@ -134,31 +136,32 @@ export class AutoModelService {
     return this.autoModeEnabled;
   }
 
-  private async applyStartupModel(): Promise<void> {
+  // Startup (`reseed=false`) keeps a remembered selection so restarts are stable; re-entering auto
+  // from manual (`reseed=true`) restarts the session at the backend's balanced default, so a stale
+  // or stuck selection can't pin the model and manual→auto always lands on a sensible baseline.
+  private async applyAutoModel(reseed: boolean): Promise<void> {
     if (!this.autoModeEnabled || this.modelsSortedBySize.length === 0) return;
 
     const backend = getBackend();
     const currentModelId = getCurrentModelId();
+    const remembered = reseed ? undefined : (await getModelSettings()).autoSelectedModelId;
+    const rememberedTarget = backend === WEBGPU_BACKEND && remembered === BASELINE_MODEL_ID ? undefined : remembered;
 
-    // A restored model unsupported on this backend (e.g. sem-i640 after WebGPU is lost) drops to baseline.
-    if (!this.isBackendCapableOf(currentModelId)) {
-      const fallback = this.getDefaultModelIdForBackend(backend);
-      if (fallback && fallback !== currentModelId) {
-        log.info(`Restored ${currentModelId} unsupported on ${backend}, falling back to ${fallback}`);
-        if (await this.runSwitch(fallback)) this.lastCheckTime = Date.now();
-      }
-      return;
+    // A remembered model unsupported on this backend (e.g. sem-i640 after WebGPU is lost) drops to
+    // the backend default.
+    const target =
+      rememberedTarget && this.isBackendCapableOf(rememberedTarget)
+        ? rememberedTarget
+        : this.getDefaultModelIdForBackend(backend);
+    if (!target) return;
+
+    if (currentModelId !== target) {
+      log.info(`Applying auto model on ${backend}${reseed ? ' (reset)' : ''}: ${currentModelId} → ${target}`);
+      await this.runSwitch(target);
+    } else if (reseed || remembered !== target) {
+      // Already on the target, but the persisted selection may be stale - record the reset/self-heal.
+      await setModelSettings({ autoSelectedModelId: target });
     }
-
-    // Trust a remembered selection; only seed a backend default on first run.
-    const { autoSelectedModelId } = await getModelSettings();
-    if (autoSelectedModelId) return;
-
-    const target = this.getDefaultModelIdForBackend(backend);
-    if (!target || currentModelId === target) return;
-
-    log.info(`Seeding auto default for ${backend}: ${currentModelId} → ${target}`);
-    if (await this.runSwitch(target)) this.lastCheckTime = Date.now();
   }
 
   private getDefaultModelIdForBackend(backend: string): string | undefined {
