@@ -1,14 +1,13 @@
 import { logger } from '@/utils/logger';
 
-export type ModelPreference = 'auto' | (string & {});
+export type ModelPreference = string;
 
 export interface ModelSettings {
-  preference: ModelPreference;
-  autoSelectedModelId?: string;
+  preference?: ModelPreference;
 }
 
 const STORAGE_KEY = 'modelSettings';
-const DEFAULT_SETTINGS: ModelSettings = { preference: 'auto' };
+const DEFAULT_SETTINGS: ModelSettings = {};
 
 interface StorageChange {
   oldValue?: unknown;
@@ -37,7 +36,7 @@ export const onModelSettingsChange = (callback: (settings: ModelSettings) => voi
   const listener = (changes: Record<string, StorageChange>) => {
     const change = changes[STORAGE_KEY];
     if (change?.newValue) {
-      callback(change.newValue as ModelSettings);
+      callback(change.newValue);
     }
   };
   browser.storage.local.onChanged.addListener(listener);

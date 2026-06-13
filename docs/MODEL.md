@@ -144,27 +144,24 @@ const models = getAvailableModels();
 | sem-i448 | `public/models/afeef-y26-sem-448-20260610` | 448×448    | 448×448     | 4       | semantic |
 | sem-i640 | `public/models/afeef-y26-sem-640-20260610` | 640×640    | 640×640     | 4       | semantic |
 
-### Auto Model Policy
+### Model Selection
 
-`sem-i320` is the baseline default and remains the default for non-WebGPU backends. In auto mode,
-WebGPU sessions start at `sem-i448` as the balanced default (a head start, since each adaptive step
-is rate-limited) because it captures most of the detection improvement over 320 at much less cost
-than 640.
+Model selection is **manual**. The popup's model toggle (`ModelToggle`) cycles through the available
+models in ascending input-size order and persists the choice as `preference` in
+`browser.storage.local` (key `modelSettings`), so it survives service-worker restarts.
 
-The auto switcher is driven by a **single signal**: p75 inference latency over the latest cached
-predictions. It steps one model up or down per evaluation, with a hysteresis band to avoid
-oscillation. It evaluates at most once per hour after 100 samples, with a six-hour cooldown after a
-switch:
+On first run, before any choice is made, the default depends on the backend: WebGPU starts at the
+balanced `sem-i448` (it runs ~25ms there), while non-WebGPU starts at the `sem-i320` baseline (the
+registry `DEFAULT_MODEL_ID`, since `sem-i448` is ~110ms on WASM). The check uses
+`'gpu' in navigator` at startup; if WebGPU is present but session creation fails, the load falls
+back to the baseline. Switch up to `sem-i640` (highest quality) or down as needed from the toggle.
 
-- A single target `THRESHOLD_INFERENCE_MS` (40ms) with a `THRESHOLD_TOLERANCE_MS` (10ms) deadband.
-- **Upgrade** one size when p75 inference latency is below target − tolerance (30ms).
-- **Downgrade** one size when p75 inference latency is above target + tolerance (50ms).
-- Within the 30–50ms band the model holds steady.
-- `sem-i640` is WebGPU-only — on WASM it is ~247ms, so the switcher never selects it without WebGPU.
+`sem-i640` is WebGPU-only in practice — on WASM it runs at ~247ms — so prefer `sem-i320` /
+`sem-i448` without WebGPU. See the performance tables below for the size/latency trade-off per
+backend.
 
-On WebGPU the smaller sizes run under the 30ms upgrade point, so a capable GPU climbs until a model
-lands inside the 30–50ms band (`sem-i640` at ~36ms). On WASM `sem-i320` already exceeds the upgrade
-point (~58ms), so non-WebGPU sessions naturally settle at the baseline without any backend rule.
+The popup toggle border is color-coded by input size: `sem-i320` green, `sem-i448` yellow,
+`sem-i640` red.
 
 ### Browser Performance (79 images)
 

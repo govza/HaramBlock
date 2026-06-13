@@ -244,10 +244,6 @@ export class BackgroundRpc {
     await this.modelService.switchModel(modelId);
   }
 
-  async getModelPreference(): Promise<ModelPreference> {
-    return this.modelService.getModelPreference();
-  }
-
   async setModelPreference(preference: ModelPreference): Promise<void> {
     await this.modelService.setModelPreference(preference);
   }

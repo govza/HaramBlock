@@ -108,7 +108,6 @@
     "contact": "Any questions? I'm here to help:"
   },
   "ModelToggle": {
-    "autoTooltip": "Auto mode - currently using $1. Click to switch.",
     "manualTooltip": "Model: $1. Click to switch.",
     "singleModelTooltip": "Model: $1",
     "errorTooltip": "Failed to switch model"

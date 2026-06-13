@@ -1,6 +1,6 @@
 import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
 
-import { getModelSettings, setModelSettings, type ModelPreference } from '@/utils/modelSettings';
+import { setModelSettings, type ModelPreference } from '@/utils/modelSettings';
 
 export class ModelService {
   async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string; inputSize: number }[]> {
@@ -35,15 +35,8 @@ export class ModelService {
     await switchModel(modelId);
   }
 
-  async getModelPreference(): Promise<ModelPreference> {
-    const settings = await getModelSettings();
-    return settings.preference;
-  }
-
-  async setModelPreference(preference: ModelPreference): Promise<void> {
-    if (preference !== 'auto') {
-      await switchModel(preference);
-    }
-    await setModelSettings({ preference });
+  async setModelPreference(modelId: ModelPreference): Promise<void> {
+    await switchModel(modelId);
+    await setModelSettings({ preference: modelId });
   }
 }
