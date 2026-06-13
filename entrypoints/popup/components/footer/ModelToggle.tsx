@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { t } from '@/utils/i18n';
 import { backgroundRpc } from '@/utils/messaging/popup';
-
-import type { ModelPreference } from '@/utils/modelSettings';
+import { onModelSettingsChange, type ModelPreference } from '@/utils/modelSettings';
 
 type ModelInfo = { id: string; name: string; inputSize: number };
 
@@ -19,17 +18,34 @@ export const ModelToggle = () => {
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
-    const load = async () => {
-      const [available, pref, effective] = await Promise.all([
-        backgroundRpc.getAvailableModels(),
+    let active = true;
+
+    const loadModels = async () => {
+      const available = await backgroundRpc.getAvailableModels();
+      if (active) setModels(available);
+    };
+
+    // The background persists every auto/manual switch via setModelSettings, so re-read the
+    // effective model whenever settings change to keep the label live (no popup reopen needed).
+    const refreshSelection = async () => {
+      const [pref, effective] = await Promise.all([
         backgroundRpc.getModelPreference(),
         backgroundRpc.getEffectiveModelId(),
       ]);
-      setModels(available);
-      setPreference(pref);
-      setEffectiveId(effective);
+      if (active) {
+        setPreference(pref);
+        setEffectiveId(effective);
+      }
     };
-    void load();
+
+    void loadModels();
+    void refreshSelection();
+    const unsubscribe = onModelSettingsChange(() => void refreshSelection());
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   const handleClick = () => {
