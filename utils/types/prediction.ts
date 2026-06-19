@@ -51,9 +51,10 @@ export interface IImagePrediction {
     fetchTime: number; // Fetch duration in milliseconds (may hit cache or network)
     decodeTime: number; // createImageBitmap duration in milliseconds
     queueTime: number; // Time waiting in queue before inference in milliseconds
-    inferenceTime: number; // Model preprocessing + inference + postprocessing in milliseconds
+    inferenceTime: number; // Per-image share of the batch's preprocess + inference time in ms
     e2eTime: number; // End-to-end time from content request start to inference completion
     backend: string; // Inference backend used (webgpu/wasm)
+    batchSize?: number; // Number of images in the batched session.run this image was part of
   };
   forcedVisibility: ForcedVisibility;
 }

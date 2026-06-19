@@ -113,6 +113,7 @@ function buildImagePrediction(
   backend: string,
   inferenceTime: number,
   inferenceEndAt: number,
+  batchSize: number,
 ): IImagePrediction {
   const { task, imageWidth, imageHeight, bitmapWidth, bitmapHeight, fetchTime, decodeTime, queueTime } = prepared;
 
@@ -149,6 +150,7 @@ function buildImagePrediction(
       inferenceTime,
       e2eTime,
       backend,
+      batchSize,
     },
     forcedVisibility: 'auto',
   };
@@ -203,7 +205,10 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
       const runTime = performance.now() - runT0;
 
       const inferenceEndAt = Date.now();
-      const inferenceTime = inferenceEndAt - inferenceStartAt;
+      // Amortize the batch's wall time across its images. Attributing the whole-batch time to each
+      // image would make the per-image inferenceTime (and the throughput derived from it in
+      // PerformanceStats) undercount by the batch size.
+      const perImageInferenceTime = (inferenceEndAt - inferenceStartAt) / ready.length;
       const typedOutputs = rawOutputs as TypedResults;
       const postprocess = getPostprocessor(config.task);
 
@@ -217,7 +222,14 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
             originalHeight: item.image.imageHeight,
           });
           results[item.index] = {
-            result: buildImagePrediction(item.image, rawPredictions, backend, inferenceTime, inferenceEndAt),
+            result: buildImagePrediction(
+              item.image,
+              rawPredictions,
+              backend,
+              perImageInferenceTime,
+              inferenceEndAt,
+              ready.length,
+            ),
           };
         } catch (error) {
           logger.withTag('prediction').error(`Postprocess failed for ${item.image.task.imageSrc}:`, error);
