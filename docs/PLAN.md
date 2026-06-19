@@ -91,7 +91,7 @@ Touch points: `entrypoints/background/index.ts` (queue concurrency),
 Implemented: `INFERENCE_CONCURRENCY = 3` in `index.ts`; `withRunLock` serial mutex around
 `runSession` in `modelLoader.ts`. Re-measure E2E in `MODEL.md` after the next build.
 
-### Phase 2 - adaptive batching (the actual parallel GPU processing)
+### Phase 2 - adaptive batching (the actual parallel GPU processing) - DONE
 
 A batch collector between the queue and the inference call:
 
@@ -107,6 +107,14 @@ ordering (active tab first) is preserved by flushing in priority order.
 Touch points: new `BatchCollector` between `QueueService` and `processInferenceTask`,
 `preprocessing.ts` (batched tensor fill), `prediction.ts` (per-image output slicing), model metadata
 (`batch` field already exists in `metadata.yaml`).
+
+Implemented: `BatchCollector` (GPU-busy-window coalescing, priority-ordered flush, per-item error
+isolation; unit-tested) in `entrypoints/background/services/`. `prediction.ts` now exposes
+`processInferenceBatch(tasks)` (one `[N,3,H,W]` run + per-image `subarray` output slicing);
+`processInferenceTask` is the N=1 wrapper. Batching is gated on `metadata.args.dynamic` via
+`computeBatchCap` (caps 8@320, 4@448, 4@640; 1 = static -> no batching, keeps the Phase 1 direct
+path). `MODEL_PATHS` now point at the dynamic exports; `INFERENCE_CONCURRENCY` raised to 8 so a full
+batch can form. Re-measure E2E in `MODEL.md` after the next build.
 
 ### Phase 3 - ArgMax-head models (if Phase 0 confirms GPU support)
 

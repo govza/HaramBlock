@@ -3,6 +3,12 @@ import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-r
 import { setModelSettings, type ModelPreference } from '@/utils/modelSettings';
 
 export class ModelService {
+  private onModelSwitch?: () => void;
+
+  setOnModelSwitch(callback: () => void): void {
+    this.onModelSwitch = callback;
+  }
+
   async getAvailableModels(timeoutMs = 2000, pollMs = 100): Promise<{ id: string; name: string; inputSize: number }[]> {
     const start = Date.now();
 
@@ -33,10 +39,12 @@ export class ModelService {
 
   async switchModel(modelId: string): Promise<void> {
     await switchModel(modelId);
+    this.onModelSwitch?.();
   }
 
   async setModelPreference(modelId: ModelPreference): Promise<void> {
     await switchModel(modelId);
     await setModelSettings({ preference: modelId });
+    this.onModelSwitch?.();
   }
 }

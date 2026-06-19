@@ -1,6 +1,7 @@
 import { getCurrentModelId } from '@inference-runtime';
 
-import { getInferenceBackend, processInferenceTask } from '@/utils/inference';
+import { BatchCollector } from '@/entrypoints/background/services/batchCollector';
+import { getBatchCap, getInferenceBackend, processInferenceBatch, processInferenceTask } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { emitEvent } from '@/utils/logging';
 
@@ -54,6 +55,12 @@ export class InferenceOrchestrationService {
   private onImagePredictionsCallback?: OnImagePredictionsCallback;
   private onFramePredictionsCallback?: OnFramePredictionsCallback;
 
+  // Batches concurrent queue tasks into one session.run for dynamic-batch models.
+  private batchCollector = new BatchCollector<InferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
+    getCap: getBatchCap,
+    getPriority: task => task.priority,
+  });
+
   constructor(
     private queueService: QueueService,
     private imageCacheService: ImageCacheService,
@@ -67,6 +74,13 @@ export class InferenceOrchestrationService {
 
   setOnFramePredictionsCallback(callback: OnFramePredictionsCallback): void {
     this.onFramePredictionsCallback = callback;
+  }
+
+  // Match queue concurrency to the active model's batch cap (1 when batching is off). Admitting more
+  // than one batch lets low-priority tasks form a second collector batch ahead of a later active-tab
+  // task that p-queue has not admitted yet. Call after init and on every model switch.
+  refreshConcurrency(): void {
+    this.queueService.setConcurrency(getBatchCap());
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
@@ -150,7 +164,10 @@ export class InferenceOrchestrationService {
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       try {
-        const imagePrediction = await processInferenceTask(task);
+        // Dynamic-batch models go through the collector (batched session.run); static models keep the
+        // direct path so their decode/preprocess still overlaps the run via queue concurrency.
+        const imagePrediction =
+          getBatchCap() > 1 ? await this.batchCollector.submit(task) : await processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
 
         emitEvent({

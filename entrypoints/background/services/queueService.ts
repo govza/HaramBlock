@@ -6,9 +6,9 @@ export class QueueService {
   private queue: PQueue;
   private onTaskProcessing?: (task: InferenceTask) => Promise<void>;
 
-  constructor(options?: { concurrency?: number }) {
+  constructor() {
     this.queue = new PQueue({
-      concurrency: options?.concurrency || 1,
+      concurrency: 1,
       interval: 0,
       intervalCap: 1,
     });
@@ -16,6 +16,10 @@ export class QueueService {
 
   setTaskProcessingHandler(handler: (task: InferenceTask) => Promise<void>): void {
     this.onTaskProcessing = handler;
+  }
+
+  setConcurrency(concurrency: number): void {
+    this.queue.concurrency = Math.max(1, concurrency);
   }
 
   enqueue(task: InferenceTask): Promise<void> {
