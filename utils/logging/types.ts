@@ -21,6 +21,7 @@ export interface WideEvent {
 
   status: EventStatus;
   detectionsCount?: number;
+  batchSize?: number;
   cacheHit?: boolean;
   overlayType?: string;
   backend?: string;

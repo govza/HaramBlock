@@ -181,6 +181,7 @@ export class InferenceOrchestrationService {
           queueMs: imagePrediction.processingTime.queueTime,
           inferenceMs: imagePrediction.processingTime.inferenceTime,
           e2eMs: imagePrediction.processingTime.e2eTime,
+          batchSize: imagePrediction.processingTime.batchSize,
           detectionsCount: imagePrediction.predictions.length,
           cacheHit: false,
           backend: getInferenceBackend(),
