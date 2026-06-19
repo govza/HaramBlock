@@ -5,7 +5,7 @@
  * - initializeInference(): Initialize the library (call once at startup)
  * - processInferenceTask(task): Process a single image inference task
  * - processInferenceBatch(tasks): Process several tasks as one batched session.run
- * - getBatchCap(): Max images per batch for the active model (1 = no batching)
+ * - getBatchCap(): Max images per batch for the active model (1 = no batching, e.g. on WASM)
  * - getInferenceBackend(): Get the current backend (webgpu/wasm)
  *
  * Runtime: ONNX Runtime Web (WebGPU with WASM fallback)
@@ -38,6 +38,9 @@ export function processInferenceBatch(tasks: InferenceTask[]) {
 }
 
 export function getBatchCap(): number {
+  // Batching only pays off on the GPU's parallel dispatch. On WASM (single-threaded CPU) a batch of
+  // N runs ~Nx sequentially - no throughput gain and added latency - so never batch there.
+  if (getBackend() !== 'webgpu') return 1;
   return computeBatchCap(getActiveModelConfig());
 }
 
