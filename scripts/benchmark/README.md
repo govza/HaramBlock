@@ -11,9 +11,23 @@ pnpm bench                                    # full matrix, both browsers, all 
 pnpm bench -- --browsers=firefox --sizes=320  # focused run
 pnpm bench -- --configs=webgpu,webgpu-poke-t --runs=30 --warmups=5
 pnpm bench -- --concurrency=4 --verbose
+pnpm bench -- --batch=1,2,4,8 --configs=webgpu  # batched throughput sweep
 ```
 
 Results print as a markdown table and are saved as JSON under `scripts/benchmark/results/`.
+
+## Batched inference (docs/PLAN.md Phase 0)
+
+`--batch=1,2,4,8` runs each config with an `[N,3,H,W]` input and reports per-image latency
+(`img(ms)`) and per-image throughput (`imgs/s`) alongside the per-call figures, so batches compare
+directly against batch 1. The table also prints each run's output tensors
+(`dtype[dims]@location bytes`) — use this to confirm an ArgMax-head export shrank the readback and
+stayed on the WebGPU EP (a CPU-EP fallback shows up as a larger readback).
+
+Batch > 1 requires a **dynamic-batch** model export (`dynamic=True`); a static-batch export errors
+with `Got invalid dimensions for input`. The models under `public/models` are dynamic-batch, so the
+default per-size selection works. `--variant=<token>` substring-matches the model dir name to pick a
+specific export when several share a size.
 
 ## Configs
 
