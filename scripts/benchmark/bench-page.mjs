@@ -41,6 +41,7 @@ window.runBenchmark = async cfg => {
   const result = {
     name: cfg.name,
     size: cfg.size,
+    batch: cfg.batch ?? 1,
     jspiSupported: typeof WebAssembly.Suspending === 'function',
     webgpuAvailable: 'gpu' in navigator,
   };
@@ -69,8 +70,9 @@ window.runBenchmark = async cfg => {
     }
 
     const size = cfg.size;
-    const dims = [1, 3, size, size];
-    const elemCount = 3 * size * size;
+    const batch = cfg.batch ?? 1;
+    const dims = [batch, 3, size, size];
+    const elemCount = batch * 3 * size * size;
 
     const sessionOptions = {
       executionProviders: [cfg.epOptions ? { name: cfg.backend, ...cfg.epOptions } : cfg.backend],
@@ -131,6 +133,7 @@ window.runBenchmark = async cfg => {
     }
 
     let checksum = 0;
+    let outputMeta = null;
 
     const runOnce = async () => {
       const t0 = performance.now();
@@ -146,12 +149,23 @@ window.runBenchmark = async cfg => {
       const outputs = await session.run(feeds);
       const tRun = performance.now();
 
+      const meta = [];
       for (const key of Object.keys(outputs)) {
         const tensor = outputs[key];
         const data = tensor.location === 'cpu' ? tensor.data : await tensor.getData();
         checksum += Number(data[0]) + Number(data[data.length - 1]);
+        // Output shape/dtype/bytes reveal whether an ArgMax head shrank the readback and
+        // whether it stayed on the WebGPU EP (a CPU-EP fallback shows up as a larger readback).
+        meta.push({
+          name: key,
+          location: tensor.location,
+          dtype: tensor.type,
+          dims: tensor.dims,
+          bytes: data.byteLength ?? data.length * (data.BYTES_PER_ELEMENT ?? 4),
+        });
         if (!cfg.graphCapture) tensor.dispose?.();
       }
+      if (!outputMeta) outputMeta = meta;
 
       const tEnd = performance.now();
       return { total: tEnd - t0, run: tRun - t0, readback: tEnd - tRun };
@@ -187,7 +201,10 @@ window.runBenchmark = async cfg => {
     result.stats = computeStats(result.runsMs);
     result.stats.runMean = samples.reduce((a, s) => a + s.run, 0) / samples.length;
     result.stats.readbackMean = samples.reduce((a, s) => a + s.readback, 0) / samples.length;
-    result.stats.effectiveThroughput = (runs * 1000) / result.wallMs;
+    // Per-image figures so batched runs compare directly against batch 1.
+    result.stats.perImageMean = result.stats.mean / batch;
+    result.stats.effectiveThroughput = (runs * batch * 1000) / result.wallMs;
+    result.outputs = outputMeta;
     result.checksum = checksum;
     pokerStop();
   } catch (error) {

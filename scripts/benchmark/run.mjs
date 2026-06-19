@@ -26,9 +26,16 @@ const getArg = (name, fallback) => {
 
 const browsers = getArg('browsers', 'chromium,firefox').split(',');
 const sizes = getArg('sizes', '320,448,640').split(',').map(Number);
+const batches = getArg('batch', '1')
+  .split(',')
+  .map(Number)
+  .filter(n => Number.isFinite(n) && n >= 1);
 const runs = Number(getArg('runs', '30'));
 const warmups = Number(getArg('warmups', '5'));
 const configFilter = getArg('configs', '');
+// Substring matched against the model dir name - lets batch>1 target a dynamic-batch / ArgMax-head
+// export (e.g. --variant=dynamic) without disturbing the default static-batch model selection.
+const variant = getArg('variant', '');
 const concurrency = Number(getArg('concurrency', '1'));
 const verbose = args.includes('--verbose');
 
@@ -69,12 +76,29 @@ const CONFIGS = [
   { name: 'webgpu-poke-c', bundle: 'webgpu', backend: 'webgpu', poker: 'channel' },
   { name: 'webgpu-poke-raf', bundle: 'webgpu', backend: 'webgpu', poker: 'raf' },
   { name: 'webgpu-jsep-poke-t', bundle: 'jsep', backend: 'webgpu', poker: 'timeout' },
+  {
+    name: 'webgpu-gpuout-poke-t',
+    bundle: 'webgpu',
+    backend: 'webgpu',
+    outputLocation: 'gpu-buffer',
+    poker: 'timeout',
+  },
+  {
+    name: 'webgpu-jsep-gpuout-poke-t',
+    bundle: 'jsep',
+    backend: 'webgpu',
+    outputLocation: 'gpu-buffer',
+    poker: 'timeout',
+  },
 ];
 
-async function findModelDir(size) {
+async function findModelDir(size, variantToken) {
   const entries = await readdir(path.join(ROOT, 'public', 'models'));
-  const dir = entries.find(e => e.includes(`-${size}-`));
-  if (!dir) throw new Error(`No model directory found for size ${size}`);
+  const matches = entries.filter(e => e.includes(`-${size}-`));
+  const dir = variantToken ? matches.find(e => e.includes(variantToken)) : matches[0];
+  if (!dir) {
+    throw new Error(`No model directory found for size ${size}${variantToken ? ` variant '${variantToken}'` : ''}`);
+  }
   return dir;
 }
 
@@ -121,25 +145,40 @@ async function launchBrowser(name) {
 
 const fmt = v => (typeof v === 'number' ? v.toFixed(1) : '—');
 
+function fmtOutputs(outputs) {
+  if (!outputs?.length) return '';
+  return outputs.map(o => `${o.dtype}[${o.dims.join(',')}]@${o.location} ${(o.bytes / 1e6).toFixed(2)}MB`).join(' + ');
+}
+
 function printResults(browserName, results) {
   console.log(`\n## ${browserName}`);
   const adapter = results.find(r => r.adapter)?.adapter;
   if (adapter) console.log(`Adapter: ${adapter.vendor} ${adapter.architecture} ${adapter.description}`.trim());
-  console.log('| config | size | session(ms) | warm1 | mean | median | run | readback | p90 | imgs/s (eff) |');
-  console.log('|---|---|---|---|---|---|---|---|---|---|');
+  console.log(
+    '| config | size | batch | session(ms) | warm1 | mean | median | run | readback | p90 | img(ms) | imgs/s |',
+  );
+  console.log('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of results) {
     if (r.error) {
       const firstLine = r.error.split('\n')[0].slice(0, 100);
-      console.log(`| ${r.name} | ${r.size} | ERROR: ${firstLine} |`);
+      console.log(`| ${r.name} | ${r.size} | ${r.batch ?? 1} | ERROR: ${firstLine} |`);
       continue;
     }
     console.log(
-      `| ${r.name} | ${r.size} | ${fmt(r.sessionCreateMs)} | ${fmt(r.warmupMs?.[0])} | ${fmt(r.stats?.mean)} | ${fmt(
-        r.stats?.median,
-      )} | ${fmt(r.stats?.runMean)} | ${fmt(r.stats?.readbackMean)} | ${fmt(r.stats?.p90)} | ${fmt(
-        r.stats?.effectiveThroughput,
-      )} |`,
+      `| ${r.name} | ${r.size} | ${r.batch ?? 1} | ${fmt(r.sessionCreateMs)} | ${fmt(r.warmupMs?.[0])} | ${fmt(
+        r.stats?.mean,
+      )} | ${fmt(r.stats?.median)} | ${fmt(r.stats?.runMean)} | ${fmt(r.stats?.readbackMean)} | ${fmt(
+        r.stats?.p90,
+      )} | ${fmt(r.stats?.perImageMean)} | ${fmt(r.stats?.effectiveThroughput)} |`,
     );
+  }
+
+  const withOutputs = results.filter(r => r.outputs?.length);
+  if (withOutputs.length) {
+    console.log('\nOutput tensors (first run):');
+    for (const r of withOutputs) {
+      console.log(`- ${r.name} @ ${r.size} x${r.batch ?? 1}: ${fmtOutputs(r.outputs)}`);
+    }
   }
 }
 
@@ -157,34 +196,37 @@ async function main() {
     const results = [];
 
     for (const size of sizes) {
-      const model = await findModelDir(size);
-      for (const config of CONFIGS) {
-        if (configFilter && !configFilter.split(',').includes(config.name)) continue;
+      const model = await findModelDir(size, variant);
+      for (const batch of batches) {
+        for (const config of CONFIGS) {
+          if (configFilter && !configFilter.split(',').includes(config.name)) continue;
 
-        const page = await browser.newPage();
-        if (verbose) {
-          page.on('console', msg => console.log(`  [page] ${msg.text()}`));
-          page.on('pageerror', err => console.log(`  [pageerror] ${err.message}`));
-        }
-        try {
-          await page.goto(pageUrl);
-          await page.waitForFunction(() => window.benchReady === true, undefined, { timeout: 30000 });
-          const cfg = { ...config, size, model, runs, warmupRuns: warmups, concurrency };
-          console.log(`  running ${config.name} @ ${size}...`);
-          const result = await page.evaluate(c => window.runBenchmark(c), cfg);
-          if (result.error) {
-            console.log(`    ERROR: ${result.error.split('\n')[0]}`);
-          } else {
-            console.log(
-              `    session=${fmt(result.sessionCreateMs)}ms warm1=${fmt(result.warmupMs?.[0])}ms mean=${fmt(result.stats?.mean)}ms (run=${fmt(result.stats?.runMean)} readback=${fmt(result.stats?.readbackMean)}) eff=${fmt(result.stats?.effectiveThroughput)}/s`,
-            );
+          const page = await browser.newPage();
+          if (verbose) {
+            page.on('console', msg => console.log(`  [page] ${msg.text()}`));
+            page.on('pageerror', err => console.log(`  [pageerror] ${err.message}`));
           }
-          results.push(result);
-        } catch (error) {
-          console.log(`    FAILED: ${String(error).split('\n')[0]}`);
-          results.push({ name: config.name, size, error: String(error) });
-        } finally {
-          await page.close();
+          const label = `${config.name} @ ${size}${batch > 1 ? ` x${batch}` : ''}`;
+          try {
+            await page.goto(pageUrl);
+            await page.waitForFunction(() => window.benchReady === true, undefined, { timeout: 30000 });
+            const cfg = { ...config, size, batch, model, runs, warmupRuns: warmups, concurrency };
+            console.log(`  running ${label}...`);
+            const result = await page.evaluate(c => window.runBenchmark(c), cfg);
+            if (result.error) {
+              console.log(`    ERROR: ${result.error.split('\n')[0]}`);
+            } else {
+              console.log(
+                `    session=${fmt(result.sessionCreateMs)}ms warm1=${fmt(result.warmupMs?.[0])}ms mean=${fmt(result.stats?.mean)}ms (run=${fmt(result.stats?.runMean)} readback=${fmt(result.stats?.readbackMean)}) img=${fmt(result.stats?.perImageMean)}ms eff=${fmt(result.stats?.effectiveThroughput)}/s`,
+              );
+            }
+            results.push(result);
+          } catch (error) {
+            console.log(`    FAILED: ${String(error).split('\n')[0]}`);
+            results.push({ name: config.name, size, batch, error: String(error) });
+          } finally {
+            await page.close();
+          }
         }
       }
     }
@@ -198,7 +240,7 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const outFile = path.join(outDir, `bench-${stamp}.json`);
-  await writeFile(outFile, JSON.stringify({ runs, warmups, results: allResults }, null, 2));
+  await writeFile(outFile, JSON.stringify({ runs, warmups, batches, variant, results: allResults }, null, 2));
   console.log(`\nResults written to ${outFile}`);
 
   server.close();

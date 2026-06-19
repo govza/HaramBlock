@@ -49,16 +49,37 @@ No extension changes. Export test models with Ultralytics:
 Extend `scripts/benchmark/run.mjs` with `--batch=1,2,4,8` configs and the new model paths. Measure
 both browsers.
 
-**Risks to answer here:**
+**Harness done** (`--batch` / `--variant`, per-image latency + throughput, output-tensor
+dtype/dims/bytes reporting - see `scripts/benchmark/README.md`).
 
-- Does ORT's WebGPU EP run ArgMax on GPU? If it falls back to the CPU EP it forces an earlier,
-  larger readback and loses.
-- Batch memory at 640 (input alone is 4.9MB/image f32 + activations) - find the safe max batch per
-  model size.
-- Graph capture requires static shapes - dynamic batch likely forfeits it (acceptable; capture was
-  only worth ~2-3ms on Chrome).
+**Dynamic-batch validated** (`pnpm bench --batch=1,2,4,8 --variant=20260607`, 20 runs, NVIDIA Ampere
+/ Windows 11, June 2026). Per-image throughput (imgs/s), speedup vs batch 1 in parens:
 
-### Phase 1 - pipeline overlap (ship first, independent of Phase 0)
+| Browser          | size | b1   | b2         | b4         | b8         |
+| ---------------- | ---- | ---- | ---------- | ---------- | ---------- |
+| Chrome (webgpu)  | 320  | 82.8 | 144 (1.7x) | 222 (2.7x) | 317 (3.8x) |
+| Chrome (webgpu)  | 448  | 72.4 | 113 (1.6x) | 158 (2.2x) | 173 (2.4x) |
+| Chrome (webgpu)  | 640  | 53.6 | 76 (1.4x)  | 86 (1.6x)  | 86 (1.6x)  |
+| Firefox (poke-t) | 320  | 37.9 | 68 (1.8x)  | 116 (3.1x) | 195 (5.1x) |
+| Firefox (poke-t) | 448  | 37.2 | 54 (1.5x)  | 66 (1.8x)  | 85 (2.3x)  |
+| Firefox (poke-t) | 640  | 26.6 | 34 (1.3x)  | 46 (1.7x)  | 59 (2.2x)  |
+
+Takeaways: batching wins on both browsers, more at smaller resolutions and more on Firefox (fixed
+poke/IPC overhead amortizes). Chrome plateaus by batch 4 at 640 (1.6x); Firefox keeps climbing.
+Per-call latency grows with batch (e.g. Chrome 640 b8 = 93ms) while per-image latency drops - so the
+active tab's single image must still run at batch 1 (Phase 2's "queue empty -> batch 1" path).
+Suggested Phase 2 caps: 8@320, 4@448, 4@640.
+
+**Risks - status:**
+
+- Batch memory: no OOM through batch 8 @ 640 on Ampere (52MB f32 output). Safe max batch >= 8 at all
+  sizes on this GPU; revisit on weaker hardware.
+- ArgMax-on-GPU: **still open** - no ArgMax-head model was exported (only `dynamic=True`). Output is
+  still `float32[N,4,H,W]` logits (1.64MB@320 -> 52MB@640 b8). Phase 3 needs that export to measure.
+- Graph capture vs dynamic batch: not tested (accepted as forfeit; capture was only ~2-3ms on
+  Chrome).
+
+### Phase 1 - pipeline overlap (ship first, independent of Phase 0) - DONE
 
 Raise `QueueService` concurrency to 2-3, wrap `session.run` in an async mutex so only one GPU run is
 in flight (required - see hang above). Image N+1's decode/preprocess and image N-1's
@@ -66,6 +87,9 @@ postprocess/cache then overlap the GPU run. Cheapest win, helps both browsers im
 
 Touch points: `entrypoints/background/index.ts` (queue concurrency),
 `utils/inference/runtimes/onnx/modelLoader.ts` (`runSession` mutex).
+
+Implemented: `INFERENCE_CONCURRENCY = 3` in `index.ts`; `withRunLock` serial mutex around
+`runSession` in `modelLoader.ts`. Re-measure E2E in `MODEL.md` after the next build.
 
 ### Phase 2 - adaptive batching (the actual parallel GPU processing)
 
