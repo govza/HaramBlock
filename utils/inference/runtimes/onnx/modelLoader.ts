@@ -379,6 +379,12 @@ export function getCurrentModelId(): string {
   return currentModelId;
 }
 
+// Config of the active session, used to size adaptive batches. Falls back to the latest loaded
+// metadata before the first session exists.
+export function getActiveModelConfig(): ModelMetadata {
+  return sessionConfig ?? config;
+}
+
 export function getAvailableModels(): ModelDefinition[] {
   return [...availableModels.values()];
 }
