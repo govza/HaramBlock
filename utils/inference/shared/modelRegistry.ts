@@ -18,10 +18,22 @@ const NON_TARGET_CLASSES = new Set(['background', 'safe_person', 'person']);
  * This is the SINGLE SOURCE OF TRUTH for available models.
  */
 export const MODEL_PATHS = [
-  '/models/afeef-y26-sem-320-20260610',
-  '/models/afeef-y26-sem-448-20260610',
-  '/models/afeef-y26-sem-640-20260610',
+  '/models/afeef-y26-sem-320-20260607',
+  '/models/afeef-y26-sem-448-20260607',
+  '/models/afeef-y26-sem-640-20260607',
 ];
+
+/**
+ * Adaptive-batching caps by model input size, from the Phase 0 sweep (docs/PLAN.md): smaller models
+ * scale further before throughput plateaus. Only applied to dynamic-batch exports.
+ */
+const BATCH_CAPS: Record<number, number> = { 320: 8, 448: 4, 640: 4 };
+
+/** Max images per batched session.run for the active model (1 = no batching / static export). */
+export function computeBatchCap(config: ModelMetadata): number {
+  if (!config.dynamicBatch) return 1;
+  return BATCH_CAPS[config.imgsz[0]] ?? 4;
+}
 
 /** Preferred default model ID. Falls back to first discovered model if not found. */
 export const DEFAULT_MODEL_ID = 'sem-i320';
@@ -40,6 +52,7 @@ export const DEFAULT_CONFIG: ModelMetadata = {
   },
   stride: 32,
   task: 'semantic',
+  dynamicBatch: false,
 };
 
 /**
@@ -77,6 +90,7 @@ export function createConfigFromMetadata(metadata: YamlModelMetadata, defaults: 
     },
     stride,
     task,
+    dynamicBatch: metadata.args?.dynamic ?? false,
   };
 }
 

@@ -65,7 +65,7 @@ const result = await page.evaluate(async () => {
   const median = arr => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
 
   // Session A @ 320
-  const sessionA = await ort.InferenceSession.create('/public/models/afeef-y26-sem-320-20260610/best.onnx', opts);
+  const sessionA = await ort.InferenceSession.create('/public/models/afeef-y26-sem-320-20260607/best.onnx', opts);
   const deviceA = await ort.env.webgpu.device;
   const runA = makeRun(sessionA, 320, deviceA);
   const aTimes = [];
@@ -73,7 +73,7 @@ const result = await page.evaluate(async () => {
   await sessionA.release();
 
   // Session B @ 448 — poke with STALE device A (mimics the extension bug)
-  const sessionB = await ort.InferenceSession.create('/public/models/afeef-y26-sem-448-20260610/best.onnx', opts);
+  const sessionB = await ort.InferenceSession.create('/public/models/afeef-y26-sem-448-20260607/best.onnx', opts);
   const deviceB = await ort.env.webgpu.device;
   const runStale = makeRun(sessionB, 448, deviceA);
   const staleTimes = [];
