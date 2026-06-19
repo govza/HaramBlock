@@ -144,18 +144,35 @@ function needsFirefoxQueuePoke(): boolean {
   return import.meta.env.FIREFOX && cachedBackend === 'webgpu';
 }
 
+// Serializes session.run() calls. No onnxruntime-web bundle supports overlapping runs on a session
+// (asyncify has a single suspension stack; JSEP hangs) - see docs/PLAN.md. Queue concurrency (>1)
+// overlaps the surrounding CPU work, but the GPU run itself must stay single-flight. The chain is
+// mapped to a never-rejecting promise so one failed run cannot break serialization for the next.
+let runLock: Promise<void> = Promise.resolve();
+
+function withRunLock<T>(run: () => Promise<T>): Promise<T> {
+  const result = runLock.then(run);
+  runLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export async function runSession(
   sessionToRun: ort.InferenceSession,
   feeds: Record<string, ort.Tensor>,
 ): Promise<ort.InferenceSession.OnnxValueMapType> {
-  if (needsFirefoxQueuePoke()) {
-    // Fetch the device on every run: ONNX Runtime creates a NEW GPUDevice after a model
-    // switch (session release + create), and poking a stale device's queue does nothing.
-    // The getter resolves immediately since the WebGPU session already exists here.
-    const gpuDevice = await ort.env.webgpu.device;
-    return runWithQueuePoke(gpuDevice, () => sessionToRun.run(feeds));
-  }
-  return sessionToRun.run(feeds);
+  return withRunLock(async () => {
+    if (needsFirefoxQueuePoke()) {
+      // Fetch the device on every run: ONNX Runtime creates a NEW GPUDevice after a model
+      // switch (session release + create), and poking a stale device's queue does nothing.
+      // The getter resolves immediately since the WebGPU session already exists here.
+      const gpuDevice = await ort.env.webgpu.device;
+      return runWithQueuePoke(gpuDevice, () => sessionToRun.run(feeds));
+    }
+    return sessionToRun.run(feeds);
+  });
 }
 
 function getWarmupLabel(index: number): string {

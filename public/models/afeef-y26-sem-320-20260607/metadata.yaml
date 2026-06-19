@@ -1,0 +1,31 @@
+description: Ultralytics YOLO26n-sem model trained on E:\datasets\samin-yolo-sem\dataset.yaml
+author: Ultralytics
+date: '2026-06-19T20:21:22.752357'
+version: 8.4.56
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: semantic
+batch: 1
+imgsz:
+- 320
+- 320
+names:
+  0: background
+  1: aurat_female
+  2: aurat_male
+  3: safe_person
+args:
+  batch: 1
+  half: false
+  dynamic: true
+  simplify: true
+  opset: 17
+  nms: false
+channels: 3
+end2end: false
+output_shape:
+- 320
+- 320
+id: sem-i320
+name: "YOLO26n-sem 320\xD7320 (4 classes)"
