@@ -29,6 +29,7 @@ export interface EmitEventParams {
   styleMs?: number;
   // Result info
   detectionsCount?: number;
+  batchSize?: number;
   cacheHit?: boolean;
   overlayType?: string;
   backend?: string;
@@ -54,6 +55,7 @@ export const emitEvent = (params: EmitEventParams): void => {
     waitMs: params.waitMs,
     styleMs: params.styleMs,
     detectionsCount: params.detectionsCount,
+    batchSize: params.batchSize,
     cacheHit: params.cacheHit,
     overlayType: params.overlayType,
     backend: params.backend,

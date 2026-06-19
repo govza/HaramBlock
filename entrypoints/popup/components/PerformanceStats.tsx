@@ -13,6 +13,7 @@ interface PredictionStats {
   medianDelay: number;
   throughput: number;
   medianInference: number;
+  avgBatchSize: number;
 }
 
 const calculateMedian = (values: number[]): number => {
@@ -36,6 +37,7 @@ const calculateStats = (predictions: IImagePrediction[]): PredictionStats => {
       medianDelay: 0,
       throughput: 0,
       medianInference: 0,
+      avgBatchSize: 0,
     };
   }
 
@@ -48,12 +50,18 @@ const calculateStats = (predictions: IImagePrediction[]): PredictionStats => {
   const totalInferenceMs = inferenceTimes.reduce((sum, t) => sum + t, 0);
   const throughput = totalInferenceMs > 0 ? (totalImages / totalInferenceMs) * 1000 : 0;
 
+  const batchSizes = predictions
+    .map(pred => pred.processingTime.batchSize)
+    .filter((b): b is number => typeof b === 'number');
+  const avgBatchSize = batchSizes.length > 0 ? batchSizes.reduce((sum, b) => sum + b, 0) / batchSizes.length : 0;
+
   return {
     totalImages,
     totalDetections,
     medianDelay: calculateMedian(e2eTimes),
     throughput,
     medianInference: calculateMedian(inferenceTimes),
+    avgBatchSize,
   };
 };
 
@@ -165,6 +173,12 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
             <span className='text-white'>
               {Math.round(stats.medianDelay)}
               <span className='text-gray-400'>ms</span>
+            </span>
+
+            <span className='text-gray-400'>Batch{'\t'}</span>
+            <span className='text-white'>
+              {stats.avgBatchSize.toFixed(1)}
+              <span className='text-gray-400'>avg</span>
             </span>
           </div>
         )}
