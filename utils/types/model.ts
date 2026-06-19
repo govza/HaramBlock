@@ -69,6 +69,7 @@ export interface YamlModelMetadata {
     half?: boolean;
     int8?: boolean;
     nms?: boolean;
+    dynamic?: boolean;
   };
   input_name?: string;
   output_names?: {
@@ -103,4 +104,6 @@ export interface ModelMetadata {
   stride: number;
   /** Model task type: 'segment' for instance segmentation, 'semantic' for semantic segmentation */
   task: 'segment' | 'semantic';
+  /** Whether the export has a dynamic batch dim ([N,3,H,W]); enables adaptive batching */
+  dynamicBatch: boolean;
 }
