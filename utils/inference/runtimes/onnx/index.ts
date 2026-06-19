@@ -1,5 +1,6 @@
 export {
   cleanup,
+  getActiveModelConfig,
   getAvailableModels,
   getBackend,
   getCurrentModelId,
@@ -9,4 +10,4 @@ export {
   ort,
   switchModel,
 } from '@/utils/inference/runtimes/onnx/modelLoader';
-export { processInferenceTask } from '@/utils/inference/runtimes/onnx/prediction';
+export { processInferenceBatch, processInferenceTask } from '@/utils/inference/runtimes/onnx/prediction';
