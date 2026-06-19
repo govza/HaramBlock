@@ -17,12 +17,6 @@ import { getModelSettings, setModelSettings } from '@/utils/modelSettings';
 // First-run default when WebGPU is available; without it the registry baseline (sem-i320) loads.
 const WEBGPU_DEFAULT_MODEL_ID = 'sem-i448';
 
-// Pipeline overlap (docs/PLAN.md Phase 1): a single GPU run stays in flight at a time (runSession
-// mutex in modelLoader), but raising queue concurrency lets image N+1's decode/preprocess and image
-// N-1's postprocess/cache overlap the GPU run of image N. Priority ordering (active tab first) is
-// preserved - p-queue still dequeues by priority.
-const INFERENCE_CONCURRENCY = 3;
-
 export default defineBackground({
   type: 'module',
   main() {
@@ -31,7 +25,7 @@ export default defineBackground({
     const imageCacheService = new ImageCacheService();
     const iconService = new IconService();
     const modelService = new ModelService();
-    const queueService = new QueueService({ concurrency: INFERENCE_CONCURRENCY });
+    const queueService = new QueueService();
 
     const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
 
@@ -59,6 +53,9 @@ export default defineBackground({
     inferenceService.setOnFramePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitFramePredictions(predictions, hostname);
     });
+
+    // Re-size queue concurrency to the new model's batch cap on every switch.
+    modelService.setOnModelSwitch(() => inferenceService.refreshConcurrency());
 
     // Initialize all event listeners
     contextMenuListener.initialize((src, forcedVisibility) => {
@@ -101,6 +98,9 @@ export default defineBackground({
         }
         await initializeInference();
       }
+
+      // Backend and model are resolved now: size concurrency to the active model's batch cap.
+      inferenceService.refreshConcurrency();
     })().catch(error => {
       logger.withTag('background').error('Failed to initialize inference:', error);
     });
