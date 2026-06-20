@@ -131,6 +131,10 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
       throw new Error('Service worker did not ACK MessageChannel');
     }
 
+    // Tell the background which tab owns this channel so it can release the port when the
+    // tab closes or reloads. Runtime messages carry sender.tab.id; the channel itself does not.
+    browser.runtime.sendMessage({ type: 'REGISTER_CHANNEL_TAB', secret }).catch(() => {});
+
     // Wire up message handler for comctx messages
     mc.port1.onmessage = (event: MessageEvent<Partial<Message<MessageMeta>> | undefined>) => {
       // Forward to all registered callbacks
