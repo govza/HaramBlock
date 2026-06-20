@@ -12,6 +12,7 @@ interface MessageSender {
 interface PortInfo {
   port: MessagePort;
   secret: string;
+  tabId?: number;
 }
 
 /**
@@ -29,11 +30,18 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
   constructor() {
     this.initializeBrowserRuntime();
     this.initializeMessageChannel();
+    this.initializeTabCleanup();
   }
 
   private initializeBrowserRuntime(): void {
     browser.runtime.onMessage.addListener(
       (message: Partial<Message<MessageMeta>> | undefined, sender: MessageSender) => {
+        const control = message as unknown as { type?: string; secret?: string } | undefined;
+        if (control?.type === 'REGISTER_CHANNEL_TAB') {
+          this.associateTab(control.secret, sender.tab?.id);
+          return;
+        }
+
         const enrichedMessage = message
           ? {
               ...message,
@@ -113,6 +121,42 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
     this.messageCallbacks.forEach(callback => callback(enrichedMessage));
   }
+
+  private initializeTabCleanup(): void {
+    browser.tabs.onRemoved.addListener(this.releaseTab);
+    logger.withTag('CompositeProvideAdapter').debug('Tab cleanup listener initialized');
+  }
+
+  /**
+   * Associate a channel secret with the tab that owns it. Sent by the content script
+   * over browser.runtime (which carries sender.tab.id) once the channel is established.
+   * A reload or same-tab navigation produces a fresh secret for the same tab, so any
+   * previous port for that tab is now stale and removed here.
+   */
+  private associateTab(secret: string | undefined, tabId?: number): void {
+    if (!secret || tabId === undefined) return;
+    const portInfo = this.ports.get(secret);
+    if (!portInfo) return;
+
+    portInfo.tabId = tabId;
+    for (const [otherSecret, info] of this.ports) {
+      if (otherSecret !== secret && info.tabId === tabId) {
+        this.ports.delete(otherSecret);
+      }
+    }
+  }
+
+  /**
+   * Drop every port owned by a closed tab. Without this, ports leak for the lifetime
+   * of the service worker since posting to a closed tab's port does not throw.
+   */
+  private releaseTab = (tabId: number): void => {
+    for (const [secret, info] of this.ports) {
+      if (info.tabId === tabId) {
+        this.ports.delete(secret);
+      }
+    }
+  };
 
   sendMessage: SendMessage<MessageMeta> = async (message, transfer) => {
     const meta = message.meta as
