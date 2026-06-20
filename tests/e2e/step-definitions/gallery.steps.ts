@@ -8,6 +8,21 @@ const getElementCount = async (selector: string): Promise<number> => {
   return elements.length;
 };
 
+const waitForCount = async (getCount: () => Promise<number>, expected: number, label: string): Promise<number> => {
+  let actual = await getCount();
+  await browser.waitUntil(
+    async () => {
+      actual = await getCount();
+      return actual === expected;
+    },
+    {
+      timeout: 10000,
+      timeoutMsg: `Expected ${expected} ${label} but found ${actual}`,
+    },
+  );
+  return actual;
+};
+
 const scrollToLoadAllImages = async (): Promise<void> => {
   const footer = await $('footer');
   await footer.waitForExist({ timeout: 5000 });
@@ -51,13 +66,21 @@ When(
 
 Then('I should see {string} images loaded', async (count: string) => {
   const expectedCount = parseInt(count, 10);
-  const actualCount = await getElementCount(Selectors.GALLERY_IMAGE);
+  const actualCount = await waitForCount(
+    () => getElementCount(Selectors.GALLERY_IMAGE),
+    expectedCount,
+    'gallery images',
+  );
   await expect(actualCount).toBe(expectedCount);
 });
 
 Then('I should see {string} mask overlays', async (count: string) => {
   const expectedCount = parseInt(count, 10);
-  const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
-  const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
-  expect(segmentCount + bboxCount).toBe(expectedCount);
+  const getMaskCount = async (): Promise<number> => {
+    const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
+    const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
+    return segmentCount + bboxCount;
+  };
+  const actualCount = await waitForCount(getMaskCount, expectedCount, 'mask overlays');
+  expect(actualCount).toBe(expectedCount);
 });
