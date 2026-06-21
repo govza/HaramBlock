@@ -14,7 +14,7 @@ export class IconService {
       const tab = await browser.tabs.get(tabId);
       const repository = createHostSettingsRepository(tab.incognito);
       const hostSettings = await repository.findByHostname(hostname);
-      const iconPaths = getIconPaths(hostSettings.policy);
+      const iconPaths = getIconPaths(hostSettings.policy.behavior);
       await (browser.action ?? browser.browserAction).setIcon({ tabId, path: iconPaths });
     } catch (error) {
       logger.withTag('iconService').error('Error updating toolbar icon for hostname:', hostname, error);

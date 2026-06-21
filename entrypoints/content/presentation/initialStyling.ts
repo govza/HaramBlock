@@ -89,17 +89,17 @@ export const applyBlacklistStyling = (
 };
 
 export const applyInitialVideoStyling = (video: HTMLVideoElement, hostSettings: IHostSettings): void => {
-  if (hostSettings.policy === 'blacklist') {
+  if (hostSettings.policy.behavior === 'blacklist') {
     applyBlacklistStyling(video, hostSettings);
-  } else if (hostSettings.policy === 'process') {
+  } else if (hostSettings.policy.behavior === 'process') {
     video.classList.add('haramblock-initial-blur');
   }
 };
 
 export const applyInitialImageStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {
-  if (hostSettings.policy === 'blacklist') {
+  if (hostSettings.policy.behavior === 'blacklist') {
     applyBlacklistStyling(image, hostSettings);
-  } else if (hostSettings.policy === 'process' || hostSettings.policy === 'process-images') {
+  } else if (hostSettings.policy.behavior === 'process') {
     image.classList.add('haramblock-initial-blur');
   }
 };

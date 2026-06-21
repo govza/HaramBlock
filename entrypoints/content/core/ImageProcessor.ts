@@ -105,7 +105,7 @@ export class ImageProcessor {
     }
 
     // Blacklist policy: apply blacklist styling if not already applied
-    if (this.hostSettings.policy === 'blacklist') {
+    if (this.hostSettings.policy.behavior === 'blacklist') {
       if (hasBlacklistStyling(img)) {
         return; // Already blacklisted
       }

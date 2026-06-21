@@ -1,12 +1,12 @@
-import type { HostPolicy } from '@/utils/types';
+import type { PolicyBehavior } from '@/utils/types';
 
 /**
- * Helper function to get icon paths based on policy
- * Returns icon paths for different sizes based on the host policy
+ * Helper function to get icon paths based on the policy behavior
+ * Returns icon paths for different sizes based on the host policy behavior
  */
-export const getIconPaths = (policy: HostPolicy): Record<string, string> => {
+export const getIconPaths = (behavior: PolicyBehavior): Record<string, string> => {
   const iconBasePath = '/icon/';
-  switch (policy) {
+  switch (behavior) {
     case 'blacklist':
       return {
         '16': `${iconBasePath}icon16-blacklist.png`,
@@ -24,7 +24,6 @@ export const getIconPaths = (policy: HostPolicy): Record<string, string> => {
         '128': `${iconBasePath}icon128-whitelist.png`,
       };
     case 'process':
-    case 'process-images':
     default:
       return {
         '16': `${iconBasePath}16.png`,

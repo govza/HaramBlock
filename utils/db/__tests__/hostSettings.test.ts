@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
+import { normalizeStoredPolicy } from '@/utils/policy';
 import { type IHostSettings } from '@/utils/types';
 
 // Mock the database
@@ -44,7 +45,7 @@ const STANDARD_SETTINGS: IHostSettings = {
   isGlobal: false,
   masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
   outline: 'bbox',
-  policy: 'whitelist',
+  policy: { behavior: 'whitelist', targets: { image: true, video: false } },
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
   quickToggle: { unsafeEnabled: true, safeEnabled: true },
@@ -55,7 +56,7 @@ const GLOBAL_SETTINGS: IHostSettings = {
   isGlobal: true,
   masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
   outline: 'segment',
-  policy: 'process',
+  policy: { behavior: 'process', targets: { image: true, video: true } },
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
   quickToggle: { unsafeEnabled: true, safeEnabled: true },
@@ -78,27 +79,23 @@ describe('HostSettingsRepository', () => {
 
   // Focus on the most complex business logic
   describe('togglePolicy', () => {
-    it('should cycle through policies correctly', async () => {
+    it('should cycle through policy behaviors correctly', async () => {
       mockGet.mockResolvedValue(STANDARD_SETTINGS);
       mockPut.mockResolvedValue(TEST_HOSTNAME);
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
 
-      // Test the policy cycle: process -> process-images -> whitelist -> blacklist -> process
+      // Cycle: process -> whitelist -> blacklist -> process
       // Starting from whitelist (STANDARD_SETTINGS)
       let settings = await repository.togglePolicy(TEST_HOSTNAME);
-      expect(settings.policy).toBe('blacklist');
+      expect(settings.policy.behavior).toBe('blacklist');
 
       mockGet.mockResolvedValue(settings);
       settings = await repository.togglePolicy(TEST_HOSTNAME);
-      expect(settings.policy).toBe('process');
+      expect(settings.policy.behavior).toBe('process');
 
       mockGet.mockResolvedValue(settings);
       settings = await repository.togglePolicy(TEST_HOSTNAME);
-      expect(settings.policy).toBe('process-images');
-
-      mockGet.mockResolvedValue(settings);
-      settings = await repository.togglePolicy(TEST_HOSTNAME);
-      expect(settings.policy).toBe('whitelist');
+      expect(settings.policy.behavior).toBe('whitelist');
     });
 
     it('should handle database errors', async () => {
@@ -107,6 +104,36 @@ describe('HostSettingsRepository', () => {
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
 
       await expect(repository.togglePolicy(TEST_HOSTNAME)).rejects.toThrow('Failed to save host settings');
+    });
+  });
+
+  describe('setTarget', () => {
+    const PROCESS_SETTINGS: IHostSettings = {
+      ...STANDARD_SETTINGS,
+      policy: { behavior: 'process', targets: { image: true, video: false } },
+    };
+
+    it('should toggle a target while preserving behavior and other targets', async () => {
+      mockGet.mockResolvedValue(PROCESS_SETTINGS);
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setTarget(TEST_HOSTNAME, 'video', true);
+
+      expect(settings.policy.targets.video).toBe(true);
+      expect(settings.policy.targets.image).toBe(true);
+      expect(settings.policy.behavior).toBe('process');
+    });
+
+    it('refuses to disable the last enabled target', async () => {
+      mockGet.mockResolvedValue(PROCESS_SETTINGS); // image: true, video: false
+      mockPut.mockResolvedValue(TEST_HOSTNAME);
+      mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
+
+      const settings = await repository.setTarget(TEST_HOSTNAME, 'image', false);
+
+      expect(settings.policy.targets.image).toBe(true);
+      expect(mockPut).not.toHaveBeenCalled();
     });
   });
 
@@ -130,15 +157,15 @@ describe('HostSettingsRepository', () => {
 
   describe('findByHostname', () => {
     it('should load existing settings from database', async () => {
-      const storedSettings = {
+      const storedSettings: IHostSettings = {
         ...STANDARD_SETTINGS,
-        policy: 'blacklist' as const,
+        policy: { behavior: 'blacklist', targets: { image: true, video: false } },
       };
       mockGet.mockResolvedValue(storedSettings);
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
 
       const hostSettings = await repository.findByHostname(TEST_HOSTNAME);
-      expect(hostSettings.policy).toBe('blacklist');
+      expect(hostSettings.policy.behavior).toBe('blacklist');
       expect(mockGet).toHaveBeenCalledWith(TEST_HOSTNAME);
     });
 
@@ -159,7 +186,7 @@ describe('HostSettingsRepository', () => {
 
       const hostSettings = await repository.findByHostname(TEST_HOSTNAME);
       expect(hostSettings.hostname).toBe(TEST_HOSTNAME);
-      expect(hostSettings.policy).toBe(DEFAULT_HOST_SETTINGS.policy);
+      expect(hostSettings.policy).toEqual(DEFAULT_HOST_SETTINGS.policy);
     });
   });
 
@@ -174,7 +201,7 @@ describe('HostSettingsRepository', () => {
         isGlobal: false,
         masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
         outline: 'bbox',
-        policy: 'whitelist',
+        policy: { behavior: 'whitelist', targets: { image: true, video: false } },
         strictness: 0,
         minSize: { width: 64, height: 64 },
         quickToggle: { unsafeEnabled: true, safeEnabled: false },
@@ -185,7 +212,7 @@ describe('HostSettingsRepository', () => {
         isGlobal: false,
         masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
         outline: 'bbox',
-        policy: 'whitelist',
+        policy: { behavior: 'whitelist', targets: { image: true, video: false } },
         strictness: 0,
         minSize: { width: 64, height: 64 },
         quickToggle: { unsafeEnabled: true, safeEnabled: false },
@@ -335,5 +362,39 @@ describe('HostSettingsRepository', () => {
       expect(mockPut).toHaveBeenCalledWith(DEFAULT_HOST_SETTINGS);
       expect(mockDelete).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('normalizeStoredPolicy', () => {
+  it('maps legacy process-images to process with video off', () => {
+    expect(normalizeStoredPolicy('process-images')).toEqual({
+      behavior: 'process',
+      targets: { image: true, video: false },
+    });
+  });
+
+  it('maps legacy process (process all) to all targets enabled', () => {
+    expect(normalizeStoredPolicy('process')).toEqual({
+      behavior: 'process',
+      targets: { image: true, video: true },
+    });
+  });
+
+  it('preserves stored targets across non-process behaviors', () => {
+    expect(normalizeStoredPolicy({ behavior: 'whitelist', targets: { image: true, video: false } })).toEqual({
+      behavior: 'whitelist',
+      targets: { image: true, video: false },
+    });
+  });
+
+  it('backfills missing targets on a process policy from defaults', () => {
+    expect(normalizeStoredPolicy({ behavior: 'process', targets: { video: true } })).toEqual({
+      behavior: 'process',
+      targets: { image: true, video: true },
+    });
+  });
+
+  it('falls back to the default policy for unknown values', () => {
+    expect(normalizeStoredPolicy(undefined)).toEqual(DEFAULT_HOST_SETTINGS.policy);
   });
 });

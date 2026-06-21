@@ -2,8 +2,9 @@ import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { BaseRepository } from '@/utils/db/baseRepository';
 import { hostSettingsDb, isIncognito } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
+import { normalizeStoredPolicy } from '@/utils/policy';
 
-import type { IHostSettings, OutlineType, HostPolicy } from '@/utils/types';
+import type { IHostSettings, OutlineType, PolicyBehavior, PolicyTarget } from '@/utils/types';
 
 const STORAGE_PREFIX = 'hostSettings:';
 
@@ -78,10 +79,8 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   }
 
   async findAll(): Promise<IHostSettings[]> {
-    if (this.useSessionStorage) {
-      return this.storageGetAll();
-    }
-    return this.table.toArray();
+    const records = this.useSessionStorage ? await this.storageGetAll() : await this.table.toArray();
+    return records.map(record => ({ ...record, policy: normalizeStoredPolicy(record.policy) }));
   }
 
   /**
@@ -102,6 +101,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
           ...storedGlobal,
           masking: { ...DEFAULT_HOST_SETTINGS.masking, ...storedGlobal.masking },
           quickToggle: { ...DEFAULT_HOST_SETTINGS.quickToggle, ...storedGlobal.quickToggle },
+          policy: normalizeStoredPolicy(storedGlobal.policy),
         };
       }
     }
@@ -112,6 +112,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
       ...stored,
       masking: { ...baseSettings.masking, ...stored?.masking },
       quickToggle: { ...baseSettings.quickToggle, ...stored?.quickToggle },
+      policy: normalizeStoredPolicy(stored?.policy ?? baseSettings.policy),
       hostname: effectiveHostname,
       isGlobal,
     };
@@ -147,19 +148,18 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   }
 
   /**
-   * Toggle policy: process -> process-images -> whitelist -> blacklist -> process
+   * Cycle the policy behavior: process -> whitelist -> blacklist -> process
    * @param hostname - The hostname to toggle policy for
    * @returns Updated host settings
    */
   async togglePolicy(hostname: string): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
 
-    const policyOrder: HostPolicy[] = ['process', 'process-images', 'whitelist', 'blacklist'];
-    const currentIndex = policyOrder.indexOf(settings.policy);
-    const nextIndex = (currentIndex + 1) % policyOrder.length;
-    const nextPolicy = policyOrder[nextIndex];
-    if (nextPolicy !== undefined) {
-      settings.policy = nextPolicy;
+    const behaviorOrder: PolicyBehavior[] = ['process', 'whitelist', 'blacklist'];
+    const currentIndex = behaviorOrder.indexOf(settings.policy.behavior);
+    const nextBehavior = behaviorOrder[(currentIndex + 1) % behaviorOrder.length];
+    if (nextBehavior !== undefined) {
+      settings.policy = { ...settings.policy, behavior: nextBehavior };
     }
 
     await this.saveSettings(settings);
@@ -193,14 +193,21 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   }
 
   /**
-   * Set policy for hostname
+   * Toggle a single media target (image/video) for hostname.
+   * Enforces the invariant that at least one target stays enabled — a request that
+   * would disable the last enabled target is ignored and settings are returned unchanged.
    * @param hostname - The hostname to update
-   * @param policy - The policy to set
+   * @param target - The media target to toggle
+   * @param enabled - Whether the target should be processed
    * @returns Updated host settings
    */
-  async setPolicy(hostname: string, policy: HostPolicy): Promise<IHostSettings> {
+  async setTarget(hostname: string, target: PolicyTarget, enabled: boolean): Promise<IHostSettings> {
     const settings = await this.findByHostname(hostname);
-    settings.policy = policy;
+    const targets = { ...settings.policy.targets, [target]: enabled };
+    if (!Object.values(targets).some(Boolean)) {
+      return settings;
+    }
+    settings.policy = { ...settings.policy, targets };
     await this.saveSettings(settings);
     return settings;
   }

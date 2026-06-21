@@ -35,7 +35,7 @@ export default defineContentScript({
           stopPipeline = null;
         }
 
-        if (hostSettings.policy !== 'whitelist') {
+        if (hostSettings.policy.behavior !== 'whitelist') {
           const pipeline = new MediaPipeline({
             hostSettings,
           });

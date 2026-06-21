@@ -13,7 +13,8 @@ global row keyed by `DEFAULT_GLOBAL_KEY` (used as defaults and for “global mod
 Defined in `utils/types/host.ts`:
 
 ```ts
-export type HostPolicy = 'whitelist' | 'blacklist' | 'process';
+export type PolicyBehavior = 'whitelist' | 'blacklist' | 'process';
+export type PolicyTarget = 'image' | 'video';
 export type OutlineType = 'bbox' | 'segment';
 
 export interface IMaskingSettings {
@@ -23,22 +24,30 @@ export interface IMaskingSettings {
   pixelationScale: number; // 1-100%
 }
 
+export interface IHostPolicy {
+  behavior: PolicyBehavior; // single-select mode
+  targets: Record<PolicyTarget, boolean>; // which media types are filtered when processing
+}
+
 export interface IHostSettings {
   hostname: string;
   isGlobal: boolean;
   masking: IMaskingSettings;
   outline: OutlineType;
-  policy: HostPolicy;
+  policy: IHostPolicy;
   strictness: number;
   minSize: { width: number; height: number };
   quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean };
 }
 ```
 
-- `policy`
+- `policy.behavior`
   - `whitelist`: don't filter
   - `blacklist`: filter everything (no inference)
   - `process`: run inference and filter based on predictions
+- `policy.targets`: when `behavior` is `process`, which media types are filtered (`image`, `video`).
+  Stored nested; read directly (`policy.targets.image`). `normalizeStoredPolicy` (`utils/policy.ts`)
+  migrates legacy string policies (incl. the removed `process-images`) on read.
 - `outline`: how the masking is applied (`bbox` or `segment`)
 - `masking`: visual effects (grayscale, dark, blurIntensity, pixelationScale)
 - `strictness`: detection threshold (higher = stricter)
