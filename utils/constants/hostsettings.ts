@@ -7,7 +7,7 @@ export const DEFAULT_HOST_SETTINGS: IHostSettings = {
   masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
   isGlobal: true,
   outline: 'segment',
-  policy: 'process-images',
+  policy: { behavior: 'process', targets: { image: true, video: false } },
   strictness: 0.8,
   minSize: { width: 50, height: 50 },
   quickToggle: { unsafeEnabled: true, safeEnabled: true },

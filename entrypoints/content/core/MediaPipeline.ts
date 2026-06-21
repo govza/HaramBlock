@@ -32,6 +32,18 @@ export class MediaPipeline {
     });
   }
 
+  private get policy() {
+    return this.opts.hostSettings.policy;
+  }
+
+  private get shouldProcessImages(): boolean {
+    return this.policy.behavior === 'blacklist' || (this.policy.behavior === 'process' && this.policy.targets.image);
+  }
+
+  private get shouldProcessVideo(): boolean {
+    return this.policy.behavior === 'process' && this.policy.targets.video;
+  }
+
   seedCachedPredictions(preds: IImagePrediction[]): void {
     this.imageProcessor.seedCache(preds);
   }
@@ -45,7 +57,7 @@ export class MediaPipeline {
 
     this.unsubscribeFns.push(unsubImagePreds);
 
-    if (this.opts.hostSettings.policy === 'process') {
+    if (this.shouldProcessVideo) {
       const unsubFramePreds = onFramePredictions(data => {
         if (data.hostname === this.opts.hostSettings.hostname) {
           this.handleFramePredictions(data.predictions);
@@ -73,8 +85,10 @@ export class MediaPipeline {
   }
 
   private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
-    this.imageProcessor.processAll(images);
-    if (videos.length && this.opts.hostSettings.policy === 'process') {
+    if (this.shouldProcessImages) {
+      this.imageProcessor.processAll(images);
+    }
+    if (videos.length && this.shouldProcessVideo) {
       handleVideos(videos, this.opts.hostSettings);
     }
   }
@@ -92,8 +106,10 @@ export class MediaPipeline {
   private onAttributesChanged(elements: HTMLElement[]): void {
     for (const el of elements) {
       if (el.tagName === 'IMG') {
-        this.imageProcessor.handleSrcChange(el as HTMLImageElement);
-      } else if (el.tagName === 'VIDEO' && this.opts.hostSettings.policy === 'process') {
+        if (this.shouldProcessImages) {
+          this.imageProcessor.handleSrcChange(el as HTMLImageElement);
+        }
+      } else if (el.tagName === 'VIDEO' && this.shouldProcessVideo) {
         handleVideoAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
       }
     }
