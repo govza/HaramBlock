@@ -1,6 +1,7 @@
 import {
   onImagePredictions,
   onFramePredictions,
+  onGifFramePredictions,
   onContextMenuToggle,
 } from '@/entrypoints/content/communication/listener';
 import { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
@@ -40,6 +41,10 @@ export class MediaPipeline {
     return this.policy.behavior === 'blacklist' || (this.policy.behavior === 'process' && this.policy.targets.image);
   }
 
+  private get shouldProcessGif(): boolean {
+    return this.policy.behavior === 'process' && this.policy.targets.gif;
+  }
+
   private get shouldProcessVideo(): boolean {
     return this.policy.behavior === 'blacklist' || (this.policy.behavior === 'process' && this.policy.targets.video);
   }
@@ -60,6 +65,14 @@ export class MediaPipeline {
     });
 
     this.unsubscribeFns.push(unsubImagePreds);
+
+    // GIF frame verdicts arrive whenever images are being processed.
+    const unsubGifPreds = onGifFramePredictions(data => {
+      if (data.hostname === this.opts.hostSettings.hostname) {
+        this.imageProcessor.handleGifFramePredictions(data.predictions);
+      }
+    });
+    this.unsubscribeFns.push(unsubGifPreds);
 
     if (this.shouldRunVideoInference) {
       const unsubFramePreds = onFramePredictions(data => {
@@ -89,7 +102,9 @@ export class MediaPipeline {
   }
 
   private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
-    if (this.shouldProcessImages) {
+    // GIFs are <img> elements too, so the image processor runs whenever either
+    // static images or GIFs are targeted; it routes each element to the right path.
+    if (this.shouldProcessImages || this.shouldProcessGif) {
       this.imageProcessor.processAll(images);
     }
     if (videos.length && this.shouldProcessVideo) {
@@ -110,7 +125,7 @@ export class MediaPipeline {
   private onAttributesChanged(elements: HTMLElement[]): void {
     for (const el of elements) {
       if (el.tagName === 'IMG') {
-        if (this.shouldProcessImages) {
+        if (this.shouldProcessImages || this.shouldProcessGif) {
           this.imageProcessor.handleSrcChange(el as HTMLImageElement);
         }
       } else if (el.tagName === 'VIDEO' && this.shouldProcessVideo) {
