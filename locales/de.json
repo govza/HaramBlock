@@ -60,9 +60,12 @@
       "title": "Richtlinie",
       "description": "Steuern Sie, wie KI Inhalte verarbeitet",
       "blacklist": "Alles blockieren",
-      "process": "Alles verarbeiten",
-      "processImages": "Bilder verarbeiten",
+      "process": "Verarbeiten",
       "whitelist": "Alles erlauben"
+    },
+    "Targets": {
+      "image": "Bilder",
+      "video": "Videos"
     },
     "Strictness": {
       "title": "Strenge",

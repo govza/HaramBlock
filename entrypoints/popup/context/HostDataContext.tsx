@@ -70,18 +70,18 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   const switchToGlobal = () => setIsGlobalMode(true);
   const switchToLocal = () => setIsGlobalMode(false);
 
-  // Update toolbar icon when policy changes (skip initial load)
+  // Update toolbar icon when the policy behavior changes (skip initial load)
   const prevPolicyRef = useRef<string | null>(null);
   useEffect(() => {
     if (prevPolicyRef.current === null) {
-      prevPolicyRef.current = hostSettings.policy;
+      prevPolicyRef.current = hostSettings.policy.behavior;
       return;
     }
-    if (prevPolicyRef.current !== hostSettings.policy) {
-      prevPolicyRef.current = hostSettings.policy;
+    if (prevPolicyRef.current !== hostSettings.policy.behavior) {
+      prevPolicyRef.current = hostSettings.policy.behavior;
       void backgroundRpc.updateIcon(effectiveHostname);
     }
-  }, [hostSettings.policy, effectiveHostname]);
+  }, [hostSettings.policy.behavior, effectiveHostname]);
 
   const [isDirty, setIsDirty] = useState(false);
   const markDirty = useCallback(() => setIsDirty(true), []);

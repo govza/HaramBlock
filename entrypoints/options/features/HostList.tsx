@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
+import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { t } from '@/utils/i18n';
 import { logger } from '@/utils/logger';
 
@@ -21,8 +22,8 @@ export const HostList = () => {
 
       try {
         const allHosts = await hostSettingsRepository.findAll();
-        const whitelist = allHosts.filter(host => host.policy === 'whitelist' && !host.isGlobal);
-        const blacklist = allHosts.filter(host => host.policy === 'blacklist' && !host.isGlobal);
+        const whitelist = allHosts.filter(host => host.policy.behavior === 'whitelist' && !host.isGlobal);
+        const blacklist = allHosts.filter(host => host.policy.behavior === 'blacklist' && !host.isGlobal);
 
         setWhitelistHosts(whitelist);
         setBlacklistHosts(blacklist);
@@ -42,7 +43,7 @@ export const HostList = () => {
     try {
       await hostSettingsRepository.createHostSettings({
         hostname: newHostname.trim(),
-        policy: activeTab,
+        policy: { behavior: activeTab, targets: { ...DEFAULT_HOST_SETTINGS.policy.targets } },
       });
 
       const newHost = await hostSettingsRepository.findByHostname(newHostname.trim());

@@ -20,7 +20,7 @@ const SwitchRow = ({ label, checked, disabled, onChange, testId }: SwitchRowProp
 export const QuickToggleSetting = () => {
   const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
-  const isDisabled = hostSettings.policy !== 'process' && hostSettings.policy !== 'process-images';
+  const isDisabled = hostSettings.policy.behavior !== 'process';
 
   const handleUnsafeChange = (enabled: boolean) => {
     if (isDisabled) return;

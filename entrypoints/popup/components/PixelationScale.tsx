@@ -4,7 +4,7 @@ import { t } from '@/utils/i18n';
 export const PixelationScale = () => {
   const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
-  const isProcessing = hostSettings.policy === 'process' || hostSettings.policy === 'process-images';
+  const isProcessing = hostSettings.policy.behavior === 'process';
   const isHidden = !isProcessing || hostSettings.outline !== 'segment';
 
   if (isHidden) return null;

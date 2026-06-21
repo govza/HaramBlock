@@ -4,7 +4,7 @@ import { t } from '@/utils/i18n';
 export const Strictness = () => {
   const { hostSettings, hostSettingsRepository, imageCacheRepository, markDirty } = useHostDataContext();
 
-  const isDisabled = hostSettings.policy !== 'process' && hostSettings.policy !== 'process-images';
+  const isDisabled = hostSettings.policy.behavior !== 'process';
 
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(event.target.value);
