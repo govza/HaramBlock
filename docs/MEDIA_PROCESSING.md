@@ -25,6 +25,8 @@ The content script follows a modular architecture with clear separation of conce
 - **Presentation** (`presentation/`) - Visual styling, effects, and CSS injection
 - **Handlers** (`handlers/`) - Video-specific handling
 - **Video** (`video/`) - Frame capture + playback loop utilities
+- **GIF** (`gif/`) - Animated GIF detection, frame decoding, and inference sampling →
+  [GIF_PROCESSING.md](GIF_PROCESSING.md)
 
 ## Module Descriptions
 
@@ -57,7 +59,9 @@ for media element lifecycle events.
 
 #### `core/ImageProcessor.ts`
 
-Handles image processing with DOM-derived state (no dataset attributes).
+Handles image processing with DOM-derived state (no dataset attributes). Animated GIFs are `<img>`
+elements too, so this processor also routes GIF candidates to a multi-frame inference path; see
+[GIF_PROCESSING.md](GIF_PROCESSING.md).
 
 **Key Features:**
 
