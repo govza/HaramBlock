@@ -65,7 +65,8 @@
     },
     "Targets": {
       "image": "Görseller",
-      "video": "Videolar"
+      "video": "Videolar",
+      "gif": "GIF'ler"
     },
     "Strictness": {
       "title": "Katılık",

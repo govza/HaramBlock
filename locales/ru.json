@@ -65,7 +65,8 @@
     },
     "Targets": {
       "image": "Изображения",
-      "video": "Видео"
+      "video": "Видео",
+      "gif": "GIF-анимации"
     },
     "Strictness": {
       "title": "Строгость",
