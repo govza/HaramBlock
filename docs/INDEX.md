@@ -13,6 +13,7 @@ APIs, and implementation details). If you’re a user, start with the project
   - [REACTIVE_SETTINGS.md](REACTIVE_SETTINGS.md) (per-site settings storage + UI reactivity)
   - [POPUP.md](POPUP.md) (popup UI components and state management)
 - **Video filtering details**: [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
+- **Animated GIF filtering details**: [GIF_PROCESSING.md](GIF_PROCESSING.md)
 - **AI model (architecture, classes, registry, per-model perf)**: [MODEL.md](MODEL.md)
 - **Inference pipeline (runtime, queueing, adaptive batching)**:
   [INFERENCE_PIPELINE.md](INFERENCE_PIPELINE.md)
