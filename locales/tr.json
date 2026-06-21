@@ -60,9 +60,12 @@
       "title": "Politika",
       "description": "Yapay zekanın içeriği nasıl işleyeceğini kontrol edin",
       "blacklist": "Tümünü engelle",
-      "process": "Tümünü işle",
-      "processImages": "Resimleri işle",
+      "process": "İşle",
       "whitelist": "Tümüne izin ver"
+    },
+    "Targets": {
+      "image": "Görseller",
+      "video": "Videolar"
     },
     "Strictness": {
       "title": "Katılık",

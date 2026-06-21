@@ -60,9 +60,12 @@
       "title": "Policy",
       "description": "Control how AI processes content",
       "blacklist": "Block all",
-      "process": "Process all",
-      "processImages": "Process images",
+      "process": "Process",
       "whitelist": "Allow all"
+    },
+    "Targets": {
+      "image": "Images",
+      "video": "Videos"
     },
     "Strictness": {
       "title": "Strictness",

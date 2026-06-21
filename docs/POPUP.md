@@ -21,7 +21,8 @@ entrypoints/popup/
     ├── FlipCard.tsx             # 3D flip animation for global/local toggle
     ├── HelpPanel.tsx            # Help and contact information panel
     ├── PerformanceStats.tsx     # Real-time performance statistics
-    ├── PolicyButton.tsx         # Policy mode toggle
+    ├── PolicyBehaviorSwitcher.tsx  # Policy behavior toggle
+    ├── PolicyTargetSwitcher.tsx    # Media-type checkboxes (Process mode)
     ├── Strictness.tsx           # Detection threshold slider
     ├── Outline.tsx              # Visualization style toggle
     ├── BlurIntensity.tsx        # Blur strength slider
@@ -74,7 +75,7 @@ function MyComponent() {
     void hostSettingsRepository.togglePolicy(hostSettings.hostname);
   };
 
-  return <button onClick={handleToggle}>{hostSettings.policy}</button>;
+  return <button onClick={handleToggle}>{hostSettings.policy.behavior}</button>;
 }
 ```
 
@@ -100,7 +101,7 @@ global (back) settings.
 
 The header displays the hostname or "Global Settings" and shows a globe icon when in global mode.
 
-### PolicyButton
+### PolicyBehaviorSwitcher
 
 Cycles through three filtering modes:
 
@@ -109,6 +110,14 @@ Cycles through three filtering modes:
 | `whitelist` | Eye         | Allow all content (no filtering)                 |
 | `blacklist` | Eye blocked | Block all content (no inference)                 |
 | `process`   | Eye auto    | Run AI inference and filter based on predictions |
+
+The behavior is stored on `policy.behavior`. The toggle cycles `process → whitelist → blacklist`.
+
+### PolicyTargetSwitcher
+
+Shown only when `policy.behavior === 'process'`. A full-width toggle button per media type (`image`,
+`video`) controlling which targets are filtered, persisted via `setTarget()` on `policy.targets`.
+New media types (e.g. `gif`) slot in as one extra `PolicyTarget` union member plus a button.
 
 ### Strictness
 
@@ -129,8 +138,8 @@ Toggle between visualization styles:
 
 These sliders control the masking intensity:
 
-- **BlurIntensity**: Shown when `policy === 'blacklist'` OR `outline === 'bbox'`
-- **PixelationScale**: Shown when `policy === 'process'` AND `outline === 'segment'`
+- **BlurIntensity**: Shown when `policy.behavior === 'blacklist'` OR `outline === 'bbox'`
+- **PixelationScale**: Shown when `policy.behavior === 'process'` AND `outline === 'segment'`
 
 ### BlurTint
 
@@ -219,7 +228,7 @@ HostDataProvider initializes
         ↓
 FlipCard renders front/back sides
         ↓
-Settings components (PolicyButton, Strictness, etc.)
+Settings components (PolicyBehaviorSwitcher, Strictness, etc.)
 ├─ Read from context (hostSettings)
 └─ Write via repository methods
         ↓
@@ -242,11 +251,12 @@ The popup uses Tailwind CSS with custom CSS variables for theming:
 
 Settings visibility depends on current policy and outline:
 
-| Component          | Visible When                                       |
-| ------------------ | -------------------------------------------------- |
-| Strictness         | `policy !== 'whitelist'` (disabled otherwise)      |
-| Outline            | `policy !== 'whitelist'`                           |
-| BlurTint           | `policy !== 'whitelist'`                           |
-| BlurIntensity      | `policy === 'blacklist'` OR `outline === 'bbox'`   |
-| PixelationScale    | `policy === 'process'` AND `outline === 'segment'` |
-| QuickToggleSetting | `policy !== 'whitelist'`                           |
+| Component            | Visible When                                                |
+| -------------------- | ----------------------------------------------------------- |
+| Strictness           | `policy.behavior === 'process'` (disabled otherwise)        |
+| Outline              | `policy.behavior === 'process'`                             |
+| PolicyTargetSwitcher | `policy.behavior === 'process'`                             |
+| BlurTint             | `policy.behavior === 'process'` OR `'blacklist'`            |
+| BlurIntensity        | `policy.behavior === 'blacklist'` OR `outline === 'bbox'`   |
+| PixelationScale      | `policy.behavior === 'process'` AND `outline === 'segment'` |
+| QuickToggleSetting   | `policy.behavior === 'process'`                             |

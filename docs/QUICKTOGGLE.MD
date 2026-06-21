@@ -91,7 +91,7 @@ Two switch toggles in popup (`QuickToggleSetting.tsx`):
 - **Unsafe**: Toggle for masked images (has predictions)
 - **Safe**: Toggle for safe images (no predictions)
 
-Disabled when `policy !== 'process'`.
+Disabled when `policy.behavior !== 'process'`.
 
 ## Technical Implementation
 

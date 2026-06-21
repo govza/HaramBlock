@@ -4,10 +4,7 @@ import { t } from '@/utils/i18n';
 export const BlurTint = () => {
   const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
-  const isDisabled =
-    hostSettings.policy !== 'process' &&
-    hostSettings.policy !== 'process-images' &&
-    hostSettings.policy !== 'blacklist';
+  const isDisabled = hostSettings.policy.behavior !== 'process' && hostSettings.policy.behavior !== 'blacklist';
 
   const handleGrayscaleToggle = () => {
     if (isDisabled) return;

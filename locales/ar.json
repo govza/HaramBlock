@@ -60,9 +60,12 @@
       "title": "السياسة",
       "description": "تحكم في كيفية معالجة الذكاء الاصطناعي للمحتوى",
       "blacklist": "حظر الكل",
-      "process": "معالجة الكل",
-      "processImages": "معالجة الصور",
+      "process": "معالجة",
       "whitelist": "السماح للكل"
+    },
+    "Targets": {
+      "image": "الصور",
+      "video": "مقاطع الفيديو"
     },
     "Strictness": {
       "title": "الصرامة",

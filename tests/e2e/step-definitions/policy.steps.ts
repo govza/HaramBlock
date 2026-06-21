@@ -2,7 +2,7 @@ import { Given, Then } from '@wdio/cucumber-framework';
 
 import { Selectors } from '../constants/index.js';
 
-const VALID_POLICIES = ['whitelist', 'blacklist', 'process', 'process-images'];
+const VALID_POLICIES = ['whitelist', 'blacklist', 'process'];
 
 const checkAllImagesBlacklisted = async (): Promise<boolean> => {
   const images = await $$(Selectors.GALLERY_IMAGE);

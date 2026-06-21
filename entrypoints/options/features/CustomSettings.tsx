@@ -26,8 +26,8 @@ export const CustomSettings = () => {
   const isDifferentFromGlobal = (host: IHostSettings, field: keyof IHostSettings): boolean => {
     if (!globalSettings || host.hostname === DEFAULT_GLOBAL_KEY) return false;
 
-    if (field === 'masking') {
-      return JSON.stringify(host.masking) !== JSON.stringify(globalSettings.masking);
+    if (field === 'masking' || field === 'policy') {
+      return JSON.stringify(host[field]) !== JSON.stringify(globalSettings[field]);
     }
 
     return host[field] !== globalSettings[field];
@@ -138,9 +138,9 @@ export const CustomSettings = () => {
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'policy')}`}>
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPolicyBadgeClass(host.policy)}`}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPolicyBadgeClass(host.policy.behavior)}`}
                       >
-                        {t(`HostSettings.Policy.${host.policy}`)}
+                        {t(`HostSettings.Policy.${host.policy.behavior}`)}
                       </span>
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'masking')}`}>

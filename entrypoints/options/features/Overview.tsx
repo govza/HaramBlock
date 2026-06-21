@@ -3,7 +3,8 @@ import { BlurIntensity } from '@/entrypoints/popup/components/BlurIntensity';
 import { BlurTint } from '@/entrypoints/popup/components/BlurTint';
 import { Outline } from '@/entrypoints/popup/components/Outline';
 import { PixelationScale } from '@/entrypoints/popup/components/PixelationScale';
-import { PolicyButton } from '@/entrypoints/popup/components/PolicyButton';
+import { PolicyBehaviorSwitcher } from '@/entrypoints/popup/components/PolicyBehaviorSwitcher';
+import { PolicyTargetSwitcher } from '@/entrypoints/popup/components/PolicyTargetSwitcher';
 import { QuickToggleSetting } from '@/entrypoints/popup/components/QuickToggleSetting';
 import { Strictness } from '@/entrypoints/popup/components/Strictness';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
@@ -24,7 +25,8 @@ export const Overview = () => {
       </div>
 
       <div className='max-w-md space-y-2'>
-        <PolicyButton />
+        <PolicyBehaviorSwitcher />
+        <PolicyTargetSwitcher />
         <Outline />
         <Strictness />
         <BlurTint />

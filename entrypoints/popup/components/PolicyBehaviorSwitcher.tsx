@@ -1,16 +1,10 @@
 import { useCallback, useMemo } from 'react';
 
-import {
-  EYE_AUTO_PATH,
-  EYE_BLOCKED_PATH,
-  EYE_VISIBLE_PATH,
-  REFRESH_PATH,
-  IMAGE_ONLY_PATH,
-} from '@/components/ui/icons';
+import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH, REFRESH_PATH } from '@/components/ui/icons';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 
-export const PolicyButton = () => {
+export const PolicyBehaviorSwitcher = () => {
   const { hostSettings, hostSettingsRepository, isDirty, markDirty, reloadTab } = useHostDataContext();
 
   const togglePolicy = useCallback(() => {
@@ -18,7 +12,7 @@ export const PolicyButton = () => {
   }, [hostSettingsRepository, hostSettings.hostname, markDirty]);
 
   const config = useMemo(() => {
-    switch (hostSettings.policy) {
+    switch (hostSettings.policy.behavior) {
       case 'whitelist':
         return {
           label: t('HostSettings.Policy.whitelist'),
@@ -31,12 +25,6 @@ export const PolicyButton = () => {
           icon: EYE_BLOCKED_PATH,
           bgColor: 'bg-danger-dark hover:bg-danger',
         };
-      case 'process-images':
-        return {
-          label: t('HostSettings.Policy.processImages'),
-          icon: IMAGE_ONLY_PATH,
-          bgColor: 'bg-teal-600 hover:bg-teal-500',
-        };
       default:
         return {
           label: t('HostSettings.Policy.process'),
@@ -44,7 +32,7 @@ export const PolicyButton = () => {
           bgColor: 'bg-success-dark hover:bg-success',
         };
     }
-  }, [hostSettings.policy]);
+  }, [hostSettings.policy.behavior]);
 
   return (
     <div className='mb-2 flex gap-2'>
@@ -53,7 +41,7 @@ export const PolicyButton = () => {
         className={`flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg p-2 transition-colors ${config.bgColor}`}
         aria-label={`${t('HostSettings.Policy.title')}: ${config.label}`}
         data-testid='policy-toggle'
-        data-policy={hostSettings.policy}
+        data-policy={hostSettings.policy.behavior}
       >
         <svg className='h-6 w-6 shrink-0' viewBox='0 0 24 24'>
           <title>{config.label}</title>
