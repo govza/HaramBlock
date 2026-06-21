@@ -15,6 +15,7 @@ import type {
   IImageMetadata,
   IImageTransfer,
   IVideoFrameTransfer,
+  IGifFrameTransfer,
 } from '@/utils/types';
 
 /**
@@ -346,6 +347,75 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       // Already closed or transferred - ignore
     }
     logger.withTag('sender').error('Failed to send video frame for inference:', error);
+    throw error;
+  }
+}
+
+// =============================================================================
+// GIF Frame Inference
+// =============================================================================
+
+export interface GifFrameParams {
+  src: string;
+  bitmap: ImageBitmap;
+  hostname: string;
+  sessionId: string;
+  frameIndex: number;
+  frameCount: number;
+  originalWidth: number;
+  originalHeight: number;
+  priority: number;
+}
+
+/**
+ * Send a single decoded GIF frame for inference.
+ * Uses the same transport as video frames (frames are generated in content, not
+ * fetchable): Chrome transfers a zero-copy ImageBitmap via MessageChannel, Firefox
+ * sends a compressed WebP blob. Takes ownership of the bitmap.
+ */
+export async function requestGifFrameInference(params: GifFrameParams): Promise<void> {
+  const { src, bitmap, hostname, sessionId, frameIndex, frameCount, originalWidth, originalHeight, priority } = params;
+
+  try {
+    const base = {
+      src,
+      frameIndex,
+      frameCount,
+      sessionId,
+      width: bitmap.width,
+      height: bitmap.height,
+      originalWidth,
+      originalHeight,
+      hostname,
+      priority,
+    };
+
+    const transferKind = await resolveVideoFrameTransferKind();
+    let payload: IGifFrameTransfer;
+
+    switch (transferKind) {
+      case 'bitmap': {
+        payload = { ...base, kind: 'bitmap', bitmap };
+        break;
+      }
+      case 'blob': {
+        const blob = await bitmapToCompressedBlob(bitmap);
+        bitmap.close();
+        payload = { ...base, kind: 'blob', blob };
+        break;
+      }
+      default:
+        throw new Error(`Unsupported GIF frame transfer kind: ${transferKind as string}`);
+    }
+
+    await backgroundRpc.postInferenceGifFrame(payload);
+  } catch (error) {
+    try {
+      bitmap.close();
+    } catch {
+      // Already closed or transferred - ignore
+    }
+    logger.withTag('sender').error('Failed to send GIF frame for inference:', error);
     throw error;
   }
 }
