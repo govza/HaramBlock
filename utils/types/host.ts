@@ -1,5 +1,5 @@
 export type PolicyBehavior = 'whitelist' | 'blacklist' | 'process';
-export type PolicyTarget = 'image' | 'video';
+export type PolicyTarget = 'image' | 'video' | 'gif';
 export type OutlineType = 'bbox' | 'segment';
 
 export interface IMaskingSettings {

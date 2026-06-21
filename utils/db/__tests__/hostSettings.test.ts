@@ -45,7 +45,7 @@ const STANDARD_SETTINGS: IHostSettings = {
   isGlobal: false,
   masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
   outline: 'bbox',
-  policy: { behavior: 'whitelist', targets: { image: true, video: false } },
+  policy: { behavior: 'whitelist', targets: { image: true, video: false, gif: true } },
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
   quickToggle: { unsafeEnabled: true, safeEnabled: true },
@@ -56,7 +56,7 @@ const GLOBAL_SETTINGS: IHostSettings = {
   isGlobal: true,
   masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
   outline: 'segment',
-  policy: { behavior: 'process', targets: { image: true, video: true } },
+  policy: { behavior: 'process', targets: { image: true, video: true, gif: true } },
   strictness: 0.8,
   minSize: { width: 64, height: 64 },
   quickToggle: { unsafeEnabled: true, safeEnabled: true },
@@ -110,7 +110,7 @@ describe('HostSettingsRepository', () => {
   describe('setTarget', () => {
     const PROCESS_SETTINGS: IHostSettings = {
       ...STANDARD_SETTINGS,
-      policy: { behavior: 'process', targets: { image: true, video: false } },
+      policy: { behavior: 'process', targets: { image: true, video: false, gif: false } },
     };
 
     it('should toggle a target while preserving behavior and other targets', async () => {
@@ -159,7 +159,7 @@ describe('HostSettingsRepository', () => {
     it('should load existing settings from database', async () => {
       const storedSettings: IHostSettings = {
         ...STANDARD_SETTINGS,
-        policy: { behavior: 'blacklist', targets: { image: true, video: false } },
+        policy: { behavior: 'blacklist', targets: { image: true, video: false, gif: true } },
       };
       mockGet.mockResolvedValue(storedSettings);
       mockGetEffectiveHostname.mockReturnValue(TEST_HOSTNAME);
@@ -201,7 +201,7 @@ describe('HostSettingsRepository', () => {
         isGlobal: false,
         masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
         outline: 'bbox',
-        policy: { behavior: 'whitelist', targets: { image: true, video: false } },
+        policy: { behavior: 'whitelist', targets: { image: true, video: false, gif: true } },
         strictness: 0,
         minSize: { width: 64, height: 64 },
         quickToggle: { unsafeEnabled: true, safeEnabled: false },
@@ -212,7 +212,7 @@ describe('HostSettingsRepository', () => {
         isGlobal: false,
         masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
         outline: 'bbox',
-        policy: { behavior: 'whitelist', targets: { image: true, video: false } },
+        policy: { behavior: 'whitelist', targets: { image: true, video: false, gif: true } },
         strictness: 0,
         minSize: { width: 64, height: 64 },
         quickToggle: { unsafeEnabled: true, safeEnabled: false },
@@ -369,28 +369,28 @@ describe('normalizeStoredPolicy', () => {
   it('maps legacy process-images to process with video off', () => {
     expect(normalizeStoredPolicy('process-images')).toEqual({
       behavior: 'process',
-      targets: { image: true, video: false },
+      targets: { image: true, video: false, gif: true },
     });
   });
 
   it('maps legacy process (process all) to all targets enabled', () => {
     expect(normalizeStoredPolicy('process')).toEqual({
       behavior: 'process',
-      targets: { image: true, video: true },
+      targets: { image: true, video: true, gif: true },
     });
   });
 
   it('preserves stored targets across non-process behaviors', () => {
     expect(normalizeStoredPolicy({ behavior: 'whitelist', targets: { image: true, video: false } })).toEqual({
       behavior: 'whitelist',
-      targets: { image: true, video: false },
+      targets: { image: true, video: false, gif: true },
     });
   });
 
   it('backfills missing targets on a process policy from defaults', () => {
     expect(normalizeStoredPolicy({ behavior: 'process', targets: { video: true } })).toEqual({
       behavior: 'process',
-      targets: { image: true, video: true },
+      targets: { image: true, video: true, gif: true },
     });
   });
 

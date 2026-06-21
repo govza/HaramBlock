@@ -21,7 +21,7 @@ export const normalizeStoredPolicy = (raw: unknown): IHostPolicy => {
       case 'blacklist':
         return { behavior: raw, targets: { ...defaults.targets } };
       case 'process':
-        return { behavior: 'process', targets: { image: true, video: true } };
+        return { behavior: 'process', targets: { image: true, gif: true, video: true } };
       default:
         return { behavior: defaults.behavior, targets: { ...defaults.targets } };
     }

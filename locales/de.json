@@ -65,7 +65,8 @@
     },
     "Targets": {
       "image": "Bilder",
-      "video": "Videos"
+      "video": "Videos",
+      "gif": "GIFs"
     },
     "Strictness": {
       "title": "Strenge",
