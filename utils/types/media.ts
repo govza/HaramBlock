@@ -20,8 +20,16 @@ export interface IFrameMetadata {
   timestampSec: number; // Position in video (seconds)
 }
 
+export interface IGifFrameMetadata {
+  kind: 'gifFrame';
+  src: string; // GIF source URL (for DOM matching)
+  frameIndex: number; // 0+ decoded frame index within the GIF
+  frameCount: number; // Total number of decoded frames in this session
+  sessionId: string; // Unique decode session identifier
+}
+
 // Union type for inference task metadata discrimination
-export type IMediaMetadata = IImageMetadata | IFrameMetadata;
+export type IMediaMetadata = IImageMetadata | IFrameMetadata | IGifFrameMetadata;
 
 export interface IImageWithMetadata {
   src: string;
@@ -105,3 +113,40 @@ export interface IVideoFrameWithBlob extends IVideoFrameTransferBase {
 
 // Union type for cross-browser video frame transfer
 export type IVideoFrameTransfer = IVideoFrameWithBitmap | IVideoFrameWithBlob;
+
+// =============================================================================
+// GIF Frame Transfer Payloads
+// =============================================================================
+// Animated GIF frames are decoded in the content script (ImageDecoder) and sent
+// frame-by-frame, mirroring video frames. No URL fallback - frames are generated
+// in content, not individually fetchable.
+// - Chrome: 'bitmap' only (MessageChannel zero-copy)
+// - Firefox: 'blob' only (structured clone with WebP compression)
+
+interface IGifFrameTransferBase {
+  src: string; // Original GIF URL (for DOM matching)
+  frameIndex: number; // 0+ decoded frame index within the GIF
+  frameCount: number; // Total number of decoded frames in this session
+  sessionId: string; // Unique decode session identifier
+  width: number; // Transferred frame width (may be resized)
+  height: number; // Transferred frame height (may be resized)
+  originalWidth: number; // Original GIF width (for prediction mapping)
+  originalHeight: number; // Original GIF height (for prediction mapping)
+  hostname: string;
+  priority: number; // Queue priority (higher = runs first)
+}
+
+// Chrome only: ImageBitmap via MessageChannel (zero-copy transfer)
+export interface IGifFrameWithBitmap extends IGifFrameTransferBase {
+  kind: 'bitmap';
+  bitmap: ImageBitmap;
+}
+
+// Firefox only: Compressed WebP blob via browser.runtime (structured clone)
+export interface IGifFrameWithBlob extends IGifFrameTransferBase {
+  kind: 'blob';
+  blob: Blob;
+}
+
+// Union type for cross-browser GIF frame transfer
+export type IGifFrameTransfer = IGifFrameWithBitmap | IGifFrameWithBlob;

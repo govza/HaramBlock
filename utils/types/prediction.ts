@@ -101,6 +101,19 @@ export interface IFramePrediction {
   };
 }
 
+export interface IGifFramePrediction {
+  sessionId: string; // Stable ID grouping decoded frames of one GIF decode
+  hostname: string; // Effective hostname
+  src: string; // Original GIF source URL (used for DOM element matching)
+  frameIndex: number; // Sampled frame index within the GIF
+  frameCount: number; // Total number of decoded frames in this session
+  width: number; // Frame width
+  height: number; // Frame height
+  predictions: IElementPrediction[];
+  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
+  timestamp: number; // When the prediction was made
+}
+
 export interface IVideoPrediction {
   hostname: string;
   src: string; // Original video source URL

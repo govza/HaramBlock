@@ -15,12 +15,15 @@ import type {
   IHostSettings,
   IImagePrediction,
   IFramePrediction,
+  IGifFramePrediction,
   IImageTransfer,
   IVideoFrameTransfer,
+  IGifFrameTransfer,
 } from '@/utils/types';
 
 type ImagePredictionsCallback = (data: { predictions: IImagePrediction[]; hostname: string }) => void;
 type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostname: string }) => void;
+type GifFramePredictionsCallback = (data: { predictions: IGifFramePrediction[]; hostname: string }) => void;
 type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedVisibility }) => void;
 
 /**
@@ -30,6 +33,7 @@ type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedV
 export class BackgroundRpc {
   private imagePredictionsCallbacks = new Map<string, ImagePredictionsCallback>();
   private framePredictionsCallbacks = new Map<string, FramePredictionsCallback>();
+  private gifFramePredictionsCallbacks = new Map<string, GifFramePredictionsCallback>();
   private contextMenuToggleCallbacks = new Map<string, ContextMenuToggleCallback>();
 
   constructor(
@@ -207,6 +211,47 @@ export class BackgroundRpc {
     }
   }
 
+  /**
+   * Process a single GIF frame for inference.
+   * Frames are decoded in the content script (ImageDecoder) and sent one-by-one,
+   * mirroring video frames. Results are aggregated per GIF in the content script.
+   * Chrome: Receives ImageBitmap as transferable via MessageChannel (zero-copy)
+   * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
+   */
+  async postInferenceGifFrame(frameData: IGifFrameTransfer): Promise<void> {
+    const { hostname, src, frameIndex, frameCount, sessionId, originalWidth, originalHeight, priority } = frameData;
+
+    if (!hostname) {
+      logger.withTag('backgroundRpc').error('Hostname is required for GIF frame inference request');
+      return;
+    }
+
+    try {
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+
+      const input =
+        frameData.kind === 'bitmap'
+          ? { kind: 'bitmap' as const, imageSrc: src, bitmap: frameData.bitmap, originalWidth, originalHeight }
+          : { kind: 'blob' as const, imageSrc: src, blob: frameData.blob, originalWidth, originalHeight };
+
+      await this.inferenceService.scheduleInferenceTask({
+        input,
+        hostname,
+        hostSettings,
+        mediaMetadata: {
+          kind: 'gifFrame',
+          src,
+          frameIndex,
+          frameCount,
+          sessionId,
+        },
+        priority,
+      });
+    } catch (error) {
+      logger.withTag('backgroundRpc').error('Failed to schedule GIF frame inference:', hostname, error);
+    }
+  }
+
   async updateIconBadge(count: number, _url: string): Promise<void> {
     const { tabId } = getRpcContext();
     if (!tabId) return;
@@ -276,6 +321,16 @@ export class BackgroundRpc {
     this.framePredictionsCallbacks.delete(subscriptionId);
   }
 
+  onGifFramePredictions(callback: GifFramePredictionsCallback): string {
+    const id = crypto.randomUUID();
+    this.gifFramePredictionsCallbacks.set(id, callback);
+    return id;
+  }
+
+  offGifFramePredictions(subscriptionId: string): void {
+    this.gifFramePredictionsCallbacks.delete(subscriptionId);
+  }
+
   onContextMenuToggle(callback: ContextMenuToggleCallback): string {
     const id = crypto.randomUUID();
     this.contextMenuToggleCallbacks.set(id, callback);
@@ -294,6 +349,10 @@ export class BackgroundRpc {
 
   emitFramePredictions(predictions: IFramePrediction[], hostname: string): void {
     this.framePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+  }
+
+  emitGifFramePredictions(predictions: IGifFramePrediction[], hostname: string): void {
+    this.gifFramePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
   }
 
   emitContextMenuToggle(src: string, forcedVisibility: ForcedVisibility): void {

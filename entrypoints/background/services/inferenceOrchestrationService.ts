@@ -11,6 +11,8 @@ import type {
   IImagePrediction,
   IFramePrediction,
   IFrameMetadata,
+  IGifFrameMetadata,
+  IGifFramePrediction,
   IHostSettings,
   IMediaMetadata,
   InferenceTask,
@@ -18,6 +20,7 @@ import type {
 
 type OnImagePredictionsCallback = (predictions: IImagePrediction[], hostname: string) => void;
 type OnFramePredictionsCallback = (predictions: IFramePrediction[], hostname: string) => void;
+type OnGifFramePredictionsCallback = (predictions: IGifFramePrediction[], hostname: string) => void;
 
 export type InferenceInput =
   | { kind: 'src'; imageSrc: string; requestStartAt?: number; receivedAt?: number }
@@ -54,6 +57,7 @@ export type ScheduleArgs = {
 export class InferenceOrchestrationService {
   private onImagePredictionsCallback?: OnImagePredictionsCallback;
   private onFramePredictionsCallback?: OnFramePredictionsCallback;
+  private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
 
   // Batches concurrent queue tasks into one session.run for dynamic-batch models.
   private batchCollector = new BatchCollector<InferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
@@ -74,6 +78,10 @@ export class InferenceOrchestrationService {
 
   setOnFramePredictionsCallback(callback: OnFramePredictionsCallback): void {
     this.onFramePredictionsCallback = callback;
+  }
+
+  setOnGifFramePredictionsCallback(callback: OnGifFramePredictionsCallback): void {
+    this.onGifFramePredictionsCallback = callback;
   }
 
   // Match queue concurrency to the active model's batch cap (1 when batching is off). Admitting more
@@ -208,6 +216,9 @@ export class InferenceOrchestrationService {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
         this.sendFramePredictionsToContent([framePrediction], task.hostname);
+      } else if (task.mediaMetadata.kind === 'gifFrame') {
+        const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
+        this.sendGifFramePredictionsToContent([gifFramePrediction], task.hostname);
       } else {
         await this.imageCacheService.cachePredictions([imagePrediction]);
         this.sendImagePredictionsToContent([imagePrediction], task.hostname);
@@ -234,6 +245,21 @@ export class InferenceOrchestrationService {
     };
   }
 
+  private toGifFramePrediction(imagePrediction: IImagePrediction, gifMetadata: IGifFrameMetadata): IGifFramePrediction {
+    return {
+      sessionId: gifMetadata.sessionId,
+      hostname: imagePrediction.hostname,
+      src: gifMetadata.src,
+      frameIndex: gifMetadata.frameIndex,
+      frameCount: gifMetadata.frameCount,
+      width: imagePrediction.width,
+      height: imagePrediction.height,
+      predictions: imagePrediction.predictions,
+      maskTransform: imagePrediction.maskTransform,
+      timestamp: imagePrediction.timestamp,
+    };
+  }
+
   private sendImagePredictionsToContent(predictions: IImagePrediction[], hostname: string): void {
     try {
       if (this.onImagePredictionsCallback) {
@@ -251,6 +277,16 @@ export class InferenceOrchestrationService {
       }
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error('Error sending frame predictions:', error);
+    }
+  }
+
+  private sendGifFramePredictionsToContent(predictions: IGifFramePrediction[], hostname: string): void {
+    try {
+      if (this.onGifFramePredictionsCallback) {
+        this.onGifFramePredictionsCallback(predictions, hostname);
+      }
+    } catch (error) {
+      logger.withTag('inferenceOrchestrationService').error('Error sending GIF frame predictions:', error);
     }
   }
 
