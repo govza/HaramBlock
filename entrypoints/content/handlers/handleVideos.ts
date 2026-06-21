@@ -21,6 +21,9 @@ const playbackListeners = new WeakMap<HTMLVideoElement, () => void>();
  * - Set up playback handler
  */
 export function handleVideos(videos: HTMLVideoElement[], hostSettings: IHostSettings): void {
+  // Blacklist blocks every video outright via initial styling — no inference needed.
+  const isBlacklist = hostSettings.policy.behavior === 'blacklist';
+
   for (const video of videos) {
     const src = video.currentSrc || video.src;
     if (!src) continue;
@@ -29,10 +32,12 @@ export function handleVideos(videos: HTMLVideoElement[], hostSettings: IHostSett
     if (!isHandled(video, src)) {
       applyInitialVideoStyling(video, hostSettings);
       markHandled(video, src);
-      queueThumbnailForInference(video, src, hostSettings);
+      if (!isBlacklist) {
+        queueThumbnailForInference(video, src, hostSettings);
+      }
     }
-    // Set up playback handler (only when the process behavior is active)
-    if (hostSettings.policy.behavior === 'process') {
+    // Set up playback frame inference (only when the process behavior is active)
+    if (!isBlacklist) {
       ensurePlaybackHandler(video, hostSettings);
     }
   }

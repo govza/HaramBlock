@@ -41,6 +41,10 @@ export class MediaPipeline {
   }
 
   private get shouldProcessVideo(): boolean {
+    return this.policy.behavior === 'blacklist' || (this.policy.behavior === 'process' && this.policy.targets.video);
+  }
+
+  private get shouldRunVideoInference(): boolean {
     return this.policy.behavior === 'process' && this.policy.targets.video;
   }
 
@@ -57,7 +61,7 @@ export class MediaPipeline {
 
     this.unsubscribeFns.push(unsubImagePreds);
 
-    if (this.shouldProcessVideo) {
+    if (this.shouldRunVideoInference) {
       const unsubFramePreds = onFramePredictions(data => {
         if (data.hostname === this.opts.hostSettings.hostname) {
           this.handleFramePredictions(data.predictions);
