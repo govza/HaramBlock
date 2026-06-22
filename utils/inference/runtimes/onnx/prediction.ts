@@ -1,4 +1,5 @@
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
+import { strictnessToScoreThreshold } from '@/entrypoints/background/modelUtils/scoreThreshold';
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
@@ -28,8 +29,7 @@ interface PreparedImage {
 }
 
 function scoreThresholdFor(task: InferenceTask): number {
-  const rawThreshold = 1 - task.hostSettings.strictness;
-  return Math.min(0.9, Math.max(0.05, rawThreshold));
+  return strictnessToScoreThreshold(task.hostSettings.strictness);
 }
 
 interface ResolvedBitmap {
