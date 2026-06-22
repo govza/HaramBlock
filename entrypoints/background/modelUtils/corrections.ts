@@ -1,7 +1,7 @@
 import { type IElementPrediction } from '@/utils/types';
 
 export interface EdgeCorrectionOptions {
-  edgeThreshold?: number; // Percentage of image size to consider as edge (default: 0.02 = 2%)
+  edgeThreshold?: number; // Percentage of image size to consider as edge (default: 0.1 = 10%)
 }
 
 /**
