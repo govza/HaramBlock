@@ -13,14 +13,14 @@ export type ProcessedStatus = 'safe' | 'unsafe' | 'skipped';
 
 const PROCESSED_ATTRS = [PROCESSED_SAFE_ATTR, PROCESSED_SKIPPED_ATTR, PROCESSED_UNSAFE_ATTR];
 
-const PROCESSED_ATTR_MAP = {
+export const PROCESSED_ATTR_MAP = {
   safe: PROCESSED_SAFE_ATTR,
   unsafe: PROCESSED_UNSAFE_ATTR,
   skipped: PROCESSED_SKIPPED_ATTR,
 } as const;
 
 /** Clear all processed status attributes from element */
-const clearProcessedStatus = (element: HTMLImageElement | HTMLVideoElement): void => {
+export const clearProcessedStatus = (element: HTMLImageElement | HTMLVideoElement): void => {
   for (const attr of PROCESSED_ATTRS) {
     element.removeAttribute(attr);
   }
@@ -59,24 +59,10 @@ export const resetImageStyling = (image: HTMLImageElement): void => {
   clearProcessedStatus(image);
 };
 
-/** Reset video styling - clears all haramblock classes, blacklist styles, and processed status */
-export const resetVideoStyling = (video: HTMLVideoElement): void => {
-  const classesToRemove = Array.from(video.classList).filter(className => className.startsWith('haramblock'));
-  classesToRemove.forEach(className => video.classList.remove(className));
-  removeBlacklistInlineStyles(video);
-  clearProcessedStatus(video);
-};
-
 /** Finalize image processing - clears styling and sets the final processed status */
 export const finalizeImageProcessing = (image: HTMLImageElement, status: ProcessedStatus): void => {
   resetImageStyling(image);
   image.setAttribute(PROCESSED_ATTR_MAP[status], '');
-};
-
-/** Finalize video processing - clears styling and sets the final processed status */
-export const finalizeVideoProcessing = (video: HTMLVideoElement, status: ProcessedStatus): void => {
-  resetVideoStyling(video);
-  video.setAttribute(PROCESSED_ATTR_MAP[status], '');
 };
 
 export const applyBlacklistStyling = (
@@ -86,14 +72,6 @@ export const applyBlacklistStyling = (
   element.dataset.haramblockOriginalFilter = element.style.filter || '';
   element.style.setProperty('filter', buildMaskingFilter(hostSettings.masking), 'important');
   element.setAttribute(BLACKLIST_ATTR, '');
-};
-
-export const applyInitialVideoStyling = (video: HTMLVideoElement, hostSettings: IHostSettings): void => {
-  if (hostSettings.policy.behavior === 'blacklist') {
-    applyBlacklistStyling(video, hostSettings);
-  } else if (hostSettings.policy.behavior === 'process') {
-    video.classList.add('haramblock-initial-blur');
-  }
 };
 
 export const applyInitialImageStyling = (image: HTMLImageElement, hostSettings: IHostSettings): void => {

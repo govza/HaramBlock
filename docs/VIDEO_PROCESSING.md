@@ -1,400 +1,134 @@
 # Video Processing Architecture
 
-This document describes the video processing feature for HaramBlock, extending the image filtering
-system to handle video content with frame-by-frame AI inference.
+This document describes how HaramBlock detects, samples, and masks `<video>` content. The design is
+recorded in [ADR 0001](./adr/0001-video-session-state-machine.md); the domain vocabulary
+(VideoSession, Thumbnail, Frame Sample, Stale Prediction, Verdict, Fail-closed) is defined in the
+root [CONTEXT.md](../CONTEXT.md).
 
 ## Overview
 
-Video processing follows the same architectural patterns as image processing but adds:
-
-- **Thumbnail/poster detection** for immediate filtering before playback
-- **Frame extraction during playback** with adaptive rate limiting
-- **Timeline synchronization** for cached predictions (planned)
-- **Temporal smoothing** to prevent flickering during playback (planned)
-
-## Current Implementation Status
-
-### Completed (Core Video Processing)
-
-| Component                 | File                                                   | Status  |
-| ------------------------- | ------------------------------------------------------ | ------- |
-| Video transfer types      | `utils/types/media.ts`                                 | ✅ Done |
-| Video constants           | `utils/constants/video.ts`                             | ✅ Done |
-| Frame capture utility     | `entrypoints/content/video/frameCapture.ts`            | ✅ Done |
-| Thumbnail processing      | `entrypoints/content/video/thumbnail.ts`               | ✅ Done |
-| VideoFrameProcessor       | `entrypoints/content/video/VideoFrameProcessor.ts`     | ✅ Done |
-| Playback handler          | `entrypoints/content/video/playback.ts`                | ✅ Done |
-| Video handler             | `entrypoints/content/handlers/handleVideos.ts`         | ✅ Done |
-| Video predictions         | `entrypoints/content/presentation/videoPredictions.ts` | ✅ Done |
-| Video mask overlay        | `entrypoints/content/presentation/videoMaskOverlay.ts` | ✅ Done |
-| Initial video styling     | `entrypoints/content/presentation/initialStyling.ts`   | ✅ Done |
-| Sender integration        | `entrypoints/content/communication/sender.ts`          | ✅ Done |
-| BackgroundRpc methods     | `utils/messaging/services/backgroundRpc.ts`            | ✅ Done |
-| MediaPipeline integration | `entrypoints/content/core/MediaPipeline.ts`            | ✅ Done |
-
-### Planned (Future Enhancements)
-
-| Component            | File                                                   | Status     |
-| -------------------- | ------------------------------------------------------ | ---------- |
-| Video cache service  | `entrypoints/background/services/videoCacheService.ts` | ⏳ Planned |
-| VideoDatabase schema | `utils/db/db.ts`                                       | ⏳ Planned |
-| Temporal smoothing   | `entrypoints/content/video/temporalSmoothing.ts`       | ⏳ Planned |
-| Timeline sync        | `entrypoints/content/video/timelineSync.ts`            | ⏳ Planned |
-
-## Architecture
-
-### Separate Callbacks Architecture
-
-**Key Design Decision:** Video frames use the same inference pipeline as images, but are routed via
-**separate callbacks** to avoid fragile DOM-based routing:
-
-1. Reusing existing inference orchestration with discriminated union metadata
-2. Background routes results based on `mediaMetadata.kind` - no DOM queries
-3. Separate callbacks: `emitImagePredictions()` and `emitFramePredictions()`
-4. MediaPipeline subscribes to both, no routing logic needed
+Every video×resolved-source binding is a **VideoSession** driven by an explicit state machine:
 
 ```
-Video Frame Flow:
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Content Script                                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  handleVideos()                                                         │
-│       │                                                                 │
-│       ├─ applyInitialVideoStyling() ─────────────────────► blur class  │
-│       │                                                                 │
-│       ├─ queueThumbnailForInference() ──┐                               │
-│       │                                 │                               │
-│       └─ ensurePlaybackHandler() ───────┼──► requestVideoFrameInference │
-│              │                          │              │                │
-│              └─ on 'play' event         │              │                │
-│                    │                    │              │                │
-│           VideoFrameProcessor ──────────┘              │                │
-│                                                        ▼                │
-└────────────────────────────────────────────────────────┬────────────────┘
-                                                         │
-                                  postInferenceVideoFrame │
-                                                         ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Background Service Worker                                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  BackgroundRpc.postInferenceVideoFrame()                                │
-│       │                                                                 │
-│       └─ InferenceOrchestrationService.scheduleInferenceTask()          │
-│              │         (with mediaMetadata: IFrameMetadata)             │
-│              │                                                          │
-│              └─ handleSuccess(): if kind === 'frame'                    │
-│                       └─► emitFramePredictions(IFramePrediction[])      │
-│                                         │                               │
-└─────────────────────────────────────────┼───────────────────────────────┘
-                                          │
-                       onFramePredictions callback
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Content Script (MediaPipeline)                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Two separate subscriptions (no DOM routing):                           │
-│                                                                         │
-│  onImagePredictions() ──► handleImagePredictions()                      │
-│       └─► applyImagePredictionsToDom(IImagePrediction[])                │
-│                                                                         │
-│  onFramePredictions() ──► handleFramePredictions()                      │
-│       └─► applyFramePredictionsToDom(IFramePrediction[])                │
-│                 ├─ thumbnails (frameIndex === -1)                       │
-│                 │     └─► find video[data-hb-handled="1"]               │
-│                 └─ frames (frameIndex >= 0)                             │
-│                       └─► find video[data-hb-video-status="processing"] │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+ADOPTED ──capture thumbnail──► THUMBNAILING
+ (blur on)                          │ verdict OR fail-closed timeout
+                                    ▼
+             play ┌──────────── STANDBY ◄──── sendFailed (capture impossible;
+                  ▼               ▲            blur kept, still playable)
+              SAMPLING ──pause/ended
+               │  (rVFC loop; seeked → immediate one-shot sample,
+               │   also fires from STANDBY while paused)
+               │ MAX_CONSECUTIVE_ERRORS
+               ▼
+             ERROR (fail-closed: blur kept, loop stopped)
+
+any state ──source change / element removed──► DISPOSED (terminal)
 ```
 
-### Discriminated Union Metadata
+Key invariants:
+
+- **Thumbnail = Frame Sample #−1.** Races between the thumbnail verdict and playback samples are
+  resolved by ordering, not special cases.
+- **Monotonic staleness filter.** A prediction applies only if it belongs to the live session and
+  its `frameIndex` is greater than the last applied one. Late redeliveries can never clear a mask a
+  newer unsafe sample applied.
+- **Fail-closed with self-heal.** No verdict → the video stays blurred; but every fail-closed state
+  remains exit-able by a newer sample, so recovery is automatic once inference returns.
+- **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
+  `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
+
+## Components
+
+| Component          | File                                                                     | Role                                                                   |
+| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Pure state machine | `entrypoints/content/video/session/machine.ts`                           | `(state, event) → (state, effects)`; no DOM, timers, or transport      |
+| Registry + adapter | `entrypoints/content/video/session/registry.ts`                          | Owns live sessions, routes predictions by sessionId, executes effects  |
+| Discovery          | `entrypoints/content/handlers/handleVideos.ts`                           | Routes discovered videos: blacklist styling or registry adoption       |
+| Frame capture      | `entrypoints/content/video/frameCapture.ts`                              | Canvas capture, poster extraction, CORS workaround                     |
+| Transport          | `entrypoints/content/communication/sender.ts`                            | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob) |
+| Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`, `boundingBox.ts` | Segmentation mask / bbox blur rendering                                |
+| Background routing | `entrypoints/background/services/inferenceOrchestrationService.ts`       | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`               |
+
+### The pure machine
+
+`machine.ts` is a reducer with an injected notion of time: events carry `at` timestamps and timers
+are requested as effects (`startTimer`/`cancelTimer`), so every behavior is unit-testable without
+fake DOM or real clocks. Its effect vocabulary:
+
+`applyBlur` · `clearBlur` · `captureThumbnail` · `sendSample{frameIndex}` · `applyVerdict` ·
+`clearVerdict` · `setStatus{safe|unsafe|skipped|error}` · `startTimer`/`cancelTimer` · `cleanup`
+
+Tuning constants (all in `machine.ts`):
+
+| Constant                 | Value  | Meaning                                                                                    |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------ |
+| `THUMBNAIL_TIMEOUT_MS`   | 10 000 | Fail-closed clock, started at the **first actual send**; one retry, then finalized blocked |
+| `SAMPLE_FLOOR_MS`        | 250    | Minimum interval between Frame Sample sends (~4 fps ceiling)                               |
+| `SAMPLE_TIMEOUT_MS`      | 3 000  | Frees the single in-flight slot when a verdict is lost                                     |
+| `WATCHDOG_MS`            | 5 000  | Mid-playback verdict silence → whole-video re-blur                                         |
+| `CLEAN_STREAK_TO_CLEAR`  | 2      | Consecutive clean samples required to lift a mask                                          |
+| `MAX_CONSECUTIVE_ERRORS` | 10     | Capture/send failures before ERROR (fail-closed)                                           |
+
+### The registry / DOM adapter
+
+`registry.ts` binds each session to the real world:
+
+- **Adoption** (`adopt`): creates the session, applies the initial blur, binds media events (`play`,
+  `pause`, `ended`, `seeked`, `loadstart`, `emptied`), starts the frame ticker, and signals
+  Thumbnail readiness — a `poster` is tried immediately; if it fails to load, capture fails closed
+  (no frame is drawn below `HAVE_CURRENT_DATA`) and readiness is re-signaled on `loadeddata`, where
+  the machine re-captures only a still verdict-less session. `preload="none"` without a poster idles
+  in ADOPTED (nothing rendered, blur on) until data or playback arrives. A video whose source is not
+  resolved yet is held in a registry-owned pending set: re-discovery refreshes its host settings,
+  and `dispose`/`disposeAll` cancel the wait so it cannot outlive the pipeline.
+- **Frame ticker**: `requestVideoFrameCallback` — fires only when a new frame is actually presented
+  (stalled/paused videos produce no captures). An rAF loop gated on playback state is the fallback
+  for engines without rVFC.
+- **Prediction routing** (`handlePredictions`): looks up the session by `sessionId` (echoed through
+  the inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
+  same-URL videos have independent sessions.
+- **Source changes**: a `loadstart` or `emptied` whose `currentSrc` no longer matches the session
+  disposes it and adopts a fresh one (immediately, or once the next source resolves). This covers
+  `<source>`-children swaps, MSE attachment, and `removeAttribute('src') + load()` teardowns — the
+  last fires `emptied` but never `loadstart`.
+- **Sampling transport**: capture returning `null` (CORS-tainted canvas, zero dimensions, no frame
+  data yet) or a send failure dispatches `sendFailed`; the machine counts consecutive failures
+  toward ERROR. Each capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`)
+  so a never-settling CORS-clone or poster load cannot occupy the in-flight slot forever.
+
+### Discovery
+
+`handleVideos.ts` is intentionally thin:
+
+- **Blacklist policy** → blacklist styling only, no inference, no session.
+- **Everything else** → `videoSessions.adopt(video, hostSettings)`. The registry itself waits out
+  videos with no resolved source yet (`<video><source …>`, MSE, late `src` assignment) via a
+  `loadstart` listener that keeps waiting while `currentSrc` is still empty (`srcObject` fires
+  `loadstart` with no URL source), so discovery holds no state of its own.
+
+## Processed status attributes
+
+Set by the machine's `setStatus` effect (contract kept from the previous pipeline):
+
+- `data-haramblock-processed-safe` — no unsafe content in the latest applied verdict
+- `data-haramblock-processed-unsafe` — unsafe content detected (or fail-closed blocked)
+- `data-haramblock-processed-skipped` — processing impossible (maps the machine's `error` status)
+
+Exactly one is present after finalization; all are removed on disposal. The initial blur uses the
+shared `haramblock-initial-blur` class.
+
+## Testing
+
+- **Unit** (`entrypoints/content/video/session/__tests__/machine.test.ts`): every machine behavior —
+  adoption, timeout-at-first-send, verdict finalization, retry-then-blocked, pacing, staleness,
+  hysteresis, watchdog re-blur + self-heal, lost-sample slot recovery, paused-seek one-shots,
+  pause/ended, consecutive-error fail-close, terminal disposal, play-preempts-thumbnail.
+- **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a playing video, including
+  the `<source>`-child discovery path.
+
+## Future enhancements
 
-The inference pipeline uses a discriminated union type to distinguish images from video frames:
-
-```typescript
-// utils/types/media.ts
-type IMediaMetadata = IImageMetadata | IFrameMetadata;
-
-interface IImageMetadata {
-  kind: 'image';
-  contentType: string | null;
-  // ... HTTP cache headers
-}
-
-interface IFrameMetadata {
-  kind: 'frame';
-  videoUrl: string; // Original video source URL (for DOM matching)
-  frameIndex: number; // -1 for thumbnail, 0+ for playback frames
-  sessionId: string; // Unique playback session identifier
-  timestampSec: number; // Position in video (seconds)
-}
-```
-
-This allows `InferenceOrchestrationService.handleSuccess()` to route results without DOM queries:
-
-- `kind === 'image'` → `emitImagePredictions(IImagePrediction[])`
-- `kind === 'frame'` → `emitFramePredictions(IFramePrediction[])`
-
-### Transfer Types
-
-Defined in `utils/types/media.ts`:
-
-- `IVideoFrameWithBitmap` - Chrome: ImageBitmap via MessageChannel (zero-copy)
-- `IVideoFrameWithBlob` - Firefox: Compressed WebP Blob via browser.runtime
-- `IVideoFrameTransfer` - Union type for cross-browser compatibility
-
-## Content Script Components
-
-### handleVideos.ts
-
-Following the pattern of `handleImages.ts`, the video handler performs three steps:
-
-```
-handleVideos(videos, hostSettings)
-    │
-    ├─ 1. Apply initial protective styling (blur)
-    │
-    ├─ 2. Process thumbnail immediately (first pass)
-    │     ├─ If poster attribute exists → load and inference poster image
-    │     └─ Else → wait for metadata, capture first frame
-    │
-    └─ 3. Setup playback handler (deferred until play event)
-```
-
-### thumbnail.ts
-
-Handles first-pass detection before video playback:
-
-1. **Check for poster attribute** - If video has `poster` attribute, load it as an image
-2. **Fallback to first frame** - Wait for `loadedmetadata` event, then capture frame at time 0
-3. **Send for inference** with `frameIndex: -1` to indicate thumbnail
-4. **Apply result** - If detection found, apply blur/mask overlay immediately
-
-Key considerations:
-
-- Use `crossOrigin = 'anonymous'` when loading poster images
-- Handle `SecurityError` for cross-origin videos without CORS
-- Convert to ImageBitmap for transfer (Chrome) or Blob (Firefox)
-- Track thumbnail status in `data-hb-thumbnail-*` attributes
-
-### frameCapture.ts
-
-The frame capture utility extracts frames from video elements:
-
-1. Create `OffscreenCanvas` sized to video dimensions
-2. Use `ctx.drawImage(video, 0, 0)` to capture current frame
-3. Convert to `ImageBitmap` via `createImageBitmap(canvas)`
-4. Handle `SecurityError` for cross-origin content
-
-Optimizations:
-
-- Reuse canvas across captures (resize only when video dimensions change)
-- Use `willReadFrequently: true` context option for better performance
-- Single shared canvas per video element
-
-### VideoFrameProcessor.ts
-
-Core frame extraction during playback:
-
-**Lifecycle:**
-
-- Start on `play` event (via playback.ts)
-- Pause on `pause`/`ended` events
-- Capture immediately on `seeked` event (timeline changed)
-
-**Frame Loop:**
-
-- Use `requestAnimationFrame` for smooth timing
-- Enforce minimum interval between captures (default: 200ms = 5 FPS)
-- Track frame index and session ID
-
-### Adaptive Rate Limiting
-
-Adapt capture rate based on inference speed:
-
-| Condition                            | Action                             |
-| ------------------------------------ | ---------------------------------- |
-| Inference faster than frame interval | Maintain target FPS                |
-| Inference slower than frame interval | Slow down to match inference speed |
-| Backlog > threshold (e.g., 3 frames) | Pause sending until backlog clears |
-
-Implementation:
-
-- Track `inferenceBacklog` counter (increment on send, decrement on result)
-- Listen for `hb:inference-timing` custom event from prediction results
-- Calculate effective interval: `max(minInterval, inferenceTime * 1.2)`
-- Further slow down when backlogged: `interval *= (1 + backlog * 0.5)`
-
-## Presentation Layer
-
-### videoPredictions.ts
-
-Applies frame predictions to video elements. Receives `IFramePrediction[]` directly via the
-`onFramePredictions` callback - no DOM-based routing needed.
-
-```typescript
-export async function applyFramePredictionsToDom(
-  framePreds: IFramePrediction[],
-  hostSettings: IHostSettings
-): Promise<void>;
-```
-
-**Flow:**
-
-1. Separate thumbnail vs regular frame predictions by `frameIndex`
-2. For thumbnails (`frameIndex === -1`): find videos with `[data-hb-handled="1"]`
-3. For frames (`frameIndex >= 0`): find videos with `[data-hb-video-status="processing"]`
-4. Apply segmentation mask overlays
-5. Emit `hb:inference-timing` event for adaptive throttling
-6. Finalize styling and state: remove initial blur and set processed status attributes
-
-### videoMaskOverlay.ts
-
-Canvas-based overlay for segmentation masks on videos:
-
-- Creates positioned `<div>` overlay with `<canvas>` child
-- Renders pixelated blur effect over detected regions
-- Handles poster images for thumbnail predictions (detected via
-  `cacheMetadata.contentType === 'video/thumbnail'`)
-- Uses `ensureCorsSafeSource()` for cross-origin video frame drawing
-- Supports dynamic resizing with ResizeObserver
-- Cleanup on video removal via MutationObserver
-
-### initialStyling.ts
-
-Video-specific styling functions:
-
-- `applyInitialVideoStyling()` - Add blur class before processing
-- `resetVideoStyling()` - Clear blur and styling for reprocessing
-- `finalizeVideoProcessing()` - Removes styling and sets final processed status
-  (safe/unsafe/skipped)
-
-#### Processed Status Attributes (Video)
-
-Videos can expose their final processing outcome via boolean data attributes. These are set by
-`finalizeVideoProcessing(video, status)` and cleared by `resetVideoStyling(video)`.
-
-- `data-haramblock-processed-safe` — AI found no unsafe content
-- `data-haramblock-processed-unsafe` — AI detected unsafe content
-- `data-haramblock-processed-skipped` — Processing was skipped (unsupported format, too small, or
-  error)
-
-Notes:
-
-- Exactly one of these attributes is present after finalization; all are removed on reset or when
-  the video `src` changes.
-- Use them for CSS hooks or analytics. Example CSS:
-
-```css
-video[data-haramblock-processed-unsafe] {
-  outline: 2px solid rgba(255, 0, 0, 0.4);
-}
-video[data-haramblock-processed-safe] {
-  outline: 1px dashed rgba(0, 128, 0, 0.3);
-}
-```
-
-## Configuration
-
-Defined in `utils/constants/video.ts`:
-
-```typescript
-export type VideoFrameLoopConfig = {
-  frameInterval: number; // Minimum interval between frame captures (ms)
-  maxErrors: number; // Max consecutive errors before stopping
-  maxSendFps?: number; // Max frames per second to send for inference
-};
-
-export const DEFAULT_VIDEO_CONFIG: VideoFrameLoopConfig = {
-  frameInterval: 100,
-  maxErrors: 10,
-  maxSendFps: 10
-};
-```
-
-## Future Enhancements
-
-### Temporal Smoothing (Planned)
-
-Prevents flickering when predictions rapidly change between frames:
-
-**State tracking per detection class:**
-
-- `consecutivePositive` - frames with this class detected
-- `consecutiveNegative` - frames without this class
-- `isFiltering` - current filter state
-
-**Logic:**
-
-- Detection present → increment positive, reset negative
-- Detection absent → increment negative, reset positive
-- Start filtering when positive >= threshold
-- Stop filtering when negative >= threshold
-
-### Video Caching Strategy (Planned)
-
-Design principles:
-
-1. **Cache predictions, not frames** - Raw frames are too large for storage
-2. **Index by timestamp** - Enable quick lookup during playback
-3. **Session awareness** - Handle multiple playback sessions and seeking
-4. **Granularity** - Round timestamps to 0.5 second intervals for efficient indexing
-
-Database schema for `VideoDatabase`:
-
-| Field                     | Purpose                        |
-| ------------------------- | ------------------------------ |
-| `[videoSrc+timestampKey]` | Compound primary key           |
-| `hostname`                | For filtering by site          |
-| `sessionId`               | Track playback session         |
-| `timestamp`               | Actual frame time (float)      |
-| `timestampKey`            | Rounded timestamp for indexing |
-| `predictions`             | Detection results              |
-| `cachedAt`                | When cached (for expiration)   |
-
-### Timeline Synchronization (Planned)
-
-During playback, synchronize cached predictions with current time to skip redundant inference.
-
-## File Structure
-
-```
-entrypoints/content/
-├── handlers/
-│   └── handleVideos.ts          # ✅ Video lifecycle (like handleImages.ts)
-├── video/
-│   ├── VideoFrameProcessor.ts   # ✅ Playback frame extraction + adaptive rate
-│   ├── frameCapture.ts          # ✅ Canvas-based frame capture utility
-│   ├── thumbnail.ts             # ✅ Poster/thumbnail first-pass processing
-│   ├── playback.ts              # ✅ Video playback handler
-│   ├── temporalSmoothing.ts     # ⏳ Flickering prevention logic (planned)
-│   └── timelineSync.ts          # ⏳ Cache-to-playback sync (planned)
-├── presentation/
-│   ├── videoPredictions.ts      # ✅ Apply IFramePrediction[] to video elements
-│   ├── videoMaskOverlay.ts      # ✅ Canvas overlay for video blur/masks
-│   └── initialStyling.ts        # ✅ +video styling functions
-├── communication/
-│   ├── listener.ts              # ✅ +onFramePredictions() subscription
-│   └── sender.ts                # ✅ +requestVideoFrameInference()
-└── core/
-    └── MediaPipeline.ts         # ✅ Subscribes to both image & frame predictions
-
-entrypoints/background/
-└── services/
-    ├── inferenceOrchestrationService.ts  # ✅ Routes by mediaMetadata.kind
-    └── videoCacheService.ts              # ⏳ IndexedDB video caching (planned)
-
-utils/
-├── types/
-│   ├── media.ts                 # ✅ IMediaMetadata union (IImageMetadata | IFrameMetadata)
-│   └── prediction.ts            # ✅ IFramePrediction type (actively used)
-├── db/
-│   └── db.ts                    # ⏳ +VideoDatabase (planned)
-├── constants/
-│   └── video.ts                 # ✅ Video processing configuration
-└── messaging/services/
-    └── backgroundRpc.ts         # ✅ +postInferenceVideoFrame(), +emitFramePredictions()
-```
+- **Prediction caching** — cache verdicts (not frames) keyed by `[videoSrc+timestampKey]` to skip
+  redundant inference on replays/seeks. The VideoSession identity (element×source) was chosen to
+  keep such a cache coherent.
+- **Timeline synchronization** — reuse cached verdicts during playback.

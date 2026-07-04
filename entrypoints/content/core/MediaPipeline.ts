@@ -12,7 +12,7 @@ import {
   handleVideoAttributeChange,
   disposeVideoSession,
 } from '@/entrypoints/content/handlers/handleVideos';
-import { applyFramePredictionsToDom } from '@/entrypoints/content/presentation/videoPredictions';
+import { videoSessions } from '@/entrypoints/content/video/session/registry';
 
 import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/types';
 
@@ -97,6 +97,7 @@ export class MediaPipeline {
     this.dom.stop();
     this.imageProcessor.dispose();
     this.badgeCounter.dispose();
+    videoSessions.disposeAll();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
   }
@@ -136,6 +137,6 @@ export class MediaPipeline {
 
   private handleFramePredictions(preds: IFramePrediction[]): void {
     if (!preds || preds.length === 0) return;
-    void applyFramePredictionsToDom(preds, this.opts.hostSettings);
+    videoSessions.handlePredictions(preds);
   }
 }

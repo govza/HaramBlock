@@ -17,7 +17,12 @@ export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<I
     }
   }
 
-  await waitForVideoReady(video);
+  // Fail closed: below HAVE_CURRENT_DATA drawImage silently draws nothing, and a
+  // transparent capture would be verdicted "safe" for content nobody analyzed.
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    logger.withTag('frameCapture').debug('No current frame data, cannot extract thumbnail');
+    return null;
+  }
 
   const { canvas, ctx, width, height } = createDrawingSurface(video);
   if (!ctx || width === 0 || height === 0) {
@@ -40,6 +45,11 @@ export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<I
 }
 
 export async function captureFrameBitmap(video: HTMLVideoElement): Promise<ImageBitmap | null> {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    logger.withTag('frameCapture').debug('Skipping frame capture, no current frame data');
+    return null;
+  }
+
   const { canvas, ctx, width, height } = createDrawingSurface(video);
   if (!ctx || width === 0 || height === 0) {
     logger.withTag('frameCapture').debug('Skipping frame capture due to zero dimensions');
@@ -156,44 +166,6 @@ async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null
     logger.withTag('frameCapture').debug('Error extracting poster image:', error);
     return null;
   }
-}
-
-export async function waitForVideoReady(video: HTMLVideoElement): Promise<void> {
-  if (video.readyState >= HTMLMediaElement.HAVE_METADATA && video.videoWidth > 0 && video.videoHeight > 0) {
-    return;
-  }
-
-  await new Promise<void>(resolve => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      logger.withTag('frameCapture').warn('Timeout waiting for video metadata');
-      resolve();
-    }, 3000);
-
-    const cleanup = () => {
-      clearTimeout(timeout);
-      video.removeEventListener('loadedmetadata', onLoadedMetadata);
-      video.removeEventListener('error', onError);
-    };
-
-    const onLoadedMetadata = () => {
-      cleanup();
-      resolve();
-    };
-
-    const onError = () => {
-      cleanup();
-      logger.withTag('frameCapture').warn('Video error while waiting for metadata');
-      resolve();
-    };
-
-    video.addEventListener('loadedmetadata', onLoadedMetadata);
-    video.addEventListener('error', onError);
-
-    if (video.readyState === HTMLMediaElement.HAVE_NOTHING) {
-      video.load();
-    }
-  });
 }
 
 async function createCORSVideo(originalVideo: HTMLVideoElement): Promise<HTMLVideoElement> {
