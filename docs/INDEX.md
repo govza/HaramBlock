@@ -20,6 +20,8 @@ APIs, and implementation details). If you’re a user, start with the project
 - **Parallel GPU inference: plan + results**: [PLAN.md](PLAN.md),
   [PHASE2_RESULTS.md](PHASE2_RESULTS.md)
 - **Running tests**: [TESTING.md](TESTING.md)
+- **Interactive browser debugging (Playwright MCP + built extension)**:
+  [PLAYWRIGHT.md](PLAYWRIGHT.md)
 
 ## Project Map (High Level)
 
