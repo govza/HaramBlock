@@ -7,6 +7,7 @@ export const INFERENCE_TIMEOUT = 80_000;
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
   VIDEO_SEGMENT_OVERLAY: '[data-video-mask-overlay="unified-video-mask-overlay"]',
+  VIDEO_DVR_PLAYER: '[data-video-dvr-player="video-dvr-player"]',
   BLACKLIST_ATTR: 'data-haramblock-blacklist',
   GALLERY_IMAGE: 'main img',
   EYE_TOGGLE: '.haramblock-eye-toggle',

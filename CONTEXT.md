@@ -13,8 +13,10 @@ more predictions. _Avoid_: result, outcome, classification
 **Prediction**: The model's detections for a single inferred input (one image, one GIF frame, one
 video frame). _Avoid_: inference result, detection set
 
-**Fail-closed**: The protection stance when a verdict cannot be reached: the media stays masked
-rather than being revealed. _Avoid_: fail-safe (ambiguous about direction)
+**Fail-closed**: The protection stance while a verdict is genuinely pending: the media stays masked
+rather than being revealed. When analysis is permanently impossible, the media is allowed instead
+(inference-impossible is not evidence of unsafe content). _Avoid_: fail-safe (ambiguous about
+direction)
 
 ### Video Processing
 
@@ -33,3 +35,15 @@ screenshot
 
 **Stale Prediction**: A prediction that must not be applied: it belongs to a dead VideoSession, or
 an older Frame Sample than one already applied. _Avoid_: late result, outdated frame
+
+**DVR**: The delayed-presentation mode for masked playback: the video element keeps decoding while a
+canvas presents buffered frames one Presentation Delay behind the live edge, compositing frame and
+mask in the same draw. _Avoid_: canvas player (that is the GIF mechanism), delay overlay
+
+**Presentation Delay (D)**: How far behind the live edge the DVR presents, sized so a frame's
+verdict resolves before the frame is shown. _Avoid_: lag, latency (those describe the problem, not
+the mechanism)
+
+**Inertia Window**: The span of media time around a Frame Sample over which its verdict applies
+during DVR presentation, derived from the observed sampling cadence. The video analog of GIF mask
+inertia. _Avoid_: tolerance, slack
