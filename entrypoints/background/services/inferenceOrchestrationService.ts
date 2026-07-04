@@ -233,6 +233,7 @@ export class InferenceOrchestrationService {
       videoUrl: frameMetadata.videoUrl,
       src: imagePrediction.src,
       frameIndex: frameMetadata.frameIndex,
+      timestampSec: frameMetadata.timestampSec,
       sessionId: frameMetadata.sessionId,
       predictions: imagePrediction.predictions,
       width: imagePrediction.width,

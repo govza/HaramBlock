@@ -85,6 +85,7 @@ export interface IFramePrediction {
   width: number; // Frame media width
   height: number; // Frame media height
   frameIndex: number; // Frame number in the video (-1 for thumbnail)
+  timestampSec: number; // Media time (video.currentTime) of the sampled frame; 0 for the Thumbnail
   videoUrl: string; // Original video source URL (used for DOM element matching)
   src: string; // URL of the media blob image
   predictions: IElementPrediction[];

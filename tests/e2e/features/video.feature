@@ -23,3 +23,9 @@ Feature: Video Masking
     Given I open the video test page with "sf-neutral" images
     When I inject and play a generated safe video using "source-child"
     Then the video is verdicted "safe" within the inference timeout
+
+  Scenario: An unsafe playing video is presented through the delayed DVR canvas
+    Given I open the video test page with "nsf-female" images
+    When I inject and play a generated unsafe video
+    Then the video is verdicted "unsafe" within the inference timeout
+    And the DVR canvas player replaces the native video

@@ -5,6 +5,12 @@
 
 export type SessionPhase = 'adopted' | 'thumbnailing' | 'standby' | 'sampling' | 'error' | 'disposed';
 
+/**
+ * DVR presentation lifecycle: 'warming' = ring buffer filling behind the
+ * whole-blur; 'presenting' = the delayed canvas has replaced native rendering.
+ */
+export type DvrMode = 'off' | 'warming' | 'presenting';
+
 export interface VideoSessionState {
   phase: SessionPhase;
   /** Whether the Thumbnail send was already retried after a fail-closed timeout. */
@@ -28,6 +34,8 @@ export interface VideoSessionState {
   /** A seek happened while a send was in flight (or during THUMBNAILING);
    *  the newly displayed frame must be sampled as soon as the slot frees. */
   pendingSeek: boolean;
+  /** Delayed-presentation state; masked playback drives it (DVR is a playback mode). */
+  dvr: DvrMode;
 }
 
 export const THUMBNAIL_TIMEOUT_MS = 10_000;
@@ -53,6 +61,8 @@ export type SessionEvent =
   | { type: 'ended'; at: number }
   /** permanent: capture can never succeed for this source (e.g. canvas taint), not a transient miss. */
   | { type: 'sendFailed'; frameIndex: number; at: number; permanent?: boolean }
+  /** The DVR ring buffer spans the presentation delay; the canvas has taken over. */
+  | { type: 'bufferReady'; at: number }
   | { type: 'dispose' };
 
 export type SessionEffect =
@@ -66,6 +76,8 @@ export type SessionEffect =
   | { kind: 'startTimer'; timer: SessionTimer; ms: number }
   | { kind: 'cancelTimer'; timer: SessionTimer }
   | { kind: 'stopTicker' }
+  | { kind: 'startDvr' }
+  | { kind: 'stopDvr' }
   | { kind: 'cleanup' };
 
 export interface ReduceResult {
@@ -87,6 +99,7 @@ export function createVideoSession(): ReduceResult {
       blurred: true,
       errorStreak: 0,
       pendingSeek: false,
+      dvr: 'off',
     },
     effects: [{ kind: 'applyBlur' }],
   };
@@ -118,7 +131,10 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     return { state, effects: [] };
   }
   if (event.type === 'dispose') {
-    return { state: { ...state, phase: 'disposed', inflightIndex: null }, effects: [{ kind: 'cleanup' }] };
+    return {
+      state: { ...state, phase: 'disposed', inflightIndex: null, dvr: 'off' },
+      effects: state.dvr === 'off' ? [{ kind: 'cleanup' }] : [{ kind: 'stopDvr' }, { kind: 'cleanup' }],
+    };
   }
   if (event.type === 'thumbnailSourceReady' && state.phase === 'adopted') {
     return { state: { ...state, phase: 'thumbnailing' }, effects: [{ kind: 'captureThumbnail' }] };
@@ -187,7 +203,22 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       // Instant on: an unsafe sample masks immediately and resets the clean streak.
       next.masked = true;
       next.cleanStreak = 0;
-      effects.push({ kind: 'applyVerdict' }, { kind: 'clearBlur' }, { kind: 'setStatus', status: 'unsafe' });
+      if (state.phase === 'sampling') {
+        // Playback masking is the DVR's job: a DOM overlay would chase content
+        // that has already moved on. Whole-blur covers until the canvas warms.
+        if (state.dvr === 'off') {
+          next.dvr = 'warming';
+          next.blurred = true;
+          effects.push({ kind: 'applyBlur' }, { kind: 'startDvr' });
+        } else if (state.dvr === 'warming') {
+          next.blurred = true;
+        }
+        // presenting: the player composites masks itself; no DOM effects.
+      } else {
+        // Paused (standby) verdict describes a static frame: precise DOM overlay.
+        effects.push({ kind: 'applyVerdict' }, { kind: 'clearBlur' });
+      }
+      effects.push({ kind: 'setStatus', status: 'unsafe' });
     } else {
       next.cleanStreak = state.masked ? state.cleanStreak + 1 : 0;
       if (state.masked && next.cleanStreak >= CLEAN_STREAK_TO_CLEAR) {
@@ -195,6 +226,15 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         next.masked = false;
         next.cleanStreak = 0;
         effects.push({ kind: 'clearVerdict' }, { kind: 'clearBlur' }, { kind: 'setStatus', status: 'safe' });
+        if (state.dvr !== 'off') {
+          // Native playback resumes at the live edge (content jumps forward by D).
+          next.dvr = 'off';
+          effects.push({ kind: 'stopDvr' });
+        }
+      } else if (state.masked && state.dvr === 'warming') {
+        // Clean sample short of the streak: the warm-up blur is the only
+        // protection (no DOM overlay on this path) — keep it until bufferReady.
+        next.blurred = true;
       } else if (state.blurred) {
         effects.push({ kind: 'clearBlur' });
         if (!next.masked) {
@@ -204,14 +244,28 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     }
     return { state: next, effects };
   }
+  if (event.type === 'bufferReady' && state.dvr === 'warming') {
+    // The delayed canvas is drawing (masked, synced): swap out the whole-blur
+    // and any leftover DOM overlay from a pre-playback verdict.
+    return {
+      state: { ...state, dvr: 'presenting', blurred: false },
+      effects: [{ kind: 'clearVerdict' }, { kind: 'clearBlur' }],
+    };
+  }
   if (
     event.type === 'play' &&
     (state.phase === 'standby' || state.phase === 'thumbnailing' || state.phase === 'adopted')
   ) {
-    return {
-      state: { ...state, phase: 'sampling' },
-      effects: [{ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS }],
-    };
+    const effects: SessionEffect[] = [{ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS }];
+    const next = { ...state, phase: 'sampling' as const };
+    if (state.masked && state.dvr === 'off') {
+      // A masked video starts playing: its static DOM overlay would lag the
+      // moving content. Whole-blur instantly, warm the DVR.
+      next.dvr = 'warming';
+      next.blurred = true;
+      effects.push({ kind: 'applyBlur' }, { kind: 'startDvr' });
+    }
+    return { state: next, effects };
   }
   if (event.type === 'sendFailed' && state.phase === 'thumbnailing') {
     if (event.permanent) {
@@ -247,10 +301,19 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     };
   }
   if ((event.type === 'pause' || event.type === 'ended') && state.phase === 'sampling') {
-    return {
-      state: { ...state, phase: 'standby' },
-      effects: [{ kind: 'cancelTimer', timer: 'watchdog' }],
-    };
+    const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
+    const next = { ...state, phase: 'standby' as const };
+    if (state.dvr !== 'off') {
+      // DVR is a playback presentation mode: a paused frame is static, so the
+      // precise DOM overlay takes over before the native element is revealed.
+      next.dvr = 'off';
+      if (state.masked) {
+        next.blurred = false;
+        effects.push({ kind: 'applyVerdict' }, { kind: 'clearBlur' });
+      }
+      effects.push({ kind: 'stopDvr' });
+    }
+    return { state: next, effects };
   }
   if (event.type === 'frameAvailable' && state.phase === 'sampling') {
     if (state.inflightIndex !== null || event.at - state.lastSentAt < SAMPLE_FLOOR_MS) {
@@ -265,12 +328,24 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // The displayed frame changed: sample it now, floor interval waived. If a
     // send is already in flight (or the Thumbnail round-trip is), remember the
     // seek and fire once the slot frees.
-    if (state.phase === 'thumbnailing' || state.inflightIndex !== null) {
-      return { state: { ...state, pendingSeek: true }, effects: [] };
-    }
-    return sendNextSample(state, event.at);
+    const sampled =
+      state.phase === 'thumbnailing' || state.inflightIndex !== null
+        ? { state: { ...state, pendingSeek: true }, effects: [] as SessionEffect[] }
+        : sendNextSample(state, event.at);
+    if (state.dvr === 'off') return sampled;
+    // Ring-buffer discontinuity: the buffered frames no longer precede the new
+    // position. Flush by re-warming; blur covers until the canvas catches up.
+    return {
+      state: { ...sampled.state, dvr: 'warming', blurred: true },
+      effects: [{ kind: 'applyBlur' }, { kind: 'stopDvr' }, { kind: 'startDvr' }, ...sampled.effects],
+    };
   }
   if (event.type === 'timerFired' && event.timer === 'watchdog' && state.phase === 'sampling') {
+    if (state.dvr === 'presenting') {
+      // The DVR already fails closed per frame (verdict-late frames present
+      // whole-blurred); re-blurring the hidden native element does nothing.
+      return { state, effects: [] };
+    }
     // Fail-closed: verdict silence mid-playback hides the video until inference recovers.
     return { state: { ...state, blurred: true }, effects: [{ kind: 'applyBlur' }] };
   }
@@ -304,8 +379,10 @@ function finalizeAllow(state: VideoSessionState): ReduceResult {
       cleanStreak: 0,
       blurred: false,
       pendingSeek: false,
+      dvr: 'off',
     },
     effects: [
+      ...(state.dvr === 'off' ? [] : [{ kind: 'stopDvr' } as const]),
       { kind: 'clearVerdict' },
       { kind: 'clearBlur' },
       { kind: 'setStatus', status: 'skipped' },

@@ -1,9 +1,10 @@
 # Video Processing Architecture
 
 This document describes how HaramBlock detects, samples, and masks `<video>` content. The design is
-recorded in [ADR 0001](./adr/0001-video-session-state-machine.md); the domain vocabulary
-(VideoSession, Thumbnail, Frame Sample, Stale Prediction, Verdict, Fail-closed) is defined in the
-root [CONTEXT.md](../CONTEXT.md).
+recorded in [ADR 0001](./adr/0001-video-session-state-machine.md) (session machine) and
+[ADR 0002](./adr/0002-dvr-delayed-presentation.md) (DVR presentation, allow-on-impossible); the
+domain vocabulary (VideoSession, Thumbnail, Frame Sample, Stale Prediction, Verdict, Fail-closed,
+DVR, Presentation Delay, Inertia Window) is defined in the root [CONTEXT.md](../CONTEXT.md).
 
 ## Overview
 
@@ -50,7 +51,9 @@ Key invariants:
 | Discovery          | `entrypoints/content/handlers/handleVideos.ts`                     | Routes discovered videos: blacklist styling or registry adoption       |
 | Frame capture      | `entrypoints/content/video/frameCapture.ts`                        | Canvas capture, poster extraction, CORS workaround                     |
 | Transport          | `entrypoints/content/communication/sender.ts`                      | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob) |
-| Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering                                            |
+| Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering (paused/standby verdicts)                  |
+| DVR presenter      | `entrypoints/content/presentation/videoDvrPlayer.ts`               | Delayed masked canvas playback (playback verdicts)                     |
+| DVR buffers        | `entrypoints/content/video/dvr/{frameRing,verdictTrack}.ts`        | Media-time-keyed frame ring + verdict history                          |
 | Background routing | `entrypoints/background/services/inferenceOrchestrationService.ts` | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`               |
 
 ### The pure machine
@@ -61,7 +64,7 @@ fake DOM or real clocks. Its effect vocabulary:
 
 `applyBlur` · `clearBlur` · `captureThumbnail` · `sendSample{frameIndex}` · `applyVerdict` ·
 `clearVerdict` · `setStatus{safe|unsafe|skipped}` · `startTimer`/`cancelTimer` · `stopTicker` ·
-`cleanup`
+`startDvr`/`stopDvr` · `cleanup`
 
 Tuning constants (all in `machine.ts`):
 
@@ -113,6 +116,37 @@ Tuning constants (all in `machine.ts`):
   `loadstart` listener that keeps waiting while `currentSrc` is still empty (`srcObject` fires
   `loadstart` with no URL source), so discovery holds no state of its own.
 
+## DVR: delayed masked presentation
+
+DOM overlays cannot mask moving content: a verdict describes a frame displayed one inference
+round-trip ago. So playback masking presents **delayed**: the `<video>` element keeps decoding (and
+playing audio) while a canvas presents buffered frames `D = 1.5 s` behind the live edge — far enough
+back that every presented frame's verdict is already resolved. Frame and mask are composited in the
+same draw, mirroring the GIF player.
+
+Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the registry):
+
+- **Unsafe verdict while playing** (or `play` on an already-masked video) → instant whole-blur +
+  `startDvr`: the registry creates a `FrameRing` (rVFC captures, ≤640 px wide, ~13 fps, bounded by
+  `D`+slack and a 40 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by `timestampSec`).
+- **`bufferReady`** (ring spans `D`; the player inserted its canvas and hid the native element) →
+  `presenting`: blur and any leftover DOM overlay are swapped out. While presenting, per-verdict
+  `applyVerdict` DOM renders are suppressed — the player composites masks itself.
+- **Per presented frame** (`videoDvrPlayer.ts`): look up verdicts within the Inertia Window
+  (observed sampling cadence + jitter margin) around the frame's media time. Unsafe → composite the
+  union of their masks (RLE-decoded once, pixelated content + destination-in); clean → draw plain;
+  **no verdict → draw the live frame whole-blurred** (inference running late; presentation never
+  pauses). Sampling continues at the live edge throughout.
+- **Exit**: the clean streak (`stopDvr`, native resumes at the live edge — content jumps forward by
+  `D`), pause/ended (static frame → precise DOM overlay takes back over), seek (ring discontinuity →
+  flush, whole-blur, re-warm), dispose, or terminal ERROR.
+- **DVR unavailable but analysis works** (buffer capture throws `SecurityError` while the CORS-clone
+  sampling path still delivers verdicts): the warm-up whole-blur simply stays; the clean-streak exit
+  remains reachable. Only analysis-impossible finalizes as allow.
+
+Paused/standby verdicts never involve the DVR: a static frame has nothing to chase, so the precise
+DOM overlay (`videoMaskOverlay.ts`) renders it, as before.
+
 ## Processed status attributes
 
 Set by the machine's `setStatus` effect (contract kept from the previous pipeline):
@@ -130,12 +164,21 @@ shared `haramblock-initial-blur` class.
 - **Unit** (`entrypoints/content/video/session/__tests__/machine.test.ts`): every machine behavior —
   adoption, timeout-at-first-send, verdict finalization, retry-then-blocked, pacing, staleness,
   hysteresis, watchdog re-blur + self-heal, lost-sample slot recovery, paused-seek one-shots,
-  pause/ended, consecutive-error fail-close, terminal disposal, play-preempts-thumbnail.
-- **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a playing video, including
-  the `<source>`-child discovery path.
+  pause/ended, terminal allow (error streak + permanent failures), terminal disposal,
+  play-preempts-thumbnail, and the DVR lifecycle (warm-up, bufferReady, pause hand-back, seek
+  re-warm, dispose). `entrypoints/content/video/dvr/__tests__/` covers the FrameRing (selection,
+  eviction, discontinuity flush, release) and VerdictTrack (window lookup, inertia merging,
+  cadence-derived window, pruning).
+- **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
+  the `<source>`-child discovery path, a clean playing video, and DVR canvas takeover on an unsafe
+  playing video.
 
 ## Future enhancements
 
+- **Adaptive `D` + memory guards (stage 2)** — size the presentation delay from per-session
+  `sampleSent → predictionReceived` latency stats (clamped [600 ms, 2000 ms]); global buffer caps
+  across simultaneously-masked videos.
+- **Audio delay sync (stage 3)** — `captureStream()` + WebAudio `DelayNode` where media allows.
 - **Prediction caching** — cache verdicts (not frames) keyed by `[videoSrc+timestampKey]` to skip
   redundant inference on replays/seeks. The VideoSession identity (element×source) was chosen to
   keep such a cache coherent.

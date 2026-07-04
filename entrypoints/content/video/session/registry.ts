@@ -14,7 +14,10 @@ import {
   PROCESSED_ATTR_MAP,
   type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
+import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
+import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
+import { VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import {
   captureFrameBitmap,
   captureThumbnailBitmap,
@@ -49,6 +52,20 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
  */
 const CAPTURE_SEND_TIMEOUT_MS = 10_000;
 
+/**
+ * Presentation delay D: the DVR canvas presents mediaTime ≈ currentTime − D,
+ * sized so a sample's inference round-trip resolves before its frame presents.
+ */
+const DVR_DELAY_SEC = 1.5;
+/** Buffer captures are cheaper and denser than inference samples (~13 fps). */
+const DVR_CAPTURE_INTERVAL_SEC = 1 / 15;
+/** Buffered frames are presentation-sized, not inference-sized. */
+const DVR_CAPTURE_MAX_WIDTH = 640;
+/** Ring horizon: D plus slack so eviction never races the presenter's lookup. */
+const DVR_BUFFER_HORIZON_SEC = DVR_DELAY_SEC + 1;
+/** Per-session byte cap (~2.5 s of 640×360 RGBA at 15 fps ≈ 35 MB). */
+const DVR_BUFFER_MAX_BYTES = 40 * 1024 * 1024;
+
 function withTimeout<T>(promise: Promise<T>, label: string, onLate?: (value: T) => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let timedOut = false;
@@ -82,6 +99,17 @@ function generateSessionId(): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+interface DvrRuntime {
+  ring: FrameRing;
+  track: VerdictTrack;
+  player: VideoDvrPlayer;
+  /** One buffer capture in flight at a time; rVFC ticks are denser than captures. */
+  captureBusy: boolean;
+  lastCapturedMediaTime: number;
+  /** Buffering threw SecurityError: the DVR can never warm; the warm-up blur stays. */
+  captureFailed: boolean;
+}
+
 interface SessionHandle {
   readonly sessionId: string;
   readonly video: HTMLVideoElement;
@@ -89,11 +117,14 @@ interface SessionHandle {
   hostSettings: IHostSettings;
   state: VideoSessionState;
   lastPrediction: IFramePrediction | null;
+  /** Most recent unsafe prediction: what `applyVerdict` renders (pause re-masks need it). */
+  lastUnsafePrediction: IFramePrediction | null;
   timers: Map<SessionTimer, ReturnType<typeof setTimeout>>;
   stopTicker: (() => void) | null;
   removeListeners: () => void;
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
+  dvr: DvrRuntime | null;
 }
 
 interface PendingAdoption {
@@ -138,10 +169,12 @@ class VideoSessionRegistry {
       hostSettings,
       state: null as unknown as VideoSessionState, // set right below via createVideoSession
       lastPrediction: null,
+      lastUnsafePrediction: null,
       timers: new Map(),
       stopTicker: null,
       removeListeners: () => {},
       overlayChain: Promise.resolve(),
+      dvr: null,
     };
     this.byId.set(handle.sessionId, handle);
     this.byVideo.set(video, handle);
@@ -153,7 +186,10 @@ class VideoSessionRegistry {
     this.execute(handle, born.effects);
 
     this.bindMediaEvents(handle);
-    handle.stopTicker = startFrameTicker(video, at => this.dispatch(handle, { type: 'frameAvailable', at }));
+    handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
+      this.dispatch(handle, { type: 'frameAvailable', at });
+      void this.captureIntoRing(handle, mediaTime);
+    });
     this.queueThumbnailSourceReady(handle);
   }
 
@@ -167,12 +203,28 @@ class VideoSessionRegistry {
         continue;
       }
       handle.lastPrediction = pred;
+      const unsafe = Boolean(pred.predictions?.length);
+      if (unsafe) handle.lastUnsafePrediction = pred;
       this.dispatch(handle, {
         type: 'predictionReceived',
         frameIndex: pred.frameIndex,
-        unsafe: Boolean(pred.predictions?.length),
+        unsafe,
         at: performance.now(),
       });
+      // After the dispatch: an unsafe verdict may have just started the DVR,
+      // and its own entry must land in the track. Verdicts are keyed by media
+      // time, so even machine-stale (older-index) ones describe their frame;
+      // the Thumbnail (frame −1) has no media time and stays out.
+      if (handle.dvr && pred.frameIndex >= 0) {
+        handle.dvr.track.add({
+          timestampSec: pred.timestampSec,
+          unsafe,
+          predictions: pred.predictions ?? [],
+          maskTransform: pred.maskTransform,
+          width: pred.width,
+          height: pred.height,
+        });
+      }
     }
   }
 
@@ -298,6 +350,12 @@ class VideoSessionRegistry {
           handle.stopTicker?.();
           handle.stopTicker = null;
           break;
+        case 'startDvr':
+          this.startDvr(handle);
+          break;
+        case 'stopDvr':
+          this.stopDvr(handle);
+          break;
         case 'cleanup':
           this.teardown(handle);
           break;
@@ -305,8 +363,76 @@ class VideoSessionRegistry {
     }
   }
 
+  private startDvr(handle: SessionHandle): void {
+    if (handle.dvr) return;
+    const ring = new FrameRing(DVR_BUFFER_HORIZON_SEC, DVR_BUFFER_MAX_BYTES);
+    const track = new VerdictTrack();
+    const player = new VideoDvrPlayer({
+      video: handle.video,
+      ring,
+      track,
+      delaySec: DVR_DELAY_SEC,
+      getMasking: () => handle.hostSettings.masking,
+      onReady: () => this.dispatch(handle, { type: 'bufferReady', at: performance.now() }),
+    });
+    handle.dvr = {
+      ring,
+      track,
+      player,
+      captureBusy: false,
+      lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
+      captureFailed: false,
+    };
+  }
+
+  private stopDvr(handle: SessionHandle): void {
+    const { dvr } = handle;
+    if (!dvr) return;
+    handle.dvr = null;
+    dvr.player.destroy();
+    dvr.ring.release();
+  }
+
+  /**
+   * Feed the ring while the DVR is active. Presentation-sized, throttled below
+   * the tick rate, one capture in flight. A SecurityError means the element
+   * cannot be buffered at all (cross-origin without CORS): the DVR never warms
+   * and the warm-up whole-blur simply stays — inference may still work through
+   * the CORS-clone path, so the clean-streak exit remains reachable.
+   */
+  private async captureIntoRing(handle: SessionHandle, mediaTime: number): Promise<void> {
+    const { dvr } = handle;
+    if (!dvr || dvr.captureBusy || dvr.captureFailed) return;
+    if (mediaTime - dvr.lastCapturedMediaTime < DVR_CAPTURE_INTERVAL_SEC && mediaTime >= dvr.lastCapturedMediaTime) {
+      return;
+    }
+    dvr.captureBusy = true;
+    try {
+      const { video } = handle;
+      const resizeWidth = Math.min(DVR_CAPTURE_MAX_WIDTH, video.videoWidth || DVR_CAPTURE_MAX_WIDTH);
+      const bitmap = await createImageBitmap(video, { resizeWidth, resizeQuality: 'low' });
+      // The DVR may have stopped (or been replaced after a seek) while we awaited.
+      if (handle.dvr !== dvr) {
+        bitmap.close();
+        return;
+      }
+      dvr.lastCapturedMediaTime = mediaTime;
+      dvr.ring.push({ bitmap, mediaTime });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        dvr.captureFailed = true;
+        log.warn('DVR buffering impossible (tainted source); staying whole-blurred while masked');
+      } else {
+        log.debug('DVR buffer capture failed:', error);
+      }
+    } finally {
+      dvr.captureBusy = false;
+    }
+  }
+
   private teardown(handle: SessionHandle): void {
     const { video } = handle;
+    this.stopDvr(handle);
     for (const pending of handle.timers.values()) clearTimeout(pending);
     handle.timers.clear();
     handle.stopTicker?.();
@@ -458,7 +584,9 @@ class VideoSessionRegistry {
   }
 
   private applyVerdictOverlay(handle: SessionHandle): void {
-    const pred = handle.lastPrediction;
+    // The last unsafe prediction, not the last one: a pause-time re-mask must
+    // render the mask that made the session masked, not a newer clean verdict.
+    const pred = handle.lastUnsafePrediction;
     if (!pred) return;
     const { video, hostSettings } = handle;
     const imagePrediction = toImagePrediction(pred);
@@ -490,16 +618,17 @@ function toImagePrediction(framePred: IFramePrediction): IImagePrediction {
 /**
  * Drive frameAvailable events from actual frame presentation. rVFC fires only
  * when a new video frame is presented (never for a stalled/paused video); the
- * rAF fallback is gated on playback state instead.
+ * rAF fallback is gated on playback state instead. `mediaTime` is the
+ * presented frame's position on the media timeline (the DVR ring's key).
  */
-function startFrameTicker(video: HTMLVideoElement, onFrame: (at: number) => void): () => void {
+function startFrameTicker(video: HTMLVideoElement, onFrame: (at: number, mediaTime: number) => void): () => void {
   if (typeof video.requestVideoFrameCallback === 'function') {
     let stopped = false;
     let callbackId = 0;
     const loop = () => {
-      callbackId = video.requestVideoFrameCallback(now => {
+      callbackId = video.requestVideoFrameCallback((now, metadata) => {
         if (stopped) return;
-        onFrame(now);
+        onFrame(now, metadata.mediaTime);
         loop();
       });
     };
@@ -517,7 +646,7 @@ function startFrameTicker(video: HTMLVideoElement, onFrame: (at: number) => void
     rafId = null;
     if (video.paused || video.ended) return;
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      onFrame(performance.now());
+      onFrame(performance.now(), video.currentTime);
     }
     rafId = requestAnimationFrame(tick);
   };

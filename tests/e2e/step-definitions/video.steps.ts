@@ -1,11 +1,7 @@
 import { Given, Then, When } from '@wdio/cucumber-framework';
 
 import { buildGalleryUrl, INFERENCE_TIMEOUT, Selectors, type GalleryModeType } from '../constants/index.js';
-
-const getElementCount = async (selector: string): Promise<number> => {
-  const elements = await $$(selector);
-  return elements.length;
-};
+import { countVisibleInLayer } from '../utils/overlayLayer.js';
 
 /**
  * Video is not a default processing target; enable it via the popup chip.
@@ -68,8 +64,22 @@ When('I inject a video using the first gallery image as poster', async () => {
  * broke so CI logs stay diagnosable.
  */
 When('I inject and play a generated safe video using {string}', async (mode: string) => {
+  await injectAndPlayGeneratedVideo(mode, 'safe');
+});
+
+/**
+ * DVR path: the recorded frames replay the known-unsafe gallery image, so
+ * playback Frame Samples verdict unsafe and the session switches to delayed
+ * canvas presentation. Recorded longer than the presentation delay so the
+ * ring buffer can span D within one loop.
+ */
+When('I inject and play a generated unsafe video', async () => {
+  await injectAndPlayGeneratedVideo('src', 'unsafe');
+});
+
+async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsafe'): Promise<void> {
   const failure = await browser.executeAsync(
-    (sourceMode: string, videoSelector: string, done: (failure: string | null) => void) => {
+    (sourceMode: string, contentMode: string, videoSelector: string, done: (failure: string | null) => void) => {
       // Read name/message as plain properties: `instanceof Error` is false for
       // page DOMExceptions inside the Marionette sandbox, which previously
       // collapsed rejections to "{}" in CI logs.
@@ -81,75 +91,103 @@ When('I inject and play a generated safe video using {string}', async (mode: str
         if (typeof err === 'string') return err;
         return JSON.stringify(err) ?? 'unknown error';
       };
-      try {
-        const doc = globalThis.document;
-        const canvas = doc.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 240;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          done('canvas 2d context unavailable');
-          return;
-        }
-        let hue = 0;
-        const draw = () => {
-          hue = (hue + 7) % 360;
-          ctx.fillStyle = `hsl(${hue}, 60%, 60%)`;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        };
-        draw();
-        const interval = setInterval(draw, 100);
-
-        const stream = canvas.captureStream(10);
-        const candidates = ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
-        const mimeType = candidates.find(type => globalThis.MediaRecorder.isTypeSupported(type));
-        const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-        const chunks: Blob[] = [];
-        recorder.ondataavailable = event => {
-          if (event.data.size > 0) chunks.push(event.data);
-        };
-        recorder.onerror = event => {
-          clearInterval(interval);
-          done(`MediaRecorder error: ${describe((event as unknown as { error?: unknown }).error)}`);
-        };
-        recorder.onstop = () => {
-          clearInterval(interval);
-          if (chunks.length === 0) {
-            done(`MediaRecorder produced no data (mimeType: ${recorder.mimeType || 'default'})`);
+      const record = (unsafeImage: HTMLImageElement | null) => {
+        try {
+          const doc = globalThis.document;
+          const canvas = doc.createElement('canvas');
+          canvas.width = 320;
+          canvas.height = 240;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            done('canvas 2d context unavailable');
             return;
           }
-          const blobType = recorder.mimeType || mimeType || 'video/webm';
-          const url = URL.createObjectURL(new Blob(chunks, { type: blobType }));
-          const video = doc.createElement('video');
-          video.id = videoSelector.slice(1);
-          video.muted = true;
-          video.loop = true;
-          video.width = 320;
-          video.height = 240;
-          if (sourceMode === 'source-child') {
-            const source = doc.createElement('source');
-            source.src = url;
-            source.type = blobType;
-            video.append(source);
-          } else {
-            video.src = url;
-          }
-          doc.querySelector('main')?.append(video);
-          video
-            .play()
-            .then(() => done(null))
-            .catch((err: unknown) => {
-              const name = (err as { name?: unknown } | null | undefined)?.name;
-              done(name === 'NotAllowedError' ? 'needs-activation' : `play() rejected: ${describe(err)}`);
-            });
-        };
-        recorder.start();
-        setTimeout(() => recorder.stop(), 2500);
-      } catch (err) {
-        done(`video generation threw: ${describe(err)}`);
+          let hue = 0;
+          const draw = () => {
+            hue = (hue + 7) % 360;
+            ctx.fillStyle = `hsl(${hue}, 60%, 60%)`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (unsafeImage) {
+              // Replay the known-unsafe gallery image; the hue border keeps the
+              // encoder emitting distinct frames.
+              ctx.drawImage(unsafeImage, 8, 8, canvas.width - 16, canvas.height - 16);
+            }
+          };
+          draw();
+          const interval = setInterval(draw, 100);
+
+          const stream = canvas.captureStream(10);
+          const candidates = ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+          const mimeType = candidates.find(type => globalThis.MediaRecorder.isTypeSupported(type));
+          const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+          const chunks: Blob[] = [];
+          recorder.ondataavailable = event => {
+            if (event.data.size > 0) chunks.push(event.data);
+          };
+          recorder.onerror = event => {
+            clearInterval(interval);
+            done(`MediaRecorder error: ${describe((event as unknown as { error?: unknown }).error)}`);
+          };
+          recorder.onstop = () => {
+            clearInterval(interval);
+            if (chunks.length === 0) {
+              done(`MediaRecorder produced no data (mimeType: ${recorder.mimeType || 'default'})`);
+              return;
+            }
+            const blobType = recorder.mimeType || mimeType || 'video/webm';
+            const url = URL.createObjectURL(new Blob(chunks, { type: blobType }));
+            const video = doc.createElement('video');
+            video.id = videoSelector.slice(1);
+            video.muted = true;
+            video.loop = true;
+            video.width = 320;
+            video.height = 240;
+            if (sourceMode === 'source-child') {
+              const source = doc.createElement('source');
+              source.src = url;
+              source.type = blobType;
+              video.append(source);
+            } else {
+              video.src = url;
+            }
+            doc.querySelector('main')?.append(video);
+            video
+              .play()
+              .then(() => done(null))
+              .catch((err: unknown) => {
+                const name = (err as { name?: unknown } | null | undefined)?.name;
+                done(name === 'NotAllowedError' ? 'needs-activation' : `play() rejected: ${describe(err)}`);
+              });
+          };
+          recorder.start();
+          // The unsafe recording must outlast the DVR presentation delay so the
+          // ring buffer can warm up within a single loop of the video.
+          setTimeout(() => recorder.stop(), contentMode === 'unsafe' ? 4000 : 2500);
+        } catch (err) {
+          done(`video generation threw: ${describe(err)}`);
+        }
+      };
+
+      if (contentMode !== 'unsafe') {
+        record(null);
+        return;
       }
+      // The gallery images are cross-origin: drawing the in-page <img> would
+      // taint the canvas and captureStream() would throw. Re-load with CORS.
+      const pageImage = globalThis.document.querySelector<HTMLImageElement>('main img');
+      const imageSrc = pageImage?.currentSrc || pageImage?.src;
+      if (!imageSrc) {
+        done('no gallery image to record for the unsafe video');
+        return;
+      }
+      const corsImage = new Image();
+      corsImage.crossOrigin = 'anonymous';
+      corsImage.onload = () => record(corsImage);
+      corsImage.onerror = () => done('CORS load of the gallery image failed');
+      corsImage.src = imageSrc;
     },
     mode,
+    content,
     Selectors.TEST_VIDEO,
   );
 
@@ -177,7 +215,7 @@ When('I inject and play a generated safe video using {string}', async (mode: str
   } else if (failure) {
     throw new Error(`Failed to generate or start the test video — ${failure}`);
   }
-});
+}
 
 Then('the video is verdicted {string} within the inference timeout', async (verdict: string) => {
   const attr = `data-haramblock-processed-${verdict}`;
@@ -201,7 +239,7 @@ Then('I should see at least {string} video mask overlays', async (count: string)
   const minExpected = parseInt(count, 10);
   const canvasSelector = `${Selectors.VIDEO_SEGMENT_OVERLAY} canvas`;
 
-  await browser.waitUntil(async () => (await getElementCount(canvasSelector)) >= minExpected, {
+  await browser.waitUntil(async () => (await countVisibleInLayer(canvasSelector)) >= minExpected, {
     timeout: INFERENCE_TIMEOUT,
     timeoutMsg: `Expected at least ${minExpected} video mask overlays, but timed out`,
   });
@@ -209,6 +247,26 @@ Then('I should see at least {string} video mask overlays', async (count: string)
 
 Then('I should see exactly {string} video mask overlays', async (count: string) => {
   const expected = parseInt(count, 10);
-  const actual = await getElementCount(Selectors.VIDEO_SEGMENT_OVERLAY);
+  const actual = await countVisibleInLayer(Selectors.VIDEO_SEGMENT_OVERLAY);
   expect(actual).toBe(expected);
+});
+
+/**
+ * The DVR takes over once its ring buffer spans the presentation delay: its
+ * layer slot appears (canvas inside the overlay layer's shadow root) and the
+ * native element is visually hidden (opacity 0), while the session keeps
+ * sampling at the live edge.
+ */
+Then('the DVR canvas player replaces the native video', async () => {
+  const canvasSelector = `${Selectors.VIDEO_DVR_PLAYER} canvas`;
+  await browser.waitUntil(async () => (await countVisibleInLayer(canvasSelector)) > 0, {
+    timeout: INFERENCE_TIMEOUT,
+    timeoutMsg: 'Expected the DVR canvas player to appear, but timed out',
+  });
+
+  const nativeOpacity = await browser.execute(
+    (sel: string) => globalThis.document.querySelector<HTMLVideoElement>(sel)?.style.opacity,
+    Selectors.TEST_VIDEO,
+  );
+  expect(nativeOpacity).toBe('0');
 });
