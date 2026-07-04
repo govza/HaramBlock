@@ -4,7 +4,7 @@ import { hostSettingsDb, isIncognito } from '@/utils/db/db';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { normalizeStoredPolicy } from '@/utils/policy';
 
-import type { IHostSettings, OutlineType, PolicyBehavior, PolicyTarget } from '@/utils/types';
+import type { IHostSettings, PolicyBehavior, PolicyTarget } from '@/utils/types';
 
 const STORAGE_PREFIX = 'hostSettings:';
 
@@ -162,19 +162,6 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
       settings.policy = { ...settings.policy, behavior: nextBehavior };
     }
 
-    await this.saveSettings(settings);
-    return settings;
-  }
-
-  /**
-   * Set outline type for hostname
-   * @param hostname - The hostname to update
-   * @param outlineVariant - The outline type to set
-   * @returns Updated host settings
-   */
-  async setOutline(hostname: string, outlineVariant: OutlineType): Promise<IHostSettings> {
-    const settings = await this.findByHostname(hostname);
-    settings.outline = outlineVariant;
     await this.saveSettings(settings);
     return settings;
   }

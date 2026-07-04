@@ -1,7 +1,6 @@
 import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner';
 import { BlurIntensity } from '@/entrypoints/popup/components/BlurIntensity';
 import { BlurTint } from '@/entrypoints/popup/components/BlurTint';
-import { Outline } from '@/entrypoints/popup/components/Outline';
 import { PixelationScale } from '@/entrypoints/popup/components/PixelationScale';
 import { PolicyBehaviorSwitcher } from '@/entrypoints/popup/components/PolicyBehaviorSwitcher';
 import { PolicyTargetSwitcher } from '@/entrypoints/popup/components/PolicyTargetSwitcher';
@@ -27,7 +26,6 @@ export const Overview = () => {
       <div className='max-w-md space-y-2'>
         <PolicyBehaviorSwitcher />
         <PolicyTargetSwitcher />
-        <Outline />
         <Strictness />
         <BlurTint />
         <BlurIntensity />

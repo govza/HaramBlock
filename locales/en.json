@@ -51,11 +51,6 @@
       "pixelate": "Pixelate",
       "none": "None"
     },
-    "Outline": {
-      "title": "Outline",
-      "bbox": "Bounding box",
-      "segment": "Segment"
-    },
     "Policy": {
       "title": "Policy",
       "description": "Control how AI processes content",

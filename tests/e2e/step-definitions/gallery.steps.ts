@@ -77,9 +77,7 @@ Then('I should see {string} images loaded', async (count: string) => {
 Then('I should see {string} mask overlays', async (count: string) => {
   const expectedCount = parseInt(count, 10);
   const getMaskCount = async (): Promise<number> => {
-    const segmentCount = await getElementCount(Selectors.SEGMENT_OVERLAY);
-    const bboxCount = await getElementCount(Selectors.BBOX_OVERLAY);
-    return segmentCount + bboxCount;
+    return getElementCount(Selectors.SEGMENT_OVERLAY);
   };
   const actualCount = await waitForCount(getMaskCount, expectedCount, 'mask overlays');
   expect(actualCount).toBe(expectedCount);

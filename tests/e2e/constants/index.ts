@@ -6,7 +6,6 @@ export const INFERENCE_TIMEOUT = 80_000;
 
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
-  BBOX_OVERLAY: '.haramblock-blur-box',
   BLACKLIST_ATTR: 'data-haramblock-blacklist',
   GALLERY_IMAGE: 'main img',
   EYE_TOGGLE: '.haramblock-eye-toggle',

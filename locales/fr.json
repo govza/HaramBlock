@@ -51,11 +51,6 @@
       "pixelate": "Pixelisation",
       "none": "Aucun"
     },
-    "Outline": {
-      "title": "Contour",
-      "bbox": "Boîte englobante",
-      "segment": "Segment"
-    },
     "Policy": {
       "title": "Politique",
       "description": "Contrôlez comment l'IA traite le contenu",

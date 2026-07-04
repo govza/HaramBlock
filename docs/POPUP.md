@@ -24,7 +24,6 @@ entrypoints/popup/
     ├── PolicyBehaviorSwitcher.tsx  # Policy behavior toggle
     ├── PolicyTargetSwitcher.tsx    # Media-type checkboxes (Process mode)
     ├── Strictness.tsx           # Detection threshold slider
-    ├── Outline.tsx              # Visualization style toggle
     ├── BlurIntensity.tsx        # Blur strength slider
     ├── BlurTint.tsx             # Grayscale/dark toggles
     ├── PixelationScale.tsx      # Pixelation level slider
@@ -127,19 +126,13 @@ confidence before flagging content.
 **Side effect**: Changing strictness clears the image cache for the current hostname, forcing
 re-inference with the new threshold.
 
-### Outline
-
-Toggle between visualization styles:
-
-- **bbox**: Bounding box outline (red rectangle around detected areas)
-- **segment**: Pixel-perfect segmentation mask
-
 ### BlurIntensity / PixelationScale
 
 These sliders control the masking intensity:
 
-- **BlurIntensity**: Shown when `policy.behavior === 'blacklist'` OR `outline === 'bbox'`
-- **PixelationScale**: Shown when `policy.behavior === 'process'` AND `outline === 'segment'`
+- **BlurIntensity**: Shown when `policy.behavior === 'blacklist'` (controls the whole-image blur)
+- **PixelationScale**: Shown when `policy.behavior === 'process'` (controls the segmentation mask
+  mosaic)
 
 ### BlurTint
 
@@ -249,14 +242,13 @@ The popup uses Tailwind CSS with custom CSS variables for theming:
 
 ## Conditional Rendering Logic
 
-Settings visibility depends on current policy and outline:
+Settings visibility depends on current policy:
 
-| Component            | Visible When                                                |
-| -------------------- | ----------------------------------------------------------- |
-| Strictness           | `policy.behavior === 'process'` (disabled otherwise)        |
-| Outline              | `policy.behavior === 'process'`                             |
-| PolicyTargetSwitcher | `policy.behavior === 'process'`                             |
-| BlurTint             | `policy.behavior === 'process'` OR `'blacklist'`            |
-| BlurIntensity        | `policy.behavior === 'blacklist'` OR `outline === 'bbox'`   |
-| PixelationScale      | `policy.behavior === 'process'` AND `outline === 'segment'` |
-| QuickToggleSetting   | `policy.behavior === 'process'`                             |
+| Component            | Visible When                                         |
+| -------------------- | ---------------------------------------------------- |
+| Strictness           | `policy.behavior === 'process'` (disabled otherwise) |
+| PolicyTargetSwitcher | `policy.behavior === 'process'`                      |
+| BlurTint             | `policy.behavior === 'process'` OR `'blacklist'`     |
+| BlurIntensity        | `policy.behavior === 'blacklist'`                    |
+| PixelationScale      | `policy.behavior === 'process'`                      |
+| QuickToggleSetting   | `policy.behavior === 'process'`                      |

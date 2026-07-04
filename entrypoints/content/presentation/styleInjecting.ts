@@ -28,12 +28,6 @@ export const injectPredictionDomStyles = () => {
   const styleElement = document.createElement('style');
   styleElement.id = 'haramblock-prediction-styles';
   styleElement.textContent = `
-    .haramblock-blur-box {
-      position: absolute;
-      ${import.meta.env.DEV ? 'border: 2px solid red;' : ''}
-      pointer-events: none;
-      z-index: 5;
-    }
     .haramblock-initial-blur {
       filter: blur(15px) !important;
     }

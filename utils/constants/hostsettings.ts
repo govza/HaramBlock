@@ -6,7 +6,6 @@ export const DEFAULT_HOST_SETTINGS: IHostSettings = {
   hostname: DEFAULT_GLOBAL_KEY,
   masking: { grayscale: false, dark: false, blurIntensity: 50, pixelationScale: 50 },
   isGlobal: true,
-  outline: 'segment',
   policy: { behavior: 'process', targets: { image: true, gif: true, video: false } },
   strictness: 0.8,
   minSize: { width: 50, height: 50 },

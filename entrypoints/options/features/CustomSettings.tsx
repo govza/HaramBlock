@@ -106,7 +106,6 @@ export const CustomSettings = () => {
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('Common.hostname')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Policy.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Masking.title')}</th>
-                  <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Outline.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('HostSettings.Strictness.title')}</th>
                   <th className='px-6 py-3 text-text-primary font-semibold'>{t('Common.actions')}</th>
                 </tr>
@@ -162,11 +161,6 @@ export const CustomSettings = () => {
                           </span>
                         )}
                       </div>
-                    </td>
-                    <td className={`px-6 py-4 ${getHighlightClass(host, 'outline')}`}>
-                      <span className='inline-flex items-center px-2 py-0.5 rounded text-xs bg-surface-light text-text-secondary border border-border-secondary'>
-                        {t(`HostSettings.Outline.${host.outline}`)}
-                      </span>
                     </td>
                     <td className={`px-6 py-4 ${getHighlightClass(host, 'strictness')}`}>
                       <div className='flex items-center space-x-2'>

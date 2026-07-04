@@ -51,11 +51,6 @@
       "pixelate": "Verpixelung",
       "none": "Keine"
     },
-    "Outline": {
-      "title": "Kontur",
-      "bbox": "Begrenzungsrahmen",
-      "segment": "Segment"
-    },
     "Policy": {
       "title": "Richtlinie",
       "description": "Steuern Sie, wie KI Inhalte verarbeitet",

@@ -159,8 +159,7 @@ Then('the first image should be masked', async () => {
   await browser.waitUntil(
     async () => {
       const overlays = await $$(Selectors.SEGMENT_OVERLAY);
-      const bboxes = await $$(Selectors.BBOX_OVERLAY);
-      return overlays.length > 0 || bboxes.length > 0;
+      return overlays.length > 0;
     },
     { timeout: 5000, timeoutMsg: 'Expected image to be masked' },
   );
@@ -170,8 +169,7 @@ Then('the first image should not be masked', async () => {
   await browser.waitUntil(
     async () => {
       const overlays = await $$(Selectors.SEGMENT_OVERLAY);
-      const bboxes = await $$(Selectors.BBOX_OVERLAY);
-      return overlays.length === 0 && bboxes.length === 0;
+      return overlays.length === 0;
     },
     { timeout: 5000, timeoutMsg: 'Expected image to not be masked' },
   );

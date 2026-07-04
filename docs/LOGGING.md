@@ -83,7 +83,7 @@ interface WideEvent {
   status: 'success' | 'error' | 'skipped' | 'cached';
   detectionsCount?: number;
   cacheHit?: boolean;
-  overlayType?: string; // blur | bbox | segment | full
+  overlayType?: string; // blur | segment | full
   backend?: string; // webgpu | wasm
   error?: { message: string; type: string };
 

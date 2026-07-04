@@ -68,14 +68,11 @@ class ImageMaskOverlay implements IMediaOverlay {
     // Remove legacy overlays created by older runs (one-time cleanup)
     removeExistingImageOverlays(parent);
 
-    // Collect all masks and bounding boxes for single overlay
-    const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
+    // Collect all masks for single overlay
+    const allMasks: { masks: number[][] }[] = [];
     for (const prediction of imagePrediction.predictions) {
       if (hasValidMask(prediction)) {
-        allMasks.push({
-          masks: decodeMaskRLE(prediction.masks),
-          boundingBox: prediction.boundingBox,
-        });
+        allMasks.push({ masks: decodeMaskRLE(prediction.masks) });
       }
     }
 
@@ -159,7 +156,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 
   private createSingleImageMaskOverlay(
     image: HTMLImageElement,
-    allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[],
+    allMasks: { masks: number[][] }[],
     maskTransform: IMaskTransform,
     originalWidth: number,
     originalHeight: number,
@@ -368,10 +365,10 @@ class ImageMaskOverlay implements IMediaOverlay {
     state.overlay.style.height = `${imageRect.height}px`;
 
     // Collect masks
-    const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
+    const allMasks: { masks: number[][] }[] = [];
     for (const prediction of imagePrediction.predictions) {
       if (hasValidMask(prediction)) {
-        allMasks.push({ masks: decodeMaskRLE(prediction.masks), boundingBox: prediction.boundingBox });
+        allMasks.push({ masks: decodeMaskRLE(prediction.masks) });
       }
     }
     if (!allMasks.length) return;
@@ -399,7 +396,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 const renderUnifiedCanvasMask = (
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
-  allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[],
+  allMasks: { masks: number[][] }[],
   maskTransform: IMaskTransform,
   originalWidth: number,
   originalHeight: number,

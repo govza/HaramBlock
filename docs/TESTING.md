@@ -133,7 +133,7 @@ pnpm e2e
 pnpm e2e -- --debug --cucumberOpts.tags="@policy"
 
 # Run tests by scenario name
-pnpm e2e -- --debug --cucumberOpts.name="Segment outline on large images"
+pnpm e2e -- --debug --cucumberOpts.name="Segment mask on large images"
 
 # Run smoke tests only (quick validation)
 pnpm e2e -- --debug --cucumberOpts.tags="@smoke"
