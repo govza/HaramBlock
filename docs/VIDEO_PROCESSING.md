@@ -13,14 +13,14 @@ Every video×resolved-source binding is a **VideoSession** driven by an explicit
 ADOPTED ──capture thumbnail──► THUMBNAILING
  (blur on)                          │ verdict OR fail-closed timeout
                                     ▼
-             play ┌──────────── STANDBY ◄──── sendFailed (capture impossible;
+             play ┌──────────── STANDBY ◄──── sendFailed, transient (capture failed;
                   ▼               ▲            blur kept, still playable)
               SAMPLING ──pause/ended
                │  (rVFC loop; seeked → immediate one-shot sample,
                │   also fires from STANDBY while paused)
-               │ MAX_CONSECUTIVE_ERRORS
+               │ MAX_CONSECUTIVE_ERRORS or sendFailed(permanent)
                ▼
-             ERROR (fail-closed: blur kept, loop stopped)
+             ERROR (finalized as ALLOW: blur cleared, status skipped, loop stopped)
 
 any state ──source change / element removed──► DISPOSED (terminal)
 ```
@@ -34,6 +34,10 @@ Key invariants:
   newer unsafe sample applied.
 - **Fail-closed with self-heal.** No verdict → the video stays blurred; but every fail-closed state
   remains exit-able by a newer sample, so recovery is automatic once inference returns.
+- **Inference-impossible = allow.** Fail-closed blur applies only while a verdict is genuinely
+  pending. When analysis can never happen — a permanent capture failure (CORS-tainted canvas) or an
+  unbroken failure streak — the session finalizes as ERROR: blur cleared, status `skipped`, native
+  playback un-blurred. Being unable to analyze a video is not evidence that it is unsafe.
 - **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
   `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
 
@@ -56,7 +60,8 @@ are requested as effects (`startTimer`/`cancelTimer`), so every behavior is unit
 fake DOM or real clocks. Its effect vocabulary:
 
 `applyBlur` · `clearBlur` · `captureThumbnail` · `sendSample{frameIndex}` · `applyVerdict` ·
-`clearVerdict` · `setStatus{safe|unsafe|skipped|error}` · `startTimer`/`cancelTimer` · `cleanup`
+`clearVerdict` · `setStatus{safe|unsafe|skipped}` · `startTimer`/`cancelTimer` · `stopTicker` ·
+`cleanup`
 
 Tuning constants (all in `machine.ts`):
 
@@ -67,7 +72,7 @@ Tuning constants (all in `machine.ts`):
 | `SAMPLE_TIMEOUT_MS`      | 3 000  | Frees the single in-flight slot when a verdict is lost                                     |
 | `WATCHDOG_MS`            | 5 000  | Mid-playback verdict silence → whole-video re-blur                                         |
 | `CLEAN_STREAK_TO_CLEAR`  | 2      | Consecutive clean samples required to lift a mask                                          |
-| `MAX_CONSECUTIVE_ERRORS` | 10     | Capture/send failures before ERROR (fail-closed)                                           |
+| `MAX_CONSECUTIVE_ERRORS` | 10     | Transient capture/send failures before ERROR (finalized as allow)                          |
 
 ### The registry / DOM adapter
 
@@ -91,10 +96,12 @@ Tuning constants (all in `machine.ts`):
   disposes it and adopts a fresh one (immediately, or once the next source resolves). This covers
   `<source>`-children swaps, MSE attachment, and `removeAttribute('src') + load()` teardowns — the
   last fires `emptied` but never `loadstart`.
-- **Sampling transport**: capture returning `null` (CORS-tainted canvas, zero dimensions, no frame
-  data yet) or a send failure dispatches `sendFailed`; the machine counts consecutive failures
-  toward ERROR. Each capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`)
-  so a never-settling CORS-clone or poster load cannot occupy the in-flight slot forever.
+- **Sampling transport**: a failed capture or send dispatches `sendFailed`. `frameCapture.ts`
+  distinguishes **permanent** failures (`SecurityError` — the canvas is CORS-tainted and can never
+  be read) from **transient** ones (no frame data yet, zero dimensions): permanent finalizes the
+  session as allow immediately, transient counts consecutive failures toward ERROR. Each
+  capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`) so a
+  never-settling CORS-clone or poster load cannot occupy the in-flight slot forever.
 
 ### Discovery
 
@@ -112,7 +119,8 @@ Set by the machine's `setStatus` effect (contract kept from the previous pipelin
 
 - `data-haramblock-processed-safe` — no unsafe content in the latest applied verdict
 - `data-haramblock-processed-unsafe` — unsafe content detected (or fail-closed blocked)
-- `data-haramblock-processed-skipped` — processing impossible (maps the machine's `error` status)
+- `data-haramblock-processed-skipped` — processing impossible (terminal ERROR: video plays
+  un-blurred)
 
 Exactly one is present after finalization; all are removed on disposal. The initial blur uses the
 shared `haramblock-initial-blur` class.

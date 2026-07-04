@@ -271,7 +271,7 @@ describe('VideoSession machine', () => {
     expect(ended.effects).toContainEqual({ kind: 'cancelTimer', timer: 'watchdog' });
   });
 
-  it('fails closed into ERROR after consecutive send failures; success resets the streak', () => {
+  it('finalizes as allow after consecutive send failures; success resets the streak', () => {
     const sampling = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -292,7 +292,8 @@ describe('VideoSession machine', () => {
     ).state;
     expect(interrupted.phase).toBe('sampling');
 
-    // An unbroken run of failures gives up fail-closed.
+    // An unbroken run of failures gives up as allow: inference-impossible is
+    // not unsafe, so the video plays un-blurred with status `skipped`.
     let failing = sampling.state;
     let lastEffects;
     for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
@@ -301,13 +302,36 @@ describe('VideoSession machine', () => {
       lastEffects = result.effects;
     }
     expect(failing.phase).toBe('error');
-    expect(lastEffects).toContainEqual({ kind: 'applyBlur' });
-    expect(lastEffects).toContainEqual({ kind: 'setStatus', status: 'error' });
+    expect(lastEffects).toContainEqual({ kind: 'clearBlur' });
+    expect(lastEffects).toContainEqual({ kind: 'clearVerdict' });
+    expect(lastEffects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
+    expect(lastEffects).toContainEqual({ kind: 'stopTicker' });
     expect(lastEffects).toContainEqual({ kind: 'cancelTimer', timer: 'watchdog' });
+    expect(lastEffects).not.toContainEqual({ kind: 'applyBlur' });
 
     // Dead loop: presented frames no longer trigger sends.
     const afterError = run(failing, { type: 'frameAvailable', at: 9000 });
     expect(afterError.effects).toHaveLength(0);
+  });
+
+  it('finalizes as allow immediately when a sample capture fails permanently', () => {
+    const sampling = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'frameAvailable', at: 1010 },
+      { type: 'sampleSent', frameIndex: 0, at: 1015 },
+    );
+
+    // Canvas taint: no amount of retries can ever capture this source.
+    const { state, effects } = run(sampling.state, { type: 'sendFailed', frameIndex: 0, at: 1100, permanent: true });
+    expect(state.phase).toBe('error');
+    expect(effects).toContainEqual({ kind: 'clearBlur' });
+    expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
+    expect(effects).toContainEqual({ kind: 'stopTicker' });
+    expect(effects).not.toContainEqual({ kind: 'applyBlur' });
   });
 
   it('cancels the sample timeout when the in-flight verdict arrives', () => {
@@ -457,11 +481,30 @@ describe('VideoSession machine', () => {
     expect(freed.effects).toContainEqual({ kind: 'sendSample', frameIndex: 1 });
   });
 
-  it('falls back to STANDBY fail-closed when the Thumbnail cannot be captured, still playable', () => {
+  it('finalizes as allow when the Thumbnail capture fails permanently (no retry loop)', () => {
+    const thumbnailing = run(createVideoSession().state, { type: 'thumbnailSourceReady' });
+    const { state, effects } = run(
+      thumbnailing.state,
+      { type: 'sendFailed', frameIndex: -1, at: 100, permanent: true }, // CORS-tainted canvas
+    );
+    expect(state.phase).toBe('error');
+    expect(effects).toContainEqual({ kind: 'clearBlur' });
+    expect(effects).toContainEqual({ kind: 'clearVerdict' });
+    expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
+    expect(effects).toContainEqual({ kind: 'stopTicker' });
+    expect(effects).not.toContainEqual({ kind: 'captureThumbnail' });
+    expect(effects).not.toContainEqual({ kind: 'applyBlur' });
+
+    // Terminal: playback does not resurrect sampling for an un-analyzable source.
+    const played = run(state, { type: 'play', at: 2000 }, { type: 'frameAvailable', at: 2010 });
+    expect(played.effects).toHaveLength(0);
+  });
+
+  it('falls back to STANDBY fail-closed when the Thumbnail capture fails transiently, still playable', () => {
     const failed = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
-      { type: 'sendFailed', frameIndex: -1, at: 100 }, // capture impossible (CORS-tainted / zero dimensions)
+      { type: 'sendFailed', frameIndex: -1, at: 100 }, // no frame data yet / zero dimensions
     );
     expect(failed.state.phase).toBe('standby');
     expect(failed.effects).not.toContainEqual({ kind: 'clearBlur' });

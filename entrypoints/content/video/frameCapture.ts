@@ -5,12 +5,21 @@ import { logger } from '@/utils/logger';
 type CorsVideoEntry = { corsVideo: HTMLVideoElement; src: string } | { corsVideo: null; src: string };
 const corsVideoCache = new WeakMap<HTMLVideoElement, CorsVideoEntry>();
 
-export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<ImageBitmap | null> {
+/**
+ * A permanent failure (canvas taint) can never succeed for this source, so the
+ * session finalizes as allow; a transient one (no frame data yet) may succeed
+ * on a later attempt, so the session stays fail-closed while retrying.
+ */
+export type CaptureResult =
+  | { bitmap: ImageBitmap; failure?: never }
+  | { bitmap?: never; failure: 'permanent' | 'transient' };
+
+export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
   if (video.poster) {
     try {
       const posterBitmap = await extractPosterImage(video.poster);
       if (posterBitmap) {
-        return posterBitmap;
+        return { bitmap: posterBitmap };
       }
     } catch (error) {
       logger.withTag('frameCapture').debug('Failed to extract poster image, falling back to video frame:', error);
@@ -21,50 +30,37 @@ export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<I
   // transparent capture would be verdicted "safe" for content nobody analyzed.
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     logger.withTag('frameCapture').debug('No current frame data, cannot extract thumbnail');
-    return null;
+    return { failure: 'transient' };
   }
 
-  const { canvas, ctx, width, height } = createDrawingSurface(video);
-  if (!ctx || width === 0 || height === 0) {
-    logger.withTag('frameCapture').warn('Video has zero dimensions, cannot extract thumbnail');
-    return null;
-  }
-
-  const sourceVideo = await ensureCorsSafeSource(video);
-  ctx.drawImage(sourceVideo, 0, 0, width, height);
-
-  try {
-    return createImageBitmap(canvas);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'SecurityError') {
-      logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
-      return null;
-    }
-    throw error;
-  }
+  return drawToBitmap(video);
 }
 
-export async function captureFrameBitmap(video: HTMLVideoElement): Promise<ImageBitmap | null> {
+export async function captureFrameBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     logger.withTag('frameCapture').debug('Skipping frame capture, no current frame data');
-    return null;
+    return { failure: 'transient' };
   }
 
+  return drawToBitmap(video);
+}
+
+async function drawToBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
   const { canvas, ctx, width, height } = createDrawingSurface(video);
   if (!ctx || width === 0 || height === 0) {
-    logger.withTag('frameCapture').debug('Skipping frame capture due to zero dimensions');
-    return null;
+    logger.withTag('frameCapture').warn('Video has zero dimensions, cannot capture frame');
+    return { failure: 'transient' };
   }
 
   const sourceVideo = await ensureCorsSafeSource(video);
   ctx.drawImage(sourceVideo, 0, 0, width, height);
 
   try {
-    return createImageBitmap(canvas);
+    return { bitmap: await createImageBitmap(canvas) };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'SecurityError') {
       logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
-      return null;
+      return { failure: 'permanent' };
     }
     throw error;
   }
