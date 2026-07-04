@@ -106,10 +106,14 @@ class ImageMaskOverlay implements IMediaOverlay {
     };
     this.imageStates.set(image, state);
 
-    state.slot = overlayLayer.attach(image, {
-      onGeometry: geometry => this.handleGeometry(image, state, geometry),
-      onDetach: () => this.teardown(image, state, { releaseSlot: false }),
-    });
+    state.slot = overlayLayer.attach(
+      image,
+      {
+        onGeometry: geometry => this.handleGeometry(image, state, geometry),
+        onDetach: () => this.teardown(image, state, { releaseSlot: false }),
+      },
+      'image-mask',
+    );
     state.slot.root.appendChild(canvas);
   }
 

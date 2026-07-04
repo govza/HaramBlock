@@ -106,10 +106,14 @@ class GifMaskPlayer {
     };
     gifStates.set(image, state);
 
-    state.slot = overlayLayer.attach(image, {
-      onGeometry: geometry => this.handleGeometry(image, state, geometry),
-      onDetach: () => this.teardown(image, state, { releaseSlot: false }),
-    });
+    state.slot = overlayLayer.attach(
+      image,
+      {
+        onGeometry: geometry => this.handleGeometry(image, state, geometry),
+        onDetach: () => this.teardown(image, state, { releaseSlot: false }),
+      },
+      'gif-player',
+    );
     state.slot.root.append(baseCanvas, maskCanvas);
 
     // The native <img> keeps animating underneath; hide it so only the masked replay shows.
