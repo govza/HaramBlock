@@ -51,11 +51,6 @@
       "pixelate": "Pikselleştirme",
       "none": "Yok"
     },
-    "Outline": {
-      "title": "Anahat",
-      "bbox": "Sınır kutusu",
-      "segment": "Bölüm"
-    },
     "Policy": {
       "title": "Politika",
       "description": "Yapay zekanın içeriği nasıl işleyeceğini kontrol edin",

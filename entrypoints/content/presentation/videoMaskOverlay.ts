@@ -58,13 +58,10 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     }
 
     // Collect masks
-    const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] = [];
+    const allMasks: { masks: number[][] }[] = [];
     imagePrediction.predictions.forEach(prediction => {
       if (prediction.masks && prediction.masks.runs.length > 0) {
-        allMasks.push({
-          masks: decodeMaskRLE(prediction.masks),
-          boundingBox: prediction.boundingBox,
-        });
+        allMasks.push({ masks: decodeMaskRLE(prediction.masks) });
       }
     });
 
@@ -128,7 +125,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
 
   private async createVideoOverlayElement(
     video: HTMLVideoElement,
-    allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[],
+    allMasks: { masks: number[][] }[],
     maskTransform: IMaskTransform,
     originalWidth: number,
     originalHeight: number,
@@ -289,11 +286,10 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       }
 
       // Collect masks
-      const allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[] =
-        [];
+      const allMasks: { masks: number[][] }[] = [];
       prediction.predictions.forEach(p => {
         if (p.masks && p.masks.runs.length) {
-          allMasks.push({ masks: decodeMaskRLE(p.masks), boundingBox: p.boundingBox });
+          allMasks.push({ masks: decodeMaskRLE(p.masks) });
         }
       });
       if (!allMasks.length) return;
@@ -340,7 +336,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
 function renderVideoMask(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
-  allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[],
+  allMasks: { masks: number[][] }[],
   maskTransform: IMaskTransform,
   originalWidth: number, // Inference dimensions (from model) - used for mask coordinate transform
   originalHeight: number,
@@ -451,7 +447,7 @@ function renderVideoMask(
  */
 function applyVideoMask(
   ctx: CanvasRenderingContext2D,
-  allMasks: { masks: number[][]; boundingBox: { x: number; y: number; width: number; height: number } }[],
+  allMasks: { masks: number[][] }[],
   maskTransform: IMaskTransform,
   originalWidth: number,
   originalHeight: number,

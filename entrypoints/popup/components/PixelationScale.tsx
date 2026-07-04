@@ -5,7 +5,7 @@ export const PixelationScale = () => {
   const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
 
   const isProcessing = hostSettings.policy.behavior === 'process';
-  const isHidden = !isProcessing || hostSettings.outline !== 'segment';
+  const isHidden = !isProcessing;
 
   if (isHidden) return null;
 

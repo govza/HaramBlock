@@ -1,4 +1,3 @@
-import { createBlurBoxOverlays } from '@/entrypoints/content/presentation/boundingBox';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
@@ -18,11 +17,7 @@ export const applyPredictionsStyling = (
     if (imagePrediction) {
       const overlayPromise = new Promise<void>(resolve => {
         requestAnimationFrame(() => {
-          if (hostSettings.outline === 'bbox') {
-            createBlurBoxOverlays(image, imagePrediction, hostSettings);
-          } else if (hostSettings.outline === 'segment') {
-            imageMaskOverlay.createMaskOverlay(image, imagePrediction, hostSettings);
-          }
+          imageMaskOverlay.createMaskOverlay(image, imagePrediction, hostSettings);
           resolve();
         });
       });

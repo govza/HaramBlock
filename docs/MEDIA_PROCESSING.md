@@ -184,15 +184,7 @@ img[data-haramblock-processed-safe] {
 
 Handles AI prediction-based styling application.
 
-- `applyPredictionsStyling()` - Applies AI-based styling using blur boxes or mask overlays
-
-#### `boundingBox.ts`
-
-Creates precise bounding box blur overlays for detected objects.
-
-- `createBlurBoxOverlays()` - Creates positioned blur overlays using backdrop-filter
-- Responsive positioning that adapts to image scaling and viewport changes
-- Uses ResizeObserver and scroll/resize listeners for dynamic updates
+- `applyPredictionsStyling()` - Applies AI-based styling using segmentation mask overlays
 
 #### `imageMaskOverlay.ts`
 
@@ -526,8 +518,8 @@ private findImagesBySrc(src: string): HTMLImageElement[] {
 
 ## Image Scaling and Letterboxing
 
-This section documents how bounding boxes and segmentation masks are mapped from model space back to
-the on-screen image when the `<img>` element is resized or uses CSS `object-fit`.
+This section documents how segmentation masks are mapped from model space back to the on-screen
+image when the `<img>` element is resized or uses CSS `object-fit`.
 
 ### Coordinate Spaces
 
@@ -553,12 +545,6 @@ Utilities in `imageLayout.ts`:
   accounting for `object-fit: fill | contain | cover | none | scale-down`
 - `maskGridSrcRect(maskTransform, originalW, originalH)` - Returns the sub-rectangle within the mask
   grid that corresponds to valid image pixels (excludes letterbox padding)
-
-### Bounding Box Mapping
-
-1. Get `contentRect = computeRenderedContentRect(...)`
-2. Compute scale: `scaleX = contentRect.width / originalWidth`
-3. Position overlay: `left = contentRect.offsetX + x * scaleX`
 
 ### Segmentation Mask Mapping
 

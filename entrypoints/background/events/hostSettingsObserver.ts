@@ -13,7 +13,6 @@ const areSettingsEqual = (a: IHostSettings, b: IHostSettings): boolean => {
     a.hostname === b.hostname &&
     a.isGlobal === b.isGlobal &&
     a.policy.behavior === b.policy.behavior &&
-    a.outline === b.outline &&
     a.strictness === b.strictness &&
     a.minSize.width === b.minSize.width &&
     a.minSize.height === b.minSize.height &&

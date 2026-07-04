@@ -4,8 +4,6 @@ import {
   calculateBlurPx,
   calculatePixelationBlockSize,
   buildMaskingFilter,
-  buildBackdropFilter,
-  getDarkBackdropBackground,
   buildCanvasTintFilter,
 } from '@/utils/masking';
 
@@ -100,38 +98,6 @@ describe('masking utilities', () => {
     it('should return empty string when no filters active and blur excluded', () => {
       const result = buildMaskingFilter(DEFAULT_MASKING, false);
       expect(result).toBe('');
-    });
-  });
-
-  describe('buildBackdropFilter', () => {
-    it('should include blur', () => {
-      const result = buildBackdropFilter(DEFAULT_MASKING);
-      expect(result).toBe('blur(15px)');
-    });
-
-    it('should add grayscale when enabled', () => {
-      const masking = { ...DEFAULT_MASKING, grayscale: true };
-      const result = buildBackdropFilter(masking);
-      expect(result).toBe('blur(15px) grayscale(100%)');
-    });
-
-    it('should NOT include dark (handled separately via background)', () => {
-      const masking = { ...DEFAULT_MASKING, dark: true };
-      const result = buildBackdropFilter(masking);
-      expect(result).toBe('blur(15px)');
-    });
-  });
-
-  describe('getDarkBackdropBackground', () => {
-    it('should return undefined when dark is false', () => {
-      const result = getDarkBackdropBackground(DEFAULT_MASKING);
-      expect(result).toBeUndefined();
-    });
-
-    it('should return rgba background when dark is true', () => {
-      const masking = { ...DEFAULT_MASKING, dark: true };
-      const result = getDarkBackdropBackground(masking);
-      expect(result).toBe('rgba(0, 0, 0, 0.6)');
     });
   });
 

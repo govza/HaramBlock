@@ -10,7 +10,6 @@ import {
   type DecodedGifFrame,
 } from '@/entrypoints/content/gif/gifDecoder';
 import { isGifCandidate } from '@/entrypoints/content/gif/gifSupport';
-import { clearBlurBoxOverlay, hasBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { gifMaskPlayer } from '@/entrypoints/content/presentation/gifMaskPlayer';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
@@ -276,7 +275,6 @@ export class ImageProcessor {
     }
     this.visibilityObserver.unobserve(img);
     gifMaskPlayer.clearPlayer(img);
-    clearBlurBoxOverlay(img);
     unregisterQuickToggle(img);
   }
 
@@ -340,7 +338,7 @@ export class ImageProcessor {
 
   private hasOverlayForSrc(img: HTMLImageElement, _src: string): boolean {
     // Check if any overlay exists - they self-clean if src doesn't match
-    return Boolean(imageMaskOverlay.hasMaskOverlay(img) || hasBlurBoxOverlay(img) || gifMaskPlayer.hasPlayer(img));
+    return Boolean(imageMaskOverlay.hasMaskOverlay(img) || gifMaskPlayer.hasPlayer(img));
   }
 
   // ===========================================================================
@@ -633,7 +631,7 @@ export class ImageProcessor {
     completeContentTiming(src, {
       status: 'success',
       detectionsCount: aggregatePrediction.predictions.length,
-      overlayType: shouldBlock(aggregatePrediction) ? this.hostSettings.outline : undefined,
+      overlayType: shouldBlock(aggregatePrediction) ? 'segment' : undefined,
     });
   }
 
@@ -807,7 +805,7 @@ export class ImageProcessor {
         overlayType = undefined; // Whitelisted, no overlay
       } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
-        overlayType = this.hostSettings.outline; // 'bbox' or 'segment'
+        overlayType = 'segment';
       } else {
         overlayType = undefined; // No detections, no overlay
       }
@@ -861,7 +859,6 @@ export class ImageProcessor {
   private clearOverlays(img: HTMLImageElement): void {
     gifMaskPlayer.clearPlayer(img);
     imageMaskOverlay.clearMaskOverlay(img);
-    clearBlurBoxOverlay(img);
     unregisterQuickToggle(img);
     resetImageStyling(img);
   }

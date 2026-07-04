@@ -1,5 +1,4 @@
 import { markProcessed, markThumbnailProcessed } from '@/entrypoints/content/core/status';
-import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { resetVideoStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { logger } from '@/utils/logger';
@@ -43,7 +42,6 @@ async function processThumbnailPredictions(
         for (const video of videos) {
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           videoMaskOverlays.clearMaskOverlay(video);
-          clearBlurBoxOverlay(video);
           resetVideoStyling(video);
           markThumbnailProcessed(video, videoSrc);
           markProcessed(video, videoSrc);
@@ -56,11 +54,7 @@ async function processThumbnailPredictions(
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           const imagePrediction = toImagePrediction(framePred);
 
-          if (hostSettings.outline === 'segment') {
-            await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
-          } else if (hostSettings.outline === 'bbox') {
-            createVideoBlurBoxOverlays(video, imagePrediction, hostSettings);
-          }
+          await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
 
           markThumbnailProcessed(video, videoSrc);
           markProcessed(video, videoSrc);
@@ -104,7 +98,6 @@ async function processRegularFramePredictions(
         for (const video of videos) {
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           videoMaskOverlays.clearMaskOverlay(video);
-          clearBlurBoxOverlay(video);
           resetVideoStyling(video);
           markProcessed(video, videoSrc);
         }
@@ -116,11 +109,7 @@ async function processRegularFramePredictions(
           const videoSrc = getVideoSource(video, framePred.videoUrl);
           const imagePrediction = toImagePrediction(framePred);
 
-          if (hostSettings.outline === 'segment') {
-            await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
-          } else if (hostSettings.outline === 'bbox') {
-            createVideoBlurBoxOverlays(video, imagePrediction, hostSettings);
-          }
+          await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
 
           markProcessed(video, videoSrc);
           resetVideoStyling(video);
@@ -143,18 +132,6 @@ function toImagePrediction(framePred: IFramePrediction): IImagePrediction {
     processingTime: framePred.processingTime,
     forcedVisibility: 'auto',
   };
-}
-
-function createVideoBlurBoxOverlays(
-  video: HTMLVideoElement,
-  prediction: IImagePrediction,
-  hostSettings: IHostSettings,
-): void {
-  clearBlurBoxOverlay(video);
-
-  void import('@/entrypoints/content/presentation/boundingBox').then(({ createBlurBoxOverlays }) => {
-    createBlurBoxOverlays(video, prediction, hostSettings);
-  });
 }
 
 function getVideoSource(video: HTMLVideoElement, fallbackSrc: string): string {

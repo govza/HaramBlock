@@ -12,9 +12,6 @@ const MAX_PIXELATION_BLOCK = 150;
 /** Brightness level for dark mode effect */
 const DARK_MODE_BRIGHTNESS = 0.4;
 
-/** Background opacity for dark backdrop effect */
-const DARK_BACKDROP_OPACITY = 0.6;
-
 /**
  * Calculate blur amount in pixels from blur intensity percentage.
  * Maps 1-100% to 1-30px (minimum 1px).
@@ -54,28 +51,6 @@ export const buildMaskingFilter = (masking: IMaskingSettings, includeBlur = true
   }
 
   return filters.join(' ');
-};
-
-/**
- * Build CSS backdrop-filter string for bounding box overlays.
- * Returns filter string like "blur(15px) grayscale(100%)".
- */
-export const buildBackdropFilter = (masking: IMaskingSettings): string => {
-  const blurPx = calculateBlurPx(masking.blurIntensity);
-  let filter = `blur(${blurPx}px)`;
-
-  if (masking.grayscale) {
-    filter += ' grayscale(100%)';
-  }
-
-  return filter;
-};
-
-/**
- * Get dark backdrop background color if dark mode is enabled.
- */
-export const getDarkBackdropBackground = (masking: IMaskingSettings): string | undefined => {
-  return masking.dark ? `rgba(0, 0, 0, ${DARK_BACKDROP_OPACITY})` : undefined;
 };
 
 /**

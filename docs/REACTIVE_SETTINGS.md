@@ -15,7 +15,6 @@ Defined in `utils/types/host.ts`:
 ```ts
 export type PolicyBehavior = 'whitelist' | 'blacklist' | 'process';
 export type PolicyTarget = 'image' | 'video';
-export type OutlineType = 'bbox' | 'segment';
 
 export interface IMaskingSettings {
   grayscale: boolean;
@@ -33,7 +32,6 @@ export interface IHostSettings {
   hostname: string;
   isGlobal: boolean;
   masking: IMaskingSettings;
-  outline: OutlineType;
   policy: IHostPolicy;
   strictness: number;
   minSize: { width: number; height: number };
@@ -48,7 +46,6 @@ export interface IHostSettings {
 - `policy.targets`: when `behavior` is `process`, which media types are filtered (`image`, `video`).
   Stored nested; read directly (`policy.targets.image`). `normalizeStoredPolicy` (`utils/policy.ts`)
   migrates legacy string policies (incl. the removed `process-images`) on read.
-- `outline`: how the masking is applied (`bbox` or `segment`)
 - `masking`: visual effects (grayscale, dark, blurIntensity, pixelationScale)
 - `strictness`: detection threshold (higher = stricter)
 - `minSize`: ignore very small media to reduce false positives and cost

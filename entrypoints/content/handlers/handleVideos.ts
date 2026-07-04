@@ -1,5 +1,4 @@
 import { isHandled, markHandled } from '@/entrypoints/content/core/status';
-import { clearBlurBoxOverlay } from '@/entrypoints/content/presentation/boundingBox';
 import { applyInitialVideoStyling, resetVideoStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/frameCapture';
@@ -51,7 +50,6 @@ export function handleVideoAttributeChange(video: HTMLVideoElement, hostSettings
   if (video.dataset.hbSrc && video.dataset.hbSrc !== currentSrc) {
     // Clear all tracking and overlays when src changes
     videoMaskOverlays.clearMaskOverlay(video);
-    clearBlurBoxOverlay(video);
     resetVideoStyling(video);
     releaseVideoPlayback(video);
     releaseCorsVideoCache(video);
@@ -105,7 +103,6 @@ function cleanupPlaybackListener(video: HTMLVideoElement): void {
  */
 export function disposeVideoSession(video: HTMLVideoElement): void {
   videoMaskOverlays.clearMaskOverlay(video);
-  clearBlurBoxOverlay(video);
   cleanupPlaybackListener(video);
   releaseVideoPlayback(video);
   releaseCorsVideoCache(video);

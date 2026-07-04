@@ -247,7 +247,7 @@ export async function applyFramePredictionsToDom(
 1. Separate thumbnail vs regular frame predictions by `frameIndex`
 2. For thumbnails (`frameIndex === -1`): find videos with `[data-hb-handled="1"]`
 3. For frames (`frameIndex >= 0`): find videos with `[data-hb-video-status="processing"]`
-4. Apply overlays based on `hostSettings.outline` (segment or bbox)
+4. Apply segmentation mask overlays
 5. Emit `hb:inference-timing` event for adaptive throttling
 6. Finalize styling and state: remove initial blur and set processed status attributes
 

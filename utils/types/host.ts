@@ -1,6 +1,5 @@
 export type PolicyBehavior = 'whitelist' | 'blacklist' | 'process';
 export type PolicyTarget = 'image' | 'video' | 'gif';
-export type OutlineType = 'bbox' | 'segment';
 
 export interface IMaskingSettings {
   grayscale: boolean;
@@ -20,7 +19,6 @@ export interface IHostSettings {
   hostname: string;
   isGlobal: boolean;
   masking: IMaskingSettings;
-  outline: OutlineType;
   policy: IHostPolicy;
   strictness: number;
   minSize: { width: number; height: number };

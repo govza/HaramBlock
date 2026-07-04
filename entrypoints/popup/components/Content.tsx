@@ -1,7 +1,6 @@
 import { BlockedCount } from '@/entrypoints/popup/components/BlockedCount';
 import { BlurIntensity } from '@/entrypoints/popup/components/BlurIntensity';
 import { BlurTint } from '@/entrypoints/popup/components/BlurTint';
-import { Outline } from '@/entrypoints/popup/components/Outline';
 import { PixelationScale } from '@/entrypoints/popup/components/PixelationScale';
 import { PolicyBehaviorSwitcher } from '@/entrypoints/popup/components/PolicyBehaviorSwitcher';
 import { PolicyTargetSwitcher } from '@/entrypoints/popup/components/PolicyTargetSwitcher';
@@ -14,7 +13,6 @@ export const Content = () => {
       <PolicyBehaviorSwitcher />
       <PolicyTargetSwitcher />
       <BlockedCount />
-      <Outline />
       <Strictness />
       <BlurTint />
       <BlurIntensity />

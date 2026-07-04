@@ -28,7 +28,7 @@ APIs, and implementation details). If you’re a user, start with the project
 - **Background**: `entrypoints/background/` + `utils/messaging/services/`
   - Runs inference orchestration, caching, and message routing.
 - **Popup UI**: `entrypoints/popup/` → [POPUP.md](POPUP.md)
-  - Per-site settings controls (policy, strictness, outline).
+  - Per-site settings controls (policy, strictness, masking).
 - **Options UI**: `entrypoints/options/`
   - Bulk/advanced settings views.
 - **Storage (IndexedDB)**: `utils/db/`

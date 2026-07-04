@@ -1,13 +1,7 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
-import {
-  buildBackdropFilter,
-  buildCanvasTintFilter,
-  buildMaskingFilter,
-  calculatePixelationBlockSize,
-  getDarkBackdropBackground,
-} from '@/utils/masking';
+import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
 import {
   shouldBlock,
@@ -31,7 +25,6 @@ interface GifPlayerState {
   baseCtx: CanvasRenderingContext2D;
   maskCanvas: HTMLCanvasElement;
   maskCtx: CanvasRenderingContext2D;
-  bboxLayer: HTMLDivElement;
   frames: DecodedGifFrame[];
   framePredictions: Map<number, GifPrediction>;
   aggregatePrediction: Parameters<typeof shouldBlock>[0];
@@ -117,14 +110,7 @@ class GifMaskPlayer {
       return;
     }
 
-    const bboxLayer = document.createElement('div');
-    bboxLayer.style.cssText = `
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    `;
-
-    overlay.append(baseCanvas, maskCanvas, bboxLayer);
+    overlay.append(baseCanvas, maskCanvas);
     image.after(overlay);
 
     const state: GifPlayerState = {
@@ -133,7 +119,6 @@ class GifMaskPlayer {
       baseCtx,
       maskCanvas,
       maskCtx,
-      bboxLayer,
       frames,
       framePredictions,
       aggregatePrediction,
@@ -255,7 +240,6 @@ class GifMaskPlayer {
     state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
     state.maskCanvas.style.filter = '';
     state.baseCanvas.style.filter = '';
-    clearBboxLayer(state.bboxLayer);
 
     if (state.aggregatePrediction.forcedVisibility === 'blocked') {
       state.baseCanvas.style.filter = buildMaskingFilter(state.hostSettings.masking);
@@ -264,11 +248,6 @@ class GifMaskPlayer {
 
     const framePrediction = buildFramePredictionWithInertia(state, state.currentFrame);
     if (!framePrediction) return;
-
-    if (state.hostSettings.outline === 'bbox') {
-      renderBboxLayer(image, state.bboxLayer, framePrediction, contentRect, state.hostSettings.masking);
-      return;
-    }
 
     renderSegmentMaskOverlay(
       state.maskCanvas,
@@ -436,57 +415,6 @@ function renderSegmentMaskOverlay(
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
   canvas.style.filter = buildCanvasTintFilter(masking);
-}
-
-function renderBboxLayer(
-  image: HTMLImageElement,
-  layer: HTMLDivElement,
-  prediction: GifPrediction,
-  contentRect: { offsetX: number; offsetY: number; width: number; height: number },
-  masking: IMaskingSettings,
-): void {
-  clearBboxLayer(layer);
-
-  const imageRect = image.getBoundingClientRect();
-  const scaleX = contentRect.width / prediction.width;
-  const scaleY = contentRect.height / prediction.height;
-
-  for (const detected of prediction.predictions) {
-    const { x, y, width, height } = detected.boundingBox;
-    const left = contentRect.offsetX + x * scaleX;
-    const top = contentRect.offsetY + y * scaleY;
-    const boxWidth = width * scaleX;
-    const boxHeight = height * scaleY;
-
-    const clippedLeft = Math.max(0, left);
-    const clippedTop = Math.max(0, top);
-    const clippedRight = Math.min(imageRect.width, left + boxWidth);
-    const clippedBottom = Math.min(imageRect.height, top + boxHeight);
-
-    if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) {
-      continue;
-    }
-
-    const box = document.createElement('div');
-    box.className = 'haramblock-gif-blur-box';
-    box.style.cssText = `
-      position: absolute;
-      left: ${clippedLeft}px;
-      top: ${clippedTop}px;
-      width: ${clippedRight - clippedLeft}px;
-      height: ${clippedBottom - clippedTop}px;
-      pointer-events: none;
-      backdrop-filter: ${buildBackdropFilter(masking)};
-    `;
-
-    const darkBackground = getDarkBackdropBackground(masking);
-    if (darkBackground) box.style.background = darkBackground;
-    layer.appendChild(box);
-  }
-}
-
-function clearBboxLayer(layer: HTMLDivElement): void {
-  layer.replaceChildren();
 }
 
 function restoreOpacity(image: HTMLImageElement, originalOpacity: string | undefined): void {
