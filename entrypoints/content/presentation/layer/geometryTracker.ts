@@ -1,0 +1,235 @@
+import { clipsEqual, computeClipInsets, hasArea, rectsEqual } from '@/entrypoints/content/presentation/layer/geometry';
+
+import type { IClipInsets, ILayerGeometry, ILayerRect } from '@/utils/types/presentation';
+
+export interface IGeometryTrackerCallbacks {
+  /** Fired when the element's viewport rect or clip changed (and once at track time). */
+  onUpdate: (geometry: ILayerGeometry) => void;
+  /** Fired when the element left the document; the entry is already untracked. */
+  onDetach: () => void;
+}
+
+interface TrackerEntry {
+  element: Element;
+  callbacks: IGeometryTrackerCallbacks;
+  /** Ancestors with non-visible overflow, cached at track time. */
+  clipAncestors: Element[];
+  lastRect?: ILayerRect;
+  lastClip?: IClipInsets | null;
+  intersecting: boolean;
+  dirty: boolean;
+}
+
+/** Viewport-margin inside which elements are treated as visible (keeps near-viewport overlays warm). */
+const INTERSECTION_MARGIN = '100px';
+
+const rectOf = (element: Element): ILayerRect => {
+  const rect = element.getBoundingClientRect();
+  return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+};
+
+/** Padding-box rect of a clipping ancestor (excludes borders and scrollbars). */
+const clipRectOf = (ancestor: Element): ILayerRect => {
+  const rect = ancestor.getBoundingClientRect();
+  return {
+    top: rect.top + ancestor.clientTop,
+    left: rect.left + ancestor.clientLeft,
+    width: ancestor.clientWidth,
+    height: ancestor.clientHeight,
+  };
+};
+
+/** Parent element, crossing shadow boundaries via the host. */
+const parentOf = (element: Element): Element | null => {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+};
+
+/**
+ * Ancestors that clip descendants (computed overflow other than visible). The root
+ * scroller (html/body) is excluded — its scrolling is already reflected in viewport
+ * coordinates.
+ */
+const findClipAncestors = (element: Element): Element[] => {
+  const result: Element[] = [];
+  for (let node = parentOf(element); node; node = parentOf(node)) {
+    if (node === document.documentElement || node === document.body) continue;
+    const style = getComputedStyle(node);
+    if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+      result.push(node);
+    }
+  }
+  return result;
+};
+
+/**
+ * One tracker per overlay layer. Watches tracked elements' viewport geometry with a
+ * single shared rAF sweep:
+ *
+ * - Elements near the viewport (IntersectionObserver-gated) are polled every frame —
+ *   the only way to follow CSS-transform movement (carousels) without per-frame lag.
+ * - Off-viewport elements are only re-read when marked dirty (scroll/resize/ResizeObserver).
+ * - Detached elements are auto-untracked and reported via onDetach.
+ *
+ * All rect reads happen together before any callback runs, so renderer style writes
+ * never interleave with layout reads.
+ */
+export class GeometryTracker {
+  private readonly entries = new Map<Element, TrackerEntry>();
+  private intersectionObserver?: IntersectionObserver;
+  private resizeObserver?: ResizeObserver;
+  private rafId: number | null = null;
+  private listenersInstalled = false;
+
+  /** Heartbeat invoked once per sweep; the layer uses it to self-heal its host element. */
+  onTick?: () => void;
+
+  track(element: Element, callbacks: IGeometryTrackerCallbacks): void {
+    this.untrack(element);
+
+    const entry: TrackerEntry = {
+      element,
+      callbacks,
+      clipAncestors: findClipAncestors(element),
+      // Assume visible until the IntersectionObserver reports, so the first frames poll.
+      intersecting: true,
+      dirty: true,
+    };
+    this.entries.set(element, entry);
+
+    this.ensureInfra();
+    this.intersectionObserver?.observe(element);
+    this.resizeObserver?.observe(element);
+
+    // Deliver initial geometry synchronously: consumers position + draw before the
+    // next paint, leaving no unmasked frame between attach and the first sweep.
+    this.readEntry(entry);
+    this.schedule();
+  }
+
+  untrack(element: Element): void {
+    const entry = this.entries.get(element);
+    if (!entry) return;
+    this.entries.delete(element);
+    this.intersectionObserver?.unobserve(element);
+    this.resizeObserver?.unobserve(element);
+  }
+
+  /** Force a geometry re-read for one element on the next sweep. */
+  refresh(element: Element): void {
+    const entry = this.entries.get(element);
+    if (!entry) return;
+    entry.dirty = true;
+    entry.clipAncestors = findClipAncestors(element);
+    this.schedule();
+  }
+
+  dispose(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.intersectionObserver?.disconnect();
+    this.resizeObserver?.disconnect();
+    this.intersectionObserver = undefined;
+    this.resizeObserver = undefined;
+    if (this.listenersInstalled) {
+      document.removeEventListener('scroll', this.markAllDirty, true);
+      globalThis.removeEventListener('resize', this.markAllDirty);
+      document.removeEventListener('fullscreenchange', this.markAllDirty);
+      this.listenersInstalled = false;
+    }
+    this.entries.clear();
+  }
+
+  private ensureInfra(): void {
+    if (!this.listenersInstalled) {
+      // Capture-phase scroll catches nested scrollers (scroll doesn't bubble).
+      document.addEventListener('scroll', this.markAllDirty, { capture: true, passive: true });
+      globalThis.addEventListener('resize', this.markAllDirty);
+      document.addEventListener('fullscreenchange', this.markAllDirty);
+      this.listenersInstalled = true;
+    }
+    this.intersectionObserver ??= new IntersectionObserver(
+      observed => {
+        for (const record of observed) {
+          const entry = this.entries.get(record.target);
+          if (entry) {
+            entry.intersecting = record.isIntersecting;
+            if (record.isIntersecting) entry.dirty = true;
+          }
+        }
+        this.schedule();
+      },
+      { rootMargin: INTERSECTION_MARGIN },
+    );
+    this.resizeObserver ??= new ResizeObserver(observed => {
+      for (const record of observed) {
+        const entry = this.entries.get(record.target);
+        if (entry) entry.dirty = true;
+      }
+      this.schedule();
+    });
+  }
+
+  private readonly markAllDirty = (): void => {
+    for (const entry of this.entries.values()) {
+      entry.dirty = true;
+    }
+    this.schedule();
+  };
+
+  private schedule(): void {
+    if (this.rafId !== null || this.entries.size === 0) return;
+    this.rafId = requestAnimationFrame(this.sweep);
+  }
+
+  private readonly sweep = (): void => {
+    this.rafId = null;
+    this.onTick?.();
+
+    const detached: TrackerEntry[] = [];
+    const updates: { entry: TrackerEntry; geometry: ILayerGeometry }[] = [];
+
+    // Read phase: no callbacks yet, so consumer style writes can't thrash layout.
+    for (const entry of this.entries.values()) {
+      if (!entry.element.isConnected) {
+        detached.push(entry);
+        continue;
+      }
+      if (!entry.intersecting && !entry.dirty) continue;
+      const geometry = this.measure(entry);
+      entry.dirty = false;
+      if (rectsEqual(entry.lastRect, geometry.rect) && clipsEqual(entry.lastClip, geometry.clip)) continue;
+      entry.lastRect = geometry.rect;
+      entry.lastClip = geometry.clip;
+      updates.push({ entry, geometry });
+    }
+
+    // Write phase.
+    for (const entry of detached) {
+      this.untrack(entry.element);
+      entry.callbacks.onDetach();
+    }
+    for (const { entry, geometry } of updates) {
+      entry.callbacks.onUpdate(geometry);
+    }
+
+    this.schedule();
+  };
+
+  private measure(entry: TrackerEntry): ILayerGeometry {
+    const rect = rectOf(entry.element);
+    const clip = hasArea(rect) ? computeClipInsets(rect, entry.clipAncestors.map(clipRectOf)) : null;
+    return { rect, clip };
+  }
+
+  private readEntry(entry: TrackerEntry): void {
+    const geometry = this.measure(entry);
+    entry.dirty = false;
+    entry.lastRect = geometry.rect;
+    entry.lastClip = geometry.clip;
+    entry.callbacks.onUpdate(geometry);
+  }
+}
