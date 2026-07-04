@@ -1,4 +1,5 @@
 import { clipsEqual, computeClipInsets, hasArea, rectsEqual } from '@/entrypoints/content/presentation/layer/geometry';
+import { isElementOccluded } from '@/entrypoints/content/presentation/layer/occlusion';
 
 import type { IClipInsets, ILayerGeometry, ILayerRect } from '@/utils/types/presentation';
 
@@ -16,12 +17,21 @@ interface TrackerEntry {
   clipAncestors: Element[];
   lastRect?: ILayerRect;
   lastClip?: IClipInsets | null;
+  occluded: boolean;
+  occludedCheckedAt: number;
   intersecting: boolean;
   dirty: boolean;
 }
 
 /** Viewport-margin inside which elements are treated as visible (keeps near-viewport overlays warm). */
 const INTERSECTION_MARGIN = '100px';
+
+/**
+ * Occlusion uses hit testing (forced layout per sample point), so it runs at most this
+ * often per element — a lightbox appearing is a user-visible transition where ~200 ms
+ * of latency is imperceptible, unlike per-frame position tracking.
+ */
+const OCCLUSION_INTERVAL_MS = 200;
 
 const rectOf = (element: Element): ILayerRect => {
   const rect = element.getBoundingClientRect();
@@ -85,6 +95,9 @@ export class GeometryTracker {
   /** Heartbeat invoked once per sweep; the layer uses it to self-heal its host element. */
   onTick?: () => void;
 
+  /** Occluder veto (e.g. the layer's own host); such hits never count for occlusion. */
+  shouldIgnoreOccluder?: (candidate: Element) => boolean;
+
   track(element: Element, callbacks: IGeometryTrackerCallbacks): void {
     this.untrack(element);
 
@@ -92,6 +105,8 @@ export class GeometryTracker {
       element,
       callbacks,
       clipAncestors: findClipAncestors(element),
+      occluded: false,
+      occludedCheckedAt: 0,
       // Assume visible until the IntersectionObserver reports, so the first frames poll.
       intersecting: true,
       dirty: true,
@@ -201,9 +216,14 @@ export class GeometryTracker {
       if (!entry.intersecting && !entry.dirty) continue;
       const geometry = this.measure(entry);
       entry.dirty = false;
-      if (rectsEqual(entry.lastRect, geometry.rect) && clipsEqual(entry.lastClip, geometry.clip)) continue;
+      const unchanged =
+        rectsEqual(entry.lastRect, geometry.rect) &&
+        clipsEqual(entry.lastClip, geometry.clip) &&
+        geometry.occluded === entry.occluded;
       entry.lastRect = geometry.rect;
       entry.lastClip = geometry.clip;
+      entry.occluded = geometry.occluded;
+      if (unchanged) continue;
       updates.push({ entry, geometry });
     }
 
@@ -222,7 +242,16 @@ export class GeometryTracker {
   private measure(entry: TrackerEntry): ILayerGeometry {
     const rect = rectOf(entry.element);
     const clip = hasArea(rect) ? computeClipInsets(rect, entry.clipAncestors.map(clipRectOf)) : null;
-    return { rect, clip };
+    return { rect, clip, occluded: this.measureOcclusion(entry, rect, clip) };
+  }
+
+  /** Throttled: hit testing is comparatively expensive and occlusion changes are slow. */
+  private measureOcclusion(entry: TrackerEntry, rect: ILayerRect, clip: IClipInsets | null): boolean {
+    const now = Date.now();
+    if (now - entry.occludedCheckedAt < OCCLUSION_INTERVAL_MS) return entry.occluded;
+    entry.occludedCheckedAt = now;
+    if (!hasArea(rect) || clip === null) return false;
+    return isElementOccluded(entry.element, rect, clip, this.shouldIgnoreOccluder);
   }
 
   private readEntry(entry: TrackerEntry): void {
@@ -230,6 +259,7 @@ export class GeometryTracker {
     entry.dirty = false;
     entry.lastRect = geometry.rect;
     entry.lastClip = geometry.clip;
+    entry.occluded = geometry.occluded;
     entry.callbacks.onUpdate(geometry);
   }
 }

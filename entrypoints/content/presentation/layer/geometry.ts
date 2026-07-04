@@ -64,3 +64,56 @@ export const clipsEqual = (
     Math.abs(a.bottom - b.bottom) < epsilon
   );
 };
+
+// ---------------------------------------------------------------------------
+// Occlusion helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimum effective background alpha for site content to count as an occluder.
+ * Below this the masked element still shows through (e.g. a light dim), so the
+ * mask must stay visible — fail-safe over pretty.
+ */
+export const OCCLUDER_MIN_ALPHA = 0.45;
+
+export interface IViewportPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Hit-test sample points spread over the visible (clip-reduced) part of an element
+ * rect: center + four points 20% in from each corner. Empty when nothing is visible.
+ */
+export const occlusionSamplePoints = (rect: ILayerRect, clip: IClipInsets | null): IViewportPoint[] => {
+  if (clip === null) return [];
+  const left = rect.left + clip.left;
+  const top = rect.top + clip.top;
+  const width = rect.width - clip.left - clip.right;
+  const height = rect.height - clip.top - clip.bottom;
+  if (width <= 0 || height <= 0) return [];
+
+  const fractions: [number, number][] = [
+    [0.5, 0.5],
+    [0.2, 0.2],
+    [0.8, 0.2],
+    [0.2, 0.8],
+    [0.8, 0.8],
+  ];
+  return fractions.map(([fx, fy]) => ({ x: left + width * fx, y: top + height * fy }));
+};
+
+/**
+ * Alpha channel of a computed CSS color (`rgb(...)` / `rgba(...)` / `transparent`).
+ * Unparseable values return 0 — "not opaque" keeps masks visible (fail-safe).
+ */
+export const cssColorAlpha = (color: string): number => {
+  if (!color) return 0;
+  if (color === 'transparent') return 0;
+  const match = /^rgba?\(([^)]+)\)$/.exec(color);
+  if (!match || match[1] === undefined) return 0;
+  const parts = match[1].split(/[,\s/]+/).filter(Boolean);
+  if (parts.length < 4) return parts.length === 3 ? 1 : 0; // rgb(r, g, b) is opaque
+  const alpha = Number(parts[3]);
+  return Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0;
+};

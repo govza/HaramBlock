@@ -22,6 +22,8 @@ export interface ILayerGeometry {
   rect: ILayerRect;
   /** Insets to clip the slot to its scroll containers; null when the element is fully clipped out. */
   clip: IClipInsets | null;
+  /** True when the element is fully covered by opaque foreign content (e.g. a lightbox). */
+  occluded: boolean;
 }
 
 /**

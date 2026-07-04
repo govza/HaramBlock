@@ -217,7 +217,11 @@ design and rationale.
   catching CSS-transform movement (carousels) that ResizeObserver misses; off-screen elements are
   only re-read when scroll/resize/ResizeObserver marks them dirty. Detached elements are
   auto-untracked and reported — no more per-overlay body-wide MutationObservers.
-- `layer/geometry.ts` — pure rect/clip math (unit-tested).
+- `layer/occlusion.ts` — hides a slot when its element is fully covered by opaque site content (e.g.
+  a lightbox backdrop): throttled `elementFromPoint` sampling over the visible rect, opaque only
+  when the covering content paints real pixels (media tag, background-image/-color alpha ≥ 0.45,
+  backdrop-filter). All heuristics fail toward keeping the mask visible.
+- `layer/geometry.ts` — pure rect/clip/occlusion-sampling math (unit-tested).
 
 The initial protective blur is **not** part of the layer: it stays a CSS class on the element itself
 because it must be atomic with the element's own paint (no unfiltered frame possible) and covers

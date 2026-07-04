@@ -122,12 +122,29 @@ When `document.fullscreenElement` is set, only the fullscreen element's subtree 
   earlier fullscreen discussion; the popover path is the belt-and-suspenders default that needs no
   page-world patching.
 
+### Occlusion (was: the over-cover tradeoff)
+
+At `z-index: 2147483647` masks would also cover site UI that legitimately sits above the element —
+found in practice: open a lightbox and the thumbnail masks float above its backdrop. Handled by
+**occlusion detection** (`layer/occlusion.ts`): every `OCCLUSION_INTERVAL_MS` (200 ms) per visible
+tracked element, hit-test 5 sample points spread over its visible (clip-reduced) rect via
+`document.elementFromPoint`. The slot is hidden only when **every** point is covered by _opaque_
+foreign content — the hit (or a non-shared ancestor, covering transparent centering containers
+inside modals) paints real pixels: media tag, `background-image`, `backdrop-filter`, or
+background-color alpha ≥ `OCCLUDER_MIN_ALPHA` (0.45, catching the ubiquitous `rgba(0,0,0,.5)`
+backdrops).
+
+Everything fails toward "mask stays visible": transparent overlays (stretched-link cards),
+unparseable colors, points hitting the element/its ancestors/descendants, our own layer host, and
+elements with `pointer-events: none` (un-hit-testable → never reported occluded). Partial coverage
+(sticky headers) keeps the mask — only full coverage hides it.
+
 ### Accepted tradeoffs
 
-- **Over-cover:** at `z-index: 2147483647` the mask also covers site UI that would legitimately sit
-  above the image (dropdowns, modals). Fail-safe direction (over-masking, never revealing);
-  occlusion tracking is explicitly out of scope. Today's overlays already cover such UI whenever
-  stacking contexts align, so this is not a regression class — just more consistent.
+- **Occlusion latency:** a lightbox's backdrop hides underlying masks up to ~200 ms + one sweep
+  after it opens (hit testing is throttled). The transition is user-visible anyway.
+- **Semi-dim backdrops below 0.45 alpha** keep masks visible on purpose — the content shows through,
+  so hiding the mask would reveal it.
 - **1-frame lag:** rect is read at rAF time; a transform-animated element's mask trails by ≤1 frame.
   Same or better than today (today it doesn't move at all).
 - **Print:** fixed-position overlay may not paint on the right page in print; ignore.

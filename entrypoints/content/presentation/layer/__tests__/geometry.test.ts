@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   clipsEqual,
   computeClipInsets,
+  cssColorAlpha,
   hasArea,
   intersectRects,
   isUnclipped,
+  occlusionSamplePoints,
   rectsEqual,
 } from '@/entrypoints/content/presentation/layer/geometry';
 
@@ -118,5 +120,51 @@ describe('clipsEqual', () => {
     expect(clipsEqual({ top: 10, left: 0, right: 0, bottom: 0 }, { top: 12, left: 0, right: 0, bottom: 0 })).toBe(
       false,
     );
+  });
+});
+
+describe('occlusionSamplePoints', () => {
+  it('spreads five points over an unclipped rect', () => {
+    const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
+    expect(points).toHaveLength(5);
+    expect(points[0]).toEqual({ x: 50, y: 50 }); // center
+    expect(points[1]).toEqual({ x: 20, y: 20 });
+    expect(points[4]).toEqual({ x: 80, y: 80 });
+  });
+
+  it('samples only the visible (clip-reduced) region', () => {
+    const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 50, left: 0, right: 0, bottom: 0 });
+    // Visible band is rows 50..100; every sample must be inside it
+    for (const p of points) {
+      expect(p.y).toBeGreaterThanOrEqual(50);
+      expect(p.y).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('returns nothing for fully clipped or degenerate rects', () => {
+    expect(occlusionSamplePoints(rect(0, 0, 100, 100), null)).toEqual([]);
+    expect(occlusionSamplePoints(rect(0, 0, 100, 100), { top: 60, left: 0, right: 0, bottom: 60 })).toEqual([]);
+    expect(occlusionSamplePoints(rect(0, 0, 0, 100), { top: 0, left: 0, right: 0, bottom: 0 })).toEqual([]);
+  });
+});
+
+describe('cssColorAlpha', () => {
+  it('parses computed rgb/rgba colors', () => {
+    expect(cssColorAlpha('rgb(255, 255, 255)')).toBe(1);
+    expect(cssColorAlpha('rgba(0, 0, 0, 0.5)')).toBe(0.5);
+    expect(cssColorAlpha('rgba(0, 0, 0, 0)')).toBe(0);
+    expect(cssColorAlpha('rgb(0 0 0 / 0.8)')).toBe(0.8);
+  });
+
+  it('treats transparent and unparseable values as not opaque (fail-safe)', () => {
+    expect(cssColorAlpha('transparent')).toBe(0);
+    expect(cssColorAlpha('')).toBe(0);
+    expect(cssColorAlpha('color(srgb 1 0 0)')).toBe(0);
+    expect(cssColorAlpha('rgba(0, 0, 0, garbage)')).toBe(0);
+  });
+
+  it('clamps out-of-range alpha', () => {
+    expect(cssColorAlpha('rgba(0, 0, 0, 1.5)')).toBe(1);
+    expect(cssColorAlpha('rgba(0, 0, 0, -1)')).toBe(0);
   });
 });
