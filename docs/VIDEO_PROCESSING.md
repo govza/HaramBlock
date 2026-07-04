@@ -39,15 +39,15 @@ Key invariants:
 
 ## Components
 
-| Component          | File                                                                     | Role                                                                   |
-| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Pure state machine | `entrypoints/content/video/session/machine.ts`                           | `(state, event) → (state, effects)`; no DOM, timers, or transport      |
-| Registry + adapter | `entrypoints/content/video/session/registry.ts`                          | Owns live sessions, routes predictions by sessionId, executes effects  |
-| Discovery          | `entrypoints/content/handlers/handleVideos.ts`                           | Routes discovered videos: blacklist styling or registry adoption       |
-| Frame capture      | `entrypoints/content/video/frameCapture.ts`                              | Canvas capture, poster extraction, CORS workaround                     |
-| Transport          | `entrypoints/content/communication/sender.ts`                            | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob) |
-| Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`, `boundingBox.ts` | Segmentation mask / bbox blur rendering                                |
-| Background routing | `entrypoints/background/services/inferenceOrchestrationService.ts`       | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`               |
+| Component          | File                                                               | Role                                                                   |
+| ------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Pure state machine | `entrypoints/content/video/session/machine.ts`                     | `(state, event) → (state, effects)`; no DOM, timers, or transport      |
+| Registry + adapter | `entrypoints/content/video/session/registry.ts`                    | Owns live sessions, routes predictions by sessionId, executes effects  |
+| Discovery          | `entrypoints/content/handlers/handleVideos.ts`                     | Routes discovered videos: blacklist styling or registry adoption       |
+| Frame capture      | `entrypoints/content/video/frameCapture.ts`                        | Canvas capture, poster extraction, CORS workaround                     |
+| Transport          | `entrypoints/content/communication/sender.ts`                      | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob) |
+| Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering                                            |
+| Background routing | `entrypoints/background/services/inferenceOrchestrationService.ts` | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`               |
 
 ### The pure machine
 

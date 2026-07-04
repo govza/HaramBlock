@@ -4,7 +4,7 @@ Feature: Video Masking
   Frame Samples, and masked protection-first (see docs/VIDEO_PROCESSING.md).
 
   Background:
-    Given the outline type is set to "segment"
+    Given I set the global policy to "process"
     And video processing is enabled
 
   Scenario: Unsafe poster is masked before any playback

@@ -9,7 +9,7 @@ const getElementCount = async (selector: string): Promise<number> => {
 
 /**
  * Video is not a default processing target; enable it via the popup chip.
- * Assumes the policy is already 'process' (the outline step ensures that).
+ * Assumes the policy is already 'process' (the global-policy step ensures that).
  */
 Given('video processing is enabled', async () => {
   const extensionPath = await browser.getExtensionPath();

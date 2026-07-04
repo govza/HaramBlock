@@ -8,7 +8,6 @@
  */
 
 import { requestVideoFrameInference } from '@/entrypoints/content/communication/sender';
-import { clearBlurBoxOverlay, createBlurBoxOverlays } from '@/entrypoints/content/presentation/boundingBox';
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import {
   clearProcessedStatus,
@@ -273,7 +272,6 @@ class VideoSessionRegistry {
           // finish after the clear and resurrect a mask on a clean video.
           this.queueOverlayTask(handle, () => {
             videoMaskOverlays.clearMaskOverlay(video);
-            clearBlurBoxOverlay(video);
           });
           break;
         case 'setStatus':
@@ -313,7 +311,6 @@ class VideoSessionRegistry {
     handle.stopTicker = null;
     handle.removeListeners();
     videoMaskOverlays.clearMaskOverlay(video);
-    clearBlurBoxOverlay(video);
     video.classList.remove(BLUR_CLASS);
     clearProcessedStatus(video);
     releaseCorsVideoCache(video);
@@ -458,16 +455,10 @@ class VideoSessionRegistry {
     const { video, hostSettings } = handle;
     const imagePrediction = toImagePrediction(pred);
     this.queueOverlayTask(handle, async () => {
-      if (hostSettings.outline === 'segment') {
-        await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
-      } else if (hostSettings.outline === 'bbox') {
-        clearBlurBoxOverlay(video);
-        createBlurBoxOverlays(video, imagePrediction, hostSettings);
-      }
+      await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
       if (handle.state.phase === 'disposed') {
         // Disposed mid-render: undo what the render just re-created.
         videoMaskOverlays.clearMaskOverlay(video);
-        clearBlurBoxOverlay(video);
       }
     });
   }
