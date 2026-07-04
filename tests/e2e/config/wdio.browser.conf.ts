@@ -61,6 +61,9 @@ const chromeCapabilities = {
       '--disable-dev-shm-usage',
       '--log-level=3',
       '--silent',
+      // Video scenarios generate and play muted test clips programmatically.
+      '--autoplay-policy=no-user-gesture-required',
+      '--mute-audio',
       `--load-extension=${chromeExtensionPath}`,
       ...(IS_CI ? ciChromeArgs : []),
     ],
