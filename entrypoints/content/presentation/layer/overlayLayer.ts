@@ -129,9 +129,9 @@ class OverlayLayer {
     this.root = null;
   }
 
-  private position(internal: InternalSlot, { rect, clip }: ILayerGeometry): void {
+  private position(internal: InternalSlot, { rect, clip, occluded }: ILayerGeometry): void {
     const { style } = internal.slotEl;
-    if (!hasArea(rect) || clip === null) {
+    if (!hasArea(rect) || clip === null || occluded) {
       style.display = 'none';
       return;
     }
@@ -156,6 +156,8 @@ class OverlayLayer {
       this.root = root;
       document.addEventListener('fullscreenchange', this.syncFullscreen);
       this.tracker.onTick = () => this.ensureHostConnected();
+      // Hits on our own host (the quick-toggle button) must not count as occluders
+      this.tracker.shouldIgnoreOccluder = candidate => candidate === host;
     }
 
     this.ensureHostConnected();
