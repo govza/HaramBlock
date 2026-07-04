@@ -55,12 +55,12 @@ class OverlayLayer {
   private readonly tracker = new GeometryTracker();
   private readonly slots = new Map<Element, InternalSlot>();
 
-  attach(element: Element, hooks: IOverlaySlotHooks = {}): IOverlaySlot {
+  attach(element: Element, hooks: IOverlaySlotHooks = {}, label = ''): IOverlaySlot {
     this.detach(element);
 
     const root = this.ensureRoot();
     const slotEl = document.createElement('div');
-    slotEl.setAttribute('data-overlay-slot', '');
+    slotEl.setAttribute('data-overlay-slot', label);
     slotEl.style.cssText = SLOT_STYLE;
     root.appendChild(slotEl);
 
@@ -148,7 +148,10 @@ class OverlayLayer {
     if (!this.host) {
       const host = document.createElement(HOST_TAG);
       host.style.cssText = HOST_STYLE;
-      const shadow = host.attachShadow({ mode: 'closed' });
+      // Open on purpose: the shadow root isolates our styles/queries from the site
+      // either way, while 'closed' would offer no real protection (a hostile page can
+      // remove the host itself) and would block e2e assertions and user debugging.
+      const shadow = host.attachShadow({ mode: 'open' });
       const root = document.createElement('div');
       root.style.cssText = 'position: absolute; inset: 0; pointer-events: none;';
       shadow.appendChild(root);

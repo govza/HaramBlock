@@ -54,7 +54,7 @@ One extension-owned host per document (like the devtools element highlighter):
 
 ```
 <haramblock-overlay-layer>          ← custom element, appended to document.documentElement
-  #shadow-root (closed)             ← isolates our styles from site CSS and site queries
+  #shadow-root (open)               ← isolates our styles from site CSS; open for e2e/devtools
     <style> … </style>
     <div class="layer">             ← position: fixed; inset: 0; pointer-events: none;
                                       z-index: 2147483647
@@ -153,7 +153,7 @@ elements with `pointer-events: none` (un-hit-testable → never reported occlude
 
 New modules (all under `entrypoints/content/presentation/layer/`):
 
-- `overlayLayer.ts` — custom-element host, closed shadow root, style sheet, canvas create/destroy,
+- `overlayLayer.ts` — custom-element host, open shadow root, style sheet, canvas create/destroy,
   fullscreen/popover handling, `dispose()`. Singleton per document.
 - `geometryTracker.ts` — pure-ish tracker described above; exports `track(el, cb)`, `untrack(el)`,
   `dispose()`. Rect/clip math split into pure helpers (`rectsEqual`, `intersectClip`) for unit

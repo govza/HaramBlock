@@ -1,6 +1,7 @@
 import { When, Then } from '@wdio/cucumber-framework';
 
 import { buildGalleryUrl, GalleryMode, Selectors, type GallerySizeType } from '../constants/index.js';
+import { countVisibleInLayer } from '../utils/overlayLayer.js';
 import { isMobile } from '../utils/platform.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
@@ -77,7 +78,7 @@ Then('I should see {string} images loaded', async (count: string) => {
 Then('I should see {string} mask overlays', async (count: string) => {
   const expectedCount = parseInt(count, 10);
   const getMaskCount = async (): Promise<number> => {
-    return getElementCount(Selectors.SEGMENT_OVERLAY);
+    return countVisibleInLayer(Selectors.SEGMENT_OVERLAY);
   };
   const actualCount = await waitForCount(getMaskCount, expectedCount, 'mask overlays');
   expect(actualCount).toBe(expectedCount);

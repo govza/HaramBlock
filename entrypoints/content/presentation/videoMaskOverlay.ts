@@ -117,10 +117,14 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     };
     this.videoStates.set(video, state);
 
-    state.slot = overlayLayer.attach(video, {
-      onGeometry: geometry => this.handleGeometry(video, state, geometry),
-      onDetach: () => this.teardown(video, state, { releaseSlot: false }),
-    });
+    state.slot = overlayLayer.attach(
+      video,
+      {
+        onGeometry: geometry => this.handleGeometry(video, state, geometry),
+        onDetach: () => this.teardown(video, state, { releaseSlot: false }),
+      },
+      'video-mask',
+    );
     state.slot.root.appendChild(canvas);
   }
 

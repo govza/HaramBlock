@@ -202,10 +202,11 @@ Segmentation-based visual overlays using canvas and mask data.
 #### Overlay Layer (`layer/`)
 
 All mask overlays render into a single extension-owned host (`<haramblock-overlay-layer>` on
-`document.documentElement`) with a closed shadow root — the "devtools highlight" pattern. Site
-frameworks can't remove overlays, no site CSS is mutated (`position: relative` is never forced on
-parents), and no per-overlay z-index guessing is needed. See `OVERLAY.md` (repo root) for the full
-design and rationale.
+`document.documentElement`) with an open shadow root — the "devtools highlight" pattern (open so e2e
+tests and devtools can inspect it; closed would add no real protection). Site frameworks can't
+remove overlays, no site CSS is mutated (`position: relative` is never forced on parents), and no
+per-overlay z-index guessing is needed. See `OVERLAY.md` (repo root) for the full design and
+rationale.
 
 - `layer/overlayLayer.ts` — the host: one absolutely-positioned **slot** per masked element, placed
   via `transform: translate(x, y)` in viewport coordinates; `clip-path: inset(...)` clips slots to
