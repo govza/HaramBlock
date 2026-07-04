@@ -40,26 +40,24 @@ export interface IOverlaySlot {
 
 /**
  * Common overlay state interface for mask overlays rendered into the overlay layer.
- *
- * TODO(overlay-layer): legacy fields (overlay/observers/handlers) are kept while the
- * renderers migrate to layer slots; they are removed in the renderer-migration commit.
  */
 export interface IMediaOverlayState {
-  overlay: HTMLDivElement;
+  slot: IOverlaySlot;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
-  resizeObserver: ResizeObserver;
-  cleanupObserver: MutationObserver;
+  /** Element size from the last geometry callback; a change triggers a redraw. */
   lastSize: { width: number; height: number };
-  rafId?: number | null;
   destroyed?: boolean;
   currentPrediction?: IImagePrediction;
-  viewportHandler?: () => void;
   posterImage?: HTMLImageElement;
   corsVideo?: HTMLVideoElement;
   /** The src this overlay was created for - used for self-cleaning on src change */
   trackedSrc?: string;
   masking: IMaskingSettings;
+  /** Decoded RLE grids for currentPrediction, so geometry updates don't re-decode. */
+  decodedMasks?: { masks: number[][] }[];
+  /** The prediction decodedMasks was computed from (reference identity). */
+  decodedFor?: IImagePrediction;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
@@ -13,6 +14,7 @@ import {
 } from '@/utils/types';
 
 import type { DecodedGifFrame } from '@/entrypoints/content/gif/gifDecoder';
+import type { ILayerGeometry, IOverlaySlot } from '@/utils/types/presentation';
 
 type GifPrediction = Omit<IGifFramePrediction, 'maskTransform'> & {
   maskTransform?: IMaskTransform;
@@ -20,7 +22,7 @@ type GifPrediction = Omit<IGifFramePrediction, 'maskTransform'> & {
 };
 
 interface GifPlayerState {
-  overlay: HTMLDivElement;
+  slot: IOverlaySlot;
   baseCanvas: HTMLCanvasElement;
   baseCtx: CanvasRenderingContext2D;
   maskCanvas: HTMLCanvasElement;
@@ -31,10 +33,8 @@ interface GifPlayerState {
   hostSettings: IHostSettings;
   maskInertia: number;
   currentFrame: number;
+  lastSize: { width: number; height: number };
   timerId?: ReturnType<typeof setTimeout>;
-  resizeObserver: ResizeObserver;
-  cleanupObserver: MutationObserver;
-  viewportHandler: () => void;
   destroyed: boolean;
   originalOpacity?: string;
   trackedSrc: string;
@@ -58,13 +58,6 @@ class GifMaskPlayer {
       return;
     }
 
-    const parent = image.parentElement;
-    if (!parent) return;
-
-    if (getComputedStyle(parent).position === 'static') {
-      parent.style.position = 'relative';
-    }
-
     const existing = gifStates.get(image);
     if (existing && !existing.destroyed) {
       existing.frames = frames;
@@ -76,26 +69,8 @@ class GifMaskPlayer {
       return;
     }
 
-    const imageRect = image.getBoundingClientRect();
-    const parentRect = parent.getBoundingClientRect();
-    const overlay = document.createElement('div');
-    overlay.setAttribute('data-gif-mask-player', 'animated-gif-mask-player');
-
-    overlay.style.cssText = `
-      position: absolute;
-      top: ${imageRect.top - parentRect.top}px;
-      left: ${imageRect.left - parentRect.left}px;
-      width: ${imageRect.width}px;
-      height: ${imageRect.height}px;
-      pointer-events: none;
-    `;
-    const imageZIndex = getComputedStyle(image).zIndex;
-    if (imageZIndex !== 'auto') {
-      overlay.style.zIndex = imageZIndex;
-    }
-
     const baseCanvas = document.createElement('canvas');
-    baseCanvas.style.cssText = canvasStyle(imageRect.width, imageRect.height);
+    baseCanvas.style.cssText = CANVAS_STYLE;
     const baseCtx = baseCanvas.getContext('2d');
     if (!baseCtx) {
       logger.withTag('gifMaskPlayer').error('Failed to get GIF base canvas context');
@@ -103,18 +78,14 @@ class GifMaskPlayer {
     }
 
     const maskCanvas = document.createElement('canvas');
-    maskCanvas.style.cssText = canvasStyle(imageRect.width, imageRect.height);
+    maskCanvas.style.cssText = CANVAS_STYLE;
     const maskCtx = maskCanvas.getContext('2d');
     if (!maskCtx) {
       logger.withTag('gifMaskPlayer').error('Failed to get GIF mask canvas context');
       return;
     }
 
-    overlay.append(baseCanvas, maskCanvas);
-    image.after(overlay);
-
     const state: GifPlayerState = {
-      overlay,
       baseCanvas,
       baseCtx,
       maskCanvas,
@@ -125,30 +96,24 @@ class GifMaskPlayer {
       hostSettings,
       maskInertia,
       currentFrame: 0,
-      resizeObserver: new ResizeObserver(() => this.updateLayout(image)),
-      cleanupObserver: new MutationObserver(mutations => {
-        for (const mutation of mutations) {
-          for (const removedNode of mutation.removedNodes) {
-            const removedEl = removedNode as Element;
-            if (removedNode === image || (removedNode.nodeType === Node.ELEMENT_NODE && removedEl.contains(image))) {
-              this.clearPlayer(image);
-              return;
-            }
-          }
-        }
-      }),
-      viewportHandler: () => this.updateLayout(image),
+      lastSize: { width: 0, height: 0 },
       destroyed: false,
       originalOpacity: image.style.opacity,
       trackedSrc: image.currentSrc || image.src,
+      // assigned below; attach() fires the initial geometry callback synchronously
+      // and the callback does not touch state.slot
+      slot: undefined as unknown as IOverlaySlot,
     };
-
     gifStates.set(image, state);
+
+    state.slot = overlayLayer.attach(image, {
+      onGeometry: geometry => this.handleGeometry(image, state, geometry),
+      onDetach: () => this.teardown(image, state, { releaseSlot: false }),
+    });
+    state.slot.root.append(baseCanvas, maskCanvas);
+
+    // The native <img> keeps animating underneath; hide it so only the masked replay shows.
     image.style.setProperty('opacity', '0', 'important');
-    state.resizeObserver.observe(image);
-    state.cleanupObserver.observe(document.body, { childList: true, subtree: true });
-    globalThis.addEventListener('resize', state.viewportHandler);
-    globalThis.addEventListener('scroll', state.viewportHandler, { passive: true });
 
     this.play(image, state);
   }
@@ -159,25 +124,35 @@ class GifMaskPlayer {
       if (unregisterToggle) unregisterQuickToggle(image);
       return;
     }
-
-    state.destroyed = true;
-    if (state.timerId) clearTimeout(state.timerId);
-    try {
-      state.resizeObserver.disconnect();
-      state.cleanupObserver.disconnect();
-    } catch {
-      // no-op
-    }
-    globalThis.removeEventListener('resize', state.viewportHandler);
-    globalThis.removeEventListener('scroll', state.viewportHandler);
-    state.overlay.remove();
-    restoreOpacity(image, state.originalOpacity);
-    gifStates.delete(image);
+    this.teardown(image, state, { releaseSlot: true });
     if (unregisterToggle) unregisterQuickToggle(image);
   }
 
   hasPlayer(image: HTMLImageElement): boolean {
     return gifStates.has(image);
+  }
+
+  private teardown(image: HTMLImageElement, state: GifPlayerState, opts: { releaseSlot: boolean }): void {
+    state.destroyed = true;
+    if (state.timerId) clearTimeout(state.timerId);
+    if (opts.releaseSlot) state.slot?.release();
+    restoreOpacity(image, state.originalOpacity);
+    gifStates.delete(image);
+  }
+
+  private handleGeometry(image: HTMLImageElement, state: GifPlayerState, { rect }: ILayerGeometry): void {
+    if (state.destroyed) return;
+
+    const currentSrc = image.currentSrc || image.src;
+    if (currentSrc !== state.trackedSrc) {
+      this.clearPlayer(image);
+      return;
+    }
+
+    // The layer already moved the slot; only a size change requires a redraw.
+    if (rect.width === state.lastSize.width && rect.height === state.lastSize.height) return;
+    state.lastSize = { width: rect.width, height: rect.height };
+    this.renderCurrentFrame(image, state);
   }
 
   private play(image: HTMLImageElement, state: GifPlayerState): void {
@@ -194,35 +169,17 @@ class GifMaskPlayer {
     }, durationMs);
   }
 
-  private updateLayout(image: HTMLImageElement): void {
-    const state = gifStates.get(image);
-    if (!state || state.destroyed) return;
-
-    const currentSrc = image.currentSrc || image.src;
-    if (currentSrc !== state.trackedSrc) {
-      this.clearPlayer(image);
-      return;
-    }
-
-    this.renderCurrentFrame(image, state);
-  }
-
   private renderCurrentFrame(image: HTMLImageElement, state: GifPlayerState): void {
     const frame = state.frames[state.currentFrame];
-    const parent = image.parentElement;
-    if (!frame || !parent || state.destroyed) return;
+    if (!frame || state.destroyed) return;
 
-    const imageRect = image.getBoundingClientRect();
-    const parentRect = parent.getBoundingClientRect();
-    const contentRect = computeRenderedContentRect(image, imageRect);
+    const { width, height } = state.lastSize;
+    if (width <= 0 || height <= 0) return;
 
-    state.overlay.style.top = `${imageRect.top - parentRect.top}px`;
-    state.overlay.style.left = `${imageRect.left - parentRect.left}px`;
-    state.overlay.style.width = `${imageRect.width}px`;
-    state.overlay.style.height = `${imageRect.height}px`;
+    const contentRect = computeRenderedContentRect(image, state.lastSize);
 
-    resizeCanvas(state.baseCanvas, imageRect.width, imageRect.height);
-    resizeCanvas(state.maskCanvas, imageRect.width, imageRect.height);
+    resizeCanvas(state.baseCanvas, width, height);
+    resizeCanvas(state.maskCanvas, width, height);
 
     state.baseCtx.clearRect(0, 0, state.baseCanvas.width, state.baseCanvas.height);
     state.baseCtx.drawImage(
@@ -313,18 +270,14 @@ function createIdentityMaskTransform(prediction: GifPrediction): IMaskTransform 
   };
 }
 
-function canvasStyle(width: number, height: number): string {
-  return `
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: ${width}px;
-    height: ${height}px;
-    pointer-events: none;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-  `;
-}
+const CANVAS_STYLE = [
+  'position: absolute',
+  'top: 0',
+  'left: 0',
+  'pointer-events: none',
+  'image-rendering: pixelated',
+  'image-rendering: crisp-edges',
+].join('; ');
 
 function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number): void {
   const canvasWidth = Math.max(1, Math.round(width));
