@@ -85,6 +85,29 @@ class OverlayLayer {
     };
   }
 
+  /**
+   * Mounts an interactive extension UI element (e.g. the quick-toggle button) into the
+   * layer. The layer itself is pointer-transparent; the mounted element gets
+   * pointer-events back.
+   */
+  mountUI(element: HTMLElement): void {
+    const root = this.ensureRoot();
+    element.style.pointerEvents = 'auto';
+    root.appendChild(element);
+  }
+
+  /**
+   * Adds a stylesheet inside the layer's shadow root — page-level injected CSS cannot
+   * cross the shadow boundary. Returns a remover.
+   */
+  addStyles(cssText: string): () => void {
+    this.ensureRoot();
+    const style = document.createElement('style');
+    style.textContent = cssText;
+    this.root?.parentNode?.insertBefore(style, this.root);
+    return () => style.remove();
+  }
+
   detach(element: Element): void {
     const internal = this.slots.get(element);
     if (!internal) return;

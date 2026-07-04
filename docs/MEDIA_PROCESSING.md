@@ -23,6 +23,8 @@ The content script follows a modular architecture with clear separation of conce
 - **Communication** (`communication/`) - Two-way messaging with the background script
 - **Hooks** (`hooks/`) - Content-script initialization helpers (settings + cached predictions)
 - **Presentation** (`presentation/`) - Visual styling, effects, and CSS injection
+- **Overlay Layer** (`presentation/layer/`) - Extension-owned, viewport-fixed layer that hosts all
+  mask overlays outside site DOM (see [Overlay Layer](#overlay-layer) below)
 - **Handlers** (`handlers/`) - Video-specific handling
 - **Video** (`video/`) - Frame capture + playback loop utilities
 - **GIF** (`gif/`) - Animated GIF detection, frame decoding, and inference sampling →
@@ -192,7 +194,34 @@ Segmentation-based visual overlays using canvas and mask data.
 
 - Creates pixelated overlay effects using RLE-encoded segmentation masks
 - Unified canvas approach combining multiple masks into single overlay
+- Renders into an overlay-layer slot (never into site DOM); redraws only when the element's size
+  changes — position/clipping are the layer's job
 - Self-cleaning via `trackedSrc` - removes itself when image src changes
+- Decoded RLE grids are cached per overlay; geometry updates don't re-decode
+
+#### Overlay Layer (`layer/`)
+
+All mask overlays render into a single extension-owned host (`<haramblock-overlay-layer>` on
+`document.documentElement`) with a closed shadow root — the "devtools highlight" pattern. Site
+frameworks can't remove overlays, no site CSS is mutated (`position: relative` is never forced on
+parents), and no per-overlay z-index guessing is needed. See `OVERLAY.md` (repo root) for the full
+design and rationale.
+
+- `layer/overlayLayer.ts` — the host: one absolutely-positioned **slot** per masked element, placed
+  via `transform: translate(x, y)` in viewport coordinates; `clip-path: inset(...)` clips slots to
+  their scroll containers; interactive extension UI (quick-toggle) mounts here with pointer-events
+  restored. On `fullscreenchange` the host is promoted into the top layer via the Popover API
+  (fallback: reparent into the fullscreen element) so masks survive fullscreen.
+- `layer/geometryTracker.ts` — one shared tracker instead of per-overlay observers: a single rAF
+  sweep polls `getBoundingClientRect()` for elements near the viewport (IntersectionObserver-gated),
+  catching CSS-transform movement (carousels) that ResizeObserver misses; off-screen elements are
+  only re-read when scroll/resize/ResizeObserver marks them dirty. Detached elements are
+  auto-untracked and reported — no more per-overlay body-wide MutationObservers.
+- `layer/geometry.ts` — pure rect/clip math (unit-tested).
+
+The initial protective blur is **not** part of the layer: it stays a CSS class on the element itself
+because it must be atomic with the element's own paint (no unfiltered frame possible) and covers
+every pending image, not just confirmed-unsafe ones.
 
 ## Initialization: Preventing Flash of Unfiltered Content
 
@@ -334,7 +363,7 @@ Find all img elements with this src
        ▼
 For each: apply overlay, remove blur class
        │
-       └── If img.src changed, overlay auto-cleans via ResizeObserver
+       └── If img.src changed, overlay auto-cleans via the layer's geometry callback
 ```
 
 ### Why One-By-One (Not Batched)
@@ -367,13 +396,16 @@ handleSrcChange(img)
 Overlays track the `src` they were created for and self-clean when it changes:
 
 ```typescript
-// In ResizeObserver callback
+// In the overlay-layer geometry callback
 const currentSrc = image.currentSrc || image.src;
 if (state.trackedSrc && currentSrc !== state.trackedSrc) {
   this.clearMaskOverlay(image); // Self-cleanup
   return;
 }
 ```
+
+Element removal is handled centrally: the layer's GeometryTracker auto-untracks detached elements
+and notifies the owning renderer (`onDetach`), which tears down its state.
 
 ## Race Conditions - Why They Don't Matter
 
