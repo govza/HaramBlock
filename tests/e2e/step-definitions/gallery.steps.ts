@@ -2,7 +2,6 @@ import { When, Then } from '@wdio/cucumber-framework';
 
 import { buildGalleryUrl, GalleryMode, Selectors, type GallerySizeType } from '../constants/index.js';
 import { countVisibleInLayer } from '../utils/overlayLayer.js';
-import { isMobile } from '../utils/platform.js';
 
 const getElementCount = async (selector: string): Promise<number> => {
   const elements = await $$(selector);
@@ -34,7 +33,6 @@ When('I go to the basic gallery with {string} {string} images', async (count: st
   const url = buildGalleryUrl({
     count: parseInt(count, 10),
     size: size as GallerySizeType,
-    overlay: !isMobile(), // overlay hijacks taps on mobile (no hover)
   });
   await browser.url(url);
   await scrollToLoadAllImages();
@@ -53,7 +51,6 @@ When(
       mode: galleryMode,
       count: parseInt(count, 10),
       size: size as GallerySizeType,
-      overlay: !isMobile(), // overlay hijacks taps on mobile (no hover)
     });
     await browser.url(url);
     await scrollToLoadAllImages();
