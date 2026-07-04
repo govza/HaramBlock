@@ -35,12 +35,10 @@ import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/
 
 const log = logger.withTag('videoSession');
 
-/** The machine's error status finalizes as "skipped" in the shared attribute contract. */
 const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   safe: 'safe',
   unsafe: 'unsafe',
   skipped: 'skipped',
-  error: 'skipped',
 };
 
 /**
@@ -296,6 +294,10 @@ class VideoSessionRegistry {
           handle.timers.delete(effect.timer);
           break;
         }
+        case 'stopTicker':
+          handle.stopTicker?.();
+          handle.stopTicker = null;
+          break;
         case 'cleanup':
           this.teardown(handle);
           break;
@@ -397,20 +399,26 @@ class VideoSessionRegistry {
     const isDisposed = () => handle.state.phase === 'disposed';
     if (isDisposed()) return;
     try {
-      const bitmap = await withTimeout(
+      const captured = await withTimeout(
         frameIndex === -1 ? captureThumbnailBitmap(video) : captureFrameBitmap(video),
         'Frame Sample capture',
-        late => late?.close(),
+        late => late.bitmap?.close(),
       );
       // Capture is async: the session may have died (source change, removal)
       // while we awaited. A dead session must not send work to inference.
       if (isDisposed()) {
-        bitmap?.close();
+        captured.bitmap?.close();
         return;
       }
+      const { bitmap } = captured;
       if (!bitmap || bitmap.width === 0 || bitmap.height === 0) {
         bitmap?.close();
-        this.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now() });
+        this.dispatch(handle, {
+          type: 'sendFailed',
+          frameIndex,
+          at: performance.now(),
+          permanent: captured.failure === 'permanent',
+        });
         return;
       }
       await withTimeout(

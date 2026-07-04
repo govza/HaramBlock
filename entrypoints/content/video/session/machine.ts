@@ -39,7 +39,7 @@ export const MAX_CONSECUTIVE_ERRORS = 10;
 
 export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout';
 
-export type SessionStatus = 'safe' | 'unsafe' | 'skipped' | 'error';
+export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 
 export type SessionEvent =
   | { type: 'thumbnailSourceReady' }
@@ -51,7 +51,8 @@ export type SessionEvent =
   | { type: 'seeked'; at: number }
   | { type: 'pause'; at: number }
   | { type: 'ended'; at: number }
-  | { type: 'sendFailed'; frameIndex: number; at: number }
+  /** permanent: capture can never succeed for this source (e.g. canvas taint), not a transient miss. */
+  | { type: 'sendFailed'; frameIndex: number; at: number; permanent?: boolean }
   | { type: 'dispose' };
 
 export type SessionEffect =
@@ -64,6 +65,7 @@ export type SessionEffect =
   | { kind: 'sendSample'; frameIndex: number }
   | { kind: 'startTimer'; timer: SessionTimer; ms: number }
   | { kind: 'cancelTimer'; timer: SessionTimer }
+  | { kind: 'stopTicker' }
   | { kind: 'cleanup' };
 
 export interface ReduceResult {
@@ -212,7 +214,12 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     };
   }
   if (event.type === 'sendFailed' && state.phase === 'thumbnailing') {
-    // Thumbnail capture impossible: stay fail-closed (blur kept), but leave the
+    if (event.permanent) {
+      // Capture can never succeed (e.g. canvas taint): inference-impossible is
+      // not unsafe. Finalize as allow instead of blurring forever.
+      return finalizeAllow(state);
+    }
+    // Transient Thumbnail failure: stay fail-closed (blur kept), but leave the
     // session in STANDBY so playback sampling can still deliver a verdict. The
     // attempt is finalized, so a status must land — same stance as the timeout.
     return {
@@ -224,19 +231,14 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     };
   }
   if (event.type === 'sendFailed' && (state.phase === 'sampling' || state.phase === 'standby')) {
+    if (event.permanent) {
+      return finalizeAllow(state);
+    }
     const errorStreak = state.errorStreak + 1;
     // Only the failure of the in-flight sample frees its slot.
     const inflightIndex = event.frameIndex === state.inflightIndex ? null : state.inflightIndex;
     if (errorStreak >= MAX_CONSECUTIVE_ERRORS) {
-      // Fail-closed: give up on this session but leave the video hidden, not exposed.
-      return {
-        state: { ...state, phase: 'error', inflightIndex: null, errorStreak },
-        effects: [
-          { kind: 'applyBlur' },
-          { kind: 'setStatus', status: 'error' },
-          { kind: 'cancelTimer', timer: 'watchdog' },
-        ],
-      };
+      return finalizeAllow({ ...state, errorStreak });
     }
     return {
       state: { ...state, inflightIndex, errorStreak },
@@ -283,6 +285,36 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     };
   }
   return { state, effects: [] };
+}
+
+/**
+ * Terminal ERROR = allow, not block: the pipeline cannot analyze this video
+ * (permanent capture failure or an unbroken failure streak), and
+ * inference-impossible is not evidence of unsafe content. The video plays
+ * natively un-blurred, finalized as `skipped`; sampling and the ticker stop.
+ * Fail-closed blur applies only while a verdict is genuinely pending.
+ */
+function finalizeAllow(state: VideoSessionState): ReduceResult {
+  return {
+    state: {
+      ...state,
+      phase: 'error',
+      inflightIndex: null,
+      masked: false,
+      cleanStreak: 0,
+      blurred: false,
+      pendingSeek: false,
+    },
+    effects: [
+      { kind: 'clearVerdict' },
+      { kind: 'clearBlur' },
+      { kind: 'setStatus', status: 'skipped' },
+      { kind: 'stopTicker' },
+      { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
+      { kind: 'cancelTimer', timer: 'watchdog' },
+      { kind: 'cancelTimer', timer: 'sampleTimeout' },
+    ],
+  };
 }
 
 function sendNextSample(state: VideoSessionState, at: number): ReduceResult {
