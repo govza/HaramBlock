@@ -4,6 +4,11 @@ Working plan for moving all mask overlays out of site DOM into a single extensio
 viewport-anchored layer. Written to be self-sufficient: a fresh session should be able to continue
 from here without prior context.
 
+> **Status (2026-07-05):** Stages 0–3 are implemented on `feat/overlay-layer` (layer + tracker infra
+> with unit tests, all three renderers migrated, quickToggle mounted in the layer, docs updated).
+> Remaining from the plan: the Stage 1/2 **e2e scenarios** (nested-scroller alignment, React
+> re-render, transform carousel, fullscreen) and real-page verification.
+
 ## 1. Where we are
 
 Three presentation modules render masks today, all with the same **in-site-DOM sibling** pattern:
