@@ -1,14 +1,36 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 
 import type { IHostSettings, IImagePrediction, IMaskTransform, IMaskingSettings } from '@/utils/types';
-import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
+import type { ILayerGeometry, IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
+
+/** Decode all RLE masks of a prediction once; geometry updates reuse the grids. */
+function decodePredictionMasks(prediction: IImagePrediction): { masks: number[][] }[] {
+  const allMasks: { masks: number[][] }[] = [];
+  prediction.predictions.forEach(elementPrediction => {
+    if (elementPrediction.masks && elementPrediction.masks.runs.length > 0) {
+      allMasks.push({ masks: decodeMaskRLE(elementPrediction.masks) });
+    }
+  });
+  return allMasks;
+}
+
+const CANVAS_STYLE = [
+  'position: absolute',
+  'top: 0',
+  'left: 0',
+  'pointer-events: none',
+  'image-rendering: pixelated',
+  'image-rendering: crisp-edges',
+].join('; ');
 
 /**
- * Manages mask overlays for video elements.
+ * Manages mask overlays for video elements, rendered into the extension-owned overlay
+ * layer (never into site DOM).
  * Implements IMediaOverlay<HTMLVideoElement>
  */
 class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
@@ -21,30 +43,25 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     video: HTMLVideoElement,
     imagePrediction: IImagePrediction,
     hostSettings: IHostSettings,
-    skipObserverSetup = false,
   ): Promise<void> {
     if (!imagePrediction.predictions.length) {
       this.clearMaskOverlay(video);
       return;
     }
 
-    const parent = video.parentElement;
-    if (!parent) return;
-
-    if (getComputedStyle(parent).position === 'static') {
-      parent.style.position = 'relative';
-    }
-
     // Check for existing overlay
     const existingState = this.videoStates.get(video);
     if (existingState && !existingState.destroyed) {
       existingState.currentPrediction = imagePrediction;
-      this.updateVideoOverlay(video, existingState);
+      this.render(video, existingState);
       return;
     }
 
-    // Remove any existing overlays
-    removeExistingVideoOverlays(parent);
+    // Remove overlays that pre-layer versions injected into site DOM
+    removeExistingVideoOverlays(video.parentElement);
+
+    const decodedMasks = decodePredictionMasks(imagePrediction);
+    if (decodedMasks.length === 0) return;
 
     const isThumbnail = imagePrediction.cacheMetadata?.contentType === 'video/thumbnail';
 
@@ -57,128 +74,6 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       }
     }
 
-    // Collect masks
-    const allMasks: { masks: number[][] }[] = [];
-    imagePrediction.predictions.forEach(prediction => {
-      if (prediction.masks && prediction.masks.runs.length > 0) {
-        allMasks.push({ masks: decodeMaskRLE(prediction.masks) });
-      }
-    });
-
-    if (allMasks.length > 0) {
-      const elementWidth = posterImage ? posterImage.naturalWidth : video.videoWidth || video.clientWidth;
-      const elementHeight = posterImage ? posterImage.naturalHeight : video.videoHeight || video.clientHeight;
-
-      const state = await this.createVideoOverlayElement(
-        video,
-        allMasks,
-        imagePrediction.maskTransform,
-        imagePrediction.width,
-        imagePrediction.height,
-        hostSettings.masking,
-        posterImage,
-        posterImage ? elementWidth : undefined,
-        posterImage ? elementHeight : undefined,
-      );
-
-      if (!skipObserverSetup) {
-        state.currentPrediction = imagePrediction;
-        state.posterImage = posterImage;
-        this.setupObservers(video, state);
-      }
-    }
-  }
-
-  /**
-   * Clears mask overlay for video elements.
-   */
-  clearMaskOverlay(video: HTMLVideoElement): void {
-    const state = this.videoStates.get(video);
-    if (state) {
-      try {
-        state.resizeObserver.disconnect();
-        state.cleanupObserver.disconnect();
-      } catch {
-        // no-op
-      }
-      if (state.viewportHandler) {
-        globalThis.removeEventListener('resize', state.viewportHandler);
-      }
-      state.destroyed = true;
-      if (state.overlay.parentElement) state.overlay.remove();
-      this.videoStates.delete(video);
-    } else {
-      // Fallback: remove any stale overlay elements
-      const parent = video.parentElement;
-      if (parent) {
-        removeExistingVideoOverlays(parent);
-      }
-    }
-  }
-
-  /**
-   * Checks if video has an active mask overlay.
-   */
-  hasMaskOverlay(video: HTMLVideoElement): boolean {
-    return this.videoStates.has(video);
-  }
-
-  private async createVideoOverlayElement(
-    video: HTMLVideoElement,
-    allMasks: { masks: number[][] }[],
-    maskTransform: IMaskTransform,
-    originalWidth: number,
-    originalHeight: number,
-    masking: IMaskingSettings,
-    posterImage?: HTMLImageElement,
-    sourceWidth?: number,
-    sourceHeight?: number,
-  ): Promise<IMediaOverlayState> {
-    const parent = video.parentElement;
-    if (!parent) throw new Error('Video has no parent');
-
-    void video.offsetHeight;
-
-    const videoRect = video.getBoundingClientRect();
-    const contentRect = computeRenderedContentRectWithDimensions(video, videoRect, sourceWidth, sourceHeight);
-    const parentRect = parent.getBoundingClientRect();
-
-    const overlay = document.createElement('div');
-    overlay.setAttribute('data-video-mask-overlay', 'unified-video-mask-overlay');
-
-    const videoZIndex = parseInt(getComputedStyle(video).zIndex) || 0;
-    const overlayZIndex = Math.max(videoZIndex + 1, 9999);
-
-    overlay.style.cssText = `
-    position: absolute;
-    top: ${videoRect.top - parentRect.top}px;
-    left: ${videoRect.left - parentRect.left}px;
-    width: ${videoRect.width}px;
-    height: ${videoRect.height}px;
-    pointer-events: none;
-    z-index: ${overlayZIndex};
-  `;
-
-    const canvas = document.createElement('canvas');
-    canvas.style.cssText = `
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: ${videoRect.width}px;
-    height: ${videoRect.height}px;
-    pointer-events: none;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-  `;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Failed to get canvas context');
-    }
-
-    overlay.appendChild(canvas);
-    parent.appendChild(overlay);
-
     // Get CORS-safe video source for cross-origin videos
     let corsVideo: HTMLVideoElement | undefined;
     if (!posterImage) {
@@ -189,141 +84,119 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       }
     }
 
+    // A concurrent call may have set up the overlay while we awaited
+    const concurrentState = this.videoStates.get(video);
+    if (concurrentState && !concurrentState.destroyed) {
+      concurrentState.currentPrediction = imagePrediction;
+      this.render(video, concurrentState);
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = CANVAS_STYLE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      logger.withTag('videoOverlay').error('Failed to get canvas context');
+      return;
+    }
+
     const state: IMediaOverlayState = {
-      overlay,
       canvas,
       ctx,
-      resizeObserver: new ResizeObserver(() => {}),
-      cleanupObserver: new MutationObserver(() => {}),
-      lastSize: { width: videoRect.width, height: videoRect.height },
-      rafId: null,
+      lastSize: { width: 0, height: 0 },
       destroyed: false,
-      currentPrediction: undefined,
+      currentPrediction: imagePrediction,
       posterImage,
       corsVideo,
-      masking,
+      masking: hostSettings.masking,
+      decodedMasks,
+      decodedFor: imagePrediction,
+      // assigned below; attach() fires the initial geometry callback synchronously
+      // and the callback does not touch state.slot
+      slot: undefined as unknown as IMediaOverlayState['slot'],
     };
+    this.videoStates.set(video, state);
+
+    state.slot = overlayLayer.attach(video, {
+      onGeometry: geometry => this.handleGeometry(video, state, geometry),
+      onDetach: () => this.teardown(video, state, { releaseSlot: false }),
+    });
+    state.slot.root.appendChild(canvas);
+  }
+
+  /**
+   * Clears mask overlay for video elements.
+   */
+  clearMaskOverlay(video: HTMLVideoElement): void {
+    const state = this.videoStates.get(video);
+    if (state) {
+      this.teardown(video, state, { releaseSlot: true });
+    } else {
+      // Remove stale pre-layer overlay elements
+      removeExistingVideoOverlays(video.parentElement);
+    }
+  }
+
+  /**
+   * Checks if video has an active mask overlay.
+   */
+  hasMaskOverlay(video: HTMLVideoElement): boolean {
+    return this.videoStates.has(video);
+  }
+
+  private teardown(video: HTMLVideoElement, state: IMediaOverlayState, opts: { releaseSlot: boolean }): void {
+    state.destroyed = true;
+    if (opts.releaseSlot) state.slot?.release();
+    this.videoStates.delete(video);
+  }
+
+  private handleGeometry(video: HTMLVideoElement, state: IMediaOverlayState, { rect }: ILayerGeometry): void {
+    if (state.destroyed) return;
+    // The layer already moved the slot; only a size change requires a redraw.
+    if (rect.width === state.lastSize.width && rect.height === state.lastSize.height) return;
+    state.lastSize = { width: rect.width, height: rect.height };
+    this.render(video, state);
+  }
+
+  private render(video: HTMLVideoElement, state: IMediaOverlayState): void {
+    if (state.destroyed) return;
+    const prediction = state.currentPrediction;
+    if (!prediction || !prediction.predictions?.length) return;
+    const { width, height } = state.lastSize;
+    if (width <= 0 || height <= 0) return;
+
+    // Refresh the decoded-mask cache if the prediction was replaced
+    if (state.decodedFor !== prediction) {
+      state.decodedMasks = decodePredictionMasks(prediction);
+      state.decodedFor = prediction;
+    }
+    if (!state.decodedMasks?.length) return;
+
+    const { posterImage } = state;
+    const contentRect = computeRenderedContentRectWithDimensions(
+      video,
+      state.lastSize,
+      posterImage ? posterImage.naturalWidth : undefined,
+      posterImage ? posterImage.naturalHeight : undefined,
+    );
 
     renderVideoMask(
-      canvas,
-      ctx,
-      allMasks,
-      maskTransform,
-      originalWidth,
-      originalHeight,
-      videoRect.width,
-      videoRect.height,
-      corsVideo || video,
+      state.canvas,
+      state.ctx,
+      state.decodedMasks,
+      prediction.maskTransform,
+      prediction.width,
+      prediction.height,
+      width,
+      height,
+      state.corsVideo || video,
       contentRect.offsetX,
       contentRect.offsetY,
       contentRect.width,
       contentRect.height,
       posterImage,
-      masking,
+      state.masking,
     );
-
-    this.videoStates.set(video, state);
-    return state;
-  }
-
-  private setupObservers(video: HTMLVideoElement, state: IMediaOverlayState): void {
-    // ResizeObserver to update overlay on video resize
-    state.resizeObserver = new ResizeObserver(() => {
-      this.updateVideoOverlay(video, state);
-    });
-    state.resizeObserver.observe(video);
-
-    // MutationObserver to cleanup when video is removed
-    state.cleanupObserver = new MutationObserver(mutations => {
-      for (const mutation of mutations) {
-        for (const node of mutation.removedNodes) {
-          if (node === video || (node instanceof Element && node.contains(video))) {
-            this.clearMaskOverlay(video);
-            return;
-          }
-        }
-      }
-    });
-    state.cleanupObserver.observe(document.body, { childList: true, subtree: true });
-
-    // Viewport resize handler
-    state.viewportHandler = () => {
-      this.updateVideoOverlay(video, state);
-    };
-    globalThis.addEventListener('resize', state.viewportHandler);
-
-    this.videoStates.set(video, state);
-  }
-
-  private updateVideoOverlay(video: HTMLVideoElement, state: IMediaOverlayState): void {
-    if (state.destroyed) return;
-    const { currentPrediction: prediction } = state;
-    if (!prediction || !prediction.predictions?.length) return;
-
-    // Coalesce updates to animation frames
-    if (state.rafId != null) {
-      cancelAnimationFrame(state.rafId);
-    }
-
-    state.rafId = requestAnimationFrame(() => {
-      state.rafId = null;
-
-      const parent = video.parentElement;
-      if (!parent) return;
-
-      const videoRect = video.getBoundingClientRect();
-      const parentRect = parent.getBoundingClientRect();
-      const { overlay } = state;
-
-      const needsResize = state.lastSize.width !== videoRect.width || state.lastSize.height !== videoRect.height;
-
-      if (needsResize) {
-        overlay.style.top = `${videoRect.top - parentRect.top}px`;
-        overlay.style.left = `${videoRect.left - parentRect.left}px`;
-        overlay.style.width = `${videoRect.width}px`;
-        overlay.style.height = `${videoRect.height}px`;
-        state.lastSize = { width: videoRect.width, height: videoRect.height };
-      }
-
-      // Collect masks
-      const allMasks: { masks: number[][] }[] = [];
-      prediction.predictions.forEach(p => {
-        if (p.masks && p.masks.runs.length) {
-          allMasks.push({ masks: decodeMaskRLE(p.masks) });
-        }
-      });
-      if (!allMasks.length) return;
-
-      const { maskTransform } = prediction;
-      const originalWidth = prediction.width;
-      const originalHeight = prediction.height;
-
-      const { posterImage } = state;
-      const contentRect = computeRenderedContentRectWithDimensions(
-        video,
-        videoRect,
-        posterImage ? posterImage.naturalWidth : undefined,
-        posterImage ? posterImage.naturalHeight : undefined,
-      );
-
-      renderVideoMask(
-        state.canvas,
-        state.ctx,
-        allMasks,
-        maskTransform,
-        originalWidth,
-        originalHeight,
-        videoRect.width,
-        videoRect.height,
-        state.corsVideo || video,
-        contentRect.offsetX,
-        contentRect.offsetY,
-        contentRect.width,
-        contentRect.height,
-        posterImage,
-        state.masking,
-      );
-    });
   }
 }
 
@@ -531,8 +404,10 @@ async function loadPosterImage(posterUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-// Helper function for removing existing video overlays
-function removeExistingVideoOverlays(parent: HTMLElement): void {
+// Removes overlays that pre-layer versions of this module injected into site DOM
+// (extension updated while the page was open).
+function removeExistingVideoOverlays(parent: HTMLElement | null): void {
+  if (!parent) return;
   const existingOverlays = parent.querySelectorAll('[data-video-mask-overlay]');
   existingOverlays.forEach(overlay => overlay.remove());
 }
@@ -543,7 +418,7 @@ function removeExistingVideoOverlays(parent: HTMLElement): void {
  */
 function computeRenderedContentRectWithDimensions(
   video: HTMLVideoElement,
-  videoRect: DOMRect,
+  videoRect: { width: number; height: number },
   sourceWidth?: number,
   sourceHeight?: number,
 ): { offsetX: number; offsetY: number; width: number; height: number } {

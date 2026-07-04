@@ -13,7 +13,7 @@ export interface ContentRect {
  */
 export function computeRenderedContentRect(
   element: HTMLImageElement | HTMLVideoElement,
-  imageRect?: DOMRect,
+  imageRect?: { width: number; height: number },
 ): ContentRect {
   const naturalW =
     element instanceof HTMLVideoElement

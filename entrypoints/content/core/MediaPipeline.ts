@@ -12,6 +12,7 @@ import {
   handleVideoAttributeChange,
   disposeVideoSession,
 } from '@/entrypoints/content/handlers/handleVideos';
+import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
 import { applyFramePredictionsToDom } from '@/entrypoints/content/presentation/videoPredictions';
 
 import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/types';
@@ -97,6 +98,7 @@ export class MediaPipeline {
     this.dom.stop();
     this.imageProcessor.dispose();
     this.badgeCounter.dispose();
+    overlayLayer.dispose();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
   }
