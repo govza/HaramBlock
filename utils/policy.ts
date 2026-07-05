@@ -22,6 +22,10 @@ export const normalizeStoredPolicy = (raw: unknown): IHostPolicy => {
         return { behavior: raw, targets: { ...defaults.targets } };
       case 'process':
         return { behavior: 'process', targets: { image: true, gif: true, video: true } };
+      case 'process-images':
+        // Legacy images-only selection: an explicit user choice, kept regardless
+        // of what the current default targets are.
+        return { behavior: 'process', targets: { image: true, gif: true, video: false } };
       default:
         return { behavior: defaults.behavior, targets: { ...defaults.targets } };
     }
