@@ -120,9 +120,13 @@ Tuning constants (all in `machine.ts`):
 
 DOM overlays cannot mask moving content: a verdict describes a frame displayed one inference
 round-trip ago. So playback masking presents **delayed**: the `<video>` element keeps decoding (and
-playing audio) while a canvas presents buffered frames `D = 1.5 s` behind the live edge — far enough
-back that every presented frame's verdict is already resolved. Frame and mask are composited in the
-same draw, mirroring the GIF player.
+playing audio) while a canvas presents buffered frames a Presentation Delay `D` behind the live edge
+— far enough back that every presented frame's verdict is already resolved. `D` is **adaptive**
+(`dvr/delay.ts`): ~p90 of the session's observed sample→verdict round-trips plus headroom, clamped
+to [1.2 s, 4 s] (1.5 s until round-trips are observed), re-read every presented frame. Inference
+sample captures are capped at the active model's input size (`frameCapture.ts`, longest side,
+refreshed on model switches) so the round-trip itself — and therefore `D` — stays small on HD
+videos. Frame and mask are composited in the same draw, mirroring the GIF player.
 
 Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the registry):
 
@@ -182,9 +186,11 @@ shared `haramblock-initial-blur` class.
 
 ## Future enhancements
 
-- **Adaptive `D` + memory guards (stage 2)** — size the presentation delay from per-session
-  `sampleSent → predictionReceived` latency stats (clamped [600 ms, 2000 ms]); global buffer caps
-  across simultaneously-masked videos.
+- **Global memory guards (stage 2, remaining)** — buffer caps across simultaneously-masked videos
+  (per-session byte caps exist; adaptive `D` and downscaled sample captures are implemented).
+- **Loop/seek verdict reuse** — verdicts are keyed by media time, so they stay valid across seeks
+  and loop restarts; keeping the track (and, for loops, the ring) through the re-warm would remove
+  the whole-blur window there.
 - **Audio delay sync (stage 3)** — `captureStream()` + WebAudio `DelayNode` where media allows.
 - **Prediction caching** — cache verdicts (not frames) keyed by `[videoSrc+timestampKey]` to skip
   redundant inference on replays/seeks. The VideoSession identity (element×source) was chosen to

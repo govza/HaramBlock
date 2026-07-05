@@ -16,6 +16,7 @@ import {
 } from '@/entrypoints/content/presentation/initialStyling';
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
+import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT, MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
 import { VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import {
@@ -52,19 +53,14 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
  */
 const CAPTURE_SEND_TIMEOUT_MS = 10_000;
 
-/**
- * Presentation delay D: the DVR canvas presents mediaTime ≈ currentTime − D,
- * sized so a sample's inference round-trip resolves before its frame presents.
- */
-const DVR_DELAY_SEC = 1.5;
 /** Buffer captures are cheaper and denser than inference samples (~13 fps). */
 const DVR_CAPTURE_INTERVAL_SEC = 1 / 15;
 /** Buffered frames are presentation-sized, not inference-sized. */
 const DVR_CAPTURE_MAX_WIDTH = 640;
-/** Ring horizon: D plus slack so eviction never races the presenter's lookup. */
-const DVR_BUFFER_HORIZON_SEC = DVR_DELAY_SEC + 1;
-/** Per-session byte cap (~2.5 s of 640×360 RGBA at 15 fps ≈ 35 MB). */
-const DVR_BUFFER_MAX_BYTES = 40 * 1024 * 1024;
+/** Ring horizon: the adaptive delay's ceiling plus slack, so a growing D still finds frames. */
+const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
+/** Per-session byte cap (~4.5 s of 640×360 RGBA at 15 fps ≈ 62 MB); only while masked. */
+const DVR_BUFFER_MAX_BYTES = 64 * 1024 * 1024;
 
 function withTimeout<T>(promise: Promise<T>, label: string, onLate?: (value: T) => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -103,11 +99,8 @@ interface DvrRuntime {
   ring: FrameRing;
   track: VerdictTrack;
   player: VideoDvrPlayer;
-  /** One buffer capture in flight at a time; rVFC ticks are denser than captures. */
-  captureBusy: boolean;
+  /** Throttles buffer captures below the tick rate (rVFC ticks are denser). */
   lastCapturedMediaTime: number;
-  /** Buffering threw SecurityError: the DVR can never warm; the warm-up blur stays. */
-  captureFailed: boolean;
 }
 
 interface SessionHandle {
@@ -125,6 +118,10 @@ interface SessionHandle {
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
   dvr: DvrRuntime | null;
+  /** Send wall-time per in-flight frameIndex, for round-trip measurement. */
+  sampleSentAt: Map<number, number>;
+  /** Recent sample→verdict round-trips; sizes the adaptive DVR delay. */
+  latenciesMs: number[];
 }
 
 interface PendingAdoption {
@@ -175,6 +172,8 @@ class VideoSessionRegistry {
       removeListeners: () => {},
       overlayChain: Promise.resolve(),
       dvr: null,
+      sampleSentAt: new Map(),
+      latenciesMs: [],
     };
     this.byId.set(handle.sessionId, handle);
     this.byVideo.set(video, handle);
@@ -188,7 +187,7 @@ class VideoSessionRegistry {
     this.bindMediaEvents(handle);
     handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
       this.dispatch(handle, { type: 'frameAvailable', at });
-      void this.captureIntoRing(handle, mediaTime);
+      this.captureIntoRing(handle, mediaTime);
     });
     this.queueThumbnailSourceReady(handle);
   }
@@ -205,6 +204,12 @@ class VideoSessionRegistry {
       handle.lastPrediction = pred;
       const unsafe = Boolean(pred.predictions?.length);
       if (unsafe) handle.lastUnsafePrediction = pred;
+      const sentAt = handle.sampleSentAt.get(pred.frameIndex);
+      if (sentAt !== undefined) {
+        handle.sampleSentAt.delete(pred.frameIndex);
+        handle.latenciesMs.push(performance.now() - sentAt);
+        if (handle.latenciesMs.length > LATENCY_SAMPLE_COUNT) handle.latenciesMs.shift();
+      }
       this.dispatch(handle, {
         type: 'predictionReceived',
         frameIndex: pred.frameIndex,
@@ -371,7 +376,9 @@ class VideoSessionRegistry {
       video: handle.video,
       ring,
       track,
-      delaySec: DVR_DELAY_SEC,
+      // Live: D follows the session's observed sample→verdict round-trips, so a
+      // slow page (HD frames, busy queue) gets a longer delay instead of holes.
+      getDelaySec: () => computeDvrDelayMs(handle.latenciesMs) / 1000,
       getMasking: () => handle.hostSettings.masking,
       onReady: () => this.dispatch(handle, { type: 'bufferReady', at: performance.now() }),
     });
@@ -379,9 +386,7 @@ class VideoSessionRegistry {
       ring,
       track,
       player,
-      captureBusy: false,
       lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
-      captureFailed: false,
     };
   }
 
@@ -394,39 +399,40 @@ class VideoSessionRegistry {
   }
 
   /**
-   * Feed the ring while the DVR is active. Presentation-sized, throttled below
-   * the tick rate, one capture in flight. A SecurityError means the element
-   * cannot be buffered at all (cross-origin without CORS): the DVR never warms
-   * and the warm-up whole-blur simply stays — inference may still work through
-   * the CORS-clone path, so the clean-streak exit remains reachable.
+   * Feed the ring while the DVR is active: presentation-sized, throttled below
+   * the tick rate. Buffering is display-only (no pixel readback), so it works
+   * even for sources whose pixels inference may not read — the taint just
+   * travels with the bitmap onto the presentation canvas.
    */
-  private async captureIntoRing(handle: SessionHandle, mediaTime: number): Promise<void> {
+  private captureIntoRing(handle: SessionHandle, mediaTime: number): void {
     const { dvr } = handle;
-    if (!dvr || dvr.captureBusy || dvr.captureFailed) return;
+    if (!dvr) return;
     if (mediaTime - dvr.lastCapturedMediaTime < DVR_CAPTURE_INTERVAL_SEC && mediaTime >= dvr.lastCapturedMediaTime) {
       return;
     }
-    dvr.captureBusy = true;
     try {
       const { video } = handle;
-      const resizeWidth = Math.min(DVR_CAPTURE_MAX_WIDTH, video.videoWidth || DVR_CAPTURE_MAX_WIDTH);
-      const bitmap = await createImageBitmap(video, { resizeWidth, resizeQuality: 'low' });
-      // The DVR may have stopped (or been replaced after a seek) while we awaited.
-      if (handle.dvr !== dvr) {
-        bitmap.close();
-        return;
-      }
+      const nativeWidth = video.videoWidth;
+      const nativeHeight = video.videoHeight;
+      if (!nativeWidth || !nativeHeight) return;
+      // Downscale through a canvas, NOT createImageBitmap's resize options:
+      // Firefox never implemented those, and per WebIDL silently ignores them —
+      // native-resolution HD frames then blow the ring's byte budget, its span
+      // never reaches the presentation delay, and the DVR warms forever.
+      const scale = Math.min(1, DVR_CAPTURE_MAX_WIDTH / nativeWidth);
+      const width = Math.max(1, Math.round(nativeWidth * scale));
+      const height = Math.max(1, Math.round(nativeHeight * scale));
+      const surface = new OffscreenCanvas(width, height);
+      const ctx = surface.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, width, height);
+      // transferToImageBitmap needs no readback, so this works (display-only,
+      // taint carried along) even for sources whose pixels we may not read.
+      const bitmap = surface.transferToImageBitmap();
       dvr.lastCapturedMediaTime = mediaTime;
       dvr.ring.push({ bitmap, mediaTime });
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'SecurityError') {
-        dvr.captureFailed = true;
-        log.warn('DVR buffering impossible (tainted source); staying whole-blurred while masked');
-      } else {
-        log.debug('DVR buffer capture failed:', error);
-      }
-    } finally {
-      dvr.captureBusy = false;
+      log.debug('DVR buffer capture failed:', error);
     }
   }
 
@@ -524,6 +530,9 @@ class VideoSessionRegistry {
     const { video } = handle;
     const isDisposed = () => handle.state.phase === 'disposed';
     if (isDisposed()) return;
+    // Round-trip is measured from capture start: that is when the frame's media
+    // time is stamped, so it is the span the DVR presentation delay must cover.
+    if (frameIndex >= 0) handle.sampleSentAt.set(frameIndex, performance.now());
     try {
       const captured = await withTimeout(
         frameIndex === -1 ? captureThumbnailBitmap(video) : captureFrameBitmap(video),
@@ -539,6 +548,7 @@ class VideoSessionRegistry {
       const { bitmap } = captured;
       if (!bitmap || bitmap.width === 0 || bitmap.height === 0) {
         bitmap?.close();
+        handle.sampleSentAt.delete(frameIndex);
         this.dispatch(handle, {
           type: 'sendFailed',
           frameIndex,
@@ -562,6 +572,7 @@ class VideoSessionRegistry {
       this.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
     } catch (error) {
       log.error('Frame Sample capture/send failed:', error);
+      handle.sampleSentAt.delete(frameIndex);
       this.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now() });
     }
   }
