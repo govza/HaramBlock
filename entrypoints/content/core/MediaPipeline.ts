@@ -115,6 +115,12 @@ export class MediaPipeline {
 
   private onMediaRemoved(elements: HTMLElement[]): void {
     for (const el of elements) {
+      // A removal notification for a still-connected element is a re-parent
+      // (mutation callbacks are async — a moved node is already re-attached by
+      // the time we look), not a removal: YouTube moves its player container
+      // during watch-page boot, and disposing here would kill the just-adopted
+      // session with nothing left to rediscover it.
+      if (el.isConnected) continue;
       if (el.tagName === 'VIDEO') {
         disposeVideoSession(el as HTMLVideoElement);
       } else if (el.tagName === 'IMG') {
