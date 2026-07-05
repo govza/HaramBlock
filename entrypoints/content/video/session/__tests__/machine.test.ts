@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createVideoSession,
+  ERROR_RETRY_COOLDOWN_MS,
   MAX_CONSECUTIVE_ERRORS,
   reduce,
   SAMPLE_TIMEOUT_MS,
@@ -416,10 +417,57 @@ describe('VideoSession machine', () => {
     expect(lastEffects).toContainEqual({ kind: 'stopTicker' });
     expect(lastEffects).toContainEqual({ kind: 'cancelTimer', timer: 'watchdog' });
     expect(lastEffects).not.toContainEqual({ kind: 'applyBlur' });
+    // A transient streak is an outage, not an impossibility: a retry is armed.
+    expect(lastEffects).toContainEqual({
+      kind: 'startTimer',
+      timer: 'errorCooldown',
+      ms: ERROR_RETRY_COOLDOWN_MS,
+    });
 
-    // Dead loop: presented frames no longer trigger sends.
+    // While resting: presented frames no longer trigger sends.
     const afterError = run(failing, { type: 'frameAvailable', at: 9000 });
     expect(afterError.effects).toHaveLength(0);
+  });
+
+  it('retries after the error cooldown: standby, ticker resumed, sampling recovers', () => {
+    const sampling = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'play', at: 1000 },
+    );
+    let failing = sampling.state;
+    for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
+      failing = run(failing, { type: 'sendFailed', frameIndex: 0, at: 5000 + i }).state;
+    }
+    expect(failing.phase).toBe('error');
+
+    // Cooldown expiry: clean slate; the adapter restarts the ticker and
+    // synthesizes 'play' for a still-playing video.
+    const rested = run(failing, { type: 'timerFired', timer: 'errorCooldown', at: 40_000 });
+    expect(rested.state.phase).toBe('standby');
+    expect(rested.state.errorStreak).toBe(0);
+    expect(rested.effects).toContainEqual({ kind: 'resumeTicker' });
+
+    const resumed = run(rested.state, { type: 'play', at: 40_010 }, { type: 'frameAvailable', at: 40_020 });
+    expect(resumed.state.phase).toBe('sampling');
+    expect(resumed.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
+
+    // A second unbroken streak rests again — the retry loop is indefinite.
+    let failingAgain = resumed.state;
+    let secondEffects;
+    for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
+      const result = run(failingAgain, { type: 'sendFailed', frameIndex: 0, at: 50_000 + i });
+      failingAgain = result.state;
+      secondEffects = result.effects;
+    }
+    expect(failingAgain.phase).toBe('error');
+    expect(secondEffects).toContainEqual({
+      kind: 'startTimer',
+      timer: 'errorCooldown',
+      ms: ERROR_RETRY_COOLDOWN_MS,
+    });
   });
 
   it('finalizes as allow immediately when a sample capture fails permanently', () => {
@@ -440,6 +488,8 @@ describe('VideoSession machine', () => {
     expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
     expect(effects).toContainEqual({ kind: 'stopTicker' });
     expect(effects).not.toContainEqual({ kind: 'applyBlur' });
+    // Permanent means permanent: no retry is armed.
+    expect(effects.filter(e => e.kind === 'startTimer')).toHaveLength(0);
   });
 
   it('cancels the sample timeout when the in-flight verdict arrives', () => {
