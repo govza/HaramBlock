@@ -21,7 +21,8 @@ ADOPTED ──capture thumbnail──► THUMBNAILING
                │   also fires from STANDBY while paused)
                │ MAX_CONSECUTIVE_ERRORS or sendFailed(permanent)
                ▼
-             ERROR (finalized as ALLOW: blur cleared, status skipped, loop stopped)
+             ERROR (ALLOW: blur cleared, status skipped, loop stopped;
+              transient streaks retry after a cooldown, canvas taint is terminal)
 
 any state ──source change / element removed──► DISPOSED (terminal)
 ```
@@ -36,9 +37,12 @@ Key invariants:
 - **Fail-closed with self-heal.** No verdict → the video stays blurred; but every fail-closed state
   remains exit-able by a newer sample, so recovery is automatic once inference returns.
 - **Inference-impossible = allow.** Fail-closed blur applies only while a verdict is genuinely
-  pending. When analysis can never happen — a permanent capture failure (CORS-tainted canvas) or an
-  unbroken failure streak — the session finalizes as ERROR: blur cleared, status `skipped`, native
-  playback un-blurred. Being unable to analyze a video is not evidence that it is unsafe.
+  pending. When analysis cannot happen — a permanent capture failure (CORS-tainted canvas) or an
+  unbroken transient-failure streak — the session enters ERROR: blur cleared, status `skipped`,
+  native playback un-blurred. Being unable to analyze a video is not evidence that it is unsafe.
+  Permanent failures are terminal; a transient streak (busy inference backend, suspended event page)
+  retries after `ERROR_RETRY_COOLDOWN_MS` (30 s) — an outage must not disable protection for the
+  rest of the tab's lifetime.
 - **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
   `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
 

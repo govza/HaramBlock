@@ -44,8 +44,10 @@ export const CLEAN_STREAK_TO_CLEAR = 2;
 export const WATCHDOG_MS = 5_000;
 export const SAMPLE_TIMEOUT_MS = 3_000;
 export const MAX_CONSECUTIVE_ERRORS = 10;
+/** How long a transient-failure ERROR rests before sampling is retried. */
+export const ERROR_RETRY_COOLDOWN_MS = 30_000;
 
-export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout';
+export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout' | 'errorCooldown';
 
 export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 
@@ -76,6 +78,8 @@ export type SessionEffect =
   | { kind: 'startTimer'; timer: SessionTimer; ms: number }
   | { kind: 'cancelTimer'; timer: SessionTimer }
   | { kind: 'stopTicker' }
+  /** Restart the frame ticker after an error cooldown (re-enter SAMPLING if playing). */
+  | { kind: 'resumeTicker' }
   | { kind: 'startDvr' }
   | { kind: 'stopDvr' }
   | { kind: 'cleanup' };
@@ -271,7 +275,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     if (event.permanent) {
       // Capture can never succeed (e.g. canvas taint): inference-impossible is
       // not unsafe. Finalize as allow instead of blurring forever.
-      return finalizeAllow(state);
+      return finalizeAllow(state, { terminal: true });
     }
     // Transient Thumbnail failure: stay fail-closed (blur kept), but leave the
     // session in STANDBY so playback sampling can still deliver a verdict. The
@@ -286,13 +290,15 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   }
   if (event.type === 'sendFailed' && (state.phase === 'sampling' || state.phase === 'standby')) {
     if (event.permanent) {
-      return finalizeAllow(state);
+      return finalizeAllow(state, { terminal: true });
     }
     const errorStreak = state.errorStreak + 1;
     // Only the failure of the in-flight sample frees its slot.
     const inflightIndex = event.frameIndex === state.inflightIndex ? null : state.inflightIndex;
     if (errorStreak >= MAX_CONSECUTIVE_ERRORS) {
-      return finalizeAllow({ ...state, errorStreak });
+      // An unbroken transient streak is an outage, not an impossibility: rest,
+      // then retry — the cooldown timer re-arms sampling.
+      return finalizeAllow({ ...state, errorStreak }, { terminal: false });
     }
     return {
       state: { ...state, inflightIndex, errorStreak },
@@ -349,6 +355,15 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // Fail-closed: verdict silence mid-playback hides the video until inference recovers.
     return { state: { ...state, blurred: true }, effects: [{ kind: 'applyBlur' }] };
   }
+  if (event.type === 'timerFired' && event.timer === 'errorCooldown' && state.phase === 'error') {
+    // The outage may be over: back to STANDBY with a clean slate. The adapter
+    // restarts the ticker and re-enters SAMPLING if the video is playing; the
+    // session stays allowed (status skipped) until a fresh verdict lands.
+    return {
+      state: { ...state, phase: 'standby', errorStreak: 0 },
+      effects: [{ kind: 'resumeTicker' }],
+    };
+  }
   if (event.type === 'timerFired' && event.timer === 'thumbnailTimeout' && state.phase === 'thumbnailing') {
     if (!state.thumbnailRetried) {
       return { state: { ...state, thumbnailRetried: true }, effects: [{ kind: 'captureThumbnail' }] };
@@ -363,13 +378,17 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
 }
 
 /**
- * Terminal ERROR = allow, not block: the pipeline cannot analyze this video
- * (permanent capture failure or an unbroken failure streak), and
- * inference-impossible is not evidence of unsafe content. The video plays
+ * ERROR = allow, not block: the pipeline cannot analyze this video right now,
+ * and inference-impossible is not evidence of unsafe content. The video plays
  * natively un-blurred, finalized as `skipped`; sampling and the ticker stop.
  * Fail-closed blur applies only while a verdict is genuinely pending.
+ *
+ * A permanent capture failure (canvas taint) is terminal. A transient failure
+ * streak is an OUTAGE, not an impossibility — a busy inference backend or a
+ * suspended event page recovers — so it rests for ERROR_RETRY_COOLDOWN_MS and
+ * then resumes sampling; protection must not stay dead for the tab's lifetime.
  */
-function finalizeAllow(state: VideoSessionState): ReduceResult {
+function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): ReduceResult {
   return {
     state: {
       ...state,
@@ -390,6 +409,7 @@ function finalizeAllow(state: VideoSessionState): ReduceResult {
       { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
       { kind: 'cancelTimer', timer: 'watchdog' },
       { kind: 'cancelTimer', timer: 'sampleTimeout' },
+      ...(opts.terminal ? [] : [{ kind: 'startTimer', timer: 'errorCooldown', ms: ERROR_RETRY_COOLDOWN_MS } as const]),
     ],
   };
 }

@@ -355,6 +355,18 @@ class VideoSessionRegistry {
           handle.stopTicker?.();
           handle.stopTicker = null;
           break;
+        case 'resumeTicker':
+          // Error-cooldown expiry: re-arm frame delivery, and if the video is
+          // mid-playback there will be no fresh 'play' event — synthesize one.
+          handle.stopTicker?.();
+          handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
+            this.dispatch(handle, { type: 'frameAvailable', at });
+            this.captureIntoRing(handle, mediaTime);
+          });
+          if (!video.paused && !video.ended) {
+            this.dispatch(handle, { type: 'play', at: performance.now() });
+          }
+          break;
         case 'startDvr':
           this.startDvr(handle);
           break;
