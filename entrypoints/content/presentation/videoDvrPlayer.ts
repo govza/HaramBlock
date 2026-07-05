@@ -41,8 +41,12 @@ export interface VideoDvrPlayerOptions {
   video: HTMLVideoElement;
   ring: FrameRing;
   track: VerdictTrack;
-  /** Presentation delay D: the canvas presents mediaTime ≈ currentTime − delaySec. */
-  delaySec: number;
+  /**
+   * Presentation delay D: the canvas presents mediaTime ≈ currentTime − D.
+   * Read per tick — the registry adapts it to the session's observed
+   * sample→verdict round-trips.
+   */
+  getDelaySec: () => number;
   /** Live view of the host masking settings (quick toggle may change them). */
   getMasking: () => IMaskingSettings;
   /** Fired once, when the buffer first spans delaySec and the canvas has taken over. */
@@ -96,7 +100,7 @@ export class VideoDvrPlayer {
     this.rafId = requestAnimationFrame(this.tick);
     try {
       if (!this.surfaces) {
-        if (this.opts.ring.spanSec() >= this.opts.delaySec) this.beginPresentation();
+        if (this.opts.ring.spanSec() >= this.opts.getDelaySec()) this.beginPresentation();
         return;
       }
       this.draw();
@@ -153,13 +157,13 @@ export class VideoDvrPlayer {
   }
 
   private draw(): void {
-    const { video, ring, track, delaySec, getMasking } = this.opts;
+    const { video, ring, track, getDelaySec, getMasking } = this.opts;
     const { surfaces } = this;
     if (!surfaces) return;
     const { width, height } = this.lastSize;
     if (width <= 0 || height <= 0) return;
 
-    const targetTime = video.currentTime - delaySec;
+    const targetTime = video.currentTime - getDelaySec();
     const frame = ring.frameAt(targetTime);
     track.prune(targetTime - TRACK_PRUNE_SLACK_SEC);
     const masking = getMasking();

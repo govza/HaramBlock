@@ -1,4 +1,6 @@
 import { logger } from '@/utils/logger';
+import { backgroundRpc } from '@/utils/messaging/content';
+import { onModelSettingsChange } from '@/utils/modelSettings';
 
 // Cache CORS videos per original video element to avoid re-creating on every frame
 // Stores either the cached CORS video or null if CORS failed (to avoid retrying)
@@ -45,8 +47,42 @@ export async function captureFrameBitmap(video: HTMLVideoElement): Promise<Captu
   return drawToBitmap(video);
 }
 
+/**
+ * Preprocessing letterboxes the sampled frame to the active model's input size,
+ * so pixels beyond it only inflate the capture→transfer→preprocess round-trip
+ * (which sizes the DVR presentation delay). Cap the frame's longest side at that
+ * size — the letterbox scale binds on the longest side. Until the model is
+ * known, fall back to the largest available input size; masks come back
+ * relative to the sent dimensions, so overlay geometry is unaffected.
+ */
+const FALLBACK_CAPTURE_SIZE = 640;
+let inferenceCaptureSize = FALLBACK_CAPTURE_SIZE;
+let captureSizeTracked = false;
+
+async function refreshInferenceCaptureSize(): Promise<void> {
+  try {
+    const [models, modelId] = await Promise.all([
+      backgroundRpc.getAvailableModels(),
+      backgroundRpc.getEffectiveModelId(),
+    ]);
+    const size = models.find(model => model.id === modelId)?.inputSize;
+    if (size) inferenceCaptureSize = size;
+  } catch (error) {
+    logger.withTag('frameCapture').debug('Could not resolve model input size, keeping', inferenceCaptureSize, error);
+  }
+}
+
+/** Follow the active model: resolve its input size now and on every model switch. */
+function trackInferenceCaptureSize(): void {
+  if (captureSizeTracked) return;
+  captureSizeTracked = true;
+  void refreshInferenceCaptureSize();
+  onModelSettingsChange(() => void refreshInferenceCaptureSize());
+}
+
 async function drawToBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
-  const { canvas, ctx, width, height } = createDrawingSurface(video);
+  trackInferenceCaptureSize();
+  const { canvas, ctx, width, height } = createDrawingSurface(video, inferenceCaptureSize);
   if (!ctx || width === 0 || height === 0) {
     logger.withTag('frameCapture').warn('Video has zero dimensions, cannot capture frame');
     return { failure: 'transient' };
@@ -122,15 +158,22 @@ export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   corsVideoCache.delete(video);
 }
 
-export function createDrawingSurface(video: HTMLVideoElement): {
+export function createDrawingSurface(
+  video: HTMLVideoElement,
+  maxDimension = Number.POSITIVE_INFINITY,
+): {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
   width: number;
   height: number;
 } {
   const canvas = document.createElement('canvas');
-  const width = video.videoWidth || video.clientWidth || 0;
-  const height = video.videoHeight || video.clientHeight || 0;
+  const nativeWidth = video.videoWidth || video.clientWidth || 0;
+  const nativeHeight = video.videoHeight || video.clientHeight || 0;
+  const longestSide = Math.max(nativeWidth, nativeHeight);
+  const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
+  const width = Math.round(nativeWidth * scale);
+  const height = Math.round(nativeHeight * scale);
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
