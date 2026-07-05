@@ -121,8 +121,8 @@ export class VideoDvrPlayer {
       return;
     }
 
-    // The layer owns placement/clipping/occlusion/fullscreen; attach fires the
-    // initial geometry synchronously, so lastSize is set before the first draw.
+    // The layer owns placement/clipping/fullscreen; attach fires the initial
+    // geometry synchronously, so lastSize is set before the first draw.
     const slot = overlayLayer.attach(
       video,
       {
@@ -136,6 +136,9 @@ export class VideoDvrPlayer {
         onDetach: () => this.teardown({ releaseSlot: false }),
       },
       'video-dvr-player',
+      // In the site's stacking context: player chrome (controls, captions) that
+      // renders above the video must also render above the delayed canvas.
+      { anchor: 'element' },
     );
     slot.root.append(baseCanvas, maskCanvas);
 

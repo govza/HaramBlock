@@ -24,6 +24,10 @@ Feature: Video Masking
     When I inject and play a generated safe video using "source-child"
     Then the video is verdicted "safe" within the inference timeout
 
+  # Fenix records a detached canvas's captureStream without the drawn content, so an
+  # unsafe recording cannot be generated there; the DVR path is engine-agnostic and
+  # covered on desktop Chrome and Firefox.
+  @desktop-only
   Scenario: An unsafe playing video is presented through the delayed DVR canvas
     Given I open the video test page with "nsf-female" images
     When I inject and play a generated unsafe video

@@ -145,7 +145,14 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the regis
   remains reachable. Only analysis-impossible finalizes as allow.
 
 Paused/standby verdicts never involve the DVR: a static frame has nothing to chase, so the precise
-DOM overlay (`videoMaskOverlay.ts`) renders it, as before.
+mask overlay (`videoMaskOverlay.ts`) renders it, as before.
+
+Both video presentations (mask overlay and DVR canvas) take **element-anchored** overlay-layer slots
+(`anchor: 'element'`): the slot is a fixed-positioned sibling of the video inside the site's
+stacking context, so player chrome that renders above the video — controls, captions, menus — also
+renders above the mask. Image/GIF masks stay in the top-layer host; the layer falls anchored slots
+back to the top layer when a transformed ancestor would break fixed positioning, re-homes them there
+during fullscreen when needed, and re-inserts them if framework reconciliation removes them.
 
 ## Processed status attributes
 
