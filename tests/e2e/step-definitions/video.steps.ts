@@ -95,8 +95,11 @@ async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsa
         try {
           const doc = globalThis.document;
           const canvas = doc.createElement('canvas');
-          canvas.width = 320;
-          canvas.height = 240;
+          // The unsafe recording must survive the Firefox transport (WebP
+          // re-compression of the sampled frame): record large with a thin
+          // border so the replayed image keeps enough detail to be detected.
+          canvas.width = unsafeImage ? 480 : 320;
+          canvas.height = unsafeImage ? 360 : 240;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
             done('canvas 2d context unavailable');
@@ -110,7 +113,7 @@ async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsa
             if (unsafeImage) {
               // Replay the known-unsafe gallery image; the hue border keeps the
               // encoder emitting distinct frames.
-              ctx.drawImage(unsafeImage, 8, 8, canvas.width - 16, canvas.height - 16);
+              ctx.drawImage(unsafeImage, 4, 4, canvas.width - 8, canvas.height - 8);
             }
           };
           draw();
@@ -140,8 +143,8 @@ async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsa
             video.id = videoSelector.slice(1);
             video.muted = true;
             video.loop = true;
-            video.width = 320;
-            video.height = 240;
+            video.width = canvas.width;
+            video.height = canvas.height;
             if (sourceMode === 'source-child') {
               const source = doc.createElement('source');
               source.src = url;
