@@ -267,7 +267,7 @@ export const config: WebdriverIO.Config = {
   waitforTimeout: 15000,
   cucumberOpts: {
     ...baseConfig.cucumberOpts,
-    tags: ANDROID_E2E_TAGS ?? baseConfig.cucumberOpts?.tags ?? '',
+    tags: ANDROID_E2E_TAGS ?? 'not @desktop-only',
     timeout: 180000,
   },
   onPrepare: async () => {

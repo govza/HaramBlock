@@ -1,7 +1,20 @@
 import { Given, Then, When } from '@wdio/cucumber-framework';
 
 import { buildGalleryUrl, INFERENCE_TIMEOUT, Selectors, type GalleryModeType } from '../constants/index.js';
-import { countVisibleInLayer } from '../utils/overlayLayer.js';
+
+/**
+ * Video slots are element-anchored: they live in page DOM next to the video (so
+ * player chrome can render above them), unlike image masks which live in the
+ * layer's shadow root. Hidden slots stay in the DOM, so count by visibility.
+ */
+const countVisibleOnPage = async (selector: string): Promise<number> =>
+  browser.execute((sel: string) => {
+    let visible = 0;
+    for (const el of globalThis.document.querySelectorAll<HTMLElement>(sel)) {
+      if (el.checkVisibility ? el.checkVisibility() : el.offsetParent !== null) visible += 1;
+    }
+    return visible;
+  }, selector);
 
 /**
  * Video is not a default processing target; enable it via the popup chip.
@@ -242,7 +255,7 @@ Then('I should see at least {string} video mask overlays', async (count: string)
   const minExpected = parseInt(count, 10);
   const canvasSelector = `${Selectors.VIDEO_SEGMENT_OVERLAY} canvas`;
 
-  await browser.waitUntil(async () => (await countVisibleInLayer(canvasSelector)) >= minExpected, {
+  await browser.waitUntil(async () => (await countVisibleOnPage(canvasSelector)) >= minExpected, {
     timeout: INFERENCE_TIMEOUT,
     timeoutMsg: `Expected at least ${minExpected} video mask overlays, but timed out`,
   });
@@ -250,19 +263,18 @@ Then('I should see at least {string} video mask overlays', async (count: string)
 
 Then('I should see exactly {string} video mask overlays', async (count: string) => {
   const expected = parseInt(count, 10);
-  const actual = await countVisibleInLayer(Selectors.VIDEO_SEGMENT_OVERLAY);
+  const actual = await countVisibleOnPage(Selectors.VIDEO_SEGMENT_OVERLAY);
   expect(actual).toBe(expected);
 });
 
 /**
  * The DVR takes over once its ring buffer spans the presentation delay: its
- * layer slot appears (canvas inside the overlay layer's shadow root) and the
- * native element is visually hidden (opacity 0), while the session keeps
- * sampling at the live edge.
+ * element-anchored slot appears next to the video and the native element is
+ * visually hidden (opacity 0), while the session keeps sampling at the live edge.
  */
 Then('the DVR canvas player replaces the native video', async () => {
   const canvasSelector = `${Selectors.VIDEO_DVR_PLAYER} canvas`;
-  await browser.waitUntil(async () => (await countVisibleInLayer(canvasSelector)) > 0, {
+  await browser.waitUntil(async () => (await countVisibleOnPage(canvasSelector)) > 0, {
     timeout: INFERENCE_TIMEOUT,
     timeoutMsg: 'Expected the DVR canvas player to appear, but timed out',
   });
