@@ -5,9 +5,11 @@ session should be able to continue from here without prior context.
 
 > **Status**: Stage 0 and Stage 1 are implemented on this branch (see
 > `docs/adr/0002-dvr-delayed-presentation.md` and the DVR section of `docs/VIDEO_PROCESSING.md`).
-> Remaining: Stage 2 (adaptive `D`, global memory caps) and Stage 3 (audio sync). The CORS-tainted
-> e2e scenario from §6 was not added — the e2e gallery fixture is single-origin, so a tainted
-> cross-origin video cannot be staged reliably; the permanent-failure path is unit-tested instead.
+> Remaining: global memory caps across simultaneously-masked videos (rest of Stage 2 and Stage 3 —
+> adaptive `D`, downscaled captures, audio delay sync, verdict-hole bridging — are implemented). The
+> CORS-tainted e2e scenario from §6 was not added — the e2e gallery fixture is single-origin, so a
+> tainted cross-origin video cannot be staged reliably; the permanent-failure path is unit-tested
+> instead.
 
 ## 1. Where we are
 

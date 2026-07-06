@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BRIDGE_HORIZON_SEC,
   INERTIA_JITTER_MARGIN_SEC,
   MAX_INERTIA_WINDOW_SEC,
   MIN_INERTIA_WINDOW_SEC,
@@ -29,10 +30,32 @@ describe('VerdictTrack', () => {
     expect(track.verdictFor(1.1, 0.3)).toEqual({ kind: 'clean' });
     // Any unsafe verdict in the window wins over a clean one.
     expect(track.verdictFor(1.6, 0.5).kind).toBe('unsafe');
-    // Nothing near: inference is running late — fail closed.
-    expect(track.verdictFor(5, 0.5)).toEqual({ kind: 'none' });
-    // Before the first verdict, same answer.
-    expect(track.verdictFor(0.2, 0.5)).toEqual({ kind: 'none' });
+    // Nothing anywhere near (beyond the bridge horizon too) — fail closed.
+    expect(track.verdictFor(2 + BRIDGE_HORIZON_SEC + 0.1, 0.5)).toEqual({ kind: 'none' });
+  });
+
+  it('bridges coverage holes instead of blurring between masked stretches', () => {
+    const track = new VerdictTrack();
+    track.add(entry(1, true));
+    track.add(entry(3.5, true)); // 2.5s hole: an inference-latency spike
+
+    // Inside the hole, beyond both windows: the unsafe neighbors keep masking.
+    const bridged = track.verdictFor(2.2, 0.5);
+    expect(bridged.kind).toBe('unsafe');
+
+    // An unsafe verdict also extends forward past its window while the next
+    // verdict is still in flight (never blur away from a known-unsafe region).
+    expect(track.verdictFor(3.5 + 1.5, 0.5).kind).toBe('unsafe');
+
+    // A hole between two clean verdicts presents clean.
+    const cleanTrack = new VerdictTrack();
+    cleanTrack.add(entry(1, false));
+    cleanTrack.add(entry(3.5, false));
+    expect(cleanTrack.verdictFor(2.2, 0.5)).toEqual({ kind: 'clean' });
+
+    // A lone clean verdict covers only a short overshoot, then fails closed.
+    expect(cleanTrack.verdictFor(3.5 + 0.9, 0.5)).toEqual({ kind: 'clean' });
+    expect(cleanTrack.verdictFor(3.5 + 1.2, 0.5)).toEqual({ kind: 'none' });
   });
 
   it('merges all unsafe verdicts inside the window (inertia)', () => {
@@ -64,7 +87,9 @@ describe('VerdictTrack', () => {
 
     track.prune(2.5);
     expect(track.size()).toBe(1);
-    expect(track.verdictFor(1, 0.3)).toEqual({ kind: 'none' });
+    // Pruned entries no longer answer — only the survivor does (via bridging
+    // up to the horizon, so probe beyond it).
+    expect(track.verdictFor(3 - BRIDGE_HORIZON_SEC - 0.5, 0.3)).toEqual({ kind: 'none' });
     expect(track.verdictFor(3, 0.3).kind).toBe('unsafe');
   });
 
