@@ -417,7 +417,16 @@ export class ImageProcessor {
         handleError(reason);
       };
 
-      img.decode().then(onReady).catch(onFail);
+      // decode() rejection is only fatal when the browser has given up on the
+      // image (complete with no dimensions). Firefox rejects decode() for
+      // loading="lazy" images that haven't started loading and for src swaps
+      // mid-decode — treating those as errors revealed images unmasked and the
+      // later load event was ignored. Keep the blur and let load/error decide.
+      img.decode().then(onReady, (reason: unknown) => {
+        if (img.complete && img.naturalWidth === 0) {
+          onFail(reason ?? new Error(`Decode failed: ${img.src.substring(0, 80)}`));
+        }
+      });
       img.addEventListener('load', onReady, { once: true });
       img.addEventListener('error', () => onFail(new Error(`Load error: ${img.src.substring(0, 80)}`)), {
         once: true,

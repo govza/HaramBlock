@@ -510,7 +510,11 @@ if (img.complete && img.naturalWidth > 0) {
     void sendRequest();
   };
 
-  img.decode().then(onReady).catch(handleError);
+  // decode() rejection is only fatal when the browser has given up on the
+  // image (complete with no dimensions); otherwise the load/error events decide.
+  img.decode().then(onReady, reason => {
+    if (img.complete && img.naturalWidth === 0) handleError(reason);
+  });
   img.addEventListener('load', onReady, { once: true });
   img.addEventListener('error', handleError, { once: true });
 }
@@ -521,6 +525,10 @@ This handles edge cases where:
 - `decode()` resolves but `load` never fires (cached images)
 - `load` fires but `decode()` rejects (CORS issues)
 - Image fails to load (network error)
+- `decode()` rejects spuriously — Firefox rejects for `loading="lazy"` images that haven't started
+  loading (Reddit's feed) and for `src` swaps mid-decode. Treating those rejections as fatal would
+  remove the blur and reveal the image unmasked, with the later `load` event ignored. Instead the
+  blur stays on (fail-closed) until `load`/`error` fires.
 
 ### Finding Images by Resolved URL
 
