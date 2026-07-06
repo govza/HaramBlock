@@ -24,6 +24,8 @@ web-ext.config.ts
 coverage/
 .nyc_output
 tests/e2e/screenshots/
+# Playwright MCP session artifacts (page snapshots, console captures)
+.playwright-mcp/
 
 # Editor directories and files
 .vscode/*
