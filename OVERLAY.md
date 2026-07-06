@@ -57,7 +57,7 @@ One extension-owned host per document (like the devtools element highlighter):
   #shadow-root (open)               ← isolates our styles from site CSS; open for e2e/devtools
     <style> … </style>
     <div class="layer">             ← position: fixed; inset: 0; pointer-events: none;
-                                      z-index: 2147483647
+                                      z-index: dynamic (see "Host stacking")
       <canvas data-overlay …>       ← one per tracked media element
       <canvas data-overlay …>
     </div>
@@ -122,27 +122,63 @@ When `document.fullscreenElement` is set, only the fullscreen element's subtree 
   earlier fullscreen discussion; the popover path is the belt-and-suspenders default that needs no
   page-world patching.
 
+### Host stacking (dynamic z-index)
+
+A hardcoded `z-index: 2147483647` made masks paint over site UI that legitimately sits above the
+masked element — a sticky navbar the image scrolls under, dropdowns, toasts. Instead the host's
+z-index is dynamic:
+
+```
+hostZ = clamp(1 + max(0, max over tracked elements of chainMaxZ(el)), 1, 2147483647)
+```
+
+`chainMaxZ(el)` (`geometryTracker.ts`) is the highest numeric computed `z-index` on the element and
+its **flattened-tree** ancestors (through `assignedSlot`, across shadow roots via the host chain,
+`documentElement` excluded). Why this is safe (CSS 2.2 Appendix E): the element's root-level paint
+layer is set by its root-level stacking ancestor — either that ancestor has a numeric z-index (which
+is on the chain, so `hostZ` exceeds it) or it stacks at the `auto`/`0` level (beaten by `hostZ ≥ 1`
+regardless of DOM order). z-indexes trapped inside nested stacking contexts only **over**estimate,
+lifting masks higher than needed — never below their own element. The flattened-tree walk matters: a
+slotted image paints inside its slot's shadow wrappers, whose z-indexes a light-tree walk would miss
+(the one real fail-open configuration).
+
+Meanwhile a navbar with `z-index: 100 > hostZ` paints over masks exactly as it paints over the
+images beneath it — no per-overlay z-index guessing, no site-CSS mutation.
+
+Mechanics: `chainZ` is computed synchronously at `track()`/`refresh()` (so `attach()` raises the
+host before the first mask frame — a newly masked image in a high-z modal never paints above its
+mask) and re-walked on the shared 200 ms slow-scan cadence to catch dynamic z-index changes. The
+layer applies `nextHostZ(tracker.maxChainZ())` (`geometry.ts`, clamped, `Infinity`-on-error →
+maximum, i.e. fail-closed) on attach and on the tick heartbeat; lowering after detach lags a tick,
+which is safe. Caveat: hostZ is global to the layer — one tracked element inside a `z-index: 9999`
+modal lifts all masks to 10000 until it's untracked, degrading the navbar fix back to the old
+over-cover behavior (occlusion still handles full coverage).
+
 ### Occlusion (was: the over-cover tradeoff)
 
-At `z-index: 2147483647` masks would also cover site UI that legitimately sits above the element —
-found in practice: open a lightbox and the thumbnail masks float above its backdrop. Handled by
-**occlusion detection** (`layer/occlusion.ts`): every `OCCLUSION_INTERVAL_MS` (200 ms) per visible
-tracked element, hit-test 5 sample points spread over its visible (clip-reduced) rect via
-`document.elementFromPoint`. The slot is hidden only when **every** point is covered by _opaque_
-foreign content — the hit (or a non-shared ancestor, covering transparent centering containers
-inside modals) paints real pixels: media tag, `background-image`, `backdrop-filter`, or
-background-color alpha ≥ `OCCLUDER_MIN_ALPHA` (0.45, catching the ubiquitous `rgba(0,0,0,.5)`
-backdrops).
+Even with the dynamic host z-index, chainMaxZ overestimates (nested-context z-indexes inflate it),
+so masks can still float above site UI meant to cover the element — found in practice: open a
+lightbox and the thumbnail masks float above its backdrop. Handled by **occlusion detection**
+(`layer/occlusion.ts`): on the shared 200 ms slow-scan cadence per visible tracked element, hit-test
+5 sample points spread over its visible (clip-reduced) rect via `document.elementFromPoint`. The
+slot is hidden only when **every** point is covered by _opaque_ foreign content — the hit (or a
+non-shared ancestor, covering transparent centering containers inside modals) paints real pixels:
+media tag, `background-image`, `backdrop-filter`, or background-color alpha ≥ `OCCLUDER_MIN_ALPHA`
+(0.45, catching the ubiquitous `rgba(0,0,0,.5)` backdrops).
 
 Everything fails toward "mask stays visible": transparent overlays (stretched-link cards),
 unparseable colors, points hitting the element/its ancestors/descendants, our own layer host, and
 elements with `pointer-events: none` (un-hit-testable → never reported occluded). Partial coverage
-(sticky headers) keeps the mask — only full coverage hides it.
+keeps the mask — only full coverage hides it (sticky headers are handled by host stacking above, not
+by occlusion).
 
 ### Accepted tradeoffs
 
 - **Occlusion latency:** a lightbox's backdrop hides underlying masks up to ~200 ms + one sweep
   after it opens (hit testing is throttled). The transition is user-visible anyway.
+- **Dynamic z-index latency:** a site raising an ancestor's z-index above hostZ with no accompanying
+  geometry change is picked up on the same ~200 ms cadence; the triggering scenario (re-stacking a
+  container across an already-masked image) is exotic and self-heals.
 - **Semi-dim backdrops below 0.45 alpha** keep masks visible on purpose — the content shows through,
   so hiding the mask would reveal it.
 - **1-frame lag:** rect is read at rAF time; a transform-animated element's mask trails by ≤1 frame.
@@ -232,7 +268,8 @@ e2e additions (`tests/e2e/features/`): the three alignment scenarios from Stage 
 - **Per-frame rect polling budget.** If a page has hundreds of masked elements visible at once, the
   rAF sweep needs a cap (poll the K most recently moved, others every Nth frame). Measure first;
   only build if real.
-- **Sites at `z-index` war with 2147483647 elements** (some consent banners): ours is last-in-DOM at
+- **Sites at `z-index` war with 2147483647 elements** (some consent banners): only relevant when a
+  tracked element's chain actually reaches the maximum (hostZ clamps to it); ours is last-in-DOM at
   equal z-index, which wins; verify.
 - **Popover availability** (Chrome ≥114 / Firefox ≥125): below that, fullscreen fallback is
   "reparent host into `document.fullscreenElement`" — keep as a code path or accept unmasked-in-

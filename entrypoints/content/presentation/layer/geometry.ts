@@ -66,6 +66,29 @@ export const clipsEqual = (
 };
 
 // ---------------------------------------------------------------------------
+// Stacking (host z-index) helpers
+// ---------------------------------------------------------------------------
+
+export const MAX_Z_INDEX = 2147483647;
+
+/** Numeric value of a computed `z-index`, or null for `auto`/unparseable values. */
+export const parseZIndex = (value: string): number | null => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+/**
+ * Host z-index that paints above every tracked element: one above the highest
+ * numeric z-index found on any tracked element's ancestor chain (`maxChain`).
+ * Non-finite input (a failed chain walk) falls back to the maximum — fail-closed,
+ * masks float above everything rather than risk sliding under their own image.
+ */
+export const nextHostZ = (maxChain: number): number => {
+  if (!Number.isFinite(maxChain)) return MAX_Z_INDEX;
+  return Math.min(Math.max(1, maxChain + 1), MAX_Z_INDEX);
+};
+
+// ---------------------------------------------------------------------------
 // Occlusion helpers
 // ---------------------------------------------------------------------------
 

@@ -207,7 +207,10 @@ All mask overlays render into a single extension-owned host (`<haramblock-overla
 `document.documentElement`) with an open shadow root — the "devtools highlight" pattern (open so e2e
 tests and devtools can inspect it; closed would add no real protection). Site frameworks can't
 remove overlays, no site CSS is mutated (`position: relative` is never forced on parents), and no
-per-overlay z-index guessing is needed. See `OVERLAY.md` (repo root) for the full design and
+per-overlay z-index guessing is needed: the host's z-index is dynamic — one above the highest
+numeric z-index on any tracked element's flattened ancestor chain — so masks always paint above
+their elements while higher-z site chrome (sticky navbars, dropdowns, lightboxes) covers masks
+exactly as it covers the elements themselves. See `OVERLAY.md` (repo root) for the full design and
 rationale.
 
 - `layer/overlayLayer.ts` — the host: one absolutely-positioned **slot** per masked element, placed
@@ -219,12 +222,14 @@ rationale.
   sweep polls `getBoundingClientRect()` for elements near the viewport (IntersectionObserver-gated),
   catching CSS-transform movement (carousels) that ResizeObserver misses; off-screen elements are
   only re-read when scroll/resize/ResizeObserver marks them dirty. Detached elements are
-  auto-untracked and reported — no more per-overlay body-wide MutationObservers.
+  auto-untracked and reported — no more per-overlay body-wide MutationObservers. Also walks each
+  tracked element's flattened ancestor chain for the highest numeric z-index (`chainMaxZ`), from
+  which the layer derives its dynamic host z-index.
 - `layer/occlusion.ts` — hides a slot when its element is fully covered by opaque site content (e.g.
   a lightbox backdrop): throttled `elementFromPoint` sampling over the visible rect, opaque only
   when the covering content paints real pixels (media tag, background-image/-color alpha ≥ 0.45,
   backdrop-filter). All heuristics fail toward keeping the mask visible.
-- `layer/geometry.ts` — pure rect/clip/occlusion-sampling math (unit-tested).
+- `layer/geometry.ts` — pure rect/clip/occlusion-sampling/host-z math (unit-tested).
 
 The initial protective blur is **not** part of the layer: it stays a CSS class on the element itself
 because it must be atomic with the element's own paint (no unfiltered frame possible) and covers

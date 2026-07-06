@@ -7,8 +7,11 @@ import {
   hasArea,
   intersectRects,
   isUnclipped,
+  nextHostZ,
   occlusionSamplePoints,
+  parseZIndex,
   rectsEqual,
+  MAX_Z_INDEX,
 } from '@/entrypoints/content/presentation/layer/geometry';
 
 import type { ILayerRect } from '@/utils/types/presentation';
@@ -145,6 +148,39 @@ describe('occlusionSamplePoints', () => {
     expect(occlusionSamplePoints(rect(0, 0, 100, 100), null)).toEqual([]);
     expect(occlusionSamplePoints(rect(0, 0, 100, 100), { top: 60, left: 0, right: 0, bottom: 60 })).toEqual([]);
     expect(occlusionSamplePoints(rect(0, 0, 0, 100), { top: 0, left: 0, right: 0, bottom: 0 })).toEqual([]);
+  });
+});
+
+describe('parseZIndex', () => {
+  it('parses numeric computed values', () => {
+    expect(parseZIndex('0')).toBe(0);
+    expect(parseZIndex('100')).toBe(100);
+    expect(parseZIndex('-5')).toBe(-5);
+    expect(parseZIndex('2147483647')).toBe(2147483647);
+  });
+
+  it('returns null for auto and garbage', () => {
+    expect(parseZIndex('auto')).toBeNull();
+    expect(parseZIndex('')).toBeNull();
+    expect(parseZIndex('inherit')).toBeNull();
+  });
+});
+
+describe('nextHostZ', () => {
+  it('stays one above the highest tracked chain z-index, floored at 1', () => {
+    expect(nextHostZ(0)).toBe(1);
+    expect(nextHostZ(100)).toBe(101);
+    expect(nextHostZ(5000)).toBe(5001);
+  });
+
+  it('clamps to the maximum and never overflows', () => {
+    expect(nextHostZ(MAX_Z_INDEX)).toBe(MAX_Z_INDEX);
+    expect(nextHostZ(MAX_Z_INDEX - 1)).toBe(MAX_Z_INDEX);
+  });
+
+  it('falls back to the maximum on non-finite input (fail-closed)', () => {
+    expect(nextHostZ(Number.POSITIVE_INFINITY)).toBe(MAX_Z_INDEX);
+    expect(nextHostZ(Number.NaN)).toBe(MAX_Z_INDEX);
   });
 });
 
