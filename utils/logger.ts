@@ -1,8 +1,10 @@
 import { createConsola, type ConsolaReporter, type LogObject } from 'consola/basic';
 
 import { getLogSettings, onLogSettingsChange } from '@/utils/logging/logSettings';
-
-import type { ForwardedLogRecord } from '@/utils/telemetry/types';
+// Static imports: dynamic import() is disallowed in MV3 service workers, and telemetry
+// deliberately never imports this logger (no cycle). DEV guards keep it out of prod.
+import { telemetryOnLogRecord } from '@/utils/telemetry/telemetry';
+import { LOG_RECORD_MESSAGE_TYPE, type ForwardedLogRecord } from '@/utils/telemetry/types';
 
 // Cache settings to avoid async lookup on every log
 let cachedConsoleEnabled = false;
@@ -141,12 +143,10 @@ const stringifyLogArg = (value: unknown): string => {
 const forwardLogRecord = async (record: ForwardedLogRecord): Promise<void> => {
   try {
     if (record.context === 'background') {
-      const { telemetryOnLogRecord } = await import('@/utils/telemetry');
       telemetryOnLogRecord(record);
     } else {
       // Plain runtime message (not a comctx RPC): the messaging layer imports this
       // logger, so the logger must not depend on it. initTelemetry listens in the SW.
-      const { LOG_RECORD_MESSAGE_TYPE } = await import('@/utils/telemetry/types');
       await browser.runtime.sendMessage({ type: LOG_RECORD_MESSAGE_TYPE, record });
     }
   } catch {
@@ -155,7 +155,6 @@ const forwardLogRecord = async (record: ForwardedLogRecord): Promise<void> => {
 };
 
 // Dev-only: forward info/warn/error records to the background OTLP exporter.
-// Dynamic imports keep telemetry out of production chunks.
 const otlpReporter: ConsolaReporter = {
   log(logObj: LogObject) {
     if (!import.meta.env.DEV || !cachedOtlpEnabled) return;

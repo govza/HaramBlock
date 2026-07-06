@@ -27,6 +27,15 @@ interface PendingTrace {
 
 let exporter: OtlpExporter | null = null;
 const pending = new Map<string, PendingTrace>();
+const counters = { backgroundEvents: 0, mergedEvents: 0, contentOnlyEvents: 0, logRecords: 0, exported: 0 };
+
+// Dev introspection: evaluate __hbTelemetryState() in the SW (e.g. via Playwright)
+// to see whether the exporter is live and events are reaching it.
+(globalThis as Record<string, unknown>).__hbTelemetryState = () => ({
+  exporterActive: exporter !== null,
+  pendingCount: pending.size,
+  ...counters,
+});
 
 const getVersion = (): string => {
   try {
@@ -76,6 +85,7 @@ export const isTelemetryEnabled = (): boolean => exporter !== null;
 
 const exportTrace = (event: WideEvent, traceId: string): void => {
   if (!exporter) return;
+  counters.exported += 1;
   const { spans, logRecord } = wideEventToOtlp(event, traceId);
   exporter.pushSpans(spans);
   exporter.pushLog(logRecord);
@@ -83,6 +93,7 @@ const exportTrace = (event: WideEvent, traceId: string): void => {
 
 /** Background event arrived: reserve a traceId and wait for the content merge. */
 export const telemetryOnBackgroundEvent = (event: WideEvent): void => {
+  counters.backgroundEvents += 1;
   if (!exporter) return;
 
   // Same image re-requested while a trace is pending: export the old one as-is.
@@ -102,6 +113,7 @@ export const telemetryOnBackgroundEvent = (event: WideEvent): void => {
 
 /** Content timing merged into a background event: export the complete trace. */
 export const telemetryOnMergedEvent = (merged: WideEvent): void => {
+  counters.mergedEvents += 1;
   if (!exporter) return;
   const entry = pending.get(merged.reqId);
   if (entry) {
@@ -114,12 +126,14 @@ export const telemetryOnMergedEvent = (merged: WideEvent): void => {
 
 /** Content event with no matching background event: export as its own trace. */
 export const telemetryOnContentOnlyEvent = (event: WideEvent): void => {
+  counters.contentOnlyEvents += 1;
   if (!exporter) return;
   exportTrace(event, newTraceId());
 };
 
 /** consola record (any context, forwarded via RPC for content/popup) → OTLP log. */
 export const telemetryOnLogRecord = (record: ForwardedLogRecord): void => {
+  counters.logRecords += 1;
   if (!exporter) return;
   exporter.pushLog({
     timeUnixNano: msToNano(record.timeMs),

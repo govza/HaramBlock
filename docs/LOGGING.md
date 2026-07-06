@@ -111,6 +111,20 @@ Browse an image-heavy page; traces appear per image. Settings live in
 `http://localhost:4318`). No manifest changes needed — `<all_urls>` host permission covers
 localhost, so the SW `fetch` bypasses CORS.
 
+Verified-the-hard-way gotchas (encoded in the implementation, kept here so they aren't re-learned):
+
+- **No dynamic `import()` in the MV3 service worker.** Telemetry is statically imported with
+  `import.meta.env.DEV` guards; a DEV-gated dynamic import builds fine and then silently never loads
+  in the SW.
+- **Chromium caches the unpacked extension's SW script.** After redeploying a build over the same
+  path/version, reload the extension (or wipe the automation profile) — a browser relaunch is not
+  always enough, and the stale SW has no telemetry.
+- **`__hbTelemetryState()`** (dev): evaluate in the SW (or any context) to see
+  `{exporterActive, pendingCount, backgroundEvents, mergedEvents, contentOnlyEvents, logRecords, exported}`
+  — first stop when traces don't show up.
+- For MCP-driven verification, build with `pnpm exec wxt build --mode development` (output in
+  `.output/chrome-mv3-dev`) — the regular `pnpm build` is production and contains no telemetry.
+
 ### Trace shape
 
 Each processed image becomes one trace; the 4-char `reqId` is exported as the `req_id` attribute for

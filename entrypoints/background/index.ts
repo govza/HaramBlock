@@ -13,6 +13,7 @@ import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
 import { getModelSettings, setModelSettings } from '@/utils/modelSettings';
+import { initTelemetry } from '@/utils/telemetry';
 
 // First-run default when WebGPU is available; without it the registry baseline (sem-i320) loads.
 const WEBGPU_DEFAULT_MODEL_ID = 'sem-i448';
@@ -20,9 +21,10 @@ const WEBGPU_DEFAULT_MODEL_ID = 'sem-i448';
 export default defineBackground({
   type: 'module',
   main() {
-    // Dev-only OTLP telemetry (dynamic import keeps it out of production chunks)
+    // Dev-only OTLP telemetry. Static import: dynamic import() is disallowed in MV3
+    // service workers; the DEV guard still dead-codes it out of production builds.
     if (import.meta.env.DEV) {
-      void import('@/utils/telemetry').then(t => t.initTelemetry());
+      initTelemetry();
     }
 
     // Initialize core services (business logic layer)

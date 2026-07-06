@@ -1,4 +1,5 @@
 import { storeWideEvent } from '@/utils/logging/eventStorage';
+import { telemetryOnBackgroundEvent } from '@/utils/telemetry';
 
 import type { WideEvent } from '@/utils/logging/types';
 
@@ -16,9 +17,9 @@ export const pushEvent = async (event: WideEvent): Promise<boolean> => {
   }
 
   await storeWideEvent(event);
+  // Dev-only OTLP export. Static import: dynamic import() is disallowed in MV3 service
+  // workers; the DEV guard dead-codes telemetry out of production builds.
   if (import.meta.env.DEV) {
-    // Dev-only OTLP export; dynamic import keeps telemetry out of production chunks
-    const { telemetryOnBackgroundEvent } = await import('@/utils/telemetry');
     telemetryOnBackgroundEvent(event);
   }
   return true;

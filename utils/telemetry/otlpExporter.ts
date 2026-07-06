@@ -37,7 +37,9 @@ export class OtlpExporter {
     this.flushIntervalMs = opts.flushIntervalMs ?? 2000;
     this.maxBatch = opts.maxBatch ?? 20;
     this.maxQueue = opts.maxQueue ?? 200;
-    this.fetchFn = opts.fetchFn ?? fetch;
+    // bind: calling an unbound fetch through this.fetchFn sets `this` to the exporter
+    // instance, which throws "Illegal invocation" in worker/window contexts
+    this.fetchFn = opts.fetchFn ?? fetch.bind(globalThis);
   }
 
   pushSpans(spans: OtlpSpan[]): void {

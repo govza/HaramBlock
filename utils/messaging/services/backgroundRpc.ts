@@ -3,6 +3,9 @@ import { logEventLine } from '@/utils/logging/eventFormat';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 import { getLogSettings } from '@/utils/logging/logSettings';
 import { getRpcContext } from '@/utils/messaging/rpcContext';
+// Static imports: dynamic import() is disallowed in MV3 service workers; the DEV
+// guards at the call sites dead-code telemetry out of production builds.
+import { telemetryOnContentOnlyEvent, telemetryOnMergedEvent } from '@/utils/telemetry';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -83,7 +86,6 @@ export class BackgroundRpc {
         logEventLine(merged);
       }
       if (import.meta.env.DEV) {
-        const { telemetryOnMergedEvent } = await import('@/utils/telemetry');
         telemetryOnMergedEvent(merged);
       }
     } else {
@@ -93,7 +95,6 @@ export class BackgroundRpc {
         logEventLine(event, 'content-only');
       }
       if (import.meta.env.DEV) {
-        const { telemetryOnContentOnlyEvent } = await import('@/utils/telemetry');
         telemetryOnContentOnlyEvent(event);
       }
     }
