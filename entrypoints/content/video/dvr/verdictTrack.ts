@@ -33,6 +33,12 @@ export const MAX_INERTIA_WINDOW_SEC = 2;
 export const INERTIA_JITTER_MARGIN_SEC = 0.15;
 /** How many recent inter-verdict gaps inform the window estimate. */
 const CADENCE_SAMPLE_COUNT = 8;
+/**
+ * How far a neighboring verdict can stretch to cover a hole in verdict
+ * coverage (an inference-latency spike between two resolved samples). Bridged
+ * frames show a mask or clean content instead of the whole-blur flash.
+ */
+export const BRIDGE_HORIZON_SEC = 3;
 
 export class VerdictTrack {
   private entries: VerdictEntry[] = [];
@@ -51,13 +57,35 @@ export class VerdictTrack {
   /**
    * Verdict for the frame at `mediaTime`: any unsafe verdict within the window
    * masks (all of them merged — inertia stretches each over the sampling gap),
-   * a clean verdict clears, and no verdict at all fails closed.
+   * a clean verdict clears.
+   *
+   * A hole in coverage (no verdict within the window — an inference-latency
+   * spike) is bridged from the neighbors instead of whole-blurring, which read
+   * as an annoying blur flash between masked stretches: an unsafe neighbor
+   * always extends its masks over the hole (the fail-safe direction), a hole
+   * between two clean verdicts presents clean, and a lone clean neighbor
+   * covers a short overshoot. Only genuine verdict silence stays 'none'.
    */
   verdictFor(mediaTime: number, windowSec: number): VerdictLookup {
     const inWindow = this.entries.filter(entry => Math.abs(entry.timestampSec - mediaTime) <= windowSec);
-    if (!inWindow.length) return { kind: 'none' };
-    const unsafe = inWindow.filter(entry => entry.unsafe);
-    return unsafe.length ? { kind: 'unsafe', entries: unsafe } : { kind: 'clean' };
+    if (inWindow.length) {
+      const unsafe = inWindow.filter(entry => entry.unsafe);
+      return unsafe.length ? { kind: 'unsafe', entries: unsafe } : { kind: 'clean' };
+    }
+
+    const previous = this.entries.findLast(
+      entry => entry.timestampSec <= mediaTime && mediaTime - entry.timestampSec <= BRIDGE_HORIZON_SEC,
+    );
+    const next = this.entries.find(
+      entry => entry.timestampSec >= mediaTime && entry.timestampSec - mediaTime <= BRIDGE_HORIZON_SEC,
+    );
+
+    const unsafeNeighbors = [previous, next].filter((entry): entry is VerdictEntry => Boolean(entry?.unsafe));
+    if (unsafeNeighbors.length) return { kind: 'unsafe', entries: unsafeNeighbors };
+    if (previous && next) return { kind: 'clean' };
+    const lone = previous ?? next;
+    if (lone && Math.abs(lone.timestampSec - mediaTime) <= windowSec * 2) return { kind: 'clean' };
+    return { kind: 'none' };
   }
 
   /**

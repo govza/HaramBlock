@@ -16,6 +16,7 @@ import {
 } from '@/entrypoints/content/presentation/initialStyling';
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
+import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypoints/content/video/dvr/audioDelay';
 import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT, MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
 import { VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
@@ -209,6 +210,8 @@ class VideoSessionRegistry {
         handle.sampleSentAt.delete(pred.frameIndex);
         handle.latenciesMs.push(performance.now() - sentAt);
         if (handle.latenciesMs.length > LATENCY_SAMPLE_COUNT) handle.latenciesMs.shift();
+        // Keep the audio delay tracking the adaptive presentation delay.
+        if (handle.dvr) updateAudioDelay(handle.video, computeDvrDelayMs(handle.latenciesMs) / 1000);
       }
       this.dispatch(handle, {
         type: 'predictionReceived',
@@ -392,7 +395,15 @@ class VideoSessionRegistry {
       // slow page (HD frames, busy queue) gets a longer delay instead of holes.
       getDelaySec: () => computeDvrDelayMs(handle.latenciesMs) / 1000,
       getMasking: () => handle.hostSettings.masking,
-      onReady: () => this.dispatch(handle, { type: 'bufferReady', at: performance.now() }),
+      onReady: () => {
+        this.dispatch(handle, { type: 'bufferReady', at: performance.now() });
+        // The canvas now presents D behind the live edge; delay audio to match.
+        void engageAudioDelay(
+          handle.video,
+          computeDvrDelayMs(handle.latenciesMs) / 1000,
+          () => handle.dvr?.player === player,
+        );
+      },
     });
     handle.dvr = {
       ring,
@@ -406,6 +417,7 @@ class VideoSessionRegistry {
     const { dvr } = handle;
     if (!dvr) return;
     handle.dvr = null;
+    releaseAudioDelay(handle.video);
     dvr.player.destroy();
     dvr.ring.release();
   }

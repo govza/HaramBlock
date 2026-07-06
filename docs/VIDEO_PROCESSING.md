@@ -139,12 +139,17 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the regis
   `D`+slack and a 40 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by `timestampSec`).
 - **`bufferReady`** (ring spans `D`; the player inserted its canvas and hid the native element) →
   `presenting`: blur and any leftover DOM overlay are swapped out. While presenting, per-verdict
-  `applyVerdict` DOM renders are suppressed — the player composites masks itself.
+  `applyVerdict` DOM renders are suppressed — the player composites masks itself. Audio is routed
+  through a WebAudio `DelayNode` at the same `D` (`dvr/audioDelay.ts`), keeping lip-sync; it falls
+  back to live audio when the element cannot be captured (site already holds a `MediaElementSource`,
+  suspended `AudioContext`, cross-origin samples WebAudio would zero out).
 - **Per presented frame** (`videoDvrPlayer.ts`): look up verdicts within the Inertia Window
   (observed sampling cadence + jitter margin) around the frame's media time. Unsafe → composite the
-  union of their masks (RLE-decoded once, pixelated content + destination-in); clean → draw plain;
-  **no verdict → draw the live frame whole-blurred** (inference running late; presentation never
-  pauses). Sampling continues at the live edge throughout.
+  union of their masks (RLE-decoded once, pixelated content + destination-in); clean → draw plain. A
+  hole in verdict coverage (latency spike) is **bridged from the neighbors** — an unsafe neighbor
+  extends its masks over the hole (fail-safe), clean↔clean holes present clean — so the whole-blur
+  fallback appears only under genuine verdict silence, not as a flash between masked stretches.
+  Sampling continues at the live edge throughout.
 - **Exit**: the clean streak (`stopDvr`, native resumes at the live edge — content jumps forward by
   `D`), pause/ended (static frame → precise DOM overlay takes back over), seek (ring discontinuity →
   flush, whole-blur, re-warm), dispose, or terminal ERROR.

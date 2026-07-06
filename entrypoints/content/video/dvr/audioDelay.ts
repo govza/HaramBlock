@@ -1,0 +1,119 @@
+/**
+ * Audio sync for DVR presentation (docs/VIDEO_PROCESSING.md): while the canvas
+ * presents `D` behind the live edge, the element's audio is routed through a
+ * WebAudio DelayNode with the same delay, so lips match again.
+ *
+ * `createMediaElementSource` permanently replaces the element's direct output
+ * with the graph, and an element can only ever be captured once — so the
+ * source node is created once per element and kept for the element's lifetime,
+ * toggling between a live route (source → destination) and a delayed route
+ * (source → delay → destination). Everything fails toward "audio stays live
+ * and audible": a site that already captured the element, a suspended
+ * AudioContext (no user gesture yet), or a cross-origin source (whose samples
+ * WebAudio would zero out — silence is worse than lip-sync lag) all skip
+ * silently.
+ */
+
+import { MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
+import { logger } from '@/utils/logger';
+
+const log = logger.withTag('audioDelay');
+
+/** Smoothing for delay adjustments; jumps click, ramps briefly resample. */
+const DELAY_RAMP_TIME_CONSTANT_SEC = 0.3;
+
+interface AudioDelayEntry {
+  source: MediaElementAudioSourceNode;
+  delay: DelayNode;
+  engaged: boolean;
+}
+
+/** null = permanently unavailable for this element (already captured by the site). */
+const entries = new WeakMap<HTMLVideoElement, AudioDelayEntry | null>();
+
+let sharedContext: AudioContext | null = null;
+
+/**
+ * WebAudio outputs zeros for origin-tainted media — routing such audio through
+ * the graph would MUTE it. Only sources whose samples are readable qualify.
+ */
+function isOriginClean(video: HTMLVideoElement): boolean {
+  if (video.crossOrigin) return true;
+  const src = video.currentSrc || video.src;
+  if (!src) return false;
+  if (src.startsWith('blob:') || src.startsWith('data:')) return true;
+  try {
+    return new URL(src, globalThis.location.href).origin === globalThis.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureRunningContext(): Promise<AudioContext | null> {
+  sharedContext ??= new AudioContext();
+  if (sharedContext.state !== 'running') {
+    try {
+      await sharedContext.resume();
+    } catch {
+      // No user gesture yet; retry on the next engage.
+    }
+  }
+  return sharedContext.state === 'running' ? sharedContext : null;
+}
+
+/**
+ * Route the element's audio through the delay line. Async (context resume);
+ * `isStillWanted` re-checks after each await so a DVR torn down mid-engage
+ * cannot leave live video with delayed audio.
+ */
+export async function engageAudioDelay(
+  video: HTMLVideoElement,
+  delaySec: number,
+  isStillWanted: () => boolean,
+): Promise<void> {
+  if (entries.get(video) === null) return;
+  if (!isOriginClean(video)) return;
+
+  let entry = entries.get(video);
+  if (!entry) {
+    const context = await ensureRunningContext();
+    if (!context || !isStillWanted()) return;
+    try {
+      const source = context.createMediaElementSource(video);
+      const delay = context.createDelay(MAX_DVR_DELAY_MS / 1000 + 1);
+      delay.connect(context.destination);
+      source.connect(context.destination);
+      entry = { source, delay, engaged: false };
+      entries.set(video, entry);
+    } catch (error) {
+      // The site already captured this element into its own graph; its audio
+      // routing is not ours to change. Never retry.
+      entries.set(video, null);
+      log.debug('Cannot capture element audio (already captured?):', error);
+      return;
+    }
+  }
+
+  if (!isStillWanted() || entry.engaged) return;
+  entry.source.disconnect();
+  entry.source.connect(entry.delay);
+  entry.delay.delayTime.value = delaySec;
+  entry.engaged = true;
+  log.debug('Audio delayed by', delaySec, 's');
+}
+
+/** Follow the adaptive presentation delay while engaged. */
+export function updateAudioDelay(video: HTMLVideoElement, delaySec: number): void {
+  const entry = entries.get(video);
+  if (!entry || !entry.engaged || !sharedContext) return;
+  entry.delay.delayTime.setTargetAtTime(delaySec, sharedContext.currentTime, DELAY_RAMP_TIME_CONSTANT_SEC);
+}
+
+/** Back to the live route (the element itself jumps forward by D visually too). */
+export function releaseAudioDelay(video: HTMLVideoElement): void {
+  const entry = entries.get(video);
+  if (!entry || !entry.engaged || !sharedContext) return;
+  entry.source.disconnect();
+  entry.source.connect(sharedContext.destination);
+  entry.engaged = false;
+}
