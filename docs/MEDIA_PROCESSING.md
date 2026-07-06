@@ -42,7 +42,9 @@ The main content script entry point that orchestrates the entire media filtering
 - Uses the `useHostData` hook to get host settings and cached predictions
 - Creates and manages content flow using `MediaPipeline` based on host policy
 - Sets up inference result listeners for real-time AI predictions
-- Handles cleanup on page unload
+- Deliberately does **no** unload cleanup: after a refresh/navigation the old page stays painted
+  until the next document arrives, and tearing masks down in `beforeunload` would uncover everything
+  during that window (and leave a dead pipeline if the navigation is canceled)
 
 ### Core (`core/`)
 
