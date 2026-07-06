@@ -1,3 +1,5 @@
+import { logger } from '@/utils/logger';
+
 import type { WideEvent, LogExport } from '@/utils/logging/types';
 
 const MAX_EVENTS = 500;
@@ -65,7 +67,13 @@ export const mergeContentEvent = async (contentEvent: WideEvent): Promise<WideEv
       overlayType: contentEvent.overlayType,
       detectionsCount: contentEvent.detectionsCount ?? bgEvent.detectionsCount,
       status: contentEvent.status === 'error' ? 'error' : bgEvent.status,
+      reason: contentEvent.reason ?? bgEvent.reason,
+      stage: contentEvent.stage,
+      source: contentEvent.source,
       error: contentEvent.error ?? bgEvent.error,
+      // Content-side anchors survive the merge so the full content window can be reconstructed
+      contentTotalMs: contentEvent.totalMs,
+      contentTimestamp: contentEvent.timestamp,
     };
 
     events[bgIndex] = merged;
@@ -81,11 +89,9 @@ export const getEvents = async (): Promise<WideEvent[]> => {
     const storage = getStorage();
     const result = await storage.get(STORAGE_KEY);
     const events = (result[STORAGE_KEY] as WideEvent[]) ?? [];
-    // eslint-disable-next-line no-console
-    console.log('[WideEvent] Retrieved events:', events.length);
     return events;
   } catch (err) {
-    console.error('[WideEvent] Failed to get events:', err);
+    logger.withTag('eventStorage').error('Failed to get events:', err);
     return [];
   }
 };

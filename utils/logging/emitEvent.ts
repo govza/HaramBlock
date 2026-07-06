@@ -1,7 +1,8 @@
 import { pushEvent } from '@/utils/logging/eventBuffer';
+import { logEventLine } from '@/utils/logging/eventFormat';
 import { hashUrl } from '@/utils/logging/hash';
 
-import type { WideEvent, EventContext, EventStatus } from '@/utils/logging/types';
+import type { WideEvent, EventContext, EventStatus, EventStage, PredictionSource } from '@/utils/logging/types';
 
 const getVersion = (): string => {
   try {
@@ -28,6 +29,9 @@ export interface EmitEventParams {
   waitMs?: number;
   styleMs?: number;
   // Result info
+  reason?: string;
+  stage?: EventStage;
+  source?: PredictionSource;
   detectionsCount?: number;
   batchSize?: number;
   cacheHit?: boolean;
@@ -45,6 +49,9 @@ export const emitEvent = (params: EmitEventParams): void => {
     context: params.context,
     timestamp: Date.now(),
     status: params.status,
+    reason: params.reason,
+    stage: params.stage,
+    source: params.source,
     totalMs: params.totalMs,
     queueMs: params.queueMs,
     fetchMs: params.fetchMs,
@@ -64,18 +71,11 @@ export const emitEvent = (params: EmitEventParams): void => {
     version: getVersion(),
   };
 
-  const logToConsole = () => {
-    const prefix = `[${event.reqId}]`;
-    const summary = `${event.status} ${event.hostname} +${event.totalMs}ms (${event.context})`;
-    // eslint-disable-next-line no-console
-    console.log(prefix, summary, event);
-  };
-
   if (event.context === 'content') {
     // Content events: send to background, only log on failure
     void pushEvent(event).then(success => {
       if (!success) {
-        logToConsole();
+        logEventLine(event, event.context);
       }
     });
   } else {

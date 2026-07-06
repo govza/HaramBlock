@@ -27,6 +27,12 @@ const shouldLog = (): boolean => {
   return import.meta.env.DEV || cachedConsoleEnabled;
 };
 
+/**
+ * Whether logger output is currently visible. Callers with expensive log-payload
+ * construction (per-render snapshots, style reads) should check this first.
+ */
+export const isConsoleLoggingEnabled = (): boolean => shouldLog();
+
 // Style colors per log type (matching consola browser defaults)
 const typeColors: Record<string, string> = {
   info: '#3498db',

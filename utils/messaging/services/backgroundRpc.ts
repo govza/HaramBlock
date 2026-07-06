@@ -1,4 +1,5 @@
 import { logger } from '@/utils/logger';
+import { logEventLine } from '@/utils/logging/eventFormat';
 import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
 import { getLogSettings } from '@/utils/logging/logSettings';
 import { getRpcContext } from '@/utils/messaging/rpcContext';
@@ -78,21 +79,14 @@ export class BackgroundRpc {
     const shouldLog = settings.consoleEnabled || import.meta.env.DEV;
 
     if (merged) {
-      // Log the merged event to console if enabled
       if (shouldLog) {
-        const prefix = `[${merged.reqId}]`;
-        const summary = `${merged.status} ${merged.hostname} +${merged.totalMs}ms`;
-        // eslint-disable-next-line no-console
-        console.log(prefix, summary, merged);
+        logEventLine(merged);
       }
     } else {
       // No matching background event found - store and log as standalone content event
       await storeWideEvent(event);
       if (shouldLog) {
-        const prefix = `[${event.reqId}]`;
-        const summary = `${event.status} ${event.hostname} +${event.totalMs}ms (content-only)`;
-        // eslint-disable-next-line no-console
-        console.log(prefix, summary, event);
+        logEventLine(event, 'content-only');
       }
     }
   }

@@ -42,6 +42,7 @@ import { waitForMessageChannel } from '@/utils/messaging/content';
 import { shouldBlock, type IGifFramePrediction, type IHostSettings, type IImagePrediction } from '@/utils/types';
 
 import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
+import type { PredictionSource } from '@/utils/logging/types';
 
 // =============================================================================
 // Constants
@@ -99,6 +100,9 @@ interface GifSession {
  */
 export class ImageProcessor {
   private readonly cache = new Map<string, IImagePrediction>();
+  // Srcs whose cache entry came from IndexedDB seeding (vs fresh inference) — kept so
+  // wide events can report where an applied verdict actually came from.
+  private readonly seededSrcs = new Set<string>();
   private readonly gifSessions = new Map<string, GifSession>();
   private readonly pendingInference = new Set<string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
@@ -179,7 +183,8 @@ export class ImageProcessor {
     // Check cache first - apply immediately if available
     const cached = this.cache.get(src);
     if (cached) {
-      this.applyPrediction(img, cached);
+      startContentTiming(src, this.hostSettings.hostname);
+      this.applyPrediction(img, cached, this.seededSrcs.has(src) ? 'db-cache' : 'memory-cache');
       return;
     }
 
@@ -241,6 +246,7 @@ export class ImageProcessor {
   seedCache(predictions: IImagePrediction[]): void {
     for (const pred of predictions) {
       this.addToCache(pred.src, pred);
+      this.seededSrcs.add(pred.src);
     }
   }
 
@@ -250,12 +256,13 @@ export class ImageProcessor {
   handlePredictions(predictions: IImagePrediction[]): void {
     for (const pred of predictions) {
       this.addToCache(pred.src, pred);
+      this.seededSrcs.delete(pred.src);
       this.pendingInference.delete(pred.src);
 
       // Find and update all matching images
       const images = this.findImagesBySrc(pred.src);
       for (const img of images) {
-        this.applyPrediction(img, pred);
+        this.applyPrediction(img, pred, 'inference');
       }
     }
   }
@@ -368,7 +375,7 @@ export class ImageProcessor {
       // Skip only if all currently pending elements for this src are below threshold.
       if (this.isBelowMinSizeForSrc(src, img)) {
         this.pendingInference.delete(src);
-        completeContentTiming(src, { status: 'skipped' });
+        completeContentTiming(src, { status: 'skipped', reason: 'below-min-size' });
         this.finalizeAllImagesForSrc(src, 'skipped');
         return;
       }
@@ -380,12 +387,16 @@ export class ImageProcessor {
         await requestImageInference(this.hostSettings.hostname, img, priority);
       } catch (err) {
         this.pendingInference.delete(src);
-        completeContentTiming(src, { status: 'error', error: err instanceof Error ? err : undefined });
+        completeContentTiming(src, {
+          status: 'error',
+          reason: 'send-failed',
+          error: err instanceof Error ? err : undefined,
+        });
         this.finalizeAllImagesForSrc(src, 'skipped');
       }
     };
 
-    const handleError = (reason?: unknown) => {
+    const handleError = (reason: unknown, cause: 'decode-rejected' | 'load-error') => {
       this.pendingInference.delete(src);
       let error: Error;
       if (reason instanceof Error) {
@@ -395,7 +406,7 @@ export class ImageProcessor {
       } else {
         error = new Error('Image failed to load');
       }
-      completeContentTiming(src, { status: 'error', error });
+      completeContentTiming(src, { status: 'error', reason: cause, error });
       this.finalizeAllImagesForSrc(src, 'skipped');
     };
 
@@ -411,15 +422,18 @@ export class ImageProcessor {
         handled = true;
         void sendRequest();
       };
-      const onFail = (reason?: unknown) => {
+      const onFail = (reason: unknown, cause: 'decode-rejected' | 'load-error') => {
         if (handled) return;
         handled = true;
-        handleError(reason);
+        handleError(reason, cause);
       };
 
-      img.decode().then(onReady).catch(onFail);
+      img
+        .decode()
+        .then(onReady)
+        .catch((reason: unknown) => onFail(reason, 'decode-rejected'));
       img.addEventListener('load', onReady, { once: true });
-      img.addEventListener('error', () => onFail(new Error(`Load error: ${img.src.substring(0, 80)}`)), {
+      img.addEventListener('error', () => onFail(new Error(`Load error: ${img.src.substring(0, 80)}`), 'load-error'), {
         once: true,
       });
     }
@@ -502,7 +516,7 @@ export class ImageProcessor {
 
     if (this.isBelowMinSizeForSrc(src, img)) {
       this.gifSessions.delete(src);
-      completeContentTiming(src, { status: 'skipped' });
+      completeContentTiming(src, { status: 'skipped', reason: 'below-min-size' });
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;
     }
@@ -630,6 +644,7 @@ export class ImageProcessor {
 
     completeContentTiming(src, {
       status: 'success',
+      source: 'inference',
       detectionsCount: aggregatePrediction.predictions.length,
       overlayType: shouldBlock(aggregatePrediction) ? 'segment' : undefined,
     });
@@ -762,7 +777,7 @@ export class ImageProcessor {
   // Prediction Application
   // ===========================================================================
 
-  private applyPrediction(img: HTMLImageElement, prediction: IImagePrediction): void {
+  private applyPrediction(img: HTMLImageElement, prediction: IImagePrediction, source: PredictionSource): void {
     const currentSrc = img.currentSrc || img.src;
 
     // Verify src still matches (handles race where src changed)
@@ -813,6 +828,7 @@ export class ImageProcessor {
       // Log the completion with overlay type
       completeContentTiming(prediction.src, {
         status: 'success',
+        source,
         detectionsCount: prediction.predictions.length,
         overlayType,
       });
