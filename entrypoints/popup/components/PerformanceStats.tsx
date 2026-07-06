@@ -74,16 +74,30 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
   const [stats, setStats] = useState<PredictionStats | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [consoleEnabled, setConsoleEnabled] = useState(false);
+  const [otlpEnabled, setOtlpEnabled] = useState(false);
+  const [otlpEndpoint, setOtlpEndpoint] = useState('');
 
   useEffect(() => {
     getLogSettings()
-      .then(s => setConsoleEnabled(s.consoleEnabled))
+      .then(s => {
+        setConsoleEnabled(s.consoleEnabled);
+        setOtlpEnabled(s.otlpEnabled);
+        setOtlpEndpoint(s.otlpEndpoint);
+      })
       .catch(() => {});
-    return onLogSettingsChange(s => setConsoleEnabled(s.consoleEnabled));
+    return onLogSettingsChange(s => {
+      setConsoleEnabled(s.consoleEnabled);
+      setOtlpEnabled(s.otlpEnabled);
+      setOtlpEndpoint(s.otlpEndpoint);
+    });
   }, []);
 
   const handleConsoleToggle = () => {
     void setLogSettings({ consoleEnabled: !consoleEnabled });
+  };
+
+  const handleOtlpToggle = () => {
+    void setLogSettings({ otlpEnabled: !otlpEnabled });
   };
 
   useEffect(() => {
@@ -143,6 +157,30 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
               <path strokeLinecap='round' strokeLinejoin='round' d={TERMINAL_PATH} />
             </svg>
           </button>
+          {import.meta.env.DEV && (
+            <button
+              className='cursor-pointer p-1'
+              onClick={handleOtlpToggle}
+              title={`OTLP export → ${otlpEndpoint}`}
+              aria-label='Toggle OTLP export'
+              data-testid='otlp-toggle'
+            >
+              <svg
+                xmlns='http://www.w3.org/2000/svg'
+                fill='none'
+                viewBox='0 0 24 24'
+                strokeWidth={1.5}
+                stroke={otlpEnabled ? '#22c55e' : 'currentColor'}
+                className='size-5'
+              >
+                <path
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  d='M9.348 14.652a3.75 3.75 0 0 1 0-5.304m5.304 0a3.75 3.75 0 0 1 0 5.304m-7.425 2.121a6.75 6.75 0 0 1 0-9.546m9.546 0a6.75 6.75 0 0 1 0 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.807 3.808 9.98 0 13.788M12 12h.008v.008H12V12Z'
+                />
+              </svg>
+            </button>
+          )}
           <CopyLogsButton />
         </div>
       </div>

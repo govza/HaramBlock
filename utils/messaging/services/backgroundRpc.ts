@@ -82,11 +82,19 @@ export class BackgroundRpc {
       if (shouldLog) {
         logEventLine(merged);
       }
+      if (import.meta.env.DEV) {
+        const { telemetryOnMergedEvent } = await import('@/utils/telemetry');
+        telemetryOnMergedEvent(merged);
+      }
     } else {
       // No matching background event found - store and log as standalone content event
       await storeWideEvent(event);
       if (shouldLog) {
         logEventLine(event, 'content-only');
+      }
+      if (import.meta.env.DEV) {
+        const { telemetryOnContentOnlyEvent } = await import('@/utils/telemetry');
+        telemetryOnContentOnlyEvent(event);
       }
     }
   }

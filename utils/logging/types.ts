@@ -50,6 +50,10 @@ export interface WideEvent {
 
 export interface LogSettings {
   consoleEnabled: boolean;
+  /** Dev-only: export traces + logs to a local OTLP collector (e.g. otel-tui). */
+  otlpEnabled: boolean;
+  /** OTLP/HTTP base endpoint; /v1/traces and /v1/logs are appended. */
+  otlpEndpoint: string;
 }
 
 export interface LogExport {

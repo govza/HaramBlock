@@ -1,140 +1,168 @@
-# Production Logging System
+# Logging & Telemetry
 
-This document describes the wide event logging implementation for HaramBlock.
-
-## Overview
-
-The logging system uses **wide events** (canonical log lines) instead of scattered log statements.
-One comprehensive event is emitted per image when processing completes, making it easy to trace any
-image through the entire pipeline.
-
-**Key features:**
-
-- **Wide events** - One event per image with all context (not scattered logs)
-- **Stable reqId** - Hash of image URL for consistent correlation
-- **Memory-only storage** - Last 500 events in `browser.storage.session` (ephemeral)
-- **Console toggle** - Enable verbose console output in production via popup
-- **Copy to clipboard** - Export events as JSON for debugging
-- **Merged events** - Content timing merged into background event for complete picture
+HaramBlock has one logging philosophy — **wide events** (canonical log lines): instead of scattering
+log statements through the pipeline, one comprehensive event is emitted per processed image carrying
+every field you might need to debug it. Ad-hoc diagnostics go through a single `consola` facade. In
+dev builds, both feed an **OTLP exporter** so traces and logs can be viewed in external tools
+(otel-tui, Jaeger, Grafana).
 
 ## Architecture
 
 ```
-Content Script:
-  Image detected → create timing context
-    → blur applied
-    → sent to background (record sendTime)
-    → predictions received (record receiveTime)
-    → styling applied (record applyTime)
-    → send content timing to background for merge
+Content script                       Background service worker
+──────────────                       ─────────────────────────
+contentTiming (per-src state)        inferenceOrchestrationService
+  start → markSent → markReceived      cache check / queue / inference
+  → completeContentTiming              → emitEvent (background context)
+  → emitEvent (content context)              │
+        │ RPC (comctx)                       ▼
+        └────────────────────────────► mergeContentEvent (by reqId)
+                                             │
+                             ┌───────────────┼─────────────────────┐
+                             ▼               ▼                     ▼
+                      storage.session   JSON console line   OTLP exporter (dev)
+                      (last 500,        (one line per       traces → :4318/v1/traces
+                       Copy Logs)        merged event)      logs   → :4318/v1/logs
 
-Background Service Worker:
-  Request received → check cache
-    → if cached: emit cached event (stored only)
-    → else: queue → inference → emit success/error event (stored only)
-    → when content timing arrives: merge into existing event → log merged event to console
+logger.withTag('...').info/warn/error  ──────────────────►  OTLP logs (dev, via
+(consola facade, all contexts)                              runtime message → SW)
 ```
 
-## Two Separate Systems
+## Wide events
 
-### 1. Wide Event Logging (Ephemeral Debug Output)
+One `WideEvent` per image, correlated across contexts by `reqId` (4-char FNV-1a hash of the image
+URL). Content timing is merged into the matching background event so the stored record has the
+complete picture. Schema: `utils/logging/types.ts`.
 
-Stored in `browser.storage.session` (last 500 events). Used for real-time debugging via console
-toggle and "Copy Logs" button. Events are emitted via `emitEvent()` and lost when the browser
-closes.
+Diagnostic fields (every terminal event):
 
-### 2. Prediction Cache (Persistent Performance Data)
+| Field    | Values                                                              | Answers                             |
+| -------- | ------------------------------------------------------------------- | ----------------------------------- |
+| `status` | `success` / `error` / `skipped` / `cached`                          | what happened                       |
+| `reason` | `below-min-size`, `decode-rejected`, `load-error`, `send-failed`, … | why it was skipped / what failed    |
+| `stage`  | `queued` / `sent` / `received` / `styled`                           | how far it got before terminating   |
+| `source` | `inference` / `db-cache` / `memory-cache`                           | where the applied verdict came from |
 
-Stored in IndexedDB with each `IImagePrediction`. Used by PerformancePanel to show historical timing
-stats per hostname. Data persists across sessions. See `IImagePrediction.processingTime` in
-`utils/types/prediction.ts`.
+Timing fields: background `queueMs/fetchMs/decodeMs/inferenceMs/e2eMs`, content
+`sendMs/waitMs/styleMs`. Result fields: `detectionsCount`, `batchSize`, `cacheHit`, `overlayType`,
+`backend`, `modelId`, `error {message,type}`.
 
----
+### Console output is single-line JSON
 
-## Wide Event Schema
-
-All events use a single unified schema. Context-specific fields are only populated for their
-respective context.
-
-```typescript
-interface WideEvent {
-  reqId: string; // Hash of src - stable per URL
-  src: string; // Image URL
-  hostname: string;
-  context: 'content' | 'background';
-  timestamp: number;
-
-  // Timings (all in ms)
-  totalMs: number; // Total processing time
-
-  // Background timing fields
-  queueMs?: number; // Time waiting in queue
-  fetchMs?: number; // Time to fetch image
-  decodeMs?: number; // Time to decode image (createImageBitmap)
-  inferenceMs?: number; // AI model inference time
-  e2eMs?: number; // End-to-end time (content request to inference complete)
-
-  // Content timing fields
-  sendMs?: number; // Time to prepare and send to background
-  waitMs?: number; // Time waiting for background response
-  styleMs?: number; // Time to apply styling/overlays
-
-  // Result
-  status: 'success' | 'error' | 'skipped' | 'cached';
-  detectionsCount?: number;
-  cacheHit?: boolean;
-  overlayType?: string; // blur | segment | full
-  backend?: string; // webgpu | wasm
-  error?: { message: string; type: string };
-
-  version: string;
-}
-```
-
-**Field usage by context:**
-
-| Field             | Background | Content |
-| ----------------- | ---------- | ------- |
-| `queueMs`         | ✓          |         |
-| `fetchMs`         | ✓          |         |
-| `decodeMs`        | ✓          |         |
-| `inferenceMs`     | ✓          |         |
-| `e2eMs`           | ✓          |         |
-| `sendMs`          |            | ✓       |
-| `waitMs`          |            | ✓       |
-| `styleMs`         |            | ✓       |
-| `cacheHit`        | ✓          |         |
-| `backend`         | ✓          |         |
-| `overlayType`     |            | ✓       |
-| `detectionsCount` | ✓          | ✓       |
-
-## Key Files
-
-- `utils/logging/emitEvent.ts` - Core event emission
-- `utils/logging/eventBuffer.ts` - Session storage buffer (500 events max)
-- `utils/logging/contentTiming.ts` - Content-side timing context
-- `utils/logging/types.ts` - Type definitions
-- `entrypoints/background/services/inferenceOrchestrationService.ts` - Background event emission
-
-## Console Output
-
-Events logged with stable hash prefix for correlation:
+When console logging is enabled (dev, or the popup terminal toggle), each merged event is logged as
+**one line**: human summary + full JSON payload:
 
 ```
-[f7a2] success example.com +165ms (background) { queueMs: 10, inferenceMs: 120, e2eMs: 165, detectionsCount: 2 }
+[f7a2] success example.com +165ms stage=styled {"reqId":"f7a2","src":"…","inferenceMs":120,…}
 ```
 
-The `[f7a2]` prefix is a hash of the image URL. Content timing (sendMs, waitMs, styleMs,
-overlayType) is merged into the background event in storage but not shown in the initial console
-log. Use "Copy Logs" to see the fully merged events.
+This is deliberate: the Playwright MCP console capture flattens any logged _object_ to the literal
+string `Object`. One-line JSON survives. Follow the same rule for any debug logging you add
+(`logger.debug(\`thing ${JSON.stringify(payload)}\`)`).
 
-## Design Decisions
+### Reading events from automation
 
-| Decision                             | Rationale                                         |
-| ------------------------------------ | ------------------------------------------------- |
-| Hash URL for reqId                   | Stable ID - same image always has same reqId      |
-| `browser.storage.session` for events | Ephemeral, shared across contexts, no disk I/O    |
-| `browser.storage.local` for toggle   | Persists user preference                          |
-| 500 event limit                      | Enough for debugging, bounded memory              |
-| Merge content timing into background | One complete event per image with all timing data |
-| Remove scattered logs                | Wide events capture all needed info in one place  |
+`browser_console_messages` only sees page consoles — the MV3 service worker is invisible. Two escape
+hatches:
+
+- **`__hbDumpEvents(n)`** (dev builds): evaluate on `chrome-extension://<id>/popup.html` via
+  `browser_evaluate`; returns the last _n_ wide events as a JSON string
+  (`utils/logging/devDump.ts`).
+- **Copy Logs** button in the popup performance panel: full buffer to clipboard.
+
+### Invariant warnings
+
+Cheap self-checks that turn known bug signatures into one warn line:
+
+- `prediction`: element-reported dims vs decoded bitmap dims skew >2% (`resolveBitmap`) — the srcset
+  density-corrected `naturalWidth` signature.
+- `imageCacheService`: at cache write, `(mask.width − 2·offsetX)·scaleX` must land on
+  `prediction.width` (mask grid ↔ image dims self-consistency).
+- `overlayLayer`: warns when site CSS computes the layer host to `visibility: hidden` /
+  `display: none` (e.g. `:not(:defined)` FOUC guards) — checked on tracker ticks, 1 s throttle.
+- `maskOverlay`: per-render JSON snapshot (contentRect, maskTransform, natural dims, grid dims,
+  objectFit), deduped per element until inputs change. Debug level, so visible only when console
+  logging is on.
+
+## The consola facade (`utils/logger.ts`)
+
+All ad-hoc logging goes through `logger.withTag('<module>').debug/info/warn/error(...)`. Never use
+raw `console.*` in extension code (ESLint enforces this). Output is gated by
+`import.meta.env.DEV || logSettings.consoleEnabled`. In dev builds, info/warn/error records are also
+forwarded to the OTLP exporter (tagged with `log.tag` and `extension.context`).
+
+## OTLP export (dev builds only)
+
+Dev builds can ship traces + logs to any OTLP/HTTP collector on localhost. Production builds contain
+none of this code (DEV-guarded dynamic imports; verify with
+`grep -r OtlpExporter .output/chrome-mv3` after a build).
+
+**Quickstart with [otel-tui](https://github.com/ymtdzzz/otel-tui):**
+
+```bash
+brew install ymtdzzz/tap/otel-tui   # or: go install github.com/ymtdzzz/otel-tui@latest
+otel-tui                            # OTLP receiver on :4318, TUI opens
+pnpm dev                            # or pnpm build + load the dev output
+# popup → performance panel → antenna icon (data-testid="otlp-toggle")
+```
+
+Browse an image-heavy page; traces appear per image. Settings live in
+`browser.storage.local.logSettings`: `otlpEnabled` (default false) and `otlpEndpoint` (default
+`http://localhost:4318`). No manifest changes needed — `<all_urls>` host permission covers
+localhost, so the SW `fetch` bypasses CORS.
+
+### Trace shape
+
+Each processed image becomes one trace; the 4-char `reqId` is exported as the `req_id` attribute for
+correlating re-processings of the same URL. A background event reserves a traceId and waits up to 10
+s for its content merge; events that never merge (cache hits, video/GIF frames) export
+background-only.
+
+```
+image.process                    ← root; ALL wide-event fields as snake_case attributes
+├─ content.send
+├─ content.wait
+│  └─ background.process
+│     ├─ background.queue        ← sequential chain reconstructed from durations
+│     ├─ background.fetch
+│     ├─ background.decode
+│     └─ background.inference
+└─ content.style
+```
+
+Per trace, one **wide log record** is also emitted (the canonical log line: all attributes,
+correlated via `traceId`/`spanId`), plus any consola records. Error events set span status `ERROR`
+with the message.
+
+Known imprecision: durations come from `performance.now()` deltas but anchors from `Date.now()` in
+two JS contexts, so `background.process` can poke slightly outside `content.wait`. Accepted — not
+clamped.
+
+### Key files
+
+- `utils/telemetry/otlpJson.ts` — id/timestamp/attribute encoding (nanos are BigInt-derived
+  **strings**; traceId 32 hex, spanId 16 hex; enums as ints)
+- `utils/telemetry/wideEventToOtlp.ts` — wide event → span tree + wide log record
+- `utils/telemetry/otlpExporter.ts` — zero-dependency batching exporter (2 s flush, drop on failure
+  with rate-limited warn; never logs through `logger` — loop risk)
+- `utils/telemetry/telemetry.ts` — background orchestrator: pending-merge map, settings sync,
+  runtime-message listener for forwarded consola records
+
+## Two separate systems (unchanged)
+
+1. **Wide events** — ephemeral debug output in `browser.storage.session` (last 500), exported via
+   Copy Logs / `__hbDumpEvents` / OTLP.
+2. **Prediction cache** — persistent per-image records in IndexedDB (`IImagePrediction`, including
+   `processingTime`), which also powers the popup PerformanceStats panel.
+
+## Design decisions
+
+| Decision                              | Rationale                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------- |
+| Hash URL for reqId                    | Stable ID — same image always has same reqId                              |
+| Random traceId per processing attempt | Same image can be processed many times; reqId attribute links them        |
+| `browser.storage.session` for events  | Ephemeral, shared across contexts, no disk I/O                            |
+| Single-line JSON console output       | Object logs flatten to `Object` in MCP console capture                    |
+| OTLP dev-only, localhost-only         | Extension processes browsing data; telemetry must never leave the machine |
+| Hand-rolled OTLP JSON exporter        | ~150 lines, zero deps; official browser SDK is experimental and heavy     |
+| Drop failed export batches            | Dev tooling; the extension must never degrade because a collector is down |

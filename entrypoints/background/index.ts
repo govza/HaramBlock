@@ -20,6 +20,11 @@ const WEBGPU_DEFAULT_MODEL_ID = 'sem-i448';
 export default defineBackground({
   type: 'module',
   main() {
+    // Dev-only OTLP telemetry (dynamic import keeps it out of production chunks)
+    if (import.meta.env.DEV) {
+      void import('@/utils/telemetry').then(t => t.initTelemetry());
+    }
+
     // Initialize core services (business logic layer)
     const hostSettingsService = new HostSettingsService();
     const imageCacheService = new ImageCacheService();
