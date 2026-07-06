@@ -60,6 +60,11 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
     return oldest && newest ? newest.mediaTime - oldest.mediaTime : 0;
   }
 
+  /** Media time of the earliest buffered frame; null while empty. */
+  oldestTime(): number | null {
+    return this.frames[0]?.mediaTime ?? null;
+  }
+
   bytes(): number {
     return this.totalBytes;
   }

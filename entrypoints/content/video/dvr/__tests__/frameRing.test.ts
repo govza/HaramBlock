@@ -68,6 +68,16 @@ describe('FrameRing', () => {
     expect(ring.spanSec()).toBe(0);
   });
 
+  it('exposes the earliest buffered time for warm-up pinning', () => {
+    const ring = new FrameRing<FakeBitmap>(10, BIG);
+    expect(ring.oldestTime()).toBeNull();
+    ring.push({ bitmap: new FakeBitmap(), mediaTime: 2.5 });
+    ring.push({ bitmap: new FakeBitmap(), mediaTime: 3 });
+    expect(ring.oldestTime()).toBe(2.5);
+    ring.release();
+    expect(ring.oldestTime()).toBeNull();
+  });
+
   it('release closes every buffered bitmap', () => {
     const ring = new FrameRing<FakeBitmap>(10, BIG);
     const bitmaps = [new FakeBitmap(), new FakeBitmap(), new FakeBitmap()];

@@ -137,12 +137,17 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the regis
 - **Unsafe verdict while playing** (or `play` on an already-masked video) → instant whole-blur +
   `startDvr`: the registry creates a `FrameRing` (rVFC captures, ≤640 px wide, ~13 fps, bounded by
   `D`+slack and a 40 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by `timestampSec`).
-- **`bufferReady`** (ring spans `D`; the player inserted its canvas and hid the native element) →
-  `presenting`: blur and any leftover DOM overlay are swapped out. While presenting, per-verdict
-  `applyVerdict` DOM renders are suppressed — the player composites masks itself. Audio is routed
-  through a WebAudio `DelayNode` at the same `D` (`dvr/audioDelay.ts`), keeping lip-sync; it falls
-  back to live audio when the element cannot be captured (site already holds a `MediaElementSource`,
-  suspended `AudioContext`, cross-origin samples WebAudio would zero out).
+- **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
+  element) → `presenting`: blur and any leftover DOM overlay are swapped out almost immediately.
+  While the buffer is still shorter than `D`, presentation pins on the earliest buffered frame —
+  masked — like a rebuffering pause (the audio delay-line fill produces a matching gap), then runs
+  `D` behind the live edge. The whole-blur therefore covers only the ~100 ms until the first buffer
+  capture, not a `D`-long warm-up; seeks and loop restarts get the same masked pause. While
+  presenting, per-verdict `applyVerdict` DOM renders are suppressed — the player composites masks
+  itself. Audio is routed through a WebAudio `DelayNode` at the same `D` (`dvr/audioDelay.ts`),
+  keeping lip-sync; it falls back to live audio when the element cannot be captured (site already
+  holds a `MediaElementSource`, suspended `AudioContext`, cross-origin samples WebAudio would zero
+  out).
 - **Per presented frame** (`videoDvrPlayer.ts`): look up verdicts within the Inertia Window
   (observed sampling cadence + jitter margin) around the frame's media time. Unsafe → composite the
   union of their masks (RLE-decoded once, pixelated content + destination-in); clean → draw plain. A

@@ -66,7 +66,7 @@ export class VerdictTrack {
    * between two clean verdicts presents clean, and a lone clean neighbor
    * covers a short overshoot. Only genuine verdict silence stays 'none'.
    */
-  verdictFor(mediaTime: number, windowSec: number): VerdictLookup {
+  verdictFor(mediaTime: number, windowSec: number, bridgeHorizonSec = BRIDGE_HORIZON_SEC): VerdictLookup {
     const inWindow = this.entries.filter(entry => Math.abs(entry.timestampSec - mediaTime) <= windowSec);
     if (inWindow.length) {
       const unsafe = inWindow.filter(entry => entry.unsafe);
@@ -74,10 +74,10 @@ export class VerdictTrack {
     }
 
     const previous = this.entries.findLast(
-      entry => entry.timestampSec <= mediaTime && mediaTime - entry.timestampSec <= BRIDGE_HORIZON_SEC,
+      entry => entry.timestampSec <= mediaTime && mediaTime - entry.timestampSec <= bridgeHorizonSec,
     );
     const next = this.entries.find(
-      entry => entry.timestampSec >= mediaTime && entry.timestampSec - mediaTime <= BRIDGE_HORIZON_SEC,
+      entry => entry.timestampSec >= mediaTime && entry.timestampSec - mediaTime <= bridgeHorizonSec,
     );
 
     const unsafeNeighbors = [previous, next].filter((entry): entry is VerdictEntry => Boolean(entry?.unsafe));
