@@ -6,6 +6,7 @@ APIs, and implementation details). If you’re a user, start with the project
 
 ## Start Here
 
+- **Project overview and vocabulary**: [CONTEXT.md](CONTEXT.md)
 - **Build / verify a release**: [SOURCE_CODE_REVIEW.md](SOURCE_CODE_REVIEW.md)
 - **Understand the overall architecture**:
   - [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md) (content script - runs on webpages)
