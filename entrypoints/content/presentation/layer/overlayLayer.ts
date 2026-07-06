@@ -1,4 +1,4 @@
-import { hasArea, isUnclipped } from '@/entrypoints/content/presentation/layer/geometry';
+import { hasArea, isUnclipped, nextHostZ, MAX_Z_INDEX } from '@/entrypoints/content/presentation/layer/geometry';
 import { GeometryTracker } from '@/entrypoints/content/presentation/layer/geometryTracker';
 
 import type { ILayerGeometry, IOverlaySlot } from '@/utils/types/presentation';
@@ -17,7 +17,6 @@ interface InternalSlot {
 }
 
 const HOST_TAG = 'haramblock-overlay-layer';
-const MAX_Z_INDEX = '2147483647';
 
 const HOST_STYLE = [
   'position: fixed',
@@ -38,6 +37,10 @@ const HOST_STYLE = [
   // declaration so the UA popover rules keep working during fullscreen promotion.
   'display: block',
   'visibility: visible !important',
+  // Initial fail-closed value; syncHostZ lowers it to one above the highest z-index
+  // on any tracked element's ancestor chain, so site chrome (sticky navbars,
+  // dropdowns) with a higher z-index paints over masks exactly as it paints over
+  // the masked elements themselves.
   `z-index: ${MAX_Z_INDEX}`,
 ].join('; ');
 
@@ -82,6 +85,10 @@ class OverlayLayer {
         hooks.onDetach?.();
       },
     });
+    // Synchronous raise: an element inside a high-z container must never get a frame
+    // where it paints above its own mask. Lowering (after detach) happens lazily on
+    // the tick heartbeat — late lowering is safe.
+    this.syncHostZ();
 
     return {
       root: slotEl,
@@ -163,13 +170,33 @@ class OverlayLayer {
       this.host = host;
       this.root = root;
       document.addEventListener('fullscreenchange', this.syncFullscreen);
-      this.tracker.onTick = () => this.ensureHostConnected();
+      this.tracker.onTick = () => {
+        this.ensureHostConnected();
+        this.syncHostZ();
+      };
       // Hits on our own host (the quick-toggle button) must not count as occluders
       this.tracker.shouldIgnoreOccluder = candidate => candidate === host;
     }
 
     this.ensureHostConnected();
     return this.root as HTMLDivElement;
+  }
+
+  /**
+   * Keeps the host z-index one above the highest z-index on any tracked element's
+   * ancestor chain: masks always paint above their elements, while higher-z site
+   * chrome (navbars, dropdowns, lightboxes) covers masks just like it covers the
+   * elements themselves. Any failure falls back to the maximum (fail-closed).
+   */
+  private syncHostZ(): void {
+    const { host } = this;
+    if (!host) return;
+    // A failed chain walk surfaces as Infinity, which nextHostZ clamps to the maximum.
+    const value = String(nextHostZ(this.tracker.maxChainZ()));
+    if (host.style.getPropertyValue('z-index') !== value) {
+      // `important` outranks site stylesheets targeting our host tag.
+      host.style.setProperty('z-index', value, 'important');
+    }
   }
 
   /** Self-heal: re-append the host if the site removed it, and keep fullscreen state in sync. */

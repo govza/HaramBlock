@@ -1,4 +1,10 @@
-import { clipsEqual, computeClipInsets, hasArea, rectsEqual } from '@/entrypoints/content/presentation/layer/geometry';
+import {
+  clipsEqual,
+  computeClipInsets,
+  hasArea,
+  parseZIndex,
+  rectsEqual,
+} from '@/entrypoints/content/presentation/layer/geometry';
 import { isElementOccluded } from '@/entrypoints/content/presentation/layer/occlusion';
 
 import type { IClipInsets, ILayerGeometry, ILayerRect } from '@/utils/types/presentation';
@@ -15,10 +21,13 @@ interface TrackerEntry {
   callbacks: IGeometryTrackerCallbacks;
   /** Ancestors with non-visible overflow, cached at track time. */
   clipAncestors: Element[];
+  /** Highest numeric z-index on the element's flattened ancestor chain (see chainMaxZ). */
+  chainZ: number;
   lastRect?: ILayerRect;
   lastClip?: IClipInsets | null;
   occluded: boolean;
-  occludedCheckedAt: number;
+  /** Timestamp of the last slow scan (occlusion hit-testing + chainZ re-walk). */
+  slowScannedAt: number;
   intersecting: boolean;
   dirty: boolean;
 }
@@ -27,11 +36,13 @@ interface TrackerEntry {
 const INTERSECTION_MARGIN = '100px';
 
 /**
- * Occlusion uses hit testing (forced layout per sample point), so it runs at most this
- * often per element — a lightbox appearing is a user-visible transition where ~200 ms
- * of latency is imperceptible, unlike per-frame position tracking.
+ * Occlusion uses hit testing (forced layout per sample point) and the chainZ walk
+ * reads computed styles up the ancestor chain, so this slow scan runs at most this
+ * often per element — a lightbox appearing or a container's z-index changing is a
+ * user-visible transition where ~200 ms of latency is imperceptible, unlike
+ * per-frame position tracking.
  */
-const OCCLUSION_INTERVAL_MS = 200;
+const SLOW_SCAN_INTERVAL_MS = 200;
 
 const rectOf = (element: Element): ILayerRect => {
   const rect = element.getBoundingClientRect();
@@ -54,6 +65,42 @@ const parentOf = (element: Element): Element | null => {
   if (element.parentElement) return element.parentElement;
   const root = element.getRootNode();
   return root instanceof ShadowRoot ? root.host : null;
+};
+
+/**
+ * Rendered (flattened-tree) parent: slotted elements paint inside their assigned
+ * slot's shadow subtree, so the walk must go through `assignedSlot` — a plain
+ * parentElement walk would skip shadow-internal wrappers and their z-indexes.
+ */
+const flatParentOf = (element: Element): Element | null => {
+  if (element.assignedSlot) return element.assignedSlot;
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+};
+
+/**
+ * Highest numeric z-index on the element's flattened ancestor chain (element
+ * included, documentElement excluded), floored at 0.
+ *
+ * One above this value is guaranteed to paint over the element in the root stacking
+ * context: the element's root-level stacking ancestor either has a numeric z-index
+ * (which is on this chain) or stacks at the auto/0 level (beaten by z-index 1).
+ * z-indexes trapped inside nested stacking contexts only OVERestimate — the mask
+ * floats above more site content than strictly needed, never below its own element.
+ * A failed walk returns Infinity, which the layer clamps to the maximum (fail-closed).
+ */
+const chainMaxZ = (element: Element): number => {
+  try {
+    let max = 0;
+    for (let node: Element | null = element; node && node !== document.documentElement; node = flatParentOf(node)) {
+      const z = parseZIndex(getComputedStyle(node).zIndex);
+      if (z !== null && z > max) max = z;
+    }
+    return max;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 };
 
 /**
@@ -105,8 +152,11 @@ export class GeometryTracker {
       element,
       callbacks,
       clipAncestors: findClipAncestors(element),
+      // Computed synchronously so the layer can raise its host z-index before the
+      // initial geometry callback paints the first mask frame.
+      chainZ: chainMaxZ(element),
       occluded: false,
-      occludedCheckedAt: 0,
+      slowScannedAt: 0,
       // Assume visible until the IntersectionObserver reports, so the first frames poll.
       intersecting: true,
       dirty: true,
@@ -137,7 +187,17 @@ export class GeometryTracker {
     if (!entry) return;
     entry.dirty = true;
     entry.clipAncestors = findClipAncestors(element);
+    entry.chainZ = chainMaxZ(element);
     this.schedule();
+  }
+
+  /** Highest chainZ across all tracked elements; the layer derives its host z-index from it. */
+  maxChainZ(): number {
+    let max = 0;
+    for (const entry of this.entries.values()) {
+      if (entry.chainZ > max) max = entry.chainZ;
+    }
+    return max;
   }
 
   dispose(): void {
@@ -242,14 +302,19 @@ export class GeometryTracker {
   private measure(entry: TrackerEntry): ILayerGeometry {
     const rect = rectOf(entry.element);
     const clip = hasArea(rect) ? computeClipInsets(rect, entry.clipAncestors.map(clipRectOf)) : null;
-    return { rect, clip, occluded: this.measureOcclusion(entry, rect, clip) };
+    return { rect, clip, occluded: this.slowScan(entry, rect, clip) };
   }
 
-  /** Throttled: hit testing is comparatively expensive and occlusion changes are slow. */
-  private measureOcclusion(entry: TrackerEntry, rect: ILayerRect, clip: IClipInsets | null): boolean {
+  /**
+   * Throttled slow path: occlusion hit testing and the chainZ ancestor re-walk are
+   * comparatively expensive, and both change on user-visible transitions where
+   * ~200 ms of latency is imperceptible.
+   */
+  private slowScan(entry: TrackerEntry, rect: ILayerRect, clip: IClipInsets | null): boolean {
     const now = Date.now();
-    if (now - entry.occludedCheckedAt < OCCLUSION_INTERVAL_MS) return entry.occluded;
-    entry.occludedCheckedAt = now;
+    if (now - entry.slowScannedAt < SLOW_SCAN_INTERVAL_MS) return entry.occluded;
+    entry.slowScannedAt = now;
+    entry.chainZ = chainMaxZ(entry.element);
     if (!hasArea(rect) || clip === null) return false;
     return isElementOccluded(entry.element, rect, clip, this.shouldIgnoreOccluder);
   }
