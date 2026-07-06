@@ -1,5 +1,5 @@
 /**
- * Pure VideoSession state machine (ADR 0001). No DOM, no timers, no transport:
+ * Pure VideoSession state machine (docs/VIDEO_PROCESSING.md). No DOM, no timers, no transport:
  * events carry timestamps in, effects describe what the adapter must do out.
  */
 

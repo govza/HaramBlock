@@ -1,10 +1,38 @@
 # Video Processing Architecture
 
-This document describes how HaramBlock detects, samples, and masks `<video>` content. The design is
-recorded in [ADR 0001](./adr/0001-video-session-state-machine.md) (session machine) and
-[ADR 0002](./adr/0002-dvr-delayed-presentation.md) (DVR presentation, allow-on-impossible); the
-domain vocabulary (VideoSession, Thumbnail, Frame Sample, Stale Prediction, Verdict, Fail-closed,
-DVR, Presentation Delay, Inertia Window) is defined in the root [CONTEXT.md](../CONTEXT.md).
+This document describes how HaramBlock detects, samples, and masks `<video>` content — the
+architecture, the vocabulary, and the design decisions behind it. General (non-video) vocabulary
+(Verdict, Prediction, Fail-closed) is defined in [CONTEXT.md](CONTEXT.md).
+
+## Vocabulary
+
+**VideoSession**: The binding of one video element to one resolved source. Born when the pipeline
+adopts a video whose source is resolved; dies when the source changes or the element is removed.
+Pauses, replays, and seeks all happen inside a single VideoSession. _Avoid_: playback session,
+playback run
+
+**Thumbnail**: The first-pass input for a video's initial verdict — its poster image, or its first
+frame when no poster exists. Analyzed before any playback. _Avoid_: poster (that is only one source
+of a thumbnail)
+
+**Frame Sample**: A single playback frame captured from a video and sent for inference. Frame
+Samples are ordered within their VideoSession by a monotonic capture counter. _Avoid_: frame grab,
+screenshot
+
+**Stale Prediction**: A prediction that must not be applied: it belongs to a dead VideoSession, or
+an older Frame Sample than one already applied. _Avoid_: late result, outdated frame
+
+**DVR**: The delayed-presentation mode for masked playback: the video element keeps decoding while a
+canvas presents buffered frames one Presentation Delay behind the live edge, compositing frame and
+mask in the same draw. _Avoid_: canvas player (that is the GIF mechanism), delay overlay
+
+**Presentation Delay (D)**: How far behind the live edge the DVR presents, sized so a frame's
+verdict resolves before the frame is shown. _Avoid_: lag, latency (those describe the problem, not
+the mechanism)
+
+**Inertia Window**: The span of media time around a Frame Sample over which its verdict applies
+during DVR presentation, derived from the observed sampling cadence. The video analog of GIF mask
+inertia. _Avoid_: tolerance, slack
 
 ## Overview
 
@@ -183,6 +211,57 @@ Set by the machine's `setStatus` effect (contract kept from the previous pipelin
 
 Exactly one is present after finalization; all are removed on disposal. The initial blur uses the
 shared `haramblock-initial-blur` class.
+
+## Design rationale
+
+Condensed from the two architecture decisions this pipeline is built on (issue #53, PRs #69/#70).
+
+### A pure per-session state machine, routed by session, fail-closed
+
+Issue #53 reported the old pipeline as unreliable: `<source>`-children and `preload="none"` videos
+were never picked up, late predictions could clear a mask a newer unsafe frame had just applied,
+seeks left stale masks, and a dead service worker left videos blurred forever (or unprotected
+mid-playback). These were consequences of the design — implicit state scattered across `dataset`
+flags, a rAF/token-bucket loop paced by a global timing event, URL-based DOM queries for result
+routing — so it was rearchitected rather than patched into the VideoSession machine described above.
+
+Considered and rejected:
+
+- **Patching the existing loop** — each symptom had a point fix, but the implicit-state design kept
+  regenerating new races.
+- **Session = playback run or seek-delimited epoch** — per-run identities orphan in-flight
+  predictions and fragment any future prediction cache; monotonic frameIndex ordering makes seek
+  races benign without discarding valid results.
+- **URL-based routing with added validation** — same-URL videos sharing verdicts is a correctness
+  hazard, and routing stays coupled to `dataset` attributes.
+- **Symmetric temporal smoothing** — requiring N positive samples before masking shows unsafe frames
+  while "warming up", contradicting the protection-first stance.
+
+Accepted consequence: same-URL videos on one page each run their own session and duplicate inference
+cost; routing correctness wins.
+
+### DVR delayed presentation; allow on inference-impossible
+
+The session machine made masking reliable but not synchronous: a DOM overlay applied "now" describes
+a frame displayed one inference round-trip ago, so on a playing video the mask chases the content
+and unsafe regions leak between samples. The GIF pipeline avoids this by deferring playback until
+verdicts exist, compositing frame + mask atomically, and stretching each verdict with inertia — the
+DVR gives video those same three properties (see the DVR section above).
+
+Considered and rejected:
+
+- **Predictive overlays** (extrapolate mask motion) — guessing where unsafe content moved is exactly
+  the failure mode the pipeline exists to prevent.
+- **Pause playback until verdicts arrive** (the GIF model literally) — videos are long and streamed;
+  freezing playback per sample is unusable, and sites fight scripted pauses.
+- **Block on inference-impossible** — permanently blurring everything the pipeline cannot read (most
+  cross-origin videos without CORS headers) breaks far more legitimate content than it protects;
+  hence ERROR = allow.
+- **Buffer every playing video pre-emptively** — tens of MB per video for the common safe case; the
+  masked rebuffer already covers the warm-up gap.
+
+Accepted consequences: masked playback costs one delayed canvas plus a hard-capped ring buffer per
+session; content jumps forward by `D` when the mask clears.
 
 ## Testing
 

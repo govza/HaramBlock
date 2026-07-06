@@ -1,5 +1,5 @@
 /**
- * VideoSession registry and DOM adapter (ADR 0001).
+ * VideoSession registry and DOM adapter (docs/VIDEO_PROCESSING.md).
  *
  * The registry owns every live VideoSession (element × resolved source), routes
  * frame predictions by sessionId (no DOM queries), and executes the pure
