@@ -32,7 +32,12 @@ const HOST_STYLE = [
   'background: transparent',
   'overflow: visible',
   'pointer-events: none',
+  // The host tag is a custom-element name that is never registered, so site FOUC
+  // guards like `:not(:defined) { visibility: hidden }` (Reddit) match it and hide
+  // every mask. Inline !important outranks any author rule; display stays a normal
+  // declaration so the UA popover rules keep working during fullscreen promotion.
   'display: block',
+  'visibility: visible !important',
   `z-index: ${MAX_Z_INDEX}`,
 ].join('; ');
 
