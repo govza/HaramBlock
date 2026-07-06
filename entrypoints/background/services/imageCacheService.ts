@@ -2,6 +2,42 @@ import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
 import { logger } from '@/utils/logger';
 import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
+// Letterbox crop rounding shifts the grid content box by up to ~1 cell; anything
+// beyond this is real element/resource dimension skew (e.g. srcset density-corrected
+// naturalWidth), which paints masks at the wrong scale.
+const DIMS_TOLERANCE = 0.02;
+
+/**
+ * Warns when a prediction's stored dimensions disagree with its own maskTransform.
+ * Invariant: (mask.width - 2*offsetX) * scaleX ≈ prediction.width (same for Y) — the
+ * mask grid's content box scaled back to image space must land on the image dims.
+ */
+const warnIfInconsistent = (prediction: IImagePrediction): void => {
+  if (!prediction.width || !prediction.height) return;
+  const mask = prediction.predictions.find(p => p.masks && p.masks.width > 0)?.masks;
+  if (!mask) return;
+
+  const { scaleX, scaleY, offsetX, offsetY } = prediction.maskTransform;
+  const expectedW = (mask.width - 2 * offsetX) * scaleX;
+  const expectedH = (mask.height - 2 * offsetY) * scaleY;
+  const skewX = Math.abs(expectedW - prediction.width) / prediction.width;
+  const skewY = Math.abs(expectedH - prediction.height) / prediction.height;
+  if (skewX <= DIMS_TOLERANCE && skewY <= DIMS_TOLERANCE) return;
+
+  logger.withTag('imageCacheService').warn(
+    `prediction self-consistency failed ${JSON.stringify({
+      src: prediction.src.slice(-60),
+      width: prediction.width,
+      height: prediction.height,
+      expectedW: Math.round(expectedW),
+      expectedH: Math.round(expectedH),
+      maskTransform: prediction.maskTransform,
+      gridW: mask.width,
+      gridH: mask.height,
+    })}`,
+  );
+};
+
 /**
  * ImageCacheService handles business logic for image prediction cache
  * Coordinates between controllers and data layer for cached image predictions
@@ -25,6 +61,7 @@ export class ImageCacheService {
   async cachePredictions(predictions: IImagePrediction[]): Promise<void> {
     try {
       const cachePromises = predictions.map(async prediction => {
+        warnIfInconsistent(prediction);
         // Save prediction directly (upsert)
         // The database schema ensures src uniqueness, so put() will overwrite existing entries
         return this.repository.savePrediction(prediction);

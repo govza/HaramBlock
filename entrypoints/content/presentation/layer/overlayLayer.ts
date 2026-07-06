@@ -1,5 +1,6 @@
 import { hasArea, isUnclipped } from '@/entrypoints/content/presentation/layer/geometry';
 import { GeometryTracker } from '@/entrypoints/content/presentation/layer/geometryTracker';
+import { logger } from '@/utils/logger';
 
 import type { ILayerGeometry, IOverlaySlot } from '@/utils/types/presentation';
 
@@ -49,11 +50,15 @@ const SLOT_STYLE = 'position: absolute; top: 0; left: 0; display: none; pointer-
  * element); browsers without popover fall back to reparenting the host into the
  * fullscreen element.
  */
+const VISIBILITY_CHECK_INTERVAL_MS = 1000;
+
 class OverlayLayer {
   private host: HTMLElement | null = null;
   private root: HTMLDivElement | null = null;
   private readonly tracker = new GeometryTracker();
   private readonly slots = new Map<Element, InternalSlot>();
+  private lastVisibilityCheck = 0;
+  private hostHiddenWarned = false;
 
   attach(element: Element, hooks: IOverlaySlotHooks = {}, label = ''): IOverlaySlot {
     this.detach(element);
@@ -174,6 +179,37 @@ class OverlayLayer {
     if (!host.isConnected) {
       document.documentElement.appendChild(host);
       this.syncFullscreen();
+    }
+    this.checkHostVisibility();
+  }
+
+  /**
+   * Invariant: everything in the layer is invisible if site CSS hides the host itself —
+   * e.g. `:not(:defined) { visibility: hidden }` FOUC guards match our custom-element
+   * tag. Nothing else in the pipeline can distinguish "mask drawn" from "mask drawn but
+   * hidden", so warn (once per transition, checked at most every second).
+   */
+  private checkHostVisibility(): void {
+    const { host } = this;
+    if (!host?.isConnected || this.slots.size === 0) return;
+    const now = Date.now();
+    if (now - this.lastVisibilityCheck < VISIBILITY_CHECK_INTERVAL_MS) return;
+    this.lastVisibilityCheck = now;
+
+    const style = getComputedStyle(host);
+    const hidden = style.visibility !== 'visible' || style.display === 'none';
+    if (hidden && !this.hostHiddenWarned) {
+      this.hostHiddenWarned = true;
+      logger.withTag('overlayLayer').warn(
+        `overlay host hidden by site CSS ${JSON.stringify({
+          visibility: style.visibility,
+          display: style.display,
+          slots: this.slots.size,
+        })}`,
+      );
+    } else if (!hidden && this.hostHiddenWarned) {
+      this.hostHiddenWarned = false;
+      logger.withTag('overlayLayer').info('overlay host visible again');
     }
   }
 

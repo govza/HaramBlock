@@ -40,10 +40,34 @@ interface ResolvedBitmap {
   decodeTime: number;
 }
 
+// Element-reported dims that disagree with the decoded resource by more than this are
+// real skew (e.g. srcset density-corrected naturalWidth), not rounding.
+const DIMS_SKEW_TOLERANCE = 0.02;
+
+/** Warns when the element-reported dims deviate from the decoded bitmap's actual dims. */
+function warnIfDimsSkewed(task: InferenceTask, bitmap: ImageBitmap): void {
+  const { originalWidth, originalHeight } = task;
+  if (!originalWidth || !originalHeight || !bitmap.width || !bitmap.height) return;
+  const skewX = Math.abs(originalWidth - bitmap.width) / bitmap.width;
+  const skewY = Math.abs(originalHeight - bitmap.height) / bitmap.height;
+  if (skewX <= DIMS_SKEW_TOLERANCE && skewY <= DIMS_SKEW_TOLERANCE) return;
+
+  logger.withTag('prediction').warn(
+    `element/resource dims skew ${JSON.stringify({
+      src: task.imageSrc.slice(-60),
+      originalWidth,
+      originalHeight,
+      bitmapWidth: bitmap.width,
+      bitmapHeight: bitmap.height,
+    })}`,
+  );
+}
+
 // Mirrors processInferenceTask's old bitmap sources: MessageChannel transferable, Firefox
 // structured-clone blob, or a URL fetch fallback.
 async function resolveBitmap(task: InferenceTask): Promise<ResolvedBitmap> {
   if (task.bitmap) {
+    warnIfDimsSkewed(task, task.bitmap);
     return {
       bitmap: task.bitmap,
       imageWidth: task.originalWidth || task.bitmap.width,
@@ -56,6 +80,7 @@ async function resolveBitmap(task: InferenceTask): Promise<ResolvedBitmap> {
   if (task.blob) {
     const decodeStartTime = Date.now();
     const bitmap = await createImageBitmap(task.blob);
+    warnIfDimsSkewed(task, bitmap);
     return {
       bitmap,
       imageWidth: task.originalWidth || bitmap.width,

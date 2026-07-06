@@ -1,7 +1,11 @@
-import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import {
+  computeRenderedContentRect,
+  maskGridSrcRect,
+  type ContentRect,
+} from '@/entrypoints/content/presentation/imageLayout';
 import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
-import { logger } from '@/utils/logger';
+import { isConsoleLoggingEnabled, logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
 import {
@@ -35,6 +39,37 @@ function decodePredictionMasks(prediction: IImagePrediction): { masks: number[][
   }
   return allMasks;
 }
+
+// Last render snapshot per element — a redraw fires every frame during carousel scale
+// animations, so the snapshot is only logged when its inputs actually change.
+const lastRenderSnapshot = new WeakMap<HTMLImageElement, string>();
+
+/** One-line JSON render snapshot (single string so MCP console capture can read it). */
+const logRenderSnapshot = (image: HTMLImageElement, state: IMediaOverlayState, contentRect: ContentRect): void => {
+  if (!isConsoleLoggingEnabled()) return;
+  const prediction = state.currentPrediction;
+  if (!prediction) return;
+
+  const firstMask = state.decodedMasks?.find(m => m.masks.length);
+  const snapshot = JSON.stringify({
+    src: (image.currentSrc || image.src).slice(-60),
+    predWidth: prediction.width,
+    predHeight: prediction.height,
+    maskTransform: prediction.maskTransform,
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight,
+    srcMatches: (image.currentSrc || image.src) === prediction.src,
+    lastSize: state.lastSize,
+    contentRect,
+    gridW: firstMask?.masks[0]?.length ?? 0,
+    gridH: firstMask?.masks.length ?? 0,
+    objectFit: getComputedStyle(image).objectFit,
+  });
+
+  if (lastRenderSnapshot.get(image) === snapshot) return;
+  lastRenderSnapshot.set(image, snapshot);
+  logger.withTag('maskOverlay').debug(`render ${snapshot}`);
+};
 
 const CANVAS_STYLE = [
   'position: absolute',
@@ -187,6 +222,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     if (!state.decodedMasks?.length) return;
 
     const contentRect = computeRenderedContentRect(image, state.lastSize);
+    logRenderSnapshot(image, state, contentRect);
 
     renderUnifiedCanvasMask(
       state.canvas,

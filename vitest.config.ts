@@ -6,7 +6,8 @@ export default defineConfig({
     mockReset: true,
     restoreMocks: true,
     watch: false,
-    exclude: ['tests/e2e/**', 'node_modules/**'],
+    // .claude/** keeps runs in the main checkout from globbing into git worktrees
+    exclude: ['tests/e2e/**', 'node_modules/**', '.claude/**'],
   },
 
   plugins: [WxtVitest()],
