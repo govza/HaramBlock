@@ -58,6 +58,16 @@ describe('VerdictTrack', () => {
     expect(cleanTrack.verdictFor(3.5 + 1.2, 0.5)).toEqual({ kind: 'none' });
   });
 
+  it('stretches the unsafe bridge further when given a wider horizon (slow inference)', () => {
+    const track = new VerdictTrack();
+    track.add(entry(1, true));
+
+    // Beyond the default horizon…
+    expect(track.verdictFor(1 + BRIDGE_HORIZON_SEC + 1, 0.5).kind).toBe('none');
+    // …but a session whose round-trip demands it keeps masking instead.
+    expect(track.verdictFor(1 + BRIDGE_HORIZON_SEC + 1, 0.5, BRIDGE_HORIZON_SEC + 2).kind).toBe('unsafe');
+  });
+
   it('merges all unsafe verdicts inside the window (inertia)', () => {
     const track = new VerdictTrack();
     const a = entry(1, true);

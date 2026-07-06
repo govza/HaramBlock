@@ -14,12 +14,12 @@
 
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
+import { BRIDGE_HORIZON_SEC, type VerdictEntry, type VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 
 import type { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
-import type { VerdictEntry, VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import type { IMaskingSettings } from '@/utils/types';
 import type { IOverlaySlot } from '@/utils/types/presentation';
 
@@ -49,7 +49,7 @@ export interface VideoDvrPlayerOptions {
   getDelaySec: () => number;
   /** Live view of the host masking settings (quick toggle may change them). */
   getMasking: () => IMaskingSettings;
-  /** Fired once, when the buffer first spans delaySec and the canvas has taken over. */
+  /** Fired once, when the canvas takes over (first buffered frame, pinned until the buffer spans D). */
   onReady: () => void;
 }
 
@@ -100,7 +100,10 @@ export class VideoDvrPlayer {
     this.rafId = requestAnimationFrame(this.tick);
     try {
       if (!this.surfaces) {
-        if (this.opts.ring.spanSec() >= this.opts.getDelaySec()) this.beginPresentation();
+        // Present from the very first buffered frame: instead of a whole-blur
+        // warm-up, the viewer sees a masked "rebuffering" pause — the earliest
+        // frame, pinned until the buffer reaches back D (see draw()).
+        if (this.opts.ring.oldestTime() !== null) this.beginPresentation();
         return;
       }
       this.draw();
@@ -109,7 +112,7 @@ export class VideoDvrPlayer {
     }
   };
 
-  /** The buffer is warm: take a layer slot, hide the native element, report readiness. */
+  /** First frame buffered: take a layer slot, hide the native element, report readiness. */
   private beginPresentation(): void {
     const { video, onReady } = this.opts;
 
@@ -163,11 +166,21 @@ export class VideoDvrPlayer {
     const { width, height } = this.lastSize;
     if (width <= 0 || height <= 0) return;
 
-    const targetTime = video.currentTime - getDelaySec();
+    const delaySec = getDelaySec();
+    // Clamped to the earliest buffered frame: while the buffer is still
+    // shorter than D (warm-up, post-seek re-warm, loop restart), playback
+    // holds on that frame — masked — until now − D reaches it, then runs.
+    const oldest = ring.oldestTime();
+    const targetTime = oldest === null ? video.currentTime - delaySec : Math.max(video.currentTime - delaySec, oldest);
     const frame = ring.frameAt(targetTime);
     track.prune(targetTime - TRACK_PRUNE_SLACK_SEC);
     const masking = getMasking();
-    const verdict = frame ? track.verdictFor(frame.mediaTime, track.inertiaWindowSec()) : ({ kind: 'none' } as const);
+    // When inference cannot keep up, stretch verdicts (inertia) further rather
+    // than blurring: the bridge horizon scales with the observed round-trip.
+    const bridgeHorizonSec = Math.max(BRIDGE_HORIZON_SEC, delaySec * 2);
+    const verdict = frame
+      ? track.verdictFor(frame.mediaTime, track.inertiaWindowSec(), bridgeHorizonSec)
+      : ({ kind: 'none' } as const);
 
     // The 'none' fallback draws the live element, which changes every tick;
     // everything else redraws only when the frame, verdict, or size moved
@@ -178,7 +191,9 @@ export class VideoDvrPlayer {
         : [
             frame?.mediaTime,
             verdict.kind,
-            verdict.kind === 'unsafe' ? verdict.entries.length : 0,
+            // Verdict identity, not just count: while pinned on the warm-up
+            // frame, a newer verdict must refresh the mask geometry.
+            verdict.kind === 'unsafe' ? verdict.entries.map(entry => entry.timestampSec).join(',') : '',
             width,
             height,
             masking.pixelationScale,
