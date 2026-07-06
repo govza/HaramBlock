@@ -28,7 +28,7 @@ export default defineContentScript({
       // Clear stale badge left by previous document in this tab (after RPC is connected)
       void resetBadgeCount();
 
-      const hostData = await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
+      await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
         // Clean up existing instances
         if (stopPipeline) {
           stopPipeline();
@@ -57,11 +57,11 @@ export default defineContentScript({
         }
       });
 
-      // Cleanup on page unload
-      globalThis.addEventListener('beforeunload', () => {
-        if (stopPipeline) stopPipeline();
-        hostData.cleanup();
-      });
+      // No unload cleanup on purpose: after a refresh/navigation the old page stays
+      // painted until the next document arrives, and tearing the overlay layer down in
+      // beforeunload uncovers everything during that window. If the navigation is
+      // canceled, the page keeps living and still needs a working pipeline. Resources
+      // are reclaimed with the document either way.
     } catch (error) {
       logger.withTag('content').error('Error during initialization:', error);
       hideInitStyle.remove();
