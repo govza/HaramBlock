@@ -576,6 +576,15 @@ image when the `<img>` element is resized or uses CSS `object-fit`.
 - **Page element box**: the rendered CSS box (`getBoundingClientRect`)
 - **Content rect**: visible image pixels inside the box after `object-fit` is applied
 
+> **srcset pitfall**: for `<img srcset="... 640w, ..." sizes="...">`, `naturalWidth/naturalHeight`
+> are **density-corrected CSS dimensions**, not the loaded resource's pixels (a 944px-wide variant
+> can report `naturalWidth = 1199`). They are safe for aspect-ratio math (`object-fit`), but must
+> never be used as a `drawImage` **source rect** — source rects are in resource pixel space, and an
+> overshooting rect gets clipped with the destination shrunk proportionally, which painted masks
+> only over the top-left of Reddit gallery images. Use the 5-arg `drawImage` to map the whole
+> source. For the same reason the background derives prediction `width/height` from the decoded
+> `ImageBitmap`, not from the element-reported dimensions.
+
 ### Letterboxing Transform
 
 During preprocessing, the original image is scaled to fit the model input with letterboxing. The

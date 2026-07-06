@@ -43,11 +43,14 @@ interface ResolvedBitmap {
 // Mirrors processInferenceTask's old bitmap sources: MessageChannel transferable, Firefox
 // structured-clone blob, or a URL fetch fallback.
 async function resolveBitmap(task: InferenceTask): Promise<ResolvedBitmap> {
+  // The decoded bitmap is the ground truth for dimensions. task.originalWidth carries
+  // img.naturalWidth, which for srcset images with w descriptors is the density-corrected
+  // CSS size, not the fetched resource's pixels — trusting it skews prediction metadata.
   if (task.bitmap) {
     return {
       bitmap: task.bitmap,
-      imageWidth: task.originalWidth || task.bitmap.width,
-      imageHeight: task.originalHeight || task.bitmap.height,
+      imageWidth: task.bitmap.width || task.originalWidth || 0,
+      imageHeight: task.bitmap.height || task.originalHeight || 0,
       fetchTime: task.fetchTime ?? 0,
       decodeTime: task.decodeTime ?? 0,
     };
@@ -58,8 +61,8 @@ async function resolveBitmap(task: InferenceTask): Promise<ResolvedBitmap> {
     const bitmap = await createImageBitmap(task.blob);
     return {
       bitmap,
-      imageWidth: task.originalWidth || bitmap.width,
-      imageHeight: task.originalHeight || bitmap.height,
+      imageWidth: bitmap.width || task.originalWidth || 0,
+      imageHeight: bitmap.height || task.originalHeight || 0,
       fetchTime: task.fetchTime ?? 0,
       decodeTime: Date.now() - decodeStartTime,
     };

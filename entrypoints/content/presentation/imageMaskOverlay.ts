@@ -254,18 +254,12 @@ const renderUnifiedCanvasMask = (
   tctx.imageSmoothingEnabled = true; // smoother downscale average
   tctx.clearRect(0, 0, smallW, smallH);
 
-  // Use the entire natural image dimensions for proper scaling
-  tctx.drawImage(
-    image,
-    0,
-    0,
-    image.naturalWidth,
-    image.naturalHeight, // source rect (entire natural image)
-    0,
-    0,
-    smallW,
-    smallH, // destination rect (small canvas)
-  );
+  // Draw the entire source image. Never pass naturalWidth/naturalHeight as a source
+  // rect: for srcset images with w descriptors they are density-corrected CSS
+  // dimensions, not resource pixels, so the rect overshoots the bitmap and the
+  // clipped draw leaves the bottom/right of the content unpixelated (and therefore
+  // unmasked after the destination-in composite).
+  tctx.drawImage(image, 0, 0, smallW, smallH);
 
   ctx.imageSmoothingEnabled = false; // crisp, blocky upscale
   ctx.clearRect(0, 0, canvas.width, canvas.height);
