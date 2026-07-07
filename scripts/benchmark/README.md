@@ -16,7 +16,7 @@ pnpm bench -- --batch=1,2,4,8 --configs=webgpu  # batched throughput sweep
 
 Results print as a markdown table and are saved as JSON under `scripts/benchmark/results/`.
 
-## Batched inference (docs/PLAN.md Phase 0)
+## Batched inference
 
 `--batch=1,2,4,8` runs each config with an `[N,3,H,W]` input and reports per-image latency
 (`img(ms)`) and per-image throughput (`imgs/s`) alongside the per-call figures, so batches compare
