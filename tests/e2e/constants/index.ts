@@ -5,8 +5,10 @@ export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 export const INFERENCE_TIMEOUT = 80_000;
 
 export const Selectors = {
-  /** The extension-owned overlay layer host; masks and the eye toggle live in its shadow root */
+  /** The extension-owned overlay layer host; masks live in its shadow root */
   OVERLAY_HOST: 'haramblock-overlay-layer',
+  /** The always-on-top UI host; the eye toggle lives in its shadow root */
+  UI_HOST: 'haramblock-overlay-ui',
   SEGMENT_OVERLAY: '[data-overlay-slot="image-mask"]',
   BLACKLIST_ATTR: 'data-haramblock-blacklist',
   GALLERY_IMAGE: 'main img',

@@ -77,6 +77,38 @@ export const parseZIndex = (value: string): number | null => {
   return Number.isNaN(parsed) ? null : parsed;
 };
 
+/** The computed-style subset the stacking-context predicate reads (unit-testable). */
+export interface IStackingStyle {
+  position: string;
+  zIndex: string;
+  transform: string;
+  filter: string;
+  opacity: string;
+  isolation: string;
+  mixBlendMode: string;
+  perspective: string;
+  backdropFilter?: string;
+}
+
+const isSetTo = (value: string | undefined, other: string): boolean => Boolean(value) && value !== other;
+
+/**
+ * True when the computed style GUARANTEES the element creates a stacking context.
+ * Deliberately incomplete: a missed trigger (`will-change`, `contain`, plain
+ * `position: sticky`, future CSS) only makes chainMaxZ overestimate — safe. A false
+ * positive here would discard a real z-index below the node and could put a mask
+ * UNDER its own element, so every listed trigger must be spec-certain.
+ */
+export const createsStackingContext = (style: IStackingStyle): boolean =>
+  isSetTo(style.transform, 'none') ||
+  isSetTo(style.filter, 'none') ||
+  isSetTo(style.backdropFilter, 'none') ||
+  isSetTo(style.perspective, 'none') ||
+  isSetTo(style.mixBlendMode, 'normal') ||
+  style.isolation === 'isolate' ||
+  (style.opacity !== '' && Number(style.opacity) < 1) ||
+  (isSetTo(style.position, 'static') && parseZIndex(style.zIndex) !== null);
+
 /**
  * Host z-index that paints above every tracked element: one above the highest
  * numeric z-index found on any tracked element's ancestor chain (`maxChain`).

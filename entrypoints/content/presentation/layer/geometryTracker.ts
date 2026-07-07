@@ -1,6 +1,7 @@
 import {
   clipsEqual,
   computeClipInsets,
+  createsStackingContext,
   hasArea,
   parseZIndex,
   rectsEqual,
@@ -21,7 +22,7 @@ interface TrackerEntry {
   callbacks: IGeometryTrackerCallbacks;
   /** Ancestors with non-visible overflow, cached at track time. */
   clipAncestors: Element[];
-  /** Highest numeric z-index on the element's flattened ancestor chain (see chainMaxZ). */
+  /** Root-level stacking z-index estimate for the element's flattened chain (see chainMaxZ). */
   chainZ: number;
   lastRect?: ILayerRect;
   lastClip?: IClipInsets | null;
@@ -72,30 +73,41 @@ const parentOf = (element: Element): Element | null => {
  * slot's shadow subtree, so the walk must go through `assignedSlot` — a plain
  * parentElement walk would skip shadow-internal wrappers and their z-indexes.
  */
-const flatParentOf = (element: Element): Element | null => {
-  if (element.assignedSlot) return element.assignedSlot;
-  if (element.parentElement) return element.parentElement;
-  const root = element.getRootNode();
-  return root instanceof ShadowRoot ? root.host : null;
-};
+const flatParentOf = (element: Element): Element | null => element.assignedSlot ?? parentOf(element);
 
 /**
- * Highest numeric z-index on the element's flattened ancestor chain (element
- * included, documentElement excluded), floored at 0.
+ * Estimate of the z-index that decides the element's paint level in the ROOT
+ * stacking context, from a walk over its flattened ancestor chain (element included,
+ * documentElement excluded), floored at 0.
  *
  * One above this value is guaranteed to paint over the element in the root stacking
  * context: the element's root-level stacking ancestor either has a numeric z-index
- * (which is on this chain) or stacks at the auto/0 level (beaten by z-index 1).
- * z-indexes trapped inside nested stacking contexts only OVERestimate — the mask
- * floats above more site content than strictly needed, never below its own element.
+ * (kept by this walk) or stacks at the auto/0 level (beaten by z-index 1).
+ *
+ * Crossing a node that provably creates a stacking context DISCARDS the z-indexes
+ * accumulated below it — they are trapped inside that context and can't affect root
+ * paint order (a carousel's `.slick-active { z-index: 999 }` inside a transformed
+ * track must not pin the host at 1000 page-wide). The reset is safe because
+ * `createsStackingContext` fires only on spec-certain triggers; a missed trigger
+ * just leaves the old overestimate — masks float above more site content than
+ * strictly needed, never below their own element.
  * A failed walk returns Infinity, which the layer clamps to the maximum (fail-closed).
  */
 const chainMaxZ = (element: Element): number => {
   try {
     let max = 0;
     for (let node: Element | null = element; node && node !== document.documentElement; node = flatParentOf(node)) {
-      const z = parseZIndex(getComputedStyle(node).zIndex);
-      if (z !== null && z > max) max = z;
+      const style = getComputedStyle(node);
+      const z = parseZIndex(style.zIndex);
+      if (createsStackingContext(style)) {
+        // Everything below paints inside this context; at the parent level only the
+        // context's own z-index matters (auto/negative stack at or below the 0 level).
+        max = z !== null && z > 0 ? z : 0;
+      } else if (z !== null && z > max) {
+        // Numeric z-index without a guaranteed stacking context: it may or may not
+        // apply (static non-flex-item) — count it. Overestimates, never under.
+        max = z;
+      }
     }
     return max;
   } catch {
@@ -152,9 +164,10 @@ export class GeometryTracker {
       element,
       callbacks,
       clipAncestors: findClipAncestors(element),
-      // Computed synchronously so the layer can raise its host z-index before the
-      // initial geometry callback paints the first mask frame.
-      chainZ: chainMaxZ(element),
+      // Placeholder: the synchronous readEntry below runs slowScan (slowScannedAt 0
+      // always passes the throttle), which walks the real chainZ before track()
+      // returns — and before the layer's attach-time host z-index sync reads it.
+      chainZ: 0,
       occluded: false,
       slowScannedAt: 0,
       // Assume visible until the IntersectionObserver reports, so the first frames poll.
@@ -262,7 +275,6 @@ export class GeometryTracker {
 
   private readonly sweep = (): void => {
     this.rafId = null;
-    this.onTick?.();
 
     const detached: TrackerEntry[] = [];
     const updates: { entry: TrackerEntry; geometry: ILayerGeometry }[] = [];
@@ -287,7 +299,10 @@ export class GeometryTracker {
       updates.push({ entry, geometry });
     }
 
-    // Write phase.
+    // Write phase. onTick leads it (after the reads, so a chainZ change picked up by
+    // this sweep's slow scan reaches the layer's host z-index in the SAME frame the
+    // masks repaint — a tick earlier and the raise would lag one sweep behind).
+    this.onTick?.();
     for (const entry of detached) {
       this.untrack(entry.element);
       entry.callbacks.onDetach();

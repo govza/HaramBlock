@@ -91,8 +91,12 @@ export class DomObserver {
       this.config.onMediaAdded(addedImages, addedVideos);
     }
 
-    if (removedElements.length > 0) {
-      this.config.onMediaRemoved(removedElements);
+    // An element that is connected again by the end of the batch was reparented, not
+    // removed (lightboxes, React portals moving live subtrees): reporting it as removed
+    // would tear down its overlay state while it is still on screen.
+    const trulyRemoved = removedElements.filter(el => !el.isConnected);
+    if (trulyRemoved.length > 0) {
+      this.config.onMediaRemoved(trulyRemoved);
     }
 
     // Process attribute changes immediately to prevent flash of unblurred content

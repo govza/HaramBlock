@@ -65,6 +65,10 @@ class GifMaskPlayer {
       existing.aggregatePrediction = aggregatePrediction;
       existing.hostSettings = hostSettings;
       existing.maskInertia = maskInertia;
+      // Re-walk cached ancestor state (clip ancestors, stacking chain): a verdict is
+      // re-applied when the element re-enters the DOM, and a reparent changes both
+      // without firing any geometry event.
+      existing.slot.refresh();
       this.renderCurrentFrame(image, existing);
       return;
     }

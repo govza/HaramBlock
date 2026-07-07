@@ -128,25 +128,25 @@ When('I wait for the eye toggle to auto-hide', async () => {
 
 Then('I should see the eye toggle icon', async () => {
   // Allow enough time for the 500ms show delay
-  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE)) > 0, {
+  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE, Selectors.UI_HOST)) > 0, {
     timeout: SHOW_DELAY_MS + 5000,
     timeoutMsg: 'Expected eye toggle to be visible',
   });
 });
 
 Then('I should not see the eye toggle icon', async () => {
-  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE)) === 0, {
+  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE, Selectors.UI_HOST)) === 0, {
     timeout: 3000,
     timeoutMsg: 'Expected eye toggle to be hidden',
   });
 });
 
 When('I click the eye toggle icon', async () => {
-  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE)) > 0, {
+  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE, Selectors.UI_HOST)) > 0, {
     timeout: SHOW_DELAY_MS + 5000,
     timeoutMsg: 'Eye toggle not visible for click',
   });
-  const eyeToggle = await getLayerElement(Selectors.EYE_TOGGLE);
+  const eyeToggle = await getLayerElement(Selectors.EYE_TOGGLE, Selectors.UI_HOST);
   await eyeToggle.click();
 });
 
