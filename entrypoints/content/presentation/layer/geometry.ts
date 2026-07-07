@@ -66,7 +66,7 @@ export const clipsEqual = (
 };
 
 // ---------------------------------------------------------------------------
-// Stacking (host z-index) helpers
+// Stacking (slot z-index) helpers
 // ---------------------------------------------------------------------------
 
 export const MAX_Z_INDEX = 2147483647;
@@ -115,21 +115,33 @@ export const createsStackingContext = (style: IStackingStyle): boolean =>
  * Non-finite input (a failed chain walk) falls back to the maximum — fail-closed,
  * masks float above everything rather than risk sliding under their own image.
  */
-export const nextHostZ = (maxChain: number): number => {
+export const nextSlotZ = (maxChain: number): number => {
   if (!Number.isFinite(maxChain)) return MAX_Z_INDEX;
   return Math.min(Math.max(1, maxChain + 1), MAX_Z_INDEX);
 };
 
-// ---------------------------------------------------------------------------
-// Occlusion helpers
-// ---------------------------------------------------------------------------
-
 /**
- * Minimum effective background alpha for site content to count as an occluder.
- * Below this the masked element still shows through (e.g. a light dim), so the
- * mask must stay visible — fail-safe over pretty.
+ * Merges per-entry caption-lift candidates into candidate -> the highest chainZ among
+ * the tracked elements it overlaps — the base its lift z-index derives from (a
+ * caption over two masked elements must clear BOTH their slots). Generic so the merge
+ * is unit-testable without a DOM.
  */
-export const OCCLUDER_MIN_ALPHA = 0.45;
+export const mergeLiftCandidates = <T>(
+  entries: Iterable<{ liftCandidates: readonly T[]; chainZ: number }>,
+): Map<T, number> => {
+  const all = new Map<T, number>();
+  for (const { liftCandidates, chainZ } of entries) {
+    for (const candidate of liftCandidates) {
+      const known = all.get(candidate);
+      if (known === undefined || chainZ > known) all.set(candidate, chainZ);
+    }
+  }
+  return all;
+};
+
+// ---------------------------------------------------------------------------
+// Hit-test sampling helpers
+// ---------------------------------------------------------------------------
 
 export interface IViewportPoint {
   x: number;
@@ -145,10 +157,10 @@ const SAMPLE_FRACTIONS = [0.08, 0.35, 0.65, 0.92];
 
 /**
  * Hit-test sample points spread over the visible (clip-reduced) part of an element
- * rect: an edge-biased 4x4 grid (16 points). Empty when nothing is visible. Shared by
- * full-occlusion detection and caption-lift candidate discovery.
+ * rect: an edge-biased 4x4 grid (16 points). Empty when nothing is visible. Used by
+ * caption-lift candidate discovery.
  */
-export const occlusionSamplePoints = (rect: ILayerRect, clip: IClipInsets | null): IViewportPoint[] => {
+export const hitSamplePoints = (rect: ILayerRect, clip: IClipInsets | null): IViewportPoint[] => {
   if (clip === null) return [];
   const left = rect.left + clip.left;
   const top = rect.top + clip.top;
@@ -163,19 +175,4 @@ export const occlusionSamplePoints = (rect: ILayerRect, clip: IClipInsets | null
     }
   }
   return points;
-};
-
-/**
- * Alpha channel of a computed CSS color (`rgb(...)` / `rgba(...)` / `transparent`).
- * Unparseable values return 0 — "not opaque" keeps masks visible (fail-safe).
- */
-export const cssColorAlpha = (color: string): number => {
-  if (!color) return 0;
-  if (color === 'transparent') return 0;
-  const match = /^rgba?\(([^)]+)\)$/.exec(color);
-  if (!match || match[1] === undefined) return 0;
-  const parts = match[1].split(/[,\s/]+/).filter(Boolean);
-  if (parts.length < 4) return parts.length === 3 ? 1 : 0; // rgb(r, g, b) is opaque
-  const alpha = Number(parts[3]);
-  return Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0;
 };

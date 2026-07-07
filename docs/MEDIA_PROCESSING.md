@@ -204,42 +204,46 @@ Segmentation-based visual overlays using canvas and mask data.
 #### Overlay Layer (`layer/`)
 
 All mask overlays render into a single extension-owned host (`<haramblock-overlay-layer>` on
-`document.documentElement`) with an open shadow root — the "devtools highlight" pattern (open so e2e
-tests and devtools can inspect it; closed would add no real protection). Site frameworks can't
-remove overlays, no site CSS is mutated (`position: relative` is never forced on parents), and no
-per-overlay z-index guessing is needed: the host's z-index is dynamic — one above the highest
-numeric z-index on any tracked element's flattened ancestor chain — so masks always paint above
-their elements while higher-z site chrome (sticky navbars, dropdowns, lightboxes) covers masks
-exactly as it covers the elements themselves. See `OVERLAY.md` (repo root) for the full design and
-rationale.
+`document.documentElement`) — the "devtools highlight" pattern. The host has **no shadow root**:
+anchor names are tree-scoped and engines do not resolve an outer-tree `anchor-name` from inside a
+shadow root, so slots live in the host's light DOM, shielded from site CSS by important-flagged
+inline styles instead of a shadow boundary. Site frameworks can't remove overlays, no site CSS is
+mutated (`position: relative` is never forced on parents), and no per-overlay z-index guessing is
+needed: the host's z-index is dynamic — one above the highest numeric z-index on any tracked
+element's flattened ancestor chain — so masks always paint above their elements while higher-z site
+chrome (sticky navbars, dropdowns, lightboxes) covers masks exactly as it covers the elements
+themselves. See `OVERLAY.md` (repo root) for the full design and rationale.
 
-- `layer/overlayLayer.ts` — the host: one absolutely-positioned **slot** per masked element, placed
-  via `transform: translate(x, y)` in viewport coordinates; `clip-path: inset(...)` clips slots to
-  their scroll containers. Interactive extension UI (quick-toggle) mounts into a separate
-  always-on-top host (`<haramblock-overlay-ui>`, `z-index: max`) with pointer-events restored — a
-  transient user-invoked control must never be buried under site chrome, and a child can't escape
-  the mask host's dynamic stacking context. On `fullscreenchange` both hosts are promoted into the
-  top layer via the Popover API (fallback: reparent into the fullscreen element) so masks survive
-  fullscreen.
+- `layer/overlayLayer.ts` — the host: one absolutely-positioned **slot** per masked element, glued
+  to it by **CSS anchor positioning** (inline `anchor-name` on the element, `top/left: anchor(...)`
+  on the slot): the browser keeps the slot on the element compositor-side, so masks follow scroll of
+  any scroller with zero lag — JS repositioning always runs a frame behind. JS only writes size and
+  `clip-path: inset(...)` (clipping to scroll containers), both scroll-invariant. The inline
+  `anchor-name` is re-asserted on the tracker's slow scan because framework re-renders rewrite style
+  attributes; anchor positioning sets the browser floors (Chrome/Edge 125, Firefox 147 — see
+  `wxt.config.ts`). Each slot carries its own `z-index` — one above its element's stacking chain —
+  so site chrome (navbars, lightbox backdrops) covers a mask exactly as it covers that mask's
+  element; the host itself creates no stacking context. Interactive extension UI (quick-toggle)
+  mounts into a separate always-on-top host (`<haramblock-overlay-ui>`, open shadow root,
+  `z-index: max`) with pointer-events restored — a transient user-invoked control must never be
+  buried under site chrome. On `fullscreenchange` both hosts are promoted into the top layer via the
+  Popover API (fallback: reparent into the fullscreen element) so masks survive fullscreen.
 - `layer/geometryTracker.ts` — one shared tracker instead of per-overlay observers: a single rAF
-  sweep polls `getBoundingClientRect()` for elements near the viewport (IntersectionObserver-gated),
-  catching CSS-transform movement (carousels) that ResizeObserver misses; off-screen elements are
-  only re-read when scroll/resize/ResizeObserver marks them dirty. Detached elements are
-  auto-untracked and reported — no more per-overlay body-wide MutationObservers. Also walks each
-  tracked element's flattened ancestor chain (`chainMaxZ`) estimating its root-level stacking
-  z-index (z-indexes trapped behind provable stacking-context boundaries are discarded), from which
-  the layer derives its dynamic host z-index.
-- `layer/occlusion.ts` — one throttled `elementFromPoint` sampling pass (edge-biased 4x4 grid over
-  the visible rect) answering two questions: hides a slot when its element is fully covered by
-  opaque site content (e.g. a lightbox backdrop — media tag, background-image/-color alpha ≥ 0.45,
-  backdrop-filter), and collects partial occluders (caption bars, duration badges) as caption-lift
-  candidates. All heuristics fail toward keeping the mask visible.
-- `layer/captionLift.ts` — gives detected site captions an inline `z-index: hostZ + 1` so they stay
+  sweep polls `getBoundingClientRect()` for elements near the viewport (IntersectionObserver-gated);
+  off-screen elements are only re-read when scroll/resize/ResizeObserver marks them dirty. The
+  sweep's rects drive size-change redraws, clip insets, and detach detection — slot placement is the
+  browser's (anchor positioning). Also walks each tracked element's flattened ancestor chain
+  (`chainMaxZ`) estimating its root-level stacking z-index (z-indexes trapped behind provable
+  stacking-context boundaries are discarded), from which the layer derives each slot's z-index.
+- `layer/captionScan.ts` — one throttled `elementFromPoint` sampling pass (edge-biased 4x4 grid over
+  the visible rect) collecting site elements painting over the masked element (caption bars,
+  duration badges) as caption-lift candidates.
+- `layer/captionLift.ts` — gives detected site captions an inline `z-index: slotZ + 1` so they stay
   readable above the mask (which stays intact over the image beneath them). Fail-closed
   qualification: z-index must apply, no media/`url()` content in the subtree, and no
   stacking-context ancestor (a caption trapped in a nested context can't be raised above the mask at
   all). Restored on untrack/teardown; see `OVERLAY.md` "Caption lift".
-- `layer/geometry.ts` — pure rect/clip/occlusion-sampling/host-z math (unit-tested).
+- `layer/geometry.ts` — pure rect/clip/hit-sampling/slot-z math (unit-tested).
 
 The initial protective blur is **not** part of the layer: it stays a CSS class on the element itself
 because it must be atomic with the element's own paint (no unfiltered frame possible) and covers

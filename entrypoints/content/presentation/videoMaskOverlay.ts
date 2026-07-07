@@ -19,11 +19,18 @@ function decodePredictionMasks(prediction: IImagePrediction): { masks: number[][
   return allMasks;
 }
 
+// Canvases live in the mask host's light DOM (no shadow boundary — see
+// overlayLayer.ts), so the layout-critical properties are important-flagged
+// against site CSS resets.
 const CANVAS_STYLE = [
-  'position: absolute',
-  'top: 0',
-  'left: 0',
-  'pointer-events: none',
+  'position: absolute !important',
+  'top: 0 !important',
+  'left: 0 !important',
+  // Same computed value as the default (the canvas is absolutely positioned), but
+  // asserted so a site `canvas { display: none !important }` can't blank the mask.
+  'display: block !important',
+  'visibility: visible !important',
+  'pointer-events: none !important',
   'image-rendering: pixelated',
   'image-rendering: crisp-edges',
 ].join('; ');
@@ -245,8 +252,10 @@ function renderVideoMask(
 
   canvas.width = overlayWidth;
   canvas.height = overlayHeight;
-  canvas.style.width = `${overlayWidth}px`;
-  canvas.style.height = `${overlayHeight}px`;
+  // `important` like CANVAS_STYLE: light-DOM canvases must beat site rules such as
+  // responsive resets (`canvas { height: auto !important }`) or the mask misscales.
+  canvas.style.setProperty('width', `${overlayWidth}px`, 'important');
+  canvas.style.setProperty('height', `${overlayHeight}px`, 'important');
 
   // Use poster image if available, otherwise fall back to video
   const sourceElement = posterImage || video;
@@ -315,8 +324,10 @@ function renderVideoMask(
     dHeight,
   );
 
-  // Apply tint effects via CSS filter (hardware-accelerated)
-  canvas.style.filter = buildCanvasTintFilter(masking);
+  // Apply tint effects via CSS filter (hardware-accelerated). `none` (not removal)
+  // when no tint: the declaration must stay present + important, or a site rule like
+  // `canvas { filter: opacity(0) !important }` could fade the mask out.
+  canvas.style.setProperty('filter', buildCanvasTintFilter(masking) || 'none', 'important');
 }
 
 /**

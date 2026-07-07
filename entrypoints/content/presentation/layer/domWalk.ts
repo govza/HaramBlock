@@ -1,6 +1,6 @@
 /**
  * Shared shadow-DOM-aware tree walkers for the overlay layer modules
- * (geometryTracker, occlusion, captionLift).
+ * (geometryTracker, captionScan, captionLift).
  */
 
 /** Parent element, crossing shadow boundaries via the host. */
