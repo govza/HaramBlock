@@ -214,6 +214,30 @@ into a separate `<haramblock-overlay-ui>` host (open shadow root) pinned at the 
 share self-heal and fullscreen promotion (mask host promoted first, so the button stays above masks
 in the top layer).
 
+### Known limitation: chrome trapped in stacking contexts
+
+When the masked element sits **inside a stacking context** (typical lightbox root:
+`position: fixed; z-index: 50; backdrop-filter: …` — also transformed/virtualized feed rows), the
+whole context is one atomic layer at root level. The slot must beat the context's z to cover the
+image (`slotZ = 51`), which necessarily also covers every same-context sibling painted above the
+image — caption bars, close/nav buttons — wherever they overlap the image rect. Caption lift cannot
+help: no z-index on an element inside the context can beat a root-level box, which is exactly why
+`chainAllowsLift` refuses (fail-closed, mask integrity wins). Verified live on a lightbox with this
+shape; note lift itself works for root-level captions, including elements tracked off-viewport and
+scrolled in later (~200 ms).
+
+No fix is decided — accepted for now. Candidate directions if it ever gets addressed, each with open
+costs:
+
+- **In-context slots** (universal or only for trapped elements): insert the anchor-positioned slot
+  into the site DOM inside the same stacking context, right after the image's top-level branch —
+  site paint order preserved for free (mask above image, captions/buttons above mask); universal
+  form would delete `chainMaxZ`/`nextSlotZ`/`captionScan`/`captionLift`. Cost: slots in site DOM can
+  be deleted by framework re-renders (needs per-tick self-heal, ≤1 frame gap) — the failure mode PR
+  #72's extension-owned host was built to avoid.
+- **Accept permanently** and rely on the mask being the safety-critical artifact (chrome legibility
+  is cosmetic).
+
 ### Accepted tradeoffs
 
 - **Dynamic z-index latency:** a site raising an ancestor's z-index above a slot's z (with or
@@ -228,6 +252,9 @@ in the top layer).
   element whose caption-covering sample points are off-screen) is not lifted until scrolled into
   view — it isn't visible to the user until then anyway. Fail-closed: an unlifted caption stays
   under the mask.
+- **In-context chrome covered:** captions/buttons inside the same stacking context as the masked
+  element stay under the mask where they overlap it — unliftable by design (see "Known limitation"
+  above; no fix decided).
 - **1-frame lag:** rect is read at rAF time; a transform-animated element's mask trails by ≤1 frame.
   Same or better than today (today it doesn't move at all).
 - **1-frame stale clip in nested scrollers:** slot position is compositor-glued (zero lag) but
