@@ -13,16 +13,21 @@ on:
           - patch
           - minor
           - major
-      target:
-        description: "Publish target"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - chrome
-          - firefox
-          - edge
+      chrome:
+        description: "Publish to Chrome Web Store"
+        required: false
+        default: true
+        type: boolean
+      firefox:
+        description: "Publish to Firefox Add-ons"
+        required: false
+        default: true
+        type: boolean
+      edge:
+        description: "Publish to Edge Add-ons"
+        required: false
+        default: true
+        type: boolean
       dry_run:
         description: "Dry run (test without publishing)"
         required: false
@@ -30,9 +35,20 @@ on:
         type: boolean
 
 jobs:
+  validate:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one publish target
+        if: ${{ !inputs.chrome && !inputs.firefox && !inputs.edge }}
+        run: |
+          echo "::error::No publish target selected — check at least one of chrome/firefox/edge (a run with zero targets would still bump/tag/release)."
+          exit 1
+
   bump-version:
     name: Bump Version
-    if: inputs.version_bump != 'none'
+    needs: validate
+    if: success() && inputs.version_bump != 'none'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,8 +74,8 @@ jobs:
 
   test:
     name: Run Tests
-    needs: bump-version
-    if: always() && (needs.bump-version.result == 'success' || needs.bump-version.result == 'skipped')
+    needs: [validate, bump-version]
+    if: always() && needs.validate.result == 'success' && (needs.bump-version.result == 'success' || needs.bump-version.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -142,18 +158,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Submit to all stores
-        if: inputs.target == 'all'
-        run: pnpm submit
-
       - name: Submit to Chrome Web Store
-        if: inputs.target == 'chrome'
+        if: inputs.chrome
         run: pnpm submit:chrome
 
       - name: Submit to Firefox Add-ons
-        if: inputs.target == 'firefox'
+        if: inputs.firefox
         run: pnpm submit:firefox
 
       - name: Submit to Edge Add-ons
-        if: inputs.target == 'edge'
+        if: inputs.edge
         run: pnpm submit:edge
