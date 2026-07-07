@@ -1,3 +1,4 @@
+import { captionLifter } from '@/entrypoints/content/presentation/layer/captionLift';
 import { hasArea, isUnclipped, nextHostZ, MAX_Z_INDEX } from '@/entrypoints/content/presentation/layer/geometry';
 import { GeometryTracker } from '@/entrypoints/content/presentation/layer/geometryTracker';
 
@@ -96,8 +97,10 @@ class OverlayLayer {
     });
     // Synchronous raise: an element inside a high-z container must never get a frame
     // where it paints above its own mask. Lowering (after detach) happens lazily on
-    // the tick heartbeat — late lowering is safe.
+    // the tick heartbeat — late lowering is safe. Lifted captions follow the new
+    // hostZ in the same breath.
     this.syncHostZ();
+    this.syncLifts();
 
     return {
       root: slotEl,
@@ -107,6 +110,7 @@ class OverlayLayer {
         // chain changed (e.g. reparented into a high-z container), so the host must
         // rise before the next paint, not a tick later.
         this.syncHostZ();
+        this.syncLifts();
       },
       release: () => this.detach(element),
     };
@@ -141,6 +145,9 @@ class OverlayLayer {
     this.slots.delete(element);
     this.tracker.untrack(element);
     internal.slotEl.remove();
+    // The tracker may have gone idle (no entries -> no ticks), so release this
+    // entry's lifted captions here rather than waiting for a tick that never comes.
+    this.syncLifts();
   }
 
   has(element: Element): boolean {
@@ -150,6 +157,7 @@ class OverlayLayer {
   dispose(): void {
     this.tracker.dispose();
     this.slots.clear();
+    captionLifter.dispose();
     document.removeEventListener('fullscreenchange', this.syncFullscreen);
     this.fullscreenWired = false;
     this.host?.remove();
@@ -203,6 +211,7 @@ class OverlayLayer {
       this.tracker.onTick = () => {
         this.ensureHostConnected();
         this.syncHostZ();
+        this.syncLifts();
       };
       // Hits on our own hosts (e.g. the quick-toggle button) must not count as occluders
       this.tracker.shouldIgnoreOccluder = candidate => candidate === this.host || candidate === this.uiHost;
@@ -228,6 +237,15 @@ class OverlayLayer {
 
     this.ensureHostConnected();
     return this.uiRoot as HTMLDivElement;
+  }
+
+  /**
+   * Detected caption overlays get an inline z-index one above the host, sandwiching
+   * the mask between the image and its caption (see captionLift.ts). Runs wherever
+   * syncHostZ runs, plus after detach so dropped entries release their captions.
+   */
+  private syncLifts(): void {
+    captionLifter.sync(this.tracker.allLiftCandidates(), nextHostZ(this.tracker.maxChainZ()) + 1);
   }
 
   /**

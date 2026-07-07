@@ -1,3 +1,5 @@
+import { captionLifter } from '@/entrypoints/content/presentation/layer/captionLift';
+import { flatParentOf, parentOf } from '@/entrypoints/content/presentation/layer/domWalk';
 import {
   clipsEqual,
   computeClipInsets,
@@ -6,7 +8,7 @@ import {
   parseZIndex,
   rectsEqual,
 } from '@/entrypoints/content/presentation/layer/geometry';
-import { isElementOccluded } from '@/entrypoints/content/presentation/layer/occlusion';
+import { scanOcclusion } from '@/entrypoints/content/presentation/layer/occlusion';
 
 import type { IClipInsets, ILayerGeometry, ILayerRect } from '@/utils/types/presentation';
 
@@ -24,6 +26,8 @@ interface TrackerEntry {
   clipAncestors: Element[];
   /** Root-level stacking z-index estimate for the element's flattened chain (see chainMaxZ). */
   chainZ: number;
+  /** Qualified caption-lift candidates from the last slow scan (see captionLift.ts). */
+  liftCandidates: HTMLElement[];
   lastRect?: ILayerRect;
   lastClip?: IClipInsets | null;
   occluded: boolean;
@@ -61,20 +65,6 @@ const clipRectOf = (ancestor: Element): ILayerRect => {
   };
 };
 
-/** Parent element, crossing shadow boundaries via the host. */
-const parentOf = (element: Element): Element | null => {
-  if (element.parentElement) return element.parentElement;
-  const root = element.getRootNode();
-  return root instanceof ShadowRoot ? root.host : null;
-};
-
-/**
- * Rendered (flattened-tree) parent: slotted elements paint inside their assigned
- * slot's shadow subtree, so the walk must go through `assignedSlot` — a plain
- * parentElement walk would skip shadow-internal wrappers and their z-indexes.
- */
-const flatParentOf = (element: Element): Element | null => element.assignedSlot ?? parentOf(element);
-
 /**
  * Estimate of the z-index that decides the element's paint level in the ROOT
  * stacking context, from a walk over its flattened ancestor chain (element included,
@@ -98,8 +88,26 @@ const chainMaxZ = (element: Element): number => {
     let max = 0;
     for (let node: Element | null = element; node && node !== document.documentElement; node = flatParentOf(node)) {
       const style = getComputedStyle(node);
-      const z = parseZIndex(style.zIndex);
-      if (createsStackingContext(style)) {
+      // A caption WE lifted must be walked with its pre-lift z-index, or a masked
+      // element inside a lifted caption feeds our own lift value back into hostZ
+      // (hostZ -> lift -> chainZ -> hostZ spirals to the maximum).
+      const original = captionLifter.unliftedZIndexOf(node, style.zIndex);
+      const z = parseZIndex(original ?? style.zIndex);
+      const stacking =
+        original === null
+          ? style
+          : {
+              position: style.position,
+              zIndex: original,
+              transform: style.transform,
+              filter: style.filter,
+              opacity: style.opacity,
+              isolation: style.isolation,
+              mixBlendMode: style.mixBlendMode,
+              perspective: style.perspective,
+              backdropFilter: style.backdropFilter,
+            };
+      if (createsStackingContext(stacking)) {
         // Everything below paints inside this context; at the parent level only the
         // context's own z-index matters (auto/negative stack at or below the 0 level).
         max = z !== null && z > 0 ? z : 0;
@@ -168,6 +176,7 @@ export class GeometryTracker {
       // always passes the throttle), which walks the real chainZ before track()
       // returns — and before the layer's attach-time host z-index sync reads it.
       chainZ: 0,
+      liftCandidates: [],
       occluded: false,
       slowScannedAt: 0,
       // Assume visible until the IntersectionObserver reports, so the first frames poll.
@@ -211,6 +220,15 @@ export class GeometryTracker {
       if (entry.chainZ > max) max = entry.chainZ;
     }
     return max;
+  }
+
+  /** Union of qualified caption-lift candidates across all tracked elements. */
+  allLiftCandidates(): Set<HTMLElement> {
+    const all = new Set<HTMLElement>();
+    for (const entry of this.entries.values()) {
+      for (const candidate of entry.liftCandidates) all.add(candidate);
+    }
+    return all;
   }
 
   dispose(): void {
@@ -330,8 +348,14 @@ export class GeometryTracker {
     if (now - entry.slowScannedAt < SLOW_SCAN_INTERVAL_MS) return entry.occluded;
     entry.slowScannedAt = now;
     entry.chainZ = chainMaxZ(entry.element);
-    if (!hasArea(rect) || clip === null) return false;
-    return isElementOccluded(entry.element, rect, clip, this.shouldIgnoreOccluder);
+    if (!hasArea(rect) || clip === null) {
+      // Hidden element: its mask can't paint, so no caption needs lifting either.
+      entry.liftCandidates = [];
+      return false;
+    }
+    const scan = scanOcclusion(entry.element, rect, clip, this.shouldIgnoreOccluder);
+    entry.liftCandidates = scan.liftCandidates;
+    return scan.occluded;
   }
 
   private readEntry(entry: TrackerEntry): void {

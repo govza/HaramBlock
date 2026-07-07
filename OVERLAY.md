@@ -167,6 +167,28 @@ mask over-covers chrome the image itself scrolls under — inherent to any singl
 `hostZ = chainMax` would rely on the same DOM-order tie-break against the element's own ancestor and
 could fail open instead.
 
+### Caption lift
+
+Site captions over images (text bars, gradient scrims, duration badges) at the `z-index: auto` level
+are covered by the mask: the host is tree-last, so any host z-index that beats the image also beats
+every same-level caption — no host value can sit between two same-level siblings. The fix is on the
+caption's side (`layer/captionLift.ts`): the occlusion slow scan collects foreign elements
+hit-tested ABOVE the element (so lifting preserves the site's visual order) and gives each
+qualifying one an inline `z-index: hostZ + 1`, sandwiching the mask between image and caption. The
+mask is never cut; image pixels under the caption stay masked. Restored on untrack/removal/dispose;
+re-asserted if the site re-renders it away; follows hostZ changes on the tick.
+
+Qualification is fail-closed (any failure → caption stays covered): z-index must apply (positioned
+or flex/grid item — we never add `position`), no media content in the subtree (`img/video/canvas/…`
+plus svg `image`/`foreignObject` — bare icon svgs are fine — and no `url()` backgrounds), and no
+provable stacking-context ancestor other than the root: a caption flattened into a nested context
+(YouTube search wraps results in `ytd-search { position: relative; z-index: 0 }`) CANNOT be raised
+above the mask by any z-index — its root-level layer is the context's, which the host must already
+beat. Those captions stay covered. `chainMaxZ` substitutes the pre-lift z-index for elements we
+lifted, so a masked element appearing inside a lifted caption can't feed the lift value back into
+hostZ (would spiral to the maximum). Sample points are an edge-biased 4x4 grid (8% in) so
+edge-hugging caption bars are actually hit.
+
 Interactive extension UI (the quick-toggle eye button) does **not** live in the mask host: it serves
 registered-but-untracked elements too (safe images, images toggled to visible), whose chains never
 raise hostZ, and a child can't escape its host's stacking context. It mounts into a separate
@@ -180,8 +202,9 @@ Even with the dynamic host z-index, chainMaxZ can overestimate (z-indexes that d
 nested contexts the boundary predicate can't prove), so masks can still float above site UI meant to
 cover the element — found in practice: open a lightbox and the thumbnail masks float above its
 backdrop. Handled by **occlusion detection** (`layer/occlusion.ts`): on the shared 200 ms slow-scan
-cadence per visible tracked element, hit-test 5 sample points spread over its visible (clip-reduced)
-rect via `document.elementFromPoint`. The slot is hidden only when **every** point is covered by
+cadence per visible tracked element, hit-test an edge-biased 4x4 grid (16 points) spread over its
+visible (clip-reduced) rect via `document.elementFromPoint` — the same pass that collects
+caption-lift candidates. The slot is hidden only when **every** in-viewport point is covered by
 _opaque_ foreign content — the hit (or a non-shared ancestor, covering transparent centering
 containers inside modals) paints real pixels: media tag, `background-image`, `backdrop-filter`, or
 background-color alpha ≥ `OCCLUDER_MIN_ALPHA` (0.45, catching the ubiquitous `rgba(0,0,0,.5)`
@@ -203,6 +226,11 @@ by occlusion).
   Reparenting a masked element (lightboxes, React portals moving live subtrees) is **not** subject
   to this latency: the DOM observer reports the re-add and the processor synchronously refreshes the
   slot's ancestor state (clip ancestors + stacking chain) and the host z-index.
+- **Caption-lift latency / viewport bound:** a detected caption is lifted within ~200 ms + one sweep
+  of coming into view. Hit testing is viewport-bound, so a caption below the fold (or a masked
+  element whose caption-covering sample points are off-screen) is not lifted until scrolled into
+  view — it isn't visible to the user until then anyway. Fail-closed: an unlifted caption stays
+  under the mask.
 - **Semi-dim backdrops below 0.45 alpha** keep masks visible on purpose — the content shows through,
   so hiding the mask would reveal it.
 - **1-frame lag:** rect is read at rAF time; a transform-animated element's mask trails by ≤1 frame.
