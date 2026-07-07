@@ -215,16 +215,20 @@ rationale.
 
 - `layer/overlayLayer.ts` — the host: one absolutely-positioned **slot** per masked element, placed
   via `transform: translate(x, y)` in viewport coordinates; `clip-path: inset(...)` clips slots to
-  their scroll containers; interactive extension UI (quick-toggle) mounts here with pointer-events
-  restored. On `fullscreenchange` the host is promoted into the top layer via the Popover API
-  (fallback: reparent into the fullscreen element) so masks survive fullscreen.
+  their scroll containers. Interactive extension UI (quick-toggle) mounts into a separate
+  always-on-top host (`<haramblock-overlay-ui>`, `z-index: max`) with pointer-events restored — a
+  transient user-invoked control must never be buried under site chrome, and a child can't escape
+  the mask host's dynamic stacking context. On `fullscreenchange` both hosts are promoted into the
+  top layer via the Popover API (fallback: reparent into the fullscreen element) so masks survive
+  fullscreen.
 - `layer/geometryTracker.ts` — one shared tracker instead of per-overlay observers: a single rAF
   sweep polls `getBoundingClientRect()` for elements near the viewport (IntersectionObserver-gated),
   catching CSS-transform movement (carousels) that ResizeObserver misses; off-screen elements are
   only re-read when scroll/resize/ResizeObserver marks them dirty. Detached elements are
   auto-untracked and reported — no more per-overlay body-wide MutationObservers. Also walks each
-  tracked element's flattened ancestor chain for the highest numeric z-index (`chainMaxZ`), from
-  which the layer derives its dynamic host z-index.
+  tracked element's flattened ancestor chain (`chainMaxZ`) estimating its root-level stacking
+  z-index (z-indexes trapped behind provable stacking-context boundaries are discarded), from which
+  the layer derives its dynamic host z-index.
 - `layer/occlusion.ts` — hides a slot when its element is fully covered by opaque site content (e.g.
   a lightbox backdrop): throttled `elementFromPoint` sampling over the visible rect, opaque only
   when the covering content paints real pixels (media tag, background-image/-color alpha ≥ 0.45,

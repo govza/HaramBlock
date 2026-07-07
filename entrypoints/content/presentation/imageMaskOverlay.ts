@@ -147,6 +147,17 @@ class ImageMaskOverlay implements IMediaOverlay {
     return this.imageStates.has(image);
   }
 
+  /**
+   * Re-walks the slot's cached ancestor state (clip ancestors, stacking chain). Call
+   * when the element re-enters the DOM: a reparent changes both without firing any
+   * geometry event, and the mask must not wait a slow-scan tick below a higher-z
+   * container.
+   */
+  refreshMaskOverlay(image: HTMLImageElement): void {
+    const state = this.imageStates.get(image);
+    if (state && !state.destroyed) state.slot.refresh();
+  }
+
   private teardown(image: HTMLImageElement, state: IMediaOverlayState, opts: { releaseSlot: boolean }): void {
     state.destroyed = true;
     if (opts.releaseSlot) state.slot?.release();

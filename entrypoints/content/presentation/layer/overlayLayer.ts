@@ -17,6 +17,12 @@ interface InternalSlot {
 }
 
 const HOST_TAG = 'haramblock-overlay-layer';
+// Interactive extension UI (the quick-toggle button) lives in its own host: the mask
+// host's z-index is dynamic (kept just above the tracked elements, below higher-z site
+// chrome), but a transient user-invoked control must never be buried under that chrome,
+// so its host keeps the maximum z-index. A child cannot escape its host's stacking
+// context, hence the separate element.
+const UI_HOST_TAG = 'haramblock-overlay-ui';
 
 const HOST_STYLE = [
   'position: fixed',
@@ -60,6 +66,9 @@ const SLOT_STYLE = 'position: absolute; top: 0; left: 0; display: none; pointer-
 class OverlayLayer {
   private host: HTMLElement | null = null;
   private root: HTMLDivElement | null = null;
+  private uiHost: HTMLElement | null = null;
+  private uiRoot: HTMLDivElement | null = null;
+  private fullscreenWired = false;
   private readonly tracker = new GeometryTracker();
   private readonly slots = new Map<Element, InternalSlot>();
 
@@ -92,31 +101,37 @@ class OverlayLayer {
 
     return {
       root: slotEl,
-      refresh: () => this.tracker.refresh(element),
+      refresh: () => {
+        this.tracker.refresh(element);
+        // Same synchronous raise as attach: a refresh signals the element's ancestor
+        // chain changed (e.g. reparented into a high-z container), so the host must
+        // rise before the next paint, not a tick later.
+        this.syncHostZ();
+      },
       release: () => this.detach(element),
     };
   }
 
   /**
    * Mounts an interactive extension UI element (e.g. the quick-toggle button) into the
-   * layer. The layer itself is pointer-transparent; the mounted element gets
-   * pointer-events back.
+   * always-on-top UI host. The host itself is pointer-transparent; the mounted element
+   * gets pointer-events back.
    */
   mountUI(element: HTMLElement): void {
-    const root = this.ensureRoot();
+    const root = this.ensureUiRoot();
     element.style.pointerEvents = 'auto';
     root.appendChild(element);
   }
 
   /**
-   * Adds a stylesheet inside the layer's shadow root — page-level injected CSS cannot
-   * cross the shadow boundary. Returns a remover.
+   * Adds a stylesheet inside the UI host's shadow root (where mounted UI lives) —
+   * page-level injected CSS cannot cross the shadow boundary. Returns a remover.
    */
   addStyles(cssText: string): () => void {
-    this.ensureRoot();
+    this.ensureUiRoot();
     const style = document.createElement('style');
     style.textContent = cssText;
-    this.root?.parentNode?.insertBefore(style, this.root);
+    this.uiRoot?.parentNode?.insertBefore(style, this.uiRoot);
     return () => style.remove();
   }
 
@@ -136,9 +151,13 @@ class OverlayLayer {
     this.tracker.dispose();
     this.slots.clear();
     document.removeEventListener('fullscreenchange', this.syncFullscreen);
+    this.fullscreenWired = false;
     this.host?.remove();
     this.host = null;
     this.root = null;
+    this.uiHost?.remove();
+    this.uiHost = null;
+    this.uiRoot = null;
   }
 
   private position(internal: InternalSlot, { rect, clip, occluded }: ILayerGeometry): void {
@@ -154,32 +173,61 @@ class OverlayLayer {
     style.clipPath = isUnclipped(clip) ? '' : `inset(${clip.top}px ${clip.right}px ${clip.bottom}px ${clip.left}px)`;
   }
 
+  private createHost(tag: string): { host: HTMLElement; root: HTMLDivElement } {
+    const host = document.createElement(tag);
+    host.style.cssText = HOST_STYLE;
+    // Open on purpose: the shadow root isolates our styles/queries from the site
+    // either way, while 'closed' would offer no real protection (a hostile page can
+    // remove the host itself) and would block e2e assertions and user debugging.
+    const shadow = host.attachShadow({ mode: 'open' });
+    const root = document.createElement('div');
+    root.style.cssText = 'position: absolute; inset: 0; pointer-events: none;';
+    shadow.appendChild(root);
+    return { host, root };
+  }
+
+  private wireFullscreen(): void {
+    if (this.fullscreenWired) return;
+    this.fullscreenWired = true;
+    document.addEventListener('fullscreenchange', this.syncFullscreen);
+  }
+
   private ensureRoot(): HTMLDivElement {
     if (this.root && this.host?.isConnected) return this.root;
 
     if (!this.host) {
-      const host = document.createElement(HOST_TAG);
-      host.style.cssText = HOST_STYLE;
-      // Open on purpose: the shadow root isolates our styles/queries from the site
-      // either way, while 'closed' would offer no real protection (a hostile page can
-      // remove the host itself) and would block e2e assertions and user debugging.
-      const shadow = host.attachShadow({ mode: 'open' });
-      const root = document.createElement('div');
-      root.style.cssText = 'position: absolute; inset: 0; pointer-events: none;';
-      shadow.appendChild(root);
+      const { host, root } = this.createHost(HOST_TAG);
       this.host = host;
       this.root = root;
-      document.addEventListener('fullscreenchange', this.syncFullscreen);
+      this.wireFullscreen();
       this.tracker.onTick = () => {
         this.ensureHostConnected();
         this.syncHostZ();
       };
-      // Hits on our own host (the quick-toggle button) must not count as occluders
-      this.tracker.shouldIgnoreOccluder = candidate => candidate === host;
+      // Hits on our own hosts (e.g. the quick-toggle button) must not count as occluders
+      this.tracker.shouldIgnoreOccluder = candidate => candidate === this.host || candidate === this.uiHost;
     }
 
     this.ensureHostConnected();
     return this.root as HTMLDivElement;
+  }
+
+  private ensureUiRoot(): HTMLDivElement {
+    if (this.uiRoot && this.uiHost?.isConnected) return this.uiRoot;
+
+    if (!this.uiHost) {
+      const { host, root } = this.createHost(UI_HOST_TAG);
+      // Unlike the mask host, the UI host stays at the maximum: a transient
+      // user-invoked control must not be buried under site chrome. Set with
+      // `important` so site rules targeting our tag cannot outrank it.
+      host.style.setProperty('z-index', String(MAX_Z_INDEX), 'important');
+      this.uiHost = host;
+      this.uiRoot = root;
+      this.wireFullscreen();
+    }
+
+    this.ensureHostConnected();
+    return this.uiRoot as HTMLDivElement;
   }
 
   /**
@@ -193,25 +241,37 @@ class OverlayLayer {
     if (!host) return;
     // A failed chain walk surfaces as Infinity, which nextHostZ clamps to the maximum.
     const value = String(nextHostZ(this.tracker.maxChainZ()));
-    if (host.style.getPropertyValue('z-index') !== value) {
+    // Compare priority too: HOST_STYLE's initial z-index is a normal declaration, and
+    // when the target value happens to equal it (chain at the maximum, failed walk) a
+    // value-only check would never upgrade it — leaving site rules like
+    // `haramblock-overlay-layer { z-index: 0 !important }` able to outrank us.
+    if (host.style.getPropertyValue('z-index') !== value || host.style.getPropertyPriority('z-index') !== 'important') {
       // `important` outranks site stylesheets targeting our host tag.
       host.style.setProperty('z-index', value, 'important');
     }
   }
 
-  /** Self-heal: re-append the host if the site removed it, and keep fullscreen state in sync. */
+  /** Self-heal: re-append the hosts if the site removed them, and keep fullscreen state in sync. */
   private ensureHostConnected(): void {
-    const { host } = this;
-    if (!host) return;
-    if (!host.isConnected) {
-      document.documentElement.appendChild(host);
-      this.syncFullscreen();
+    let reappended = false;
+    for (const host of [this.host, this.uiHost]) {
+      if (host && !host.isConnected) {
+        document.documentElement.appendChild(host);
+        reappended = true;
+      }
     }
+    if (reappended) this.syncFullscreen();
   }
 
   private readonly syncFullscreen = (): void => {
-    const { host } = this;
-    if (!host) return;
+    // Mask host first: with popover promotion, later top-layer entries paint above
+    // earlier ones, so the UI host (and its button) stays above the masks.
+    for (const host of [this.host, this.uiHost]) {
+      if (host) this.syncFullscreenHost(host);
+    }
+  };
+
+  private syncFullscreenHost(host: HTMLElement): void {
     const { fullscreenElement } = document;
 
     if (fullscreenElement && fullscreenElement !== host) {
@@ -241,7 +301,7 @@ class OverlayLayer {
     if (host.parentNode !== document.documentElement) {
       document.documentElement.appendChild(host);
     }
-  };
+  }
 }
 
 // Export singleton instance (one layer per document)

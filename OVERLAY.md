@@ -132,39 +132,60 @@ z-index is dynamic:
 hostZ = clamp(1 + max(0, max over tracked elements of chainMaxZ(el)), 1, 2147483647)
 ```
 
-`chainMaxZ(el)` (`geometryTracker.ts`) is the highest numeric computed `z-index` on the element and
-its **flattened-tree** ancestors (through `assignedSlot`, across shadow roots via the host chain,
-`documentElement` excluded). Why this is safe (CSS 2.2 Appendix E): the element's root-level paint
-layer is set by its root-level stacking ancestor — either that ancestor has a numeric z-index (which
-is on the chain, so `hostZ` exceeds it) or it stacks at the `auto`/`0` level (beaten by `hostZ ≥ 1`
-regardless of DOM order). z-indexes trapped inside nested stacking contexts only **over**estimate,
-lifting masks higher than needed — never below their own element. The flattened-tree walk matters: a
-slotted image paints inside its slot's shadow wrappers, whose z-indexes a light-tree walk would miss
-(the one real fail-open configuration).
+`chainMaxZ(el)` (`geometryTracker.ts`) walks the element and its **flattened-tree** ancestors
+(through `assignedSlot`, across shadow roots via the host chain, `documentElement` excluded)
+estimating the z-index that decides the element's paint level in the root stacking context. Why this
+is safe (CSS 2.2 Appendix E): the element's root-level paint layer is set by its root-level stacking
+ancestor — either that ancestor has a numeric z-index (kept by the walk, so `hostZ` exceeds it) or
+it stacks at the `auto`/`0` level (beaten by `hostZ ≥ 1` regardless of DOM order). Crossing a node
+that **provably** creates a stacking context (`createsStackingContext`, `geometry.ts`: transform,
+filter, backdrop-filter, perspective, mix-blend-mode, isolation, opacity < 1, positioned with
+numeric z-index) discards the z-indexes accumulated below it — they are trapped inside that context
+and can't affect root paint order, so a carousel's `.slick-active { z-index: 999 }` inside a
+transformed track no longer pins the host at 1000 page-wide. The predicate is deliberately
+incomplete (`will-change`, `contain`, plain `sticky`, future CSS): a missed trigger only
+**over**estimates, lifting masks higher than needed — never below their own element; a false
+positive is the dangerous direction, hence spec-certain triggers only. The flattened-tree walk
+matters: a slotted image paints inside its slot's shadow wrappers, whose z-indexes a light-tree walk
+would miss (the one real fail-open configuration).
 
 Meanwhile a navbar with `z-index: 100 > hostZ` paints over masks exactly as it paints over the
 images beneath it — no per-overlay z-index guessing, no site-CSS mutation.
 
 Mechanics: `chainZ` is computed synchronously at `track()`/`refresh()` (so `attach()` raises the
 host before the first mask frame — a newly masked image in a high-z modal never paints above its
-mask) and re-walked on the shared 200 ms slow-scan cadence to catch dynamic z-index changes. The
-layer applies `nextHostZ(tracker.maxChainZ())` (`geometry.ts`, clamped, `Infinity`-on-error →
-maximum, i.e. fail-closed) on attach and on the tick heartbeat; lowering after detach lags a tick,
-which is safe. Caveat: hostZ is global to the layer — one tracked element inside a `z-index: 9999`
-modal lifts all masks to 10000 until it's untracked, degrading the navbar fix back to the old
-over-cover behavior (occlusion still handles full coverage).
+mask; a DOM-observer re-add of a masked element triggers the same synchronous `refresh()`) and
+re-walked on the shared 200 ms slow-scan cadence to catch dynamic z-index changes. The layer applies
+`nextHostZ(tracker.maxChainZ())` (`geometry.ts`, clamped, `Infinity`-on-error → maximum, i.e.
+fail-closed) on attach, on refresh, and on the tick heartbeat (which runs after the sweep's read
+phase, so a chainZ change lands on the host in the same frame the masks repaint); lowering after
+detach lags a tick, which is safe. Caveat: hostZ is global to the layer — one tracked element inside
+a `z-index: 9999` modal lifts all masks to 10000 until it's untracked, degrading the navbar fix back
+to the old over-cover behavior (occlusion still handles full coverage). Caveat: site chrome at
+**exactly** `hostZ = chainMax + 1` ties with the host and loses to it (last-in-DOM wins), so the
+mask over-covers chrome the image itself scrolls under — inherent to any single global hostZ, since
+`hostZ = chainMax` would rely on the same DOM-order tie-break against the element's own ancestor and
+could fail open instead.
+
+Interactive extension UI (the quick-toggle eye button) does **not** live in the mask host: it serves
+registered-but-untracked elements too (safe images, images toggled to visible), whose chains never
+raise hostZ, and a child can't escape its host's stacking context. It mounts into a separate
+`<haramblock-overlay-ui>` host pinned at the maximum z-index (`!important`) — a transient
+user-invoked control must never be buried under site chrome. Both hosts share self-heal and
+fullscreen promotion (mask host promoted first, so the button stays above masks in the top layer).
 
 ### Occlusion (was: the over-cover tradeoff)
 
-Even with the dynamic host z-index, chainMaxZ overestimates (nested-context z-indexes inflate it),
-so masks can still float above site UI meant to cover the element — found in practice: open a
-lightbox and the thumbnail masks float above its backdrop. Handled by **occlusion detection**
-(`layer/occlusion.ts`): on the shared 200 ms slow-scan cadence per visible tracked element, hit-test
-5 sample points spread over its visible (clip-reduced) rect via `document.elementFromPoint`. The
-slot is hidden only when **every** point is covered by _opaque_ foreign content — the hit (or a
-non-shared ancestor, covering transparent centering containers inside modals) paints real pixels:
-media tag, `background-image`, `backdrop-filter`, or background-color alpha ≥ `OCCLUDER_MIN_ALPHA`
-(0.45, catching the ubiquitous `rgba(0,0,0,.5)` backdrops).
+Even with the dynamic host z-index, chainMaxZ can overestimate (z-indexes that don't apply, or
+nested contexts the boundary predicate can't prove), so masks can still float above site UI meant to
+cover the element — found in practice: open a lightbox and the thumbnail masks float above its
+backdrop. Handled by **occlusion detection** (`layer/occlusion.ts`): on the shared 200 ms slow-scan
+cadence per visible tracked element, hit-test 5 sample points spread over its visible (clip-reduced)
+rect via `document.elementFromPoint`. The slot is hidden only when **every** point is covered by
+_opaque_ foreign content — the hit (or a non-shared ancestor, covering transparent centering
+containers inside modals) paints real pixels: media tag, `background-image`, `backdrop-filter`, or
+background-color alpha ≥ `OCCLUDER_MIN_ALPHA` (0.45, catching the ubiquitous `rgba(0,0,0,.5)`
+backdrops).
 
 Everything fails toward "mask stays visible": transparent overlays (stretched-link cards),
 unparseable colors, points hitting the element/its ancestors/descendants, our own layer host, and
@@ -176,9 +197,12 @@ by occlusion).
 
 - **Occlusion latency:** a lightbox's backdrop hides underlying masks up to ~200 ms + one sweep
   after it opens (hit testing is throttled). The transition is user-visible anyway.
-- **Dynamic z-index latency:** a site raising an ancestor's z-index above hostZ with no accompanying
-  geometry change is picked up on the same ~200 ms cadence; the triggering scenario (re-stacking a
-  container across an already-masked image) is exotic and self-heals.
+- **Dynamic z-index latency:** a site raising an ancestor's z-index above hostZ (with or without a
+  geometry change — the chainZ re-walk is throttled either way) is picked up on the same ~200 ms
+  cadence; re-stacking a container across an already-masked image is exotic and self-heals.
+  Reparenting a masked element (lightboxes, React portals moving live subtrees) is **not** subject
+  to this latency: the DOM observer reports the re-add and the processor synchronously refreshes the
+  slot's ancestor state (clip ancestors + stacking chain) and the host z-index.
 - **Semi-dim backdrops below 0.45 alpha** keep masks visible on purpose — the content shows through,
   so hiding the mask would reveal it.
 - **1-frame lag:** rect is read at rAF time; a transform-animated element's mask trails by ≤1 frame.

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clipsEqual,
   computeClipInsets,
+  createsStackingContext,
   cssColorAlpha,
   hasArea,
   intersectRects,
@@ -12,6 +13,7 @@ import {
   parseZIndex,
   rectsEqual,
   MAX_Z_INDEX,
+  type IStackingStyle,
 } from '@/entrypoints/content/presentation/layer/geometry';
 
 import type { ILayerRect } from '@/utils/types/presentation';
@@ -163,6 +165,57 @@ describe('parseZIndex', () => {
     expect(parseZIndex('auto')).toBeNull();
     expect(parseZIndex('')).toBeNull();
     expect(parseZIndex('inherit')).toBeNull();
+  });
+});
+
+describe('createsStackingContext', () => {
+  const plain: IStackingStyle = {
+    position: 'static',
+    zIndex: 'auto',
+    transform: 'none',
+    filter: 'none',
+    opacity: '1',
+    isolation: 'auto',
+    mixBlendMode: 'normal',
+    perspective: 'none',
+    backdropFilter: 'none',
+  };
+
+  it('is false for a plain block', () => {
+    expect(createsStackingContext(plain)).toBe(false);
+  });
+
+  it('fires on spec-certain triggers', () => {
+    expect(createsStackingContext({ ...plain, transform: 'matrix(1, 0, 0, 1, 0, 0)' })).toBe(true);
+    expect(createsStackingContext({ ...plain, filter: 'blur(2px)' })).toBe(true);
+    expect(createsStackingContext({ ...plain, backdropFilter: 'blur(2px)' })).toBe(true);
+    expect(createsStackingContext({ ...plain, perspective: '500px' })).toBe(true);
+    expect(createsStackingContext({ ...plain, mixBlendMode: 'multiply' })).toBe(true);
+    expect(createsStackingContext({ ...plain, isolation: 'isolate' })).toBe(true);
+    expect(createsStackingContext({ ...plain, opacity: '0.99' })).toBe(true);
+    expect(createsStackingContext({ ...plain, position: 'relative', zIndex: '0' })).toBe(true);
+    expect(createsStackingContext({ ...plain, position: 'sticky', zIndex: '5' })).toBe(true);
+  });
+
+  it('stays false for non-guaranteed cases (missing a trigger only overestimates)', () => {
+    // Positioned with z-index auto does not create a context (sticky aside — not guaranteed here)
+    expect(createsStackingContext({ ...plain, position: 'relative' })).toBe(false);
+    // z-index on a static element does not apply
+    expect(createsStackingContext({ ...plain, zIndex: '999' })).toBe(false);
+    // Unresolved/empty computed values (defensive: must never fire)
+    expect(
+      createsStackingContext({
+        position: '',
+        zIndex: '',
+        transform: '',
+        filter: '',
+        opacity: '',
+        isolation: '',
+        mixBlendMode: '',
+        perspective: '',
+        backdropFilter: undefined,
+      }),
+    ).toBe(false);
   });
 });
 
