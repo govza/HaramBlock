@@ -229,10 +229,16 @@ rationale.
   tracked element's flattened ancestor chain (`chainMaxZ`) estimating its root-level stacking
   z-index (z-indexes trapped behind provable stacking-context boundaries are discarded), from which
   the layer derives its dynamic host z-index.
-- `layer/occlusion.ts` — hides a slot when its element is fully covered by opaque site content (e.g.
-  a lightbox backdrop): throttled `elementFromPoint` sampling over the visible rect, opaque only
-  when the covering content paints real pixels (media tag, background-image/-color alpha ≥ 0.45,
-  backdrop-filter). All heuristics fail toward keeping the mask visible.
+- `layer/occlusion.ts` — one throttled `elementFromPoint` sampling pass (edge-biased 4x4 grid over
+  the visible rect) answering two questions: hides a slot when its element is fully covered by
+  opaque site content (e.g. a lightbox backdrop — media tag, background-image/-color alpha ≥ 0.45,
+  backdrop-filter), and collects partial occluders (caption bars, duration badges) as caption-lift
+  candidates. All heuristics fail toward keeping the mask visible.
+- `layer/captionLift.ts` — gives detected site captions an inline `z-index: hostZ + 1` so they stay
+  readable above the mask (which stays intact over the image beneath them). Fail-closed
+  qualification: z-index must apply, no media/`url()` content in the subtree, and no
+  stacking-context ancestor (a caption trapped in a nested context can't be raised above the mask at
+  all). Restored on untrack/teardown; see `OVERLAY.md` "Caption lift".
 - `layer/geometry.ts` — pure rect/clip/occlusion-sampling/host-z math (unit-tested).
 
 The initial protective blur is **not** part of the layer: it stays a CSS class on the element itself

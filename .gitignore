@@ -42,3 +42,6 @@ tests/e2e/screenshots/
 .claude/*
 
 scripts/benchmark/results/
+
+# Playwright MCP browser-debugging snapshots (auto-generated, not source)
+.playwright-mcp/

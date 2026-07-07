@@ -129,12 +129,20 @@ describe('clipsEqual', () => {
 });
 
 describe('occlusionSamplePoints', () => {
-  it('spreads five points over an unclipped rect', () => {
+  it('spreads an edge-biased 4x4 grid over an unclipped rect', () => {
     const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
-    expect(points).toHaveLength(5);
-    expect(points[0]).toEqual({ x: 50, y: 50 }); // center
-    expect(points[1]).toEqual({ x: 20, y: 20 });
-    expect(points[4]).toEqual({ x: 80, y: 80 });
+    expect(points).toHaveLength(16);
+    expect(points[0]?.x).toBeCloseTo(8); // row-major, edges first
+    expect(points[0]?.y).toBeCloseTo(8);
+    expect(points[15]?.x).toBeCloseTo(92);
+    expect(points[15]?.y).toBeCloseTo(92);
+  });
+
+  it('reaches into edge bands (caption bars >= 8% of the height)', () => {
+    const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
+    // A bottom bar covering rows 90..100 must be sampled
+    expect(points.filter(p => p.y >= 90)).not.toHaveLength(0);
+    expect(points.filter(p => p.y <= 10)).not.toHaveLength(0);
   });
 
   it('samples only the visible (clip-reduced) region', () => {

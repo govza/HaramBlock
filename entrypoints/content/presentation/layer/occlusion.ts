@@ -1,3 +1,5 @@
+import { qualifiesForLift, mayQualifyForLift } from '@/entrypoints/content/presentation/layer/captionLift';
+import { parentOf, shadowInclusiveContains } from '@/entrypoints/content/presentation/layer/domWalk';
 import {
   cssColorAlpha,
   occlusionSamplePoints,
@@ -7,37 +9,24 @@ import {
 import type { IClipInsets, ILayerRect } from '@/utils/types/presentation';
 
 /**
- * Occlusion detection for the overlay layer: is a tracked element fully covered by
- * opaque site content (a lightbox backdrop, a modal panel)? If so, its mask slot is
- * hidden — otherwise masks float above UI the site intends to cover the element with.
+ * Occlusion scan for the overlay layer, one hit-test pass answering two questions:
  *
- * Every heuristic here fails toward "not occluded" (mask stays visible): transparent
- * overlays (stretched-link cards), unparseable styles, and un-hit-testable elements
- * never hide a mask.
+ * 1. Is the tracked element FULLY covered by opaque site content (a lightbox
+ *    backdrop, a modal panel)? If so, its mask slot is hidden — otherwise masks float
+ *    above UI the site intends to cover the element with.
+ * 2. Which site elements paint over PARTS of the element (caption bars, scrims) and
+ *    qualify for a caption lift (see captionLift.ts)?
+ *
+ * Every heuristic here fails toward "keep the element masked": transparent overlays
+ * (stretched-link cards), unparseable styles, and un-hit-testable elements never hide
+ * a mask, and a candidate that fails any lift qualification simply stays covered.
  */
 
 /** Elements that paint their own pixels regardless of background style. */
 const OPAQUE_TAGS = new Set(['IMG', 'VIDEO', 'CANVAS', 'PICTURE', 'IFRAME', 'EMBED', 'OBJECT', 'SVG']);
 
-/** Ancestor check that crosses shadow boundaries via the host chain. */
-const shadowInclusiveContains = (ancestor: Element, node: Element): boolean => {
-  for (let current: Element | null = node; current; ) {
-    if (current === ancestor) return true;
-    if (current.parentElement) {
-      current = current.parentElement;
-    } else {
-      const root = current.getRootNode();
-      current = root instanceof ShadowRoot ? root.host : null;
-    }
-  }
-  return false;
-};
-
-const parentOf = (element: Element): Element | null => {
-  if (element.parentElement) return element.parentElement;
-  const root = element.getRootNode();
-  return root instanceof ShadowRoot ? root.host : null;
-};
+/** More simultaneous occluders than this is not a captions situation; lift nothing. */
+const MAX_LIFT_CANDIDATES = 4;
 
 /** Does this element paint opaque-enough pixels to visually cover what's beneath it? */
 const rendersOpaquePixels = (element: Element): boolean => {
@@ -50,37 +39,56 @@ const rendersOpaquePixels = (element: Element): boolean => {
   return false;
 };
 
+export interface IOcclusionScan {
+  /** True when every visible sample point is covered by opaque foreign content. */
+  occluded: boolean;
+  /**
+   * Foreign elements painting above the tracked element that fully qualify for a
+   * caption lift. Empty when occluded (the slot hides anyway) or when detection
+   * bails (fail-closed: captions stay covered).
+   */
+  liftCandidates: HTMLElement[];
+}
+
+const NO_SCAN: IOcclusionScan = { occluded: false, liftCandidates: [] };
+
 /**
- * Whether `occluder` — or one of its ancestors that is NOT also an ancestor of
- * `element` — paints opaque pixels. The ancestor walk covers lightboxes whose deepest
- * hit-test target is a transparent centering container inside an opaque wrapper.
+ * Walks from a hit up to the first shared ancestor with `element`, answering both
+ * "is this hit chain opaque?" (for full occlusion, 0.45-alpha class of checks) and
+ * "which node should a caption lift target?" — the OUTERMOST chain node where a
+ * z-index would apply (the whole caption bar, not a text span inside it).
  */
-const isOpaqueOccluder = (occluder: Element, element: Element): boolean => {
-  for (let node: Element | null = occluder; node && !shadowInclusiveContains(node, element); node = parentOf(node)) {
-    if (rendersOpaquePixels(node)) return true;
+const analyzeHitChain = (hit: Element, element: Element): { opaque: boolean; liftCandidate: HTMLElement | null } => {
+  let opaque = false;
+  let liftCandidate: HTMLElement | null = null;
+  for (let node: Element | null = hit; node && !shadowInclusiveContains(node, element); node = parentOf(node)) {
+    if (!opaque && rendersOpaquePixels(node)) opaque = true;
+    if (node instanceof HTMLElement && mayQualifyForLift(node)) liftCandidate = node;
   }
-  return false;
+  return { opaque, liftCandidate };
 };
 
 /**
- * True when every visible sample point of the element is covered by opaque foreign
- * content. Uses hit testing, so elements that opt out of it (pointer-events: none)
- * are never reported occluded.
+ * Hit-tests the element's visible sample points. Uses hit testing, so elements that
+ * opt out of it (pointer-events: none) are never reported occluded and captions that
+ * opt out are never lifted.
  */
-export const isElementOccluded = (
+export const scanOcclusion = (
   element: Element,
   rect: ILayerRect,
   clip: IClipInsets | null,
   ignoreOccluder?: (candidate: Element) => boolean,
-): boolean => {
-  if (getComputedStyle(element).pointerEvents === 'none') return false;
+): IOcclusionScan => {
+  if (getComputedStyle(element).pointerEvents === 'none') return NO_SCAN;
 
   const points = occlusionSamplePoints(rect, clip);
-  if (!points.length) return false;
+  if (!points.length) return NO_SCAN;
 
   const viewportWidth = document.documentElement.clientWidth;
   const viewportHeight = document.documentElement.clientHeight;
   let sampled = false;
+  let allOpaque = true;
+  const candidates = new Set<HTMLElement>();
 
   for (const { x, y } of points) {
     if (x < 0 || y < 0 || x >= viewportWidth || y >= viewportHeight) continue;
@@ -89,10 +97,18 @@ export const isElementOccluded = (
     sampled = true;
     // The element (or its subtree/ancestors) is on top here — visibly not occluded.
     if (hit === element || shadowInclusiveContains(element, hit) || shadowInclusiveContains(hit, element)) {
-      return false;
+      allOpaque = false;
+      continue;
     }
-    if (!isOpaqueOccluder(hit, element)) return false;
+    const { opaque, liftCandidate } = analyzeHitChain(hit, element);
+    if (!opaque) allOpaque = false;
+    if (liftCandidate) candidates.add(liftCandidate);
   }
 
-  return sampled;
+  const occluded = sampled && allOpaque;
+  if (occluded || candidates.size > MAX_LIFT_CANDIDATES) return { occluded, liftCandidates: [] };
+
+  // Full qualification (subtree media scan, stacking-context chain) once per distinct
+  // candidate, only on this throttled path.
+  return { occluded, liftCandidates: [...candidates].filter(qualifiesForLift) };
 };

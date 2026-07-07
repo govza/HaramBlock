@@ -137,8 +137,16 @@ export interface IViewportPoint {
 }
 
 /**
+ * Per-axis sample fractions: a 4x4 grid biased toward the edges (8% in), because the
+ * content worth detecting often hugs an edge — caption bars, sticky corner chips. A
+ * bottom bar covering >= 8% of the height is hit by the whole 0.92 row.
+ */
+const SAMPLE_FRACTIONS = [0.08, 0.35, 0.65, 0.92];
+
+/**
  * Hit-test sample points spread over the visible (clip-reduced) part of an element
- * rect: center + four points 20% in from each corner. Empty when nothing is visible.
+ * rect: an edge-biased 4x4 grid (16 points). Empty when nothing is visible. Shared by
+ * full-occlusion detection and caption-lift candidate discovery.
  */
 export const occlusionSamplePoints = (rect: ILayerRect, clip: IClipInsets | null): IViewportPoint[] => {
   if (clip === null) return [];
@@ -148,14 +156,13 @@ export const occlusionSamplePoints = (rect: ILayerRect, clip: IClipInsets | null
   const height = rect.height - clip.top - clip.bottom;
   if (width <= 0 || height <= 0) return [];
 
-  const fractions: [number, number][] = [
-    [0.5, 0.5],
-    [0.2, 0.2],
-    [0.8, 0.2],
-    [0.2, 0.8],
-    [0.8, 0.8],
-  ];
-  return fractions.map(([fx, fy]) => ({ x: left + width * fx, y: top + height * fy }));
+  const points: IViewportPoint[] = [];
+  for (const fy of SAMPLE_FRACTIONS) {
+    for (const fx of SAMPLE_FRACTIONS) {
+      points.push({ x: left + width * fx, y: top + height * fy });
+    }
+  }
+  return points;
 };
 
 /**
