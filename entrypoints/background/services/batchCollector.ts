@@ -24,7 +24,7 @@ interface BatchCollectorOptions<TTask> {
  * while a batch runs accumulate and flush together once it finishes. Under load batches grow toward
  * the cap; when idle a lone task flushes on the next tick (batch 1), so single-image latency on the
  * active tab never regresses. The serialized run also satisfies the one-session.run-at-a-time
- * constraint of onnxruntime-web (see docs/PLAN.md).
+ * constraint of onnxruntime-web (see docs/INFERENCE_PIPELINE.md).
  */
 export class BatchCollector<TTask, TResult> {
   private buffer: Array<Pending<TTask, TResult>> = [];

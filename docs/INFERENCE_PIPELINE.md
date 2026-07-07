@@ -171,6 +171,15 @@ batched ahead of background tabs.
 (`inferenceTime = batchTime / batchSize`) so the popup's throughput (`1000 / mean(inferenceTime)`)
 reflects batching instead of undercounting by the batch size.
 
+### Planned: ArgMax-head export
+
+The `float32[N,4,H,W]` logits readback is 35-40% of per-image cost (1.64MB@320 → 52MB@640 b8).
+Re-exporting the model with an ArgMax head (`uint8[N,H,W]` output; 16x smaller readback, 64x if
+emitted at /4 resolution where postprocess already subsamples) would also delete the JS
+argmax/softmax loop. Same export path as the dynamic-batch models, so it composes with batching. Not
+yet exported or measured — the bench harness is ready for it (`pnpm bench --batch --variant`,
+output-tensor reporting confirms the readback shrank and the run stayed on the WebGPU EP).
+
 ## Firefox 100ms readback poll + queue poke
 
 Firefox polls WebGPU from a ~100ms timer rather than when work completes, so the `mapAsync` readback

@@ -17,8 +17,7 @@ APIs, and implementation details). If you’re a user, start with the project
 - **AI model (architecture, classes, registry, per-model perf)**: [MODEL.md](MODEL.md)
 - **Inference pipeline (runtime, queueing, adaptive batching)**:
   [INFERENCE_PIPELINE.md](INFERENCE_PIPELINE.md)
-- **Parallel GPU inference: plan + results**: [PLAN.md](PLAN.md),
-  [PHASE2_RESULTS.md](PHASE2_RESULTS.md)
+- **Batched inference benchmark results**: [PHASE2_RESULTS.md](PHASE2_RESULTS.md)
 - **Running tests**: [TESTING.md](TESTING.md)
 - **Interactive browser debugging (Playwright MCP + built extension)**:
   [PLAYWRIGHT.md](PLAYWRIGHT.md)

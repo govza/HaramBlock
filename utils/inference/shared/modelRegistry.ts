@@ -24,7 +24,7 @@ export const MODEL_PATHS = [
 ];
 
 /**
- * Adaptive-batching caps by model input size, from the Phase 0 sweep (docs/PLAN.md): smaller models
+ * Adaptive-batching caps by model input size, measured in the batch sweep (docs/INFERENCE_PIPELINE.md): smaller models
  * scale further before throughput plateaus. Only applied to dynamic-batch exports.
  */
 const BATCH_CAPS: Record<number, number> = { 320: 8, 448: 4, 640: 4 };

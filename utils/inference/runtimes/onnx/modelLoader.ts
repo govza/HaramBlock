@@ -145,7 +145,7 @@ function needsFirefoxQueuePoke(): boolean {
 }
 
 // Serializes session.run() calls. No onnxruntime-web bundle supports overlapping runs on a session
-// (asyncify has a single suspension stack; JSEP hangs) - see docs/PLAN.md. Queue concurrency (>1)
+// (asyncify has a single suspension stack; JSEP hangs) - see docs/INFERENCE_PIPELINE.md. Queue concurrency (>1)
 // overlaps the surrounding CPU work, but the GPU run itself must stay single-flight. The chain is
 // mapped to a never-rejecting promise so one failed run cannot break serialization for the next.
 let runLock: Promise<void> = Promise.resolve();
