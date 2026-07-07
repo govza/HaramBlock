@@ -3,10 +3,10 @@ import { createsStackingContext, MAX_Z_INDEX } from '@/entrypoints/content/prese
 
 /**
  * Caption lift: site captions (text bars, gradient scrims) that paint above a masked
- * element at the z-index:auto level would be covered by the mask — the mask host is
- * tree-last, so any host z-index that beats the image also beats every same-level
+ * element at the z-index:auto level would be covered by the mask — the mask slot is
+ * tree-last, so any slot z-index that beats the image also beats every same-level
  * caption. The fix is on the caption's side: give it an inline z-index one above the
- * host, sandwiching the mask between the image and the caption. The mask is never
+ * slot, sandwiching the mask between the image and the caption. The mask is never
  * cut; image pixels under the caption stay masked.
  *
  * Safety model: candidates come from hit tests over the masked element, so they
@@ -51,7 +51,7 @@ const isMediaFree = (candidate: HTMLElement): boolean => {
  * The lift only works when the candidate participates in the ROOT stacking context:
  * any provable stacking-context ancestor flattens the caption into that ancestor's
  * paint layer (shared with the image in the common card case), where no z-index can
- * beat the host.
+ * beat the slot.
  */
 const chainAllowsLift = (candidate: HTMLElement): boolean => {
   for (let node = flatParentOf(candidate); node && node !== document.documentElement; node = flatParentOf(node)) {
@@ -61,7 +61,7 @@ const chainAllowsLift = (candidate: HTMLElement): boolean => {
 };
 
 /**
- * Full qualification for a would-be lift candidate. Called from the occlusion slow
+ * Full qualification for a would-be lift candidate. Called from the caption slow
  * scan (throttled), not per frame.
  */
 export const qualifiesForLift = (candidate: HTMLElement): boolean =>
@@ -83,15 +83,13 @@ class CaptionLifter {
   private readonly lifted = new Map<HTMLElement, LiftState>();
 
   /**
-   * Reconciles the lifted set with the current union of detected candidates:
-   * lifts new ones to `liftZ`, re-asserts the inline style if the site re-rendered
-   * it away, updates when `liftZ` changed (hostZ moved), restores dropped ones.
-   * Candidates are pre-qualified by the slow scan; this runs per tick and does no
-   * layout reads beyond inline-style string compares.
+   * Reconciles the lifted set with the current candidates (each mapped to its lift
+   * z-index — one above its mask's slot): lifts new ones, re-asserts the inline style
+   * if the site re-rendered it away, updates when the lift z moved, restores dropped
+   * ones. Candidates are pre-qualified by the slow scan; this runs per tick and does
+   * no layout reads beyond inline-style string compares.
    */
-  sync(candidates: ReadonlySet<HTMLElement>, liftZ: number): void {
-    const appliedZ = String(Math.min(liftZ, MAX_Z_INDEX));
-
+  sync(candidates: ReadonlyMap<HTMLElement, number>): void {
     for (const [element, state] of this.lifted) {
       if (!candidates.has(element) || !element.isConnected) {
         this.restore(element, state);
@@ -99,7 +97,8 @@ class CaptionLifter {
       }
     }
 
-    for (const element of candidates) {
+    for (const [element, liftZ] of candidates) {
+      const appliedZ = String(Math.min(liftZ, MAX_Z_INDEX));
       const state = this.lifted.get(element);
       if (!state) {
         this.lifted.set(element, {
@@ -122,7 +121,8 @@ class CaptionLifter {
   /**
    * Pre-lift computed z-index for a node we lifted, or null. chainMaxZ substitutes it
    * so a masked element that appears INSIDE a lifted caption can't feed our own lift
-   * value back into hostZ (hostZ -> lift -> chainZ -> hostZ would spiral to the max).
+   * value back into its chainZ (slotZ -> lift -> chainZ -> slotZ would spiral to the
+   * maximum).
    */
   unliftedZIndexOf(node: Element, computedZ: string): string | null {
     const state = node instanceof HTMLElement ? this.lifted.get(node) : undefined;

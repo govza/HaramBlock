@@ -1,14 +1,15 @@
 import { captionLifter } from '@/entrypoints/content/presentation/layer/captionLift';
+import { scanLiftCandidates } from '@/entrypoints/content/presentation/layer/captionScan';
 import { flatParentOf, parentOf } from '@/entrypoints/content/presentation/layer/domWalk';
 import {
   clipsEqual,
   computeClipInsets,
   createsStackingContext,
   hasArea,
+  mergeLiftCandidates,
   parseZIndex,
   rectsEqual,
 } from '@/entrypoints/content/presentation/layer/geometry';
-import { scanOcclusion } from '@/entrypoints/content/presentation/layer/occlusion';
 
 import type { IClipInsets, ILayerGeometry, ILayerRect } from '@/utils/types/presentation';
 
@@ -30,8 +31,7 @@ interface TrackerEntry {
   liftCandidates: HTMLElement[];
   lastRect?: ILayerRect;
   lastClip?: IClipInsets | null;
-  occluded: boolean;
-  /** Timestamp of the last slow scan (occlusion hit-testing + chainZ re-walk). */
+  /** Timestamp of the last slow scan (caption hit-testing + chainZ re-walk). */
   slowScannedAt: number;
   intersecting: boolean;
   dirty: boolean;
@@ -41,9 +41,9 @@ interface TrackerEntry {
 const INTERSECTION_MARGIN = '100px';
 
 /**
- * Occlusion uses hit testing (forced layout per sample point) and the chainZ walk
- * reads computed styles up the ancestor chain, so this slow scan runs at most this
- * often per element — a lightbox appearing or a container's z-index changing is a
+ * Caption discovery uses hit testing (forced layout per sample point) and the chainZ
+ * walk reads computed styles up the ancestor chain, so this slow scan runs at most
+ * this often per element — a caption appearing or a container's z-index changing is a
  * user-visible transition where ~200 ms of latency is imperceptible, unlike
  * per-frame position tracking.
  */
@@ -77,7 +77,7 @@ const clipRectOf = (ancestor: Element): ILayerRect => {
  * Crossing a node that provably creates a stacking context DISCARDS the z-indexes
  * accumulated below it — they are trapped inside that context and can't affect root
  * paint order (a carousel's `.slick-active { z-index: 999 }` inside a transformed
- * track must not pin the host at 1000 page-wide). The reset is safe because
+ * track must not pin the slot at 1000 page-wide). The reset is safe because
  * `createsStackingContext` fires only on spec-certain triggers; a missed trigger
  * just leaves the old overestimate — masks float above more site content than
  * strictly needed, never below their own element.
@@ -89,8 +89,8 @@ const chainMaxZ = (element: Element): number => {
     for (let node: Element | null = element; node && node !== document.documentElement; node = flatParentOf(node)) {
       const style = getComputedStyle(node);
       // A caption WE lifted must be walked with its pre-lift z-index, or a masked
-      // element inside a lifted caption feeds our own lift value back into hostZ
-      // (hostZ -> lift -> chainZ -> hostZ spirals to the maximum).
+      // element inside a lifted caption feeds our own lift value back into chainZ
+      // (slotZ -> lift -> chainZ -> slotZ spirals to the maximum).
       const original = captionLifter.unliftedZIndexOf(node, style.zIndex);
       const z = parseZIndex(original ?? style.zIndex);
       const stacking =
@@ -162,8 +162,11 @@ export class GeometryTracker {
   /** Heartbeat invoked once per sweep; the layer uses it to self-heal its host element. */
   onTick?: () => void;
 
-  /** Occluder veto (e.g. the layer's own host); such hits never count for occlusion. */
-  shouldIgnoreOccluder?: (candidate: Element) => boolean;
+  /** Invoked per element on the throttled slow scan; the layer re-asserts anchor-names here. */
+  onSlowScan?: (element: Element) => void;
+
+  /** Hit veto (e.g. the layer's own hosts); such hits are never caption candidates. */
+  shouldIgnoreHit?: (candidate: Element) => boolean;
 
   track(element: Element, callbacks: IGeometryTrackerCallbacks): void {
     this.untrack(element);
@@ -174,10 +177,9 @@ export class GeometryTracker {
       clipAncestors: findClipAncestors(element),
       // Placeholder: the synchronous readEntry below runs slowScan (slowScannedAt 0
       // always passes the throttle), which walks the real chainZ before track()
-      // returns — and before the layer's attach-time host z-index sync reads it.
+      // returns — and before the layer's attach-time slot z-index sync reads it.
       chainZ: 0,
       liftCandidates: [],
-      occluded: false,
       slowScannedAt: 0,
       // Assume visible until the IntersectionObserver reports, so the first frames poll.
       intersecting: true,
@@ -213,22 +215,17 @@ export class GeometryTracker {
     this.schedule();
   }
 
-  /** Highest chainZ across all tracked elements; the layer derives its host z-index from it. */
-  maxChainZ(): number {
-    let max = 0;
-    for (const entry of this.entries.values()) {
-      if (entry.chainZ > max) max = entry.chainZ;
-    }
-    return max;
+  /** Root-level stacking z-index estimate for a tracked element's chain (see chainMaxZ). */
+  chainZOf(element: Element): number | undefined {
+    return this.entries.get(element)?.chainZ;
   }
 
-  /** Union of qualified caption-lift candidates across all tracked elements. */
-  allLiftCandidates(): Set<HTMLElement> {
-    const all = new Set<HTMLElement>();
-    for (const entry of this.entries.values()) {
-      for (const candidate of entry.liftCandidates) all.add(candidate);
-    }
-    return all;
+  /**
+   * Qualified caption-lift candidates across all tracked elements, each mapped to the
+   * highest chainZ among the entries it overlaps — the base the lift z derives from.
+   */
+  allLiftCandidates(): Map<HTMLElement, number> {
+    return mergeLiftCandidates(this.entries.values());
   }
 
   dispose(): void {
@@ -306,19 +303,15 @@ export class GeometryTracker {
       if (!entry.intersecting && !entry.dirty) continue;
       const geometry = this.measure(entry);
       entry.dirty = false;
-      const unchanged =
-        rectsEqual(entry.lastRect, geometry.rect) &&
-        clipsEqual(entry.lastClip, geometry.clip) &&
-        geometry.occluded === entry.occluded;
+      const unchanged = rectsEqual(entry.lastRect, geometry.rect) && clipsEqual(entry.lastClip, geometry.clip);
       entry.lastRect = geometry.rect;
       entry.lastClip = geometry.clip;
-      entry.occluded = geometry.occluded;
       if (unchanged) continue;
       updates.push({ entry, geometry });
     }
 
     // Write phase. onTick leads it (after the reads, so a chainZ change picked up by
-    // this sweep's slow scan reaches the layer's host z-index in the SAME frame the
+    // this sweep's slow scan reaches the slot z-indexes in the SAME frame the
     // masks repaint — a tick earlier and the raise would lag one sweep behind).
     this.onTick?.();
     for (const entry of detached) {
@@ -335,27 +328,27 @@ export class GeometryTracker {
   private measure(entry: TrackerEntry): ILayerGeometry {
     const rect = rectOf(entry.element);
     const clip = hasArea(rect) ? computeClipInsets(rect, entry.clipAncestors.map(clipRectOf)) : null;
-    return { rect, clip, occluded: this.slowScan(entry, rect, clip) };
+    this.slowScan(entry, rect, clip);
+    return { rect, clip };
   }
 
   /**
-   * Throttled slow path: occlusion hit testing and the chainZ ancestor re-walk are
+   * Throttled slow path: caption hit testing and the chainZ ancestor re-walk are
    * comparatively expensive, and both change on user-visible transitions where
    * ~200 ms of latency is imperceptible.
    */
-  private slowScan(entry: TrackerEntry, rect: ILayerRect, clip: IClipInsets | null): boolean {
+  private slowScan(entry: TrackerEntry, rect: ILayerRect, clip: IClipInsets | null): void {
     const now = Date.now();
-    if (now - entry.slowScannedAt < SLOW_SCAN_INTERVAL_MS) return entry.occluded;
+    if (now - entry.slowScannedAt < SLOW_SCAN_INTERVAL_MS) return;
     entry.slowScannedAt = now;
     entry.chainZ = chainMaxZ(entry.element);
+    this.onSlowScan?.(entry.element);
     if (!hasArea(rect) || clip === null) {
       // Hidden element: its mask can't paint, so no caption needs lifting either.
       entry.liftCandidates = [];
-      return false;
+      return;
     }
-    const scan = scanOcclusion(entry.element, rect, clip, this.shouldIgnoreOccluder);
-    entry.liftCandidates = scan.liftCandidates;
-    return scan.occluded;
+    entry.liftCandidates = scanLiftCandidates(entry.element, rect, clip, this.shouldIgnoreHit);
   }
 
   private readEntry(entry: TrackerEntry): void {
@@ -363,7 +356,6 @@ export class GeometryTracker {
     entry.dirty = false;
     entry.lastRect = geometry.rect;
     entry.lastClip = geometry.clip;
-    entry.occluded = geometry.occluded;
     entry.callbacks.onUpdate(geometry);
   }
 }

@@ -31,14 +31,19 @@ export default defineConfig({
     name: '__MSG_Extension_name__',
     description: '__MSG_Extension_description__',
     default_locale: 'en',
+    // Floors follow CSS anchor positioning (mask slots are anchor-positioned):
+    // Firefox 147 desktop+Android, Chrome/Edge 125 (per MDN BCD for `position-anchor`).
+    // Deliberate cost: the Firefox floor excludes ESR (128/140) — ESR users are
+    // stranded on the last compatible release until ESR catches up.
+    minimum_chrome_version: '125',
     browser_specific_settings: {
       gecko: {
         id: 'admin@haramblock.com',
-        strict_min_version: '142.0',
+        strict_min_version: '147.0',
         data_collection_permissions: { required: ['none'] },
       },
       gecko_android: {
-        strict_min_version: '142.0',
+        strict_min_version: '147.0',
       },
     },
     permissions: ['tabs', 'storage', 'contextMenus'],

@@ -36,18 +36,25 @@ function decodePredictionMasks(prediction: IImagePrediction): { masks: number[][
   return allMasks;
 }
 
+// Canvases live in the mask host's light DOM (no shadow boundary — see
+// overlayLayer.ts), so the layout-critical properties are important-flagged
+// against site CSS resets.
 const CANVAS_STYLE = [
-  'position: absolute',
-  'top: 0',
-  'left: 0',
-  'pointer-events: none',
+  'position: absolute !important',
+  'top: 0 !important',
+  'left: 0 !important',
+  // Same computed value as the default (the canvas is absolutely positioned), but
+  // asserted so a site `canvas { display: none !important }` can't blank the mask.
+  'display: block !important',
+  'visibility: visible !important',
+  'pointer-events: none !important',
   'image-rendering: pixelated',
   'image-rendering: crisp-edges',
 ].join('; ');
 
 /**
  * Manages mask overlays for image elements, rendered into the extension-owned overlay
- * layer (never into site DOM). The layer positions each slot in viewport coordinates;
+ * layer (never into site DOM). The layer keeps each slot glued to its element;
  * this module only redraws when the element's size (not position) changes.
  * Implements IMediaOverlayModuleAPI<HTMLImageElement>
  */
@@ -71,7 +78,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     const existingState = this.imageStates.get(image);
     if (existingState && !existingState.destroyed) {
       existingState.currentPrediction = imagePrediction;
-      existingState.canvas.style.display = '';
+      existingState.canvas.style.setProperty('display', 'block', 'important');
       this.render(image, existingState);
       return;
     }
@@ -124,7 +131,7 @@ class ImageMaskOverlay implements IMediaOverlay {
   private hideMaskVisual(image: HTMLImageElement): void {
     const state = this.imageStates.get(image);
     if (state) {
-      state.canvas.style.display = 'none';
+      state.canvas.style.setProperty('display', 'none', 'important');
     }
   }
 
@@ -245,8 +252,10 @@ const renderUnifiedCanvasMask = (
   // Ensure canvas bitmap matches display size for crisp pixels
   canvas.width = overlayWidth;
   canvas.height = overlayHeight;
-  canvas.style.width = `${overlayWidth}px`;
-  canvas.style.height = `${overlayHeight}px`;
+  // `important` like CANVAS_STYLE: light-DOM canvases must beat site rules such as
+  // responsive resets (`canvas { height: auto !important }`) or the mask misscales.
+  canvas.style.setProperty('width', `${overlayWidth}px`, 'important');
+  canvas.style.setProperty('height', `${overlayHeight}px`, 'important');
 
   const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
   const smallW = Math.max(1, Math.floor(dWidth / blockSize));
@@ -338,8 +347,10 @@ const renderUnifiedCanvasMask = (
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
 
-  // 4) Apply tint effects via CSS filter (hardware-accelerated)
-  canvas.style.filter = buildCanvasTintFilter(masking);
+  // 4) Apply tint effects via CSS filter (hardware-accelerated). `none` (not removal)
+  // when no tint: the declaration must stay present + important, or a site rule like
+  // `canvas { filter: opacity(0) !important }` could fade the mask out.
+  canvas.style.setProperty('filter', buildCanvasTintFilter(masking) || 'none', 'important');
 };
 
 // Removes overlays that pre-layer versions of this module injected into site DOM

@@ -4,12 +4,12 @@ import {
   clipsEqual,
   computeClipInsets,
   createsStackingContext,
-  cssColorAlpha,
   hasArea,
+  hitSamplePoints,
   intersectRects,
   isUnclipped,
-  nextHostZ,
-  occlusionSamplePoints,
+  mergeLiftCandidates,
+  nextSlotZ,
   parseZIndex,
   rectsEqual,
   MAX_Z_INDEX,
@@ -128,9 +128,9 @@ describe('clipsEqual', () => {
   });
 });
 
-describe('occlusionSamplePoints', () => {
+describe('hitSamplePoints', () => {
   it('spreads an edge-biased 4x4 grid over an unclipped rect', () => {
-    const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
+    const points = hitSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
     expect(points).toHaveLength(16);
     expect(points[0]?.x).toBeCloseTo(8); // row-major, edges first
     expect(points[0]?.y).toBeCloseTo(8);
@@ -139,14 +139,14 @@ describe('occlusionSamplePoints', () => {
   });
 
   it('reaches into edge bands (caption bars >= 8% of the height)', () => {
-    const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
+    const points = hitSamplePoints(rect(0, 0, 100, 100), { top: 0, left: 0, right: 0, bottom: 0 });
     // A bottom bar covering rows 90..100 must be sampled
     expect(points.filter(p => p.y >= 90)).not.toHaveLength(0);
     expect(points.filter(p => p.y <= 10)).not.toHaveLength(0);
   });
 
   it('samples only the visible (clip-reduced) region', () => {
-    const points = occlusionSamplePoints(rect(0, 0, 100, 100), { top: 50, left: 0, right: 0, bottom: 0 });
+    const points = hitSamplePoints(rect(0, 0, 100, 100), { top: 50, left: 0, right: 0, bottom: 0 });
     // Visible band is rows 50..100; every sample must be inside it
     for (const p of points) {
       expect(p.y).toBeGreaterThanOrEqual(50);
@@ -155,9 +155,9 @@ describe('occlusionSamplePoints', () => {
   });
 
   it('returns nothing for fully clipped or degenerate rects', () => {
-    expect(occlusionSamplePoints(rect(0, 0, 100, 100), null)).toEqual([]);
-    expect(occlusionSamplePoints(rect(0, 0, 100, 100), { top: 60, left: 0, right: 0, bottom: 60 })).toEqual([]);
-    expect(occlusionSamplePoints(rect(0, 0, 0, 100), { top: 0, left: 0, right: 0, bottom: 0 })).toEqual([]);
+    expect(hitSamplePoints(rect(0, 0, 100, 100), null)).toEqual([]);
+    expect(hitSamplePoints(rect(0, 0, 100, 100), { top: 60, left: 0, right: 0, bottom: 60 })).toEqual([]);
+    expect(hitSamplePoints(rect(0, 0, 0, 100), { top: 0, left: 0, right: 0, bottom: 0 })).toEqual([]);
   });
 });
 
@@ -227,41 +227,58 @@ describe('createsStackingContext', () => {
   });
 });
 
-describe('nextHostZ', () => {
+describe('nextSlotZ', () => {
   it('stays one above the highest tracked chain z-index, floored at 1', () => {
-    expect(nextHostZ(0)).toBe(1);
-    expect(nextHostZ(100)).toBe(101);
-    expect(nextHostZ(5000)).toBe(5001);
+    expect(nextSlotZ(0)).toBe(1);
+    expect(nextSlotZ(100)).toBe(101);
+    expect(nextSlotZ(5000)).toBe(5001);
   });
 
   it('clamps to the maximum and never overflows', () => {
-    expect(nextHostZ(MAX_Z_INDEX)).toBe(MAX_Z_INDEX);
-    expect(nextHostZ(MAX_Z_INDEX - 1)).toBe(MAX_Z_INDEX);
+    expect(nextSlotZ(MAX_Z_INDEX)).toBe(MAX_Z_INDEX);
+    expect(nextSlotZ(MAX_Z_INDEX - 1)).toBe(MAX_Z_INDEX);
   });
 
   it('falls back to the maximum on non-finite input (fail-closed)', () => {
-    expect(nextHostZ(Number.POSITIVE_INFINITY)).toBe(MAX_Z_INDEX);
-    expect(nextHostZ(Number.NaN)).toBe(MAX_Z_INDEX);
+    expect(nextSlotZ(Number.POSITIVE_INFINITY)).toBe(MAX_Z_INDEX);
+    expect(nextSlotZ(Number.NaN)).toBe(MAX_Z_INDEX);
   });
 });
 
-describe('cssColorAlpha', () => {
-  it('parses computed rgb/rgba colors', () => {
-    expect(cssColorAlpha('rgb(255, 255, 255)')).toBe(1);
-    expect(cssColorAlpha('rgba(0, 0, 0, 0.5)')).toBe(0.5);
-    expect(cssColorAlpha('rgba(0, 0, 0, 0)')).toBe(0);
-    expect(cssColorAlpha('rgb(0 0 0 / 0.8)')).toBe(0.8);
+describe('mergeLiftCandidates', () => {
+  const caption = { id: 'caption' };
+  const badge = { id: 'badge' };
+
+  it('maps each candidate to its entry chainZ', () => {
+    const merged = mergeLiftCandidates([
+      { liftCandidates: [caption], chainZ: 5 },
+      { liftCandidates: [badge], chainZ: 9 },
+    ]);
+    expect(merged.get(caption)).toBe(5);
+    expect(merged.get(badge)).toBe(9);
   });
 
-  it('treats transparent and unparseable values as not opaque (fail-safe)', () => {
-    expect(cssColorAlpha('transparent')).toBe(0);
-    expect(cssColorAlpha('')).toBe(0);
-    expect(cssColorAlpha('color(srgb 1 0 0)')).toBe(0);
-    expect(cssColorAlpha('rgba(0, 0, 0, garbage)')).toBe(0);
+  it('keeps the HIGHEST chainZ for a candidate overlapping several tracked elements', () => {
+    // A caption over two masked elements must clear BOTH their slots.
+    const merged = mergeLiftCandidates([
+      { liftCandidates: [caption], chainZ: 50 },
+      { liftCandidates: [caption, badge], chainZ: 3 },
+    ]);
+    expect(merged.get(caption)).toBe(50);
+    expect(merged.get(badge)).toBe(3);
+    expect(merged.size).toBe(2);
   });
 
-  it('clamps out-of-range alpha', () => {
-    expect(cssColorAlpha('rgba(0, 0, 0, 1.5)')).toBe(1);
-    expect(cssColorAlpha('rgba(0, 0, 0, -1)')).toBe(0);
+  it('is order-independent for the max', () => {
+    const merged = mergeLiftCandidates([
+      { liftCandidates: [caption], chainZ: 3 },
+      { liftCandidates: [caption], chainZ: 50 },
+    ]);
+    expect(merged.get(caption)).toBe(50);
+  });
+
+  it('returns an empty map for entries without candidates', () => {
+    expect(mergeLiftCandidates([{ liftCandidates: [], chainZ: 10 }]).size).toBe(0);
+    expect(mergeLiftCandidates([]).size).toBe(0);
   });
 });

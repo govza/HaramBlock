@@ -203,11 +203,17 @@ class GifMaskPlayer {
     );
 
     state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
-    state.maskCanvas.style.filter = '';
-    state.baseCanvas.style.filter = '';
+    // `none` (not removal) so the declaration stays present + important against site
+    // rules like `canvas { filter: opacity(0) !important }` (light-DOM canvases).
+    state.maskCanvas.style.setProperty('filter', 'none', 'important');
+    state.baseCanvas.style.setProperty('filter', 'none', 'important');
 
     if (state.aggregatePrediction.forcedVisibility === 'blocked') {
-      state.baseCanvas.style.filter = buildMaskingFilter(state.hostSettings.masking);
+      state.baseCanvas.style.setProperty(
+        'filter',
+        buildMaskingFilter(state.hostSettings.masking) || 'none',
+        'important',
+      );
       return;
     }
 
@@ -278,11 +284,18 @@ function createIdentityMaskTransform(prediction: GifPrediction): IMaskTransform 
   };
 }
 
+// Canvases live in the mask host's light DOM (no shadow boundary — see
+// overlayLayer.ts), so the layout-critical properties are important-flagged
+// against site CSS resets.
 const CANVAS_STYLE = [
-  'position: absolute',
-  'top: 0',
-  'left: 0',
-  'pointer-events: none',
+  'position: absolute !important',
+  'top: 0 !important',
+  'left: 0 !important',
+  // Same computed value as the default (the canvas is absolutely positioned), but
+  // asserted so a site `canvas { display: none !important }` can't blank the mask.
+  'display: block !important',
+  'visibility: visible !important',
+  'pointer-events: none !important',
   'image-rendering: pixelated',
   'image-rendering: crisp-edges',
 ].join('; ');
@@ -292,8 +305,10 @@ function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number):
   const canvasHeight = Math.max(1, Math.round(height));
   if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
   if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
+  // `important` like CANVAS_STYLE: light-DOM canvases must beat site rules such as
+  // responsive resets (`canvas { height: auto !important }`) or the mask misscales.
+  canvas.style.setProperty('width', `${width}px`, 'important');
+  canvas.style.setProperty('height', `${height}px`, 'important');
 }
 
 function hasValidMask(prediction: IElementPrediction): prediction is IElementPrediction & { masks: IRLEMask } {
@@ -375,7 +390,7 @@ function renderSegmentMaskOverlay(
   ctx.globalCompositeOperation = 'destination-in';
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
-  canvas.style.filter = buildCanvasTintFilter(masking);
+  canvas.style.setProperty('filter', buildCanvasTintFilter(masking) || 'none', 'important');
 }
 
 function restoreOpacity(image: HTMLImageElement, originalOpacity: string | undefined): void {
