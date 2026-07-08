@@ -7,13 +7,16 @@
  * Pure consumer of a FrameRing + VerdictTrack (the video analog of
  * gifMaskPlayer's decoded-frames + framePredictions): the session machine and
  * registry decide when it exists; the player only warms up, draws, and reports
- * readiness via onReady. Presentation lives in an overlay-layer slot
- * ('video-dvr-player'): the layer owns placement, clipping, occlusion, and
- * fullscreen; the player only draws at its own rAF cadence.
+ * readiness via onReady. Presentation is a DOM-injected overlay div
+ * ([data-video-dvr-player]) next to the video, in the site's stacking context
+ * just above it — player chrome (controls, captions, menus) that renders above
+ * the video also renders above the delayed canvas. The player already runs a
+ * rAF loop every frame, so geometry (placement, size, re-homing after the site
+ * re-parents the player) is synced per tick instead of via observers.
  */
 
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
-import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
+import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 import { BRIDGE_HORIZON_SEC, type VerdictEntry, type VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
@@ -21,7 +24,6 @@ import { decodeMaskRLE } from '@/utils/rle';
 
 import type { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
 import type { IMaskingSettings } from '@/utils/types';
-import type { IOverlaySlot } from '@/utils/types/presentation';
 
 const log = logger.withTag('videoDvrPlayer');
 
@@ -54,7 +56,7 @@ export interface VideoDvrPlayerOptions {
 }
 
 interface DrawSurfaces {
-  slot: IOverlaySlot;
+  overlay: HTMLDivElement;
   baseCanvas: HTMLCanvasElement;
   baseCtx: CanvasRenderingContext2D;
   maskCanvas: HTMLCanvasElement;
@@ -67,6 +69,7 @@ export class VideoDvrPlayer {
   private surfaces: DrawSurfaces | null = null;
   private originalOpacity: string | undefined;
   private lastSize = { width: 0, height: 0 };
+  private lastOffset = { top: NaN, left: NaN };
   private lastDrawKey = '';
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
   private readonly gridCache = new WeakMap<VerdictEntry, HTMLCanvasElement | null>();
@@ -80,16 +83,16 @@ export class VideoDvrPlayer {
   }
 
   destroy(): void {
-    this.teardown({ releaseSlot: true });
+    this.teardown();
   }
 
-  private teardown(opts: { releaseSlot: boolean }): void {
+  private teardown(): void {
     if (this.destroyed) return;
     this.destroyed = true;
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     this.rafId = null;
     if (this.surfaces) {
-      if (opts.releaseSlot) this.surfaces.slot.release();
+      this.surfaces.overlay.remove();
       this.surfaces = null;
       restoreOpacity(this.opts.video, this.originalOpacity);
     }
@@ -106,15 +109,18 @@ export class VideoDvrPlayer {
         if (this.opts.ring.oldestTime() !== null) this.beginPresentation();
         return;
       }
+      if (!this.syncGeometry()) return;
       this.draw();
     } catch (error) {
       log.error('DVR draw failed:', error);
     }
   };
 
-  /** First frame buffered: take a layer slot, hide the native element, report readiness. */
+  /** First frame buffered: inject the overlay, hide the native element, report readiness. */
   private beginPresentation(): void {
     const { video, onReady } = this.opts;
+    // No containing block to inject into yet (mid re-render): retry next tick.
+    if (!video.parentElement) return;
 
     const baseCanvas = document.createElement('canvas');
     const maskCanvas = document.createElement('canvas');
@@ -124,39 +130,84 @@ export class VideoDvrPlayer {
     const baseCtx = baseCanvas.getContext('2d');
     const maskCtx = maskCanvas.getContext('2d');
     if (!baseCtx || !maskCtx) {
+      // Unrecoverable (2D context exhaustion): latch off, or every subsequent
+      // tick would re-enter here and allocate two canvases per frame. The
+      // machine stays in 'warming' under the whole-blur — still fail-closed.
       log.error('Failed to get DVR canvas context');
+      this.teardown();
       return;
     }
 
-    // The layer owns placement/clipping/fullscreen; attach fires the initial
-    // geometry synchronously, so lastSize is set before the first draw.
-    const slot = overlayLayer.attach(
-      video,
-      {
-        onGeometry: ({ rect }) => {
-          if (rect.width === this.lastSize.width && rect.height === this.lastSize.height) return;
-          this.lastSize = { width: rect.width, height: rect.height };
-          this.lastDrawKey = ''; // force a redraw at the new size
-        },
-        // The element left the document: the slot is already released; the
-        // session's dispose path will destroy() us — stop drawing now.
-        onDetach: () => this.teardown({ releaseSlot: false }),
-      },
-      'video-dvr-player',
-      // In the site's stacking context: player chrome (controls, captions) that
-      // renders above the video must also render above the delayed canvas.
-      { anchor: 'element' },
-    );
-    slot.root.append(baseCanvas, maskCanvas);
+    const overlay = document.createElement('div');
+    overlay.setAttribute('data-video-dvr-player', 'video-dvr-player');
+    overlay.style.cssText = `
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  `;
+    overlay.append(baseCanvas, maskCanvas);
 
     this.originalOpacity = video.style.opacity;
     video.style.setProperty('opacity', '0', 'important');
-    this.surfaces = { slot, baseCanvas, baseCtx, maskCanvas, maskCtx };
+    this.surfaces = { overlay, baseCanvas, baseCtx, maskCanvas, maskCtx };
 
-    // Draw before reporting ready: the machine lifts the whole-blur on
+    // syncGeometry homes the overlay next to the video and sets lastSize
+    // before the first draw.
+    if (this.syncGeometry()) this.draw();
+
+    // Report ready after the draw: the machine lifts the whole-blur on
     // bufferReady, and the swap must never expose an unpainted gap.
-    this.draw();
     onReady();
+  }
+
+  /**
+   * Per-tick geometry sync (the draw loop already runs every frame): homes the
+   * overlay next to the video — re-homing when the site re-parents the player
+   * (YouTube's watch-page boot) — and keeps offsets/size current. Returns
+   * whether the video is presentable this tick.
+   */
+  private syncGeometry(): boolean {
+    const { video } = this.opts;
+    const { surfaces } = this;
+    if (!surfaces) return false;
+    // The element left the document: stop drawing; the session's dispose path
+    // will destroy() us. (If it comes back, the registry re-discovers it.)
+    if (!video.isConnected) {
+      this.teardown();
+      return false;
+    }
+    const parent = video.parentElement;
+    if (!parent) return false;
+
+    if (surfaces.overlay.parentElement !== parent) {
+      ensurePositionContext(parent);
+      parent.appendChild(surfaces.overlay);
+      // In the site's stacking context, one above the video: player chrome
+      // (controls, captions) that renders above the video must also render
+      // above the delayed canvas.
+      const videoZIndex = parseInt(getComputedStyle(video).zIndex) || 0;
+      surfaces.overlay.style.zIndex = `${videoZIndex + 1}`;
+    }
+
+    const videoRect = video.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    const offset = overlayOffsetInParent(parent, videoRect, parentRect);
+    if (offset.top !== this.lastOffset.top || offset.left !== this.lastOffset.left) {
+      this.lastOffset = offset;
+      surfaces.overlay.style.top = `${offset.top}px`;
+      surfaces.overlay.style.left = `${offset.left}px`;
+    }
+    if (videoRect.width !== this.lastSize.width || videoRect.height !== this.lastSize.height) {
+      this.lastSize = { width: videoRect.width, height: videoRect.height };
+      surfaces.overlay.style.width = `${videoRect.width}px`;
+      surfaces.overlay.style.height = `${videoRect.height}px`;
+      this.lastDrawKey = ''; // force a redraw at the new size
+    }
+    return this.lastSize.width > 0 && this.lastSize.height > 0;
   }
 
   private draw(): void {
@@ -184,7 +235,7 @@ export class VideoDvrPlayer {
 
     // The 'none' fallback draws the live element, which changes every tick;
     // everything else redraws only when the frame, verdict, or size moved
-    // (the layer moves the slot itself — position is not the player's concern).
+    // (syncGeometry moves the overlay itself — position never forces a redraw).
     const drawKey =
       verdict.kind === 'none'
         ? ''

@@ -28,18 +28,13 @@ export interface IMediaOverlayState {
  */
 export interface IMediaOverlay<T extends HTMLElement = HTMLImageElement> {
   /**
-   * Creates mask overlay for the given element
+   * Creates mask overlay for the given element. Implementations may accept
+   * extra optional trailing parameters (e.g. an abort predicate).
    * @param element - The media element
    * @param prediction - Prediction data with masks
    * @param hostSettings - Host settings for eye toggle configuration
-   * @param skipObserverSetup - Whether to skip setting up observers (default: false)
    */
-  createMaskOverlay: (
-    element: T,
-    prediction: IImagePrediction,
-    hostSettings: IHostSettings,
-    skipObserverSetup?: boolean,
-  ) => void | Promise<void>;
+  createMaskOverlay: (element: T, prediction: IImagePrediction, hostSettings: IHostSettings) => void | Promise<void>;
 
   /**
    * Clears/removes the mask overlay for the given element

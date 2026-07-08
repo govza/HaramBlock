@@ -21,12 +21,17 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
 
   /**
    * Creates mask overlay for video elements using poster images or first frame.
+   *
+   * `shouldAbort` is re-checked after the awaits, right before injecting the
+   * overlay: attaching late would paint a static mask over an element another
+   * consumer claimed while this render was in flight (the DVR presenter). The
+   * caller says whether the overlay is still wanted.
    */
   async createMaskOverlay(
     video: HTMLVideoElement,
     imagePrediction: IImagePrediction,
     hostSettings: IHostSettings,
-    skipObserverSetup = false,
+    shouldAbort?: () => boolean,
   ): Promise<void> {
     if (!imagePrediction.predictions.length) {
       this.clearMaskOverlay(video);
@@ -46,7 +51,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       return;
     }
 
-    // Remove any existing overlays
+    // Remove any existing (orphaned) overlays
     removeExistingVideoOverlays(parent);
 
     const isThumbnail = imagePrediction.cacheMetadata?.contentType === 'video/thumbnail';
@@ -68,6 +73,16 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       }
     });
 
+    // A concurrent call may have set up the overlay while we awaited
+    const concurrentState = this.videoStates.get(video);
+    if (concurrentState && !concurrentState.destroyed) {
+      concurrentState.currentPrediction = imagePrediction;
+      this.updateVideoOverlay(video, concurrentState);
+      return;
+    }
+
+    if (shouldAbort?.()) return;
+
     if (allMasks.length > 0) {
       const elementWidth = posterImage ? posterImage.naturalWidth : video.videoWidth || video.clientWidth;
       const elementHeight = posterImage ? posterImage.naturalHeight : video.videoHeight || video.clientHeight;
@@ -84,11 +99,9 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
         posterImage ? elementHeight : undefined,
       );
 
-      if (!skipObserverSetup) {
-        state.currentPrediction = imagePrediction;
-        state.posterImage = posterImage;
-        this.setupObservers(video, state);
-      }
+      state.currentPrediction = imagePrediction;
+      state.posterImage = posterImage;
+      this.setupObservers(video, state);
     }
   }
 
