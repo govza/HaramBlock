@@ -9,6 +9,7 @@ import {
   intersectRects,
   isUnclipped,
   mergeLiftCandidates,
+  nextSlotCorrection,
   nextSlotZ,
   parseZIndex,
   rectsEqual,
@@ -242,6 +243,44 @@ describe('nextSlotZ', () => {
   it('falls back to the maximum on non-finite input (fail-closed)', () => {
     expect(nextSlotZ(Number.POSITIVE_INFINITY)).toBe(MAX_Z_INDEX);
     expect(nextSlotZ(Number.NaN)).toBe(MAX_Z_INDEX);
+  });
+});
+
+describe('nextSlotCorrection', () => {
+  it('returns null when the slot sits on its element (healthy anchors, no style write)', () => {
+    expect(nextSlotCorrection({ left: 100, top: 50 }, { left: 100, top: 50 }, { x: 0, y: 0 })).toBeNull();
+  });
+
+  it('ignores sub-epsilon jitter (anchor rounding must not churn styles)', () => {
+    expect(nextSlotCorrection({ left: 100, top: 50 }, { left: 100.3, top: 49.8 }, { x: 0, y: 0 })).toBeNull();
+  });
+
+  it('computes the delta pulling a strayed slot onto its element', () => {
+    // The Bing/Firefox case: anchor() resolved on the pre-transform box, slot off by
+    // the ignored translate(-50%, -50%) of a 207x116 image.
+    expect(nextSlotCorrection({ left: 657, top: 317 }, { left: 760.5, top: 375 }, { x: 0, y: 0 })).toEqual({
+      x: -103.5,
+      y: -58,
+    });
+  });
+
+  it('keeps an already-applied correction without rewriting when it still holds', () => {
+    expect(nextSlotCorrection({ left: 657, top: 317 }, { left: 657, top: 317 }, { x: -103.5, y: -58 })).toBeNull();
+  });
+
+  it('re-derives the correction when the element moves under an applied one', () => {
+    expect(nextSlotCorrection({ left: 667, top: 317 }, { left: 657, top: 317 }, { x: -103.5, y: -58 })).toEqual({
+      x: -93.5,
+      y: -58,
+    });
+  });
+
+  it('unwinds to zero when the pathology disappears', () => {
+    // Slot now overshoots by exactly the stale correction: next lands back at 0,0.
+    expect(nextSlotCorrection({ left: 657, top: 317 }, { left: 553.5, top: 259 }, { x: -103.5, y: -58 })).toEqual({
+      x: 0,
+      y: 0,
+    });
   });
 });
 

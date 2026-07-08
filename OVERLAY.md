@@ -79,10 +79,19 @@ Key properties:
   `parent.style.position` mutation. Deliberately **no JS positioning fallback**: the manifest
   browser floors carry the requirement (Chrome/Edge 125, Firefox desktop+Android 147 per MDN BCD for
   `position-anchor`; the "partial" BCD notes concern only the property's initial value, which is
-  always set explicitly here). Watch item: per spec, transform-based anchor movement (carousels) may
-  lag a few frames or not track until re-layout — verify on a real carousel; if broken, add a
-  per-sweep corrective transform only for entries with a transformed ancestor (the chainZ walk
-  already reads `transform`).
+  always set explicitly here).
+- **Glue safety net (trust but verify).** Engines disagree on anchors under CSS transforms —
+  transforms don't affect layout, and Firefox resolves `anchor()` from the pre-transform layout box
+  while Chrome compensates. Found in the wild on Bing's image viewer (Firefox 153): images centered
+  with `translate(-50%, -50%)` got masks displaced by exactly half the image — fail-open. So each
+  sweep compares every visible slot's actual position against its element's rect (already read that
+  frame) and on disagreement writes a corrective `transform: translate(dx, dy)` onto the slot
+  (`syncCorrections`, reads batched before writes). Healthy anchors → zero delta, no style write
+  ever; pathological resolution (transformed anchors, future engine bugs, duplicate anchor names
+  from site-cloned nodes) → the mask is pulled onto its image within one frame and the correction is
+  scroll-invariant, so compositor glue keeps working through scroll. Cost: one
+  `getBoundingClientRect` per visible slot per sweep. This also covers the transform-carousel case
+  the design originally flagged as a watch item.
 - **Immune to site frameworks.** Nothing is injected next to the media element; React can re-render
   whatever it wants. Site CSS is kept out by important-flagged inline styles on slots/canvases (mask
   host) and by the shadow boundary (UI host).
