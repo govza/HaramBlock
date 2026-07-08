@@ -12,6 +12,11 @@ let stopPipeline: (() => void) | null = null;
 
 export default defineContentScript({
   matches: ['<all_urls>'],
+  // Media inside same-origin iframes was previously unprotected: sites render real
+  // content in frames (Bing's image-detail overlay iframe opens from search results
+  // with the main image inside it — zero masks without this). Every frame runs the
+  // full pipeline; inference stays shared in the background.
+  allFrames: true,
   runAt: 'document_start',
   async main() {
     const ct = document.contentType;
@@ -25,8 +30,10 @@ export default defineContentScript({
 
     try {
       // Get host settings and cached predictions
-      // Clear stale badge left by previous document in this tab (after RPC is connected)
-      void resetBadgeCount();
+      // Clear stale badge left by previous document in this tab (after RPC is connected).
+      // Top frame only: the badge is per-tab absolute, and an iframe loading mid-session
+      // (e.g. Bing's detail overlay) must not wipe the top document's count.
+      if (globalThis.self === globalThis.top) void resetBadgeCount();
 
       await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
         // Clean up existing instances
