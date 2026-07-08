@@ -164,7 +164,7 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the regis
 
 - **Unsafe verdict while playing** (or `play` on an already-masked video) → instant whole-blur +
   `startDvr`: the registry creates a `FrameRing` (rVFC captures, ≤640 px wide, ~13 fps, bounded by
-  `D`+slack and a 40 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by `timestampSec`).
+  `D`+slack and a 64 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by `timestampSec`).
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out almost immediately.
   While the buffer is still shorter than `D`, presentation pins on the earliest buffered frame —
@@ -193,12 +193,13 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the regis
 Paused/standby verdicts never involve the DVR: a static frame has nothing to chase, so the precise
 mask overlay (`videoMaskOverlay.ts`) renders it, as before.
 
-Both video presentations (mask overlay and DVR canvas) take **element-anchored** overlay-layer slots
-(`anchor: 'element'`): the slot is a fixed-positioned sibling of the video inside the site's
-stacking context, so player chrome that renders above the video — controls, captions, menus — also
-renders above the mask. Image/GIF masks stay in the top-layer host; the layer falls anchored slots
-back to the top layer when a transformed ancestor would break fixed positioning, re-homes them there
-during fullscreen when needed, and re-inserts them if framework reconciliation removes them.
+Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs next to the
+video (see [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)), in the site's stacking context one z-index
+above it, so player chrome that renders above the video — controls, captions, menus — also renders
+above the mask. The mask overlay uses the shared renderer machinery (parent-aware `ResizeObserver`,
+mutation-batch classification, re-homing); the DVR presenter syncs its geometry per tick of its own
+draw loop instead — including re-homing itself when the site re-parents the player (YouTube's
+watch-page boot).
 
 ## Processed status attributes
 
@@ -284,7 +285,6 @@ session; content jumps forward by `D` when the mask clears.
 - **Loop/seek verdict reuse** — verdicts are keyed by media time, so they stay valid across seeks
   and loop restarts; keeping the track (and, for loops, the ring) through the re-warm would remove
   the whole-blur window there.
-- **Audio delay sync (stage 3)** — `captureStream()` + WebAudio `DelayNode` where media allows.
 - **Prediction caching** — cache verdicts (not frames) keyed by `[videoSrc+timestampKey]` to skip
   redundant inference on replays/seeks. The VideoSession identity (element×source) was chosen to
   keep such a cache coherent.

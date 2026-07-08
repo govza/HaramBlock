@@ -63,6 +63,14 @@ const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
 /** Per-session byte cap (~4.5 s of 640×360 RGBA at 15 fps ≈ 62 MB); only while masked. */
 const DVR_BUFFER_MAX_BYTES = 64 * 1024 * 1024;
 
+/**
+ * A verdict that never arrives leaves its sampleSentAt entry behind (the
+ * sampleTimeout only frees the machine's slot), so an inference outage would
+ * grow the map for the session's lifetime. Entries this old are useless to the
+ * delay estimator anyway — prune them on the next send.
+ */
+const SAMPLE_LATENCY_EXPIRY_MS = 30_000;
+
 function withTimeout<T>(promise: Promise<T>, label: string, onLate?: (value: T) => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let timedOut = false;
@@ -556,7 +564,13 @@ class VideoSessionRegistry {
     if (isDisposed()) return;
     // Round-trip is measured from capture start: that is when the frame's media
     // time is stamped, so it is the span the DVR presentation delay must cover.
-    if (frameIndex >= 0) handle.sampleSentAt.set(frameIndex, performance.now());
+    if (frameIndex >= 0) {
+      const now = performance.now();
+      for (const [index, sentAt] of handle.sampleSentAt) {
+        if (now - sentAt > SAMPLE_LATENCY_EXPIRY_MS) handle.sampleSentAt.delete(index);
+      }
+      handle.sampleSentAt.set(frameIndex, now);
+    }
     try {
       const captured = await withTimeout(
         frameIndex === -1 ? captureThumbnailBitmap(video) : captureFrameBitmap(video),
@@ -626,7 +640,15 @@ class VideoSessionRegistry {
     const { video, hostSettings } = handle;
     const imagePrediction = toImagePrediction(pred);
     this.queueOverlayTask(handle, async () => {
-      await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings);
+      // The session may have moved on while this render waited in the chain
+      // (playback started, the DVR claimed the element): attaching the overlay
+      // slot now would evict the live DVR presenter, leaving the machine
+      // convinced the DVR still masks. Whenever the DVR is active it (or its
+      // warm-up whole-blur) owns masking, so a stale static render is never
+      // wanted — a later pause re-mask regenerates it from lastUnsafePrediction.
+      const staleRender = () => handle.state.phase === 'disposed' || handle.state.dvr !== 'off';
+      if (staleRender()) return;
+      await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings, staleRender);
       if (handle.state.phase === 'disposed') {
         // Disposed mid-render: undo what the render just re-created.
         videoMaskOverlays.clearMaskOverlay(video);
