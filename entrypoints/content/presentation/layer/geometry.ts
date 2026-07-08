@@ -120,6 +120,33 @@ export const nextSlotZ = (maxChain: number): number => {
   return Math.min(Math.max(1, maxChain + 1), MAX_Z_INDEX);
 };
 
+export interface ISlotCorrection {
+  x: number;
+  y: number;
+}
+
+/** Sub-pixel jitter below this is anchor rounding, not a pathology; don't churn styles. */
+export const CORRECTION_EPSILON_PX = 0.5;
+
+/**
+ * Corrective translate for a slot whose anchor-positioned location strayed from its
+ * element's rect (duplicate anchor names, engine bugs, transformed carousels — all
+ * fail-open without this). The slot's ACTUAL rect already includes `current`, so the
+ * new correction is `current + (target - actual)`. Returns null when the change is
+ * within epsilon — the healthy path, where anchor positioning needs no help and no
+ * style write happens at all.
+ */
+export const nextSlotCorrection = (
+  target: { left: number; top: number },
+  actual: { left: number; top: number },
+  current: ISlotCorrection,
+): ISlotCorrection | null => {
+  const x = current.x + (target.left - actual.left);
+  const y = current.y + (target.top - actual.top);
+  if (Math.abs(x - current.x) < CORRECTION_EPSILON_PX && Math.abs(y - current.y) < CORRECTION_EPSILON_PX) return null;
+  return { x, y };
+};
+
 /**
  * Merges per-entry caption-lift candidates into candidate -> the highest chainZ among
  * the tracked elements it overlaps — the base its lift z-index derives from (a

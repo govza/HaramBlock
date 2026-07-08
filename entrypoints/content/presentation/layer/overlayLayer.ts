@@ -4,10 +4,17 @@ import {
   type IPriorAnchor,
 } from '@/entrypoints/content/presentation/layer/anchorName';
 import { captionLifter } from '@/entrypoints/content/presentation/layer/captionLift';
-import { hasArea, isUnclipped, nextSlotZ, MAX_Z_INDEX } from '@/entrypoints/content/presentation/layer/geometry';
+import {
+  hasArea,
+  isUnclipped,
+  nextSlotCorrection,
+  nextSlotZ,
+  MAX_Z_INDEX,
+  type ISlotCorrection,
+} from '@/entrypoints/content/presentation/layer/geometry';
 import { GeometryTracker } from '@/entrypoints/content/presentation/layer/geometryTracker';
 
-import type { ILayerGeometry, IOverlaySlot } from '@/utils/types/presentation';
+import type { ILayerGeometry, ILayerRect, IOverlaySlot } from '@/utils/types/presentation';
 
 export interface IOverlaySlotHooks {
   /** Called with fresh geometry after the layer has positioned the slot (and once at attach). */
@@ -28,6 +35,10 @@ interface InternalSlot {
    * detach.
    */
   priorAnchor?: IPriorAnchor;
+  /** Element rect from the last visible position(); target for the glue correction. */
+  lastRect?: ILayerRect;
+  /** Corrective translate currently applied to the slot (see syncCorrections). */
+  correction?: ISlotCorrection;
 }
 
 /** Inline style of an element that has one (HTML or SVG), else null. */
@@ -249,10 +260,12 @@ class OverlayLayer {
   private position(internal: InternalSlot, { rect, clip }: ILayerGeometry): void {
     const { style } = internal.slotEl;
     if (!hasArea(rect) || clip === null) {
+      internal.lastRect = undefined;
       style.setProperty('display', 'none', 'important');
       return;
     }
     // top/left come from anchor(); JS owns only size and clip (scroll-invariant).
+    internal.lastRect = rect;
     style.setProperty('display', 'block', 'important');
     style.setProperty('width', `${rect.width}px`, 'important');
     style.setProperty('height', `${rect.height}px`, 'important');
@@ -307,6 +320,7 @@ class OverlayLayer {
       this.wireFullscreen();
       this.tracker.onTick = () => {
         this.ensureHostConnected();
+        this.syncCorrections();
         this.syncSlotZs();
         this.syncLifts();
       };
@@ -354,6 +368,34 @@ class OverlayLayer {
       lifts.set(candidate, nextSlotZ(chainZ) + 1);
     }
     captionLifter.sync(lifts);
+  }
+
+  /**
+   * Glue safety net: anchor positioning is trusted but verified. Each sweep compares
+   * every visible slot's ACTUAL position against its element's rect (the sweep just
+   * read it) and, on disagreement, writes a corrective translate pulling the mask
+   * back onto its image. Healthy anchors resolve to a zero delta and no style is
+   * ever written — the cost is one getBoundingClientRect per visible slot per sweep.
+   * Pathological anchor resolution (duplicate anchor names cloned by the site, engine
+   * bugs — seen in the wild: Firefox resolving anchors half-a-box off on Bing's image
+   * viewer — transformed carousels per the OVERLAY.md watch item) degrades to
+   * one-frame-lag JS following instead of a misplaced mask, which would be fail-open.
+   * Reads are batched before writes to avoid layout thrash inside the tick.
+   */
+  private syncCorrections(): void {
+    const reads: Array<{ internal: InternalSlot; target: ILayerRect; actual: DOMRect }> = [];
+    for (const internal of this.slots.values()) {
+      const { lastRect } = internal;
+      if (!lastRect) continue; // hidden or never positioned
+      reads.push({ internal, target: lastRect, actual: internal.slotEl.getBoundingClientRect() });
+    }
+    for (const { internal, target, actual } of reads) {
+      const current = internal.correction ?? { x: 0, y: 0 };
+      const next = nextSlotCorrection(target, actual, current);
+      if (!next) continue;
+      internal.correction = next;
+      internal.slotEl.style.setProperty('transform', `translate(${next.x}px, ${next.y}px)`, 'important');
+    }
   }
 
   /**
