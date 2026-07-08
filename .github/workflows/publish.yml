@@ -136,6 +136,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Zip extensions
+        id: zip
         run: |
           pnpm zip
           pnpm zip:firefox
@@ -158,14 +159,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # The store submissions are independent: !cancelled() lets each one run even if
+      # a previous store failed, as long as the ZIPs were actually built.
       - name: Submit to Chrome Web Store
-        if: inputs.chrome
+        if: inputs.chrome && !cancelled() && steps.zip.conclusion == 'success'
         run: pnpm submit:chrome
 
       - name: Submit to Firefox Add-ons
-        if: inputs.firefox
+        if: inputs.firefox && !cancelled() && steps.zip.conclusion == 'success'
         run: pnpm submit:firefox
 
       - name: Submit to Edge Add-ons
-        if: inputs.edge
+        if: inputs.edge && !cancelled() && steps.zip.conclusion == 'success'
         run: pnpm submit:edge
