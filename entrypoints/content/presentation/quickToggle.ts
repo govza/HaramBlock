@@ -1,5 +1,4 @@
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
-import { overlayLayer } from '@/entrypoints/content/presentation/layer/overlayLayer';
 
 import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -7,32 +6,6 @@ import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/
 const SHOW_DELAY_MS = 500;
 // Delay before hiding button after mouse leaves
 const HIDE_DELAY_MS = 2500;
-
-// The button lives inside the overlay layer's shadow root, out of reach of page CSS,
-// so its styles must live there too (injected page styles can't cross the boundary).
-const EYE_BUTTON_STYLES = `
-  .haramblock-eye-toggle {
-    position: fixed;
-    width: 2rem;
-    height: 2rem;
-    padding: 0.25rem;
-    border: none;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.5);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .haramblock-eye-toggle:hover {
-    background: rgba(0, 0, 0, 0.8);
-  }
-  .haramblock-eye-toggle svg {
-    width: 1.25rem;
-    height: 1.25rem;
-    opacity: 0.5;
-  }
-`;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
 type RegisteredElement = {
@@ -45,7 +18,7 @@ let currentElement: HTMLImageElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let showTimer: ReturnType<typeof setTimeout> | null = null;
 let toggleCallback: ToggleCallback | null = null;
-let removeEyeStyles: (() => void) | null = null;
+let pendingAttachOnReady = false;
 
 const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
 
@@ -197,7 +170,22 @@ function handlePointerLeave(): void {
 
 function attachEyeButton(): void {
   if (!eyeButton || eyeButton.isConnected) return;
-  overlayLayer.mountUI(eyeButton);
+
+  if (!document.body) {
+    if (pendingAttachOnReady) return;
+    pendingAttachOnReady = true;
+    document.addEventListener(
+      'DOMContentLoaded',
+      () => {
+        pendingAttachOnReady = false;
+        attachEyeButton();
+      },
+      { once: true },
+    );
+    return;
+  }
+
+  document.body.appendChild(eyeButton);
 }
 
 function createGlobalEyeButton(): void {
@@ -208,6 +196,7 @@ function createGlobalEyeButton(): void {
 
   eyeButton = document.createElement('button');
   eyeButton.className = 'haramblock-eye-toggle';
+  eyeButton.style.position = 'fixed';
   eyeButton.style.display = 'none';
   eyeButton.appendChild(createSvgIcon('blocked'));
 
@@ -216,7 +205,6 @@ function createGlobalEyeButton(): void {
   eyeButton.addEventListener('pointerleave', () => resetHideTimer());
 
   globalThis.addEventListener('scroll', hideEye, { passive: true });
-  removeEyeStyles = overlayLayer.addStyles(EYE_BUTTON_STYLES);
   attachEyeButton();
 }
 
@@ -267,11 +255,8 @@ export function destroyQuickToggle(): void {
     eyeButton.remove();
     eyeButton = null;
   }
-  if (removeEyeStyles) {
-    removeEyeStyles();
-    removeEyeStyles = null;
-  }
 
   currentElement = null;
   toggleCallback = null;
+  pendingAttachOnReady = false;
 }

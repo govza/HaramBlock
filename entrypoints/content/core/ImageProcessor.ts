@@ -169,11 +169,6 @@ export class ImageProcessor {
     // Skip if already has overlay for current src, but re-stamp the processed
     // attribute (mobile srcset changes can clear it while the overlay persists).
     if (this.hasOverlayForSrc(img, src)) {
-      // Re-walk the slot's cached ancestor state: this branch is hit when a masked
-      // element re-enters the DOM (e.g. a lightbox reparenting it into a higher-z
-      // container), which changes clip ancestors and the stacking chain without any
-      // geometry event — the mask must not trail below the new container for a tick.
-      imageMaskOverlay.refreshMaskOverlay(img);
       const cached = this.cache.get(src);
       if (cached) {
         finalizeImageProcessing(img, cached.predictions.length > 0 ? 'unsafe' : 'safe');
