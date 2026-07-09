@@ -69,7 +69,8 @@ elements too, so this processor also routes GIF candidates to a multi-frame infe
 
 - State derived from blur class and overlay presence
 - In-memory cache for predictions (Map<src, prediction>)
-- Deduplicates inference requests via `pendingInference` Set
+- Deduplicates inference requests via owner-tracked `pendingInference` map (see
+  [Inference Requests](#inference-requests))
 - Idempotent operations - safe to call multiple times
 - Self-cleaning overlays via `trackedSrc` tracking
 - Viewport-based priority via `IntersectionObserver` (visible images processed first)
@@ -187,14 +188,43 @@ img[data-haramblock-processed-safe] {
 Handles AI prediction-based styling application.
 
 - `applyPredictionsStyling()` - Applies AI-based styling using segmentation mask overlays
+- Overlay creation is deferred one animation frame; if a framework re-render detached the image in
+  that window, creation retries (bounded) until the image is re-attached instead of bailing silently
 
 #### `imageMaskOverlay.ts`
 
-Segmentation-based visual overlays using canvas and mask data.
+Segmentation-based visual overlays using canvas and mask data. The overlay is a `<div>` (with a
+`<canvas>` child) injected into the site DOM as a child of the image's parent.
 
 - Creates pixelated overlay effects using RLE-encoded segmentation masks
 - Unified canvas approach combining multiple masks into single overlay
 - Self-cleaning via `trackedSrc` - removes itself when image src changes
+- The overlay div has `overflow: hidden`; when the image collapses to zero size (e.g. a lightbox
+  hides it) the canvas is also cleared, so a stale painted frame can never show at its old size
+- Live overlays are tracked in a `WeakSet`; the stale-overlay sweep removes only orphans, never a
+  sibling's live mask (several masked images can share one parent — Reddit renders a decorative
+  background copy next to the primary)
+- **Site-obscured copies**: when the site itself blurs an image at least as strongly as our own
+  initial blur (15px — e.g. Reddit's decorative background copy uses `blur(24px)` + `opacity: .3`),
+  our mask is hidden: an opaque pixelated slab would be _more_ visible than the original.
+  Re-evaluated on every geometry update
+
+#### `overlayPosition.ts`
+
+Shared positioning/lifecycle helpers for all three DOM-injected renderers (image, video, GIF):
+
+- `ensurePositionContext(parent)` - Forces `position: relative` only while the parent computes to
+  `static`, marks it (`data-haramblock-forced-position`), and **re-evaluates on every call**: site
+  styles applied later (Reddit's `<zoomable-img>` gains `position: fixed` when zoomed) must win over
+  our stale inline value, or the site's own layout breaks
+- `overlayOffsetInParent(parent, rect, parentRect)` - Converts client-rect deltas (visual
+  coordinates) into the parent's **content coordinates** by adding back `scrollTop`/`scrollLeft`.
+  Absolute `top`/`left` resolve in content coordinates, so inside a scrolled container (Reddit's
+  zoom view scrolls to center the click point) the raw rect delta would misplace the mask by exactly
+  the scroll offset
+- `classifyOverlayMutation(mutations, element, overlay)` - Classifies a cleanup-observer batch as
+  `none` / `moved` / `detached` (see
+  [Surviving Framework Re-renders](#surviving-framework-re-renders))
 
 ## Initialization: Preventing Flash of Unfiltered Content
 
@@ -376,6 +406,30 @@ if (state.trackedSrc && currentSrc !== state.trackedSrc) {
   return;
 }
 ```
+
+## Surviving Framework Re-renders
+
+Frameworks believe they own the DOM we inject overlays into. Reddit's Lit-rendered lightbox is the
+stress case: it renders the same picture as several `<img>` copies, constantly detaches and
+re-inserts nodes during re-renders, and moves the post image between containers. Three defensive
+patterns keep masks alive through that churn:
+
+1. **Classify, don't assume removal.** Each overlay's cleanup `MutationObserver` used to treat any
+   `removedNodes` batch containing the element (or an ancestor) as removal — but a re-render usually
+   re-inserts the node within the same batch, so that signal tore masks off still-visible images
+   (fail-open). `classifyOverlayMutation` checks `element.isConnected` _after_ the batch has
+   settled: only a genuinely disconnected element triggers teardown. A `moved` element gets its
+   overlay **re-homed** next to it (new parent, refreshed geometry), which also covers the site
+   deleting the overlay itself.
+
+2. **Retry deferred creation.** Overlay creation runs one animation frame after the prediction
+   arrives; if the image is detached in that window, creation waits (bounded) for re-attachment.
+   `hasMaskOverlay()` also reports a state whose overlay left the DOM as inactive, so the next
+   processing pass can recreate it instead of being blocked by stale bookkeeping.
+
+3. **One teardown path.** All disposal (explicit clear, quick-toggle reveal, detach) goes through
+   the same full teardown. A "detach the overlay but keep the state" half-state would fight the
+   re-homing logic in (1), which would immediately re-attach the mask the user just revealed.
 
 ## Race Conditions - Why They Don't Matter
 
@@ -577,21 +631,15 @@ Utilities in `imageLayout.ts`:
 
 ### Inference Requests
 
-Use a simple Set to track in-flight requests:
-
-```typescript
-const pending = new Set<string>(); // src URLs
-
-function queueInference(img, src) {
-  if (pending.has(src)) return; // Already queued
-  pending.add(src);
-  // ... send request
-}
-
-function onPrediction(src) {
-  pending.delete(src);
-}
-```
+In-flight requests are deduplicated by src via `pendingInference: Map<string, HTMLImageElement>`,
+where the value is the element that **owns** the request — the load listeners that eventually fire
+it live on that specific `<img>`. Tracking the owner matters because frameworks can replace the
+element before a lazy image loads: its listeners then never fire, and with a plain src set the entry
+would stay "pending" forever, dropping every later copy (including visible ones) into a permanent
+initial blur. Instead, a new copy **adopts** the request when the owner is disconnected, or when the
+owner is stalled (not loaded, e.g. a lazy copy in a hidden subtree) while the new copy already has
+pixels. A duplicate send from a superseded owner is harmless — predictions are keyed by src and the
+second result is idempotent. The entry is deleted when a prediction for that src arrives.
 
 ### DOM Processing
 
