@@ -199,6 +199,10 @@ Segmentation-based visual overlays using canvas and mask data. The overlay is a 
 - Creates pixelated overlay effects using RLE-encoded segmentation masks
 - Unified canvas approach combining multiple masks into single overlay
 - Self-cleaning via `trackedSrc` - removes itself when image src changes
+- The `ResizeObserver` watches the image **and its parent**: a parent resize moves the image's
+  offsets within it even when the image size is unchanged (flex re-centering, a custom element like
+  Reddit's `<zoomable-img>` upgrading from unstyled inline layout) — image-only observation left
+  masks stranded at stale offsets. Applies to all three renderers
 - The overlay div has `overflow: hidden`; when the image collapses to zero size (e.g. a lightbox
   hides it) the canvas is also cleared, so a stale painted frame can never show at its old size
 - Live overlays are tracked in a `WeakSet`; the stale-overlay sweep removes only orphans, never a

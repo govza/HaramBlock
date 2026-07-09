@@ -234,11 +234,14 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
   }
 
   private setupObservers(video: HTMLVideoElement, state: IMediaOverlayState): void {
-    // ResizeObserver to update overlay on video resize
+    // ResizeObserver to update overlay on video resize. The parent is observed
+    // too: its size changing moves the video's offsets within it even when the
+    // video size does not (flex re-centering, custom-element upgrade).
     state.resizeObserver = new ResizeObserver(() => {
       this.updateVideoOverlay(video, state);
     });
     state.resizeObserver.observe(video);
+    if (video.parentElement) state.resizeObserver.observe(video.parentElement);
 
     // Cleanup when the video is removed; re-home when a framework re-render
     // merely moved it (or dropped the overlay while keeping the video)
@@ -254,6 +257,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       if (parent && state.overlay.parentElement !== parent) {
         ensurePositionContext(parent);
         parent.appendChild(state.overlay);
+        state.resizeObserver.observe(parent);
       }
       this.updateVideoOverlay(video, state);
     });
