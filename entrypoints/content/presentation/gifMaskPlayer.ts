@@ -142,6 +142,7 @@ class GifMaskPlayer {
         if (image.parentElement && (overlay.previousElementSibling !== image || !overlay.isConnected)) {
           ensurePositionContext(image.parentElement);
           image.after(overlay);
+          gifStates.get(image)?.resizeObserver.observe(image.parentElement);
         }
         this.updateLayout(image);
       }),
@@ -154,6 +155,9 @@ class GifMaskPlayer {
     gifStates.set(image, state);
     image.style.setProperty('opacity', '0', 'important');
     state.resizeObserver.observe(image);
+    // Parent size changes move the image's offsets within it even when the
+    // image size does not (flex re-centering, custom-element upgrade)
+    state.resizeObserver.observe(parent);
     state.cleanupObserver.observe(document.body, { childList: true, subtree: true });
     globalThis.addEventListener('resize', state.viewportHandler);
     globalThis.addEventListener('scroll', state.viewportHandler, { passive: true });

@@ -333,6 +333,13 @@ class ImageMaskOverlay implements IMediaOverlay {
       }
 
       for (const entry of entries) {
+        if (entry.target !== image) {
+          // The parent resized: the image's offsets within it change even when
+          // the image size does not (flex re-centering, a custom element like
+          // Reddit's <zoomable-img> upgrading from unstyled inline layout).
+          scheduleUpdate();
+          continue;
+        }
         const newWidth = entry.contentRect.width;
         const newHeight = entry.contentRect.height;
         if (newWidth !== state.lastSize.width || newHeight !== state.lastSize.height) {
@@ -342,6 +349,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       }
     });
     state.resizeObserver.observe(image);
+    state.resizeObserver.observe(parent);
 
     // Viewport changes that can affect layout
     state.viewportHandler = () => scheduleUpdate();
@@ -362,6 +370,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       if (parent && state.overlay.parentElement !== parent) {
         ensurePositionContext(parent);
         parent.appendChild(state.overlay);
+        state.resizeObserver.observe(parent);
       }
       scheduleUpdate();
     });
