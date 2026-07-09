@@ -77,15 +77,15 @@ Requirements baked into the config:
 
 Patterns that have proven useful when hunting extension bugs through the MCP:
 
-### Inspect the overlay layer and masked elements
+### Inspect mask overlays and masked elements
 
-The overlay layer's shadow root is **open**, so `browser_evaluate` can walk it directly from the
-page:
+Mask overlays are plain divs injected into the site DOM next to the media element, so
+`browser_evaluate` can query them directly from the page:
 
 ```js
-const layer = document.querySelector('haramblock-overlay-layer');
-const slots = layer.shadowRoot.querySelectorAll('[data-overlay-slot]');
-// per-slot: getComputedStyle(slot).transform / width / display, slot.querySelector('canvas')
+const overlays = document.querySelectorAll('[data-mask-overlay="unified-mask-overlay"]');
+// also: [data-video-mask-overlay], [data-gif-mask-player]
+// per-overlay: getComputedStyle(overlay).top / width / display, overlay.querySelector('canvas')
 ```
 
 Cross-reference with site images via the processed-status attributes
