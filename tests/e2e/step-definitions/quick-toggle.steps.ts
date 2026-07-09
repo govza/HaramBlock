@@ -1,7 +1,6 @@
 import { Given, When, Then } from '@wdio/cucumber-framework';
 
 import { Selectors, INFERENCE_TIMEOUT } from '../constants/index.js';
-import { countVisibleInLayer, getLayerElement } from '../utils/overlayLayer.js';
 import { isMobile } from '../utils/platform.js';
 
 // Extension timing constants (from quickToggle.ts)
@@ -127,34 +126,40 @@ When('I wait for the eye toggle to auto-hide', async () => {
 });
 
 Then('I should see the eye toggle icon', async () => {
+  const eyeToggle = await $(Selectors.EYE_TOGGLE);
   // Allow enough time for the 500ms show delay
-  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE, Selectors.UI_HOST)) > 0, {
+  await eyeToggle.waitForDisplayed({
     timeout: SHOW_DELAY_MS + 5000,
     timeoutMsg: 'Expected eye toggle to be visible',
   });
 });
 
 Then('I should not see the eye toggle icon', async () => {
-  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE, Selectors.UI_HOST)) === 0, {
+  const eyeToggle = await $(Selectors.EYE_TOGGLE);
+  const exists = await eyeToggle.isExisting();
+  if (!exists) return; // element not in DOM — not visible
+
+  await eyeToggle.waitForDisplayed({
     timeout: 3000,
+    reverse: true,
     timeoutMsg: 'Expected eye toggle to be hidden',
   });
 });
 
 When('I click the eye toggle icon', async () => {
-  await browser.waitUntil(async () => (await countVisibleInLayer(Selectors.EYE_TOGGLE, Selectors.UI_HOST)) > 0, {
+  const eyeToggle = await $(Selectors.EYE_TOGGLE);
+  await eyeToggle.waitForDisplayed({
     timeout: SHOW_DELAY_MS + 5000,
     timeoutMsg: 'Eye toggle not visible for click',
   });
-  const eyeToggle = await getLayerElement(Selectors.EYE_TOGGLE, Selectors.UI_HOST);
   await eyeToggle.click();
 });
 
 Then('the first image should be masked', async () => {
   await browser.waitUntil(
     async () => {
-      const overlays = await countVisibleInLayer(`${Selectors.SEGMENT_OVERLAY} canvas`);
-      return overlays > 0;
+      const overlays = await $$(Selectors.SEGMENT_OVERLAY);
+      return overlays.length > 0;
     },
     { timeout: 5000, timeoutMsg: 'Expected image to be masked' },
   );
@@ -163,8 +168,8 @@ Then('the first image should be masked', async () => {
 Then('the first image should not be masked', async () => {
   await browser.waitUntil(
     async () => {
-      const overlays = await countVisibleInLayer(`${Selectors.SEGMENT_OVERLAY} canvas`);
-      return overlays === 0;
+      const overlays = await $$(Selectors.SEGMENT_OVERLAY);
+      return overlays.length === 0;
     },
     { timeout: 5000, timeoutMsg: 'Expected image to not be masked' },
   );

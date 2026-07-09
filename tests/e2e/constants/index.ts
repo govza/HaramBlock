@@ -5,11 +5,7 @@ export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 export const INFERENCE_TIMEOUT = 80_000;
 
 export const Selectors = {
-  /** The extension-owned overlay layer host; mask slots are its light-DOM children (no shadow root) */
-  OVERLAY_HOST: 'haramblock-overlay-layer',
-  /** The always-on-top UI host; the eye toggle lives in its shadow root */
-  UI_HOST: 'haramblock-overlay-ui',
-  SEGMENT_OVERLAY: '[data-overlay-slot="image-mask"]',
+  SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
   BLACKLIST_ATTR: 'data-haramblock-blacklist',
   GALLERY_IMAGE: 'main img',
   EYE_TOGGLE: '.haramblock-eye-toggle',
@@ -43,11 +39,7 @@ export interface GalleryParams {
 export const DEFAULT_GALLERY_PARAMS: GalleryParams = {
   mode: GalleryMode.NOT_SAFE,
   count: 25,
-  // Uncovered: with overlay=true the gallery's protective cover sits over the images
-  // and whether a mask paints above or below it is decided purely by z-index stacking
-  // (occlusion detection no longer exists), so mask visuals are only assertable on
-  // uncovered images.
-  overlay: false,
+  overlay: true,
   naturalized: false,
   size: GallerySize.MEDIUM,
 };
