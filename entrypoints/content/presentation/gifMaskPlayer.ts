@@ -1,5 +1,9 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
-import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
+import {
+  classifyOverlayMutation,
+  ensurePositionContext,
+  overlayOffsetInParent,
+} from '@/entrypoints/content/presentation/overlayPosition';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
@@ -127,15 +131,18 @@ class GifMaskPlayer {
       currentFrame: 0,
       resizeObserver: new ResizeObserver(() => this.updateLayout(image)),
       cleanupObserver: new MutationObserver(mutations => {
-        for (const mutation of mutations) {
-          for (const removedNode of mutation.removedNodes) {
-            const removedEl = removedNode as Element;
-            if (removedNode === image || (removedNode.nodeType === Node.ELEMENT_NODE && removedEl.contains(image))) {
-              this.clearPlayer(image);
-              return;
-            }
-          }
+        const change = classifyOverlayMutation(mutations, image, overlay);
+        if (change === 'none') return;
+        if (change === 'detached') {
+          this.clearPlayer(image);
+          return;
         }
+        // moved: the player overlay lives as the image's next sibling
+        if (image.parentElement && (overlay.previousElementSibling !== image || !overlay.isConnected)) {
+          ensurePositionContext(image.parentElement);
+          image.after(overlay);
+        }
+        this.updateLayout(image);
       }),
       viewportHandler: () => this.updateLayout(image),
       destroyed: false,

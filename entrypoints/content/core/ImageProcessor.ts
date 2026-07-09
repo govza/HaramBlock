@@ -100,7 +100,8 @@ interface GifSession {
 export class ImageProcessor {
   private readonly cache = new Map<string, IImagePrediction>();
   private readonly gifSessions = new Map<string, GifSession>();
-  private readonly pendingInference = new Set<string>();
+  // src → the element whose load listeners drive the request (see queueInference)
+  private readonly pendingInference = new Map<string, HTMLImageElement>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
@@ -346,13 +347,27 @@ export class ImageProcessor {
   // ===========================================================================
 
   private queueInference(img: HTMLImageElement, src: string): void {
-    // Dedupe by src - only one request per unique src
-    if (this.pendingInference.has(src)) {
-      return;
+    // Dedupe by src - only one request per unique src. But the pending entry
+    // is only alive as long as the element carrying its load listeners is:
+    // frameworks (Reddit's lightbox) replace nodes before lazy images load,
+    // and a dedupe against a dead owner would leave the src pending forever —
+    // every later copy of it dropped here, stuck behind the initial blur.
+    const owner = this.pendingInference.get(src);
+    if (owner && owner.isConnected) {
+      const ownerReady = owner.complete && owner.naturalWidth > 0;
+      const imgReady = img.complete && img.naturalWidth > 0;
+      // Defer to the owner unless it is stalled (not loaded — e.g. a lazy
+      // copy in a hidden subtree that may never start loading) while this
+      // copy already has pixels; then take over so visible copies aren't
+      // held hostage. A later duplicate send from the old owner is harmless.
+      if (ownerReady || !imgReady) {
+        return;
+      }
     }
 
-    // Mark pending immediately to prevent duplicate load handlers
-    this.pendingInference.add(src);
+    // Mark pending immediately (with this element as owner) to prevent
+    // duplicate load handlers
+    this.pendingInference.set(src, img);
 
     const sendRequest = async () => {
       // If src changed before load (common with srcset), reprocess with new src

@@ -1,5 +1,9 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
-import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
+import {
+  classifyOverlayMutation,
+  ensurePositionContext,
+  overlayOffsetInParent,
+} from '@/entrypoints/content/presentation/overlayPosition';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
@@ -304,33 +308,39 @@ class ImageMaskOverlay implements IMediaOverlay {
     state.viewportHandler = () => scheduleUpdate();
     globalThis.addEventListener('resize', state.viewportHandler);
 
-    // Clean up when image is removed
+    // Clean up when image is removed; re-home when a framework re-render
+    // merely moved it (or dropped the overlay while keeping the image)
     state.cleanupObserver = new MutationObserver(mutations => {
-      for (const mutation of mutations) {
-        for (const removedNode of mutation.removedNodes) {
-          const removedEl = removedNode as Element;
-          if (removedNode === image || (removedNode.nodeType === Node.ELEMENT_NODE && removedEl.contains(image))) {
-            try {
-              state.resizeObserver.disconnect();
-            } catch {
-              // Observer may not exist or already disconnected
-            }
-            try {
-              state.cleanupObserver.disconnect();
-            } catch {
-              // Observer may not exist or already disconnected
-            }
-            if (state.viewportHandler) {
-              globalThis.removeEventListener('resize', state.viewportHandler);
-              state.viewportHandler = undefined;
-            }
-            this.imageStates.delete(image);
-            state.destroyed = true;
-            if (state.overlay.parentElement) state.overlay.remove();
-            break;
-          }
+      if (state.destroyed) return;
+      const change = classifyOverlayMutation(mutations, image, state.overlay);
+      if (change === 'none') return;
+      if (change === 'detached') {
+        try {
+          state.resizeObserver.disconnect();
+        } catch {
+          // Observer may not exist or already disconnected
         }
+        try {
+          state.cleanupObserver.disconnect();
+        } catch {
+          // Observer may not exist or already disconnected
+        }
+        if (state.viewportHandler) {
+          globalThis.removeEventListener('resize', state.viewportHandler);
+          state.viewportHandler = undefined;
+        }
+        this.imageStates.delete(image);
+        state.destroyed = true;
+        if (state.overlay.parentElement) state.overlay.remove();
+        return;
       }
+      // moved: keep the mask glued to the image's current parent
+      const parent = image.parentElement;
+      if (parent && state.overlay.parentElement !== parent) {
+        ensurePositionContext(parent);
+        parent.appendChild(state.overlay);
+      }
+      scheduleUpdate();
     });
     state.cleanupObserver.observe(document.body, { childList: true, subtree: true });
   }

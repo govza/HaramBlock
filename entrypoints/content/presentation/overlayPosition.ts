@@ -36,6 +36,38 @@ export function ensurePositionContext(parent: HTMLElement): void {
  * scroll offset back converts to content coordinates; clientTop/clientLeft
  * account for the parent's border between its rect and its padding box.
  */
+/**
+ * Classifies a mutation batch for an overlay's cleanup observer.
+ *
+ * Frameworks (Reddit's Lit lightbox) constantly detach and re-insert nodes
+ * during re-renders, so an ancestor appearing in removedNodes does NOT mean
+ * the element left the page — tearing the mask down on that signal alone
+ * removes masks from images that are still visible (fail-open). Only treat
+ * the element as gone when it is actually disconnected once the batch has
+ * settled; otherwise report a move so the caller can re-home the overlay
+ * next to its element.
+ */
+export function classifyOverlayMutation(
+  mutations: MutationRecord[],
+  element: Element,
+  overlay: Element,
+): 'none' | 'moved' | 'detached' {
+  let touched = false;
+  for (const mutation of mutations) {
+    for (const removedNode of mutation.removedNodes) {
+      if (removedNode.nodeType !== Node.ELEMENT_NODE) continue;
+      const el = removedNode as Element;
+      if (removedNode === element || el.contains(element) || removedNode === overlay || el.contains(overlay)) {
+        touched = true;
+        break;
+      }
+    }
+    if (touched) break;
+  }
+  if (!touched) return 'none';
+  return element.isConnected ? 'moved' : 'detached';
+}
+
 export function overlayOffsetInParent(
   parent: HTMLElement,
   rect: DOMRect,
