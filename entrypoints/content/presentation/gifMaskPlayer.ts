@@ -91,6 +91,7 @@ class GifMaskPlayer {
       left: ${offset.left}px;
       width: ${imageRect.width}px;
       height: ${imageRect.height}px;
+      overflow: hidden;
       pointer-events: none;
     `;
     const imageZIndex = getComputedStyle(image).zIndex;

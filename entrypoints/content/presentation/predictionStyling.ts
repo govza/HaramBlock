@@ -16,10 +16,21 @@ export const applyPredictionsStyling = (
 
     if (imagePrediction) {
       const overlayPromise = new Promise<void>(resolve => {
-        requestAnimationFrame(() => {
+        let attempts = 0;
+        const tryCreate = () => {
+          // Framework re-renders (Reddit's lightbox) can detach the image
+          // between scheduling and this frame; creating against a detached
+          // image bails silently and nothing would retry — the unsafe image
+          // would stay unmasked. Wait briefly for it to be re-attached.
+          if (!image.isConnected && attempts < 30) {
+            attempts += 1;
+            requestAnimationFrame(tryCreate);
+            return;
+          }
           imageMaskOverlay.createMaskOverlay(image, imagePrediction, hostSettings);
           resolve();
-        });
+        };
+        requestAnimationFrame(tryCreate);
       });
       promises.push(overlayPromise);
     }
