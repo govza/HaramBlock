@@ -1,4 +1,5 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
@@ -61,9 +62,7 @@ class GifMaskPlayer {
     const parent = image.parentElement;
     if (!parent) return;
 
-    if (getComputedStyle(parent).position === 'static') {
-      parent.style.position = 'relative';
-    }
+    ensurePositionContext(parent);
 
     const existing = gifStates.get(image);
     if (existing && !existing.destroyed) {
@@ -78,13 +77,14 @@ class GifMaskPlayer {
 
     const imageRect = image.getBoundingClientRect();
     const parentRect = parent.getBoundingClientRect();
+    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
     const overlay = document.createElement('div');
     overlay.setAttribute('data-gif-mask-player', 'animated-gif-mask-player');
 
     overlay.style.cssText = `
       position: absolute;
-      top: ${imageRect.top - parentRect.top}px;
-      left: ${imageRect.left - parentRect.left}px;
+      top: ${offset.top}px;
+      left: ${offset.left}px;
       width: ${imageRect.width}px;
       height: ${imageRect.height}px;
       pointer-events: none;
@@ -212,12 +212,15 @@ class GifMaskPlayer {
     const parent = image.parentElement;
     if (!frame || !parent || state.destroyed) return;
 
+    ensurePositionContext(parent);
+
     const imageRect = image.getBoundingClientRect();
     const parentRect = parent.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
+    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
 
-    state.overlay.style.top = `${imageRect.top - parentRect.top}px`;
-    state.overlay.style.left = `${imageRect.left - parentRect.left}px`;
+    state.overlay.style.top = `${offset.top}px`;
+    state.overlay.style.left = `${offset.left}px`;
     state.overlay.style.width = `${imageRect.width}px`;
     state.overlay.style.height = `${imageRect.height}px`;
 

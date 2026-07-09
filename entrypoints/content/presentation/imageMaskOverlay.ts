@@ -1,4 +1,5 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
@@ -52,9 +53,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     const parent = image.parentElement;
     if (!parent) return;
 
-    if (getComputedStyle(parent).position === 'static') {
-      parent.style.position = 'relative';
-    }
+    ensurePositionContext(parent);
 
     // If we already manage an overlay for this image, just update/redraw
     const existingState = this.imageStates.get(image);
@@ -171,6 +170,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     const imageRect = image.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
     const parentRect = parent.getBoundingClientRect();
+    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
 
     // Create single overlay container for all masks
     const overlay = document.createElement('div');
@@ -182,8 +182,8 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     overlay.style.cssText = `
     position: absolute;
-    top: ${imageRect.top - parentRect.top}px;
-    left: ${imageRect.left - parentRect.left}px;
+    top: ${offset.top}px;
+    left: ${offset.left}px;
     width: ${imageRect.width}px;
     height: ${imageRect.height}px;
     pointer-events: none;
@@ -354,13 +354,16 @@ class ImageMaskOverlay implements IMediaOverlay {
     // Force layout recalculation to get accurate dimensions
     void image.offsetHeight; // reflow
 
+    ensurePositionContext(parent);
+
     const imageRect = image.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
     const parentRect = parent.getBoundingClientRect();
+    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
 
     // Update overlay position and size
-    state.overlay.style.top = `${imageRect.top - parentRect.top}px`;
-    state.overlay.style.left = `${imageRect.left - parentRect.left}px`;
+    state.overlay.style.top = `${offset.top}px`;
+    state.overlay.style.left = `${offset.left}px`;
     state.overlay.style.width = `${imageRect.width}px`;
     state.overlay.style.height = `${imageRect.height}px`;
 
