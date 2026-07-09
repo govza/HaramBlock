@@ -1,5 +1,9 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
-import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
+import {
+  classifyOverlayMutation,
+  ensurePositionContext,
+  overlayOffsetInParent,
+} from '@/entrypoints/content/presentation/overlayPosition';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
@@ -233,16 +237,22 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     });
     state.resizeObserver.observe(video);
 
-    // MutationObserver to cleanup when video is removed
+    // Cleanup when the video is removed; re-home when a framework re-render
+    // merely moved it (or dropped the overlay while keeping the video)
     state.cleanupObserver = new MutationObserver(mutations => {
-      for (const mutation of mutations) {
-        for (const node of mutation.removedNodes) {
-          if (node === video || (node instanceof Element && node.contains(video))) {
-            this.clearMaskOverlay(video);
-            return;
-          }
-        }
+      if (state.destroyed) return;
+      const change = classifyOverlayMutation(mutations, video, state.overlay);
+      if (change === 'none') return;
+      if (change === 'detached') {
+        this.clearMaskOverlay(video);
+        return;
       }
+      const parent = video.parentElement;
+      if (parent && state.overlay.parentElement !== parent) {
+        ensurePositionContext(parent);
+        parent.appendChild(state.overlay);
+      }
+      this.updateVideoOverlay(video, state);
     });
     state.cleanupObserver.observe(document.body, { childList: true, subtree: true });
 
