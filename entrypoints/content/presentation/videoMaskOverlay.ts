@@ -108,6 +108,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
         globalThis.removeEventListener('resize', state.viewportHandler);
       }
       state.destroyed = true;
+      liveVideoOverlays.delete(state.overlay);
       if (state.overlay.parentElement) state.overlay.remove();
       this.videoStates.delete(video);
     } else {
@@ -159,6 +160,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     left: ${offset.left}px;
     width: ${videoRect.width}px;
     height: ${videoRect.height}px;
+    overflow: hidden;
     pointer-events: none;
     z-index: ${overlayZIndex};
   `;
@@ -181,6 +183,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     }
 
     overlay.appendChild(canvas);
+    liveVideoOverlays.add(overlay);
     parent.appendChild(overlay);
 
     // Get CORS-safe video source for cross-origin videos
@@ -544,10 +547,19 @@ async function loadPosterImage(posterUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-// Helper function for removing existing video overlays
+/**
+ * Overlays owned by a live state; the stale-overlay sweep must only remove
+ * orphans, never a sibling video's live mask (several masked videos can share
+ * one parent).
+ */
+const liveVideoOverlays = new WeakSet<HTMLDivElement>();
+
+// Helper function for removing existing (orphaned) video overlays
 function removeExistingVideoOverlays(parent: HTMLElement): void {
   const existingOverlays = parent.querySelectorAll('[data-video-mask-overlay]');
-  existingOverlays.forEach(overlay => overlay.remove());
+  existingOverlays.forEach(overlay => {
+    if (!liveVideoOverlays.has(overlay as HTMLDivElement)) overlay.remove();
+  });
 }
 
 /**

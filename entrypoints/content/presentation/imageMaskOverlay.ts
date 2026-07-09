@@ -19,6 +19,29 @@ import {
 
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
+/**
+ * Sites render decorative duplicates of an image obscured by their own blur
+ * (Reddit dims + blurs a scaled background copy of the post image behind the
+ * real one). When the site's blur is at least as strong as our own
+ * pending-image blur, the copy is already protected to our standard — an
+ * opaque pixelated mask on top of it is MORE visible than the original and
+ * reads as a duplicated/broken mask. Hide ours while the site's blur holds;
+ * re-evaluated on every geometry update.
+ */
+const SITE_OBSCURING_MIN_BLUR_PX = 15; // matches .haramblock-initial-blur
+
+const isObscuredBySite = (image: HTMLImageElement): boolean => {
+  const radius = /blur\((\d+(?:\.\d+)?)px\)/.exec(getComputedStyle(image).filter)?.[1];
+  return radius !== undefined && parseFloat(radius) >= SITE_OBSCURING_MIN_BLUR_PX;
+};
+
+/**
+ * Overlays owned by a live state. Several masked images can share one parent
+ * (Reddit renders a decorative background copy next to the primary), so the
+ * stale-overlay sweep must only remove orphans, never a sibling's live mask.
+ */
+const liveOverlays = new WeakSet<HTMLDivElement>();
+
 /** Type guard to check if a prediction has valid RLE mask data */
 function hasValidMask(prediction: IElementPrediction): prediction is IElementPrediction & { masks: IRLEMask } {
   return (
@@ -62,8 +85,12 @@ class ImageMaskOverlay implements IMediaOverlay {
     // If we already manage an overlay for this image, just update/redraw
     const existingState = this.imageStates.get(image);
     if (existingState && !existingState.destroyed) {
-      // Update stored prediction and re-render
+      // Update stored prediction and re-render; re-attach if the site's
+      // re-render dropped the overlay without our observer catching it
       existingState.currentPrediction = imagePrediction;
+      if (!existingState.overlay.isConnected) {
+        parent.appendChild(existingState.overlay);
+      }
       this.updateOverlayForImage(image, existingState);
       return;
     }
@@ -105,14 +132,36 @@ class ImageMaskOverlay implements IMediaOverlay {
   private removeMaskOverlayOnly(image: HTMLImageElement): void {
     const state = this.imageStates.get(image);
     if (state) {
-      if (state.overlay.parentElement) state.overlay.remove();
+      // Full disposal (not just detaching the overlay): a kept-alive state
+      // would have the cleanup observer re-homing the overlay right back on
+      // the next site mutation. Re-masking goes through the create path.
+      this.disposeState(image, state);
     } else {
       const parent = image.parentElement;
-      if (parent) {
-        const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
-        existingOverlays.forEach(overlay => overlay.remove());
-      }
+      if (parent) removeExistingImageOverlays(parent);
     }
+  }
+
+  /** Tears down a state: observers, handlers, overlay element, registry. */
+  private disposeState(image: HTMLImageElement, state: IMediaOverlayState): void {
+    try {
+      state.resizeObserver.disconnect();
+    } catch {
+      // no-op
+    }
+    try {
+      state.cleanupObserver.disconnect();
+    } catch {
+      // no-op
+    }
+    if (state.viewportHandler) {
+      globalThis.removeEventListener('resize', state.viewportHandler);
+      state.viewportHandler = undefined;
+    }
+    state.destroyed = true;
+    liveOverlays.delete(state.overlay);
+    if (state.overlay.parentElement) state.overlay.remove();
+    this.imageStates.delete(image);
   }
 
   /**
@@ -121,40 +170,24 @@ class ImageMaskOverlay implements IMediaOverlay {
   clearMaskOverlay(image: HTMLImageElement): void {
     const state = this.imageStates.get(image);
     if (state) {
-      try {
-        state.resizeObserver.disconnect();
-      } catch {
-        // no-op
-      }
-      try {
-        state.cleanupObserver.disconnect();
-      } catch {
-        // no-op
-      }
-      if (state.viewportHandler) {
-        globalThis.removeEventListener('resize', state.viewportHandler);
-        state.viewportHandler = undefined;
-      }
-      state.destroyed = true;
-      if (state.overlay.parentElement) state.overlay.remove();
-      this.imageStates.delete(image);
+      this.disposeState(image, state);
     } else {
-      // Fallback: remove any stale overlay elements
+      // Fallback: remove any stale (orphaned) overlay elements
       const parent = image.parentElement;
-      if (parent) {
-        const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
-        existingOverlays.forEach(overlay => overlay.remove());
-      }
+      if (parent) removeExistingImageOverlays(parent);
     }
     // Unregister from eye toggle
     unregisterQuickToggle(image);
   }
 
   /**
-   * Checks if image has an active mask overlay.
+   * Checks if image has an active mask overlay. A state whose overlay left
+   * the DOM (site re-render our observer missed) does not count — reporting
+   * it as active would block the processing pass that could recreate it.
    */
   hasMaskOverlay(image: HTMLImageElement): boolean {
-    return this.imageStates.has(image);
+    const state = this.imageStates.get(image);
+    return state !== undefined && !state.destroyed && state.overlay.isConnected;
   }
 
   private createSingleImageMaskOverlay(
@@ -190,6 +223,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     left: ${offset.left}px;
     width: ${imageRect.width}px;
     height: ${imageRect.height}px;
+    overflow: hidden;
     pointer-events: none;
     z-index: ${overlayZIndex};
   `;
@@ -212,7 +246,12 @@ class ImageMaskOverlay implements IMediaOverlay {
       throw new Error('Failed to get canvas context');
     }
 
+    if (isObscuredBySite(image)) {
+      overlay.style.display = 'none';
+    }
+
     overlay.appendChild(canvas);
+    liveOverlays.add(overlay);
     parent.appendChild(overlay);
 
     const state: IMediaOverlayState = {
@@ -315,23 +354,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       const change = classifyOverlayMutation(mutations, image, state.overlay);
       if (change === 'none') return;
       if (change === 'detached') {
-        try {
-          state.resizeObserver.disconnect();
-        } catch {
-          // Observer may not exist or already disconnected
-        }
-        try {
-          state.cleanupObserver.disconnect();
-        } catch {
-          // Observer may not exist or already disconnected
-        }
-        if (state.viewportHandler) {
-          globalThis.removeEventListener('resize', state.viewportHandler);
-          state.viewportHandler = undefined;
-        }
-        this.imageStates.delete(image);
-        state.destroyed = true;
-        if (state.overlay.parentElement) state.overlay.remove();
+        this.disposeState(image, state);
         return;
       }
       // moved: keep the mask glued to the image's current parent
@@ -372,6 +395,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     const offset = overlayOffsetInParent(parent, imageRect, parentRect);
 
     // Update overlay position and size
+    state.overlay.style.display = isObscuredBySite(image) ? 'none' : '';
     state.overlay.style.top = `${offset.top}px`;
     state.overlay.style.left = `${offset.left}px`;
     state.overlay.style.width = `${imageRect.width}px`;
@@ -423,8 +447,17 @@ const renderUnifiedCanvasMask = (
   masking: IMaskingSettings,
 ): void => {
   if (!allMasks || !allMasks.length) return;
-  if (overlayWidth <= 0 || overlayHeight <= 0) return;
-  if (contentWidth <= 0 || contentHeight <= 0) return;
+  if (overlayWidth <= 0 || overlayHeight <= 0 || contentWidth <= 0 || contentHeight <= 0) {
+    // Nothing visible to mask (e.g. the element collapsed to zero size when a
+    // lightbox hid it). Drop the previous frame too: the overlay div does not
+    // clip by itself, so a stale painted canvas would keep showing at the
+    // canvas's old CSS size.
+    canvas.width = 0;
+    canvas.height = 0;
+    canvas.style.width = '0px';
+    canvas.style.height = '0px';
+    return;
+  }
 
   const dWidth = contentWidth;
   const dHeight = contentHeight;
@@ -532,7 +565,9 @@ const renderUnifiedCanvasMask = (
 // Helper function for removing legacy overlays
 const removeExistingImageOverlays = (parent: HTMLElement): void => {
   const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
-  existingOverlays.forEach(overlay => overlay.remove());
+  existingOverlays.forEach(overlay => {
+    if (!liveOverlays.has(overlay as HTMLDivElement)) overlay.remove();
+  });
 };
 
 // Export singleton instance
