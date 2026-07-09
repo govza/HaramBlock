@@ -1,4 +1,5 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
@@ -31,9 +32,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     const parent = video.parentElement;
     if (!parent) return;
 
-    if (getComputedStyle(parent).position === 'static') {
-      parent.style.position = 'relative';
-    }
+    ensurePositionContext(parent);
 
     // Check for existing overlay
     const existingState = this.videoStates.get(video);
@@ -142,6 +141,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     const videoRect = video.getBoundingClientRect();
     const contentRect = computeRenderedContentRectWithDimensions(video, videoRect, sourceWidth, sourceHeight);
     const parentRect = parent.getBoundingClientRect();
+    const offset = overlayOffsetInParent(parent, videoRect, parentRect);
 
     const overlay = document.createElement('div');
     overlay.setAttribute('data-video-mask-overlay', 'unified-video-mask-overlay');
@@ -151,8 +151,8 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
 
     overlay.style.cssText = `
     position: absolute;
-    top: ${videoRect.top - parentRect.top}px;
-    left: ${videoRect.left - parentRect.left}px;
+    top: ${offset.top}px;
+    left: ${offset.left}px;
     width: ${videoRect.width}px;
     height: ${videoRect.height}px;
     pointer-events: none;
@@ -271,6 +271,8 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       const parent = video.parentElement;
       if (!parent) return;
 
+      ensurePositionContext(parent);
+
       const videoRect = video.getBoundingClientRect();
       const parentRect = parent.getBoundingClientRect();
       const { overlay } = state;
@@ -278,8 +280,9 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       const needsResize = state.lastSize.width !== videoRect.width || state.lastSize.height !== videoRect.height;
 
       if (needsResize) {
-        overlay.style.top = `${videoRect.top - parentRect.top}px`;
-        overlay.style.left = `${videoRect.left - parentRect.left}px`;
+        const offset = overlayOffsetInParent(parent, videoRect, parentRect);
+        overlay.style.top = `${offset.top}px`;
+        overlay.style.left = `${offset.left}px`;
         overlay.style.width = `${videoRect.width}px`;
         overlay.style.height = `${videoRect.height}px`;
         state.lastSize = { width: videoRect.width, height: videoRect.height };
