@@ -12,19 +12,57 @@ import {
   type VideoSessionState,
 } from '@/entrypoints/content/video/session/machine';
 
+type TimelineEvent = Extract<SessionEvent, { type: 'frameAvailable' | 'seeked' }>;
+type TestSessionEvent = Exclude<SessionEvent, TimelineEvent> | Omit<TimelineEvent, 'timestampSec'> | TimelineEvent;
+
 /** Run a sequence of events through the reducer, returning the final state and all effects. */
-function run(state: VideoSessionState, ...events: SessionEvent[]) {
+function run(state: VideoSessionState, ...events: TestSessionEvent[]) {
   let current = state;
   const effects = [];
-  for (const event of events) {
+  for (const candidate of events) {
+    const event = (
+      (candidate.type === 'frameAvailable' || candidate.type === 'seeked') && !('timestampSec' in candidate)
+        ? { ...candidate, timestampSec: candidate.at / 1000 }
+        : candidate
+    ) as SessionEvent;
     const result = reduce(current, event);
     current = result.state;
-    effects.push(...result.effects);
+    // Most state-machine tests predate timeline-bearing send effects and only
+    // care that an index was scheduled. A dedicated test below covers the
+    // timestamp contract without obscuring those existing assertions.
+    effects.push(
+      ...result.effects.map(effect =>
+        effect.kind === 'sendSample' ? { kind: effect.kind, frameIndex: effect.frameIndex } : effect,
+      ),
+    );
   }
   return { state: current, effects };
 }
 
 describe('VideoSession machine', () => {
+  it('carries the selected media time into immediate and remembered Frame Samples', () => {
+    const ready = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 10 },
+    ).state;
+
+    const immediate = reduce(ready, { type: 'seeked', at: 20, timestampSec: 12.345 });
+    expect(immediate.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0, timestampSec: 12.345 });
+
+    const remembered = reduce(immediate.state, { type: 'seeked', at: 30, timestampSec: 27.5 });
+    expect(remembered.state.pendingSeekTimestampSec).toBe(27.5);
+    const released = reduce(remembered.state, {
+      type: 'predictionReceived',
+      frameIndex: 0,
+      unsafe: false,
+      at: 40,
+    });
+    expect(released.effects).toContainEqual({ kind: 'sendSample', frameIndex: 1, timestampSec: 27.5 });
+    expect(released.state.pendingSeekTimestampSec).toBeNull();
+  });
+
   it('blurs on adoption and captures the Thumbnail once its source is ready', () => {
     const born = createVideoSession();
     expect(born.effects).toContainEqual({ kind: 'applyBlur' });
@@ -70,8 +108,9 @@ describe('VideoSession machine', () => {
     );
 
     expect(state.phase).toBe('standby');
-    expect(effects).toContainEqual({ kind: 'applyVerdict' });
-    expect(effects).toContainEqual({ kind: 'clearBlur' });
+    expect(effects).toContainEqual({ kind: 'applyBlur' });
+    expect(effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+    expect(effects).not.toContainEqual({ kind: 'clearBlur' });
     expect(effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
     expect(effects).not.toContainEqual({ kind: 'clearVerdict' });
   });
@@ -167,8 +206,9 @@ describe('VideoSession machine', () => {
     );
 
     const unsafe = run(standby.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 2200 });
-    expect(unsafe.effects).toContainEqual({ kind: 'applyVerdict' });
-    expect(unsafe.effects).toContainEqual({ kind: 'clearBlur' });
+    expect(unsafe.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(unsafe.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+    expect(unsafe.effects).not.toContainEqual({ kind: 'clearBlur' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'startDvr' });
     expect(unsafe.state.dvr).toBe('off');
   });
@@ -234,8 +274,9 @@ describe('VideoSession machine', () => {
     expect(paused.state.phase).toBe('standby');
     expect(paused.state.dvr).toBe('off');
     expect(paused.effects).toContainEqual({ kind: 'stopDvr' });
-    expect(paused.effects).toContainEqual({ kind: 'applyVerdict' });
-    expect(paused.effects).toContainEqual({ kind: 'clearBlur' });
+    expect(paused.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(paused.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+    expect(paused.effects).not.toContainEqual({ kind: 'clearBlur' });
 
     // Dispose mid-presentation: stopDvr and cleanup exactly once.
     const disposed = run(nextUnsafe.state, { type: 'dispose' });
@@ -348,7 +389,7 @@ describe('VideoSession machine', () => {
       { type: 'sampleSent', frameIndex: 0, at: 2005 },
       { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 2200 },
     );
-    expect(verdict.effects).toContainEqual({ kind: 'applyVerdict' });
+    expect(verdict.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
 
     // Mid-playback seek bypasses the floor interval.
     const seekWhilePlaying = run(

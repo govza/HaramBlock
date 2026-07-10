@@ -8,6 +8,7 @@ import {
 import { logger } from '@/utils/logger';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 
+import type { CapturedFrameSample } from '@/entrypoints/content/video/frameSample';
 import type {
   ForcedVisibility,
   IHostSettings,
@@ -283,12 +284,8 @@ async function bitmapToCompressedBlob(bitmap: ImageBitmap): Promise<Blob> {
 }
 
 export interface VideoFrameParams {
-  video: HTMLVideoElement;
-  bitmap: ImageBitmap;
+  sample: CapturedFrameSample;
   hostname: string;
-  sessionId: string;
-  frameIndex: number;
-  timestampSec: number;
   priority: number;
 }
 
@@ -298,13 +295,10 @@ export interface VideoFrameParams {
  * Firefox: Compressed WebP blob via structured clone
  */
 export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
-  const { video, bitmap, hostname, sessionId, frameIndex, timestampSec, priority } = params;
+  const { sample, hostname, priority } = params;
+  const { bitmap, videoUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
   try {
-    const videoUrl = video.currentSrc || video.src;
-    const originalWidth = video.videoWidth;
-    const originalHeight = video.videoHeight;
-
     const base = {
       videoUrl,
       frameIndex,

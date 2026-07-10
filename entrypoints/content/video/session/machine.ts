@@ -34,6 +34,8 @@ export interface VideoSessionState {
   /** A seek happened while a send was in flight (or during THUMBNAILING);
    *  the newly displayed frame must be sampled as soon as the slot frees. */
   pendingSeek: boolean;
+  /** Media position belonging to the remembered seek's displayed frame. */
+  pendingSeekTimestampSec: number | null;
   /** Delayed-presentation state; masked playback drives it (DVR is a playback mode). */
   dvr: DvrMode;
 }
@@ -57,8 +59,8 @@ export type SessionEvent =
   | { type: 'predictionReceived'; frameIndex: number; unsafe: boolean; at: number }
   | { type: 'timerFired'; timer: SessionTimer; at: number }
   | { type: 'play'; at: number }
-  | { type: 'frameAvailable'; at: number }
-  | { type: 'seeked'; at: number }
+  | { type: 'frameAvailable'; at: number; timestampSec: number }
+  | { type: 'seeked'; at: number; timestampSec: number }
   | { type: 'pause'; at: number }
   | { type: 'ended'; at: number }
   /** permanent: capture can never succeed for this source (e.g. canvas taint), not a transient miss. */
@@ -72,9 +74,11 @@ export type SessionEffect =
   | { kind: 'clearBlur' }
   | { kind: 'captureThumbnail' }
   | { kind: 'applyVerdict' }
+  /** Paint the static mask while protected, then lift the whole-video blur. */
+  | { kind: 'applyVerdictThenClearBlur' }
   | { kind: 'clearVerdict' }
   | { kind: 'setStatus'; status: SessionStatus }
-  | { kind: 'sendSample'; frameIndex: number }
+  | { kind: 'sendSample'; frameIndex: number; timestampSec: number }
   | { kind: 'startTimer'; timer: SessionTimer; ms: number }
   | { kind: 'cancelTimer'; timer: SessionTimer }
   | { kind: 'stopTicker' }
@@ -103,6 +107,7 @@ export function createVideoSession(): ReduceResult {
       blurred: true,
       errorStreak: 0,
       pendingSeek: false,
+      pendingSeekTimestampSec: null,
       dvr: 'off',
     },
     effects: [{ kind: 'applyBlur' }],
@@ -122,7 +127,12 @@ function consumePendingSeek(result: ReduceResult, at: number): ReduceResult {
   const { state } = result;
   if (!state.pendingSeek || state.inflightIndex !== null) return result;
   if (state.phase !== 'standby' && state.phase !== 'sampling') return result;
-  const sent = sendNextSample({ ...state, pendingSeek: false }, at);
+  if (state.pendingSeekTimestampSec === null) return result;
+  const sent = sendNextSample(
+    { ...state, pendingSeek: false, pendingSeekTimestampSec: null },
+    at,
+    state.pendingSeekTimestampSec,
+  );
   return { state: sent.state, effects: [...result.effects, ...sent.effects] };
 }
 
@@ -136,7 +146,14 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   }
   if (event.type === 'dispose') {
     return {
-      state: { ...state, phase: 'disposed', inflightIndex: null, dvr: 'off' },
+      state: {
+        ...state,
+        phase: 'disposed',
+        inflightIndex: null,
+        pendingSeek: false,
+        pendingSeekTimestampSec: null,
+        dvr: 'off',
+      },
       effects: state.dvr === 'off' ? [{ kind: 'cleanup' }] : [{ kind: 'stopDvr' }, { kind: 'cleanup' }],
     };
   }
@@ -181,8 +198,9 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       state: { ...state, phase: 'standby', lastAppliedIndex: event.frameIndex, masked: event.unsafe, blurred: false },
       effects: [
         { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
-        event.unsafe ? { kind: 'applyVerdict' } : { kind: 'clearVerdict' },
-        { kind: 'clearBlur' },
+        ...(event.unsafe
+          ? ([{ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' }] as const)
+          : ([{ kind: 'clearVerdict' }, { kind: 'clearBlur' }] as const)),
         { kind: 'setStatus', status: event.unsafe ? 'unsafe' : 'safe' },
       ],
     };
@@ -220,7 +238,8 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         // presenting: the player composites masks itself; no DOM effects.
       } else {
         // Paused (standby) verdict describes a static frame: precise DOM overlay.
-        effects.push({ kind: 'applyVerdict' }, { kind: 'clearBlur' });
+        // Cover immediately while the async overlay loads/paints, then reveal it.
+        effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
       }
       effects.push({ kind: 'setStatus', status: 'unsafe' });
     } else {
@@ -315,7 +334,9 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       next.dvr = 'off';
       if (state.masked) {
         next.blurred = false;
-        effects.push({ kind: 'applyVerdict' }, { kind: 'clearBlur' });
+        // The native element becomes visible when the DVR stops. Blur it first,
+        // and only lift that protection after the static overlay has painted.
+        effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
       }
       effects.push({ kind: 'stopDvr' });
     }
@@ -325,7 +346,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     if (state.inflightIndex !== null || event.at - state.lastSentAt < SAMPLE_FLOOR_MS) {
       return { state, effects: [] };
     }
-    return sendNextSample(state, event.at);
+    return sendNextSample(state, event.at, event.timestampSec);
   }
   if (
     event.type === 'seeked' &&
@@ -336,8 +357,11 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // seek and fire once the slot frees.
     const sampled =
       state.phase === 'thumbnailing' || state.inflightIndex !== null
-        ? { state: { ...state, pendingSeek: true }, effects: [] as SessionEffect[] }
-        : sendNextSample(state, event.at);
+        ? {
+            state: { ...state, pendingSeek: true, pendingSeekTimestampSec: event.timestampSec },
+            effects: [] as SessionEffect[],
+          }
+        : sendNextSample(state, event.at, event.timestampSec);
     if (state.dvr === 'off') return sampled;
     // Ring-buffer discontinuity: the buffered frames no longer precede the new
     // position. Flush by re-warming; blur covers until the canvas catches up.
@@ -398,6 +422,7 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       cleanStreak: 0,
       blurred: false,
       pendingSeek: false,
+      pendingSeekTimestampSec: null,
       dvr: 'off',
     },
     effects: [
@@ -414,9 +439,9 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
   };
 }
 
-function sendNextSample(state: VideoSessionState, at: number): ReduceResult {
+function sendNextSample(state: VideoSessionState, at: number, timestampSec: number): ReduceResult {
   return {
     state: { ...state, inflightIndex: state.nextFrameIndex, lastSentAt: at, nextFrameIndex: state.nextFrameIndex + 1 },
-    effects: [{ kind: 'sendSample', frameIndex: state.nextFrameIndex }],
+    effects: [{ kind: 'sendSample', frameIndex: state.nextFrameIndex, timestampSec }],
   };
 }
