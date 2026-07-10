@@ -803,6 +803,13 @@ export class ImageProcessor {
     else if (prediction.forcedVisibility === 'blocked') detectionCount = 1;
     this.badgeCounter.trackDetections(img, prediction.src, detectionCount);
 
+    // Fail closed until the overlay paints: apply() waits for the image to
+    // load and creates the overlay asynchronously, so a cached-unsafe image
+    // would otherwise render raw the whole time (including while streaming in).
+    if (detectionCount > 0 && !hasInitialStyling(img)) {
+      applyInitialImageStyling(img, this.hostSettings);
+    }
+
     const apply = async () => {
       // Double-check src after any async wait
       const srcNow = img.currentSrc || img.src;
@@ -810,27 +817,34 @@ export class ImageProcessor {
         return;
       }
 
-      // Clear any existing overlays first
+      // Clear any existing overlays first (also resets protective styling)
       this.clearOverlays(img);
 
       const hasDetections = prediction.predictions.length > 0;
+      if (hasDetections && prediction.forcedVisibility !== 'visible') {
+        applyInitialImageStyling(img, this.hostSettings);
+      }
       registerQuickToggle(img, prediction, this.hostSettings);
-
-      // Finalize processing with status based on AI result (not forced visibility)
-      finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
 
       // Determine overlay type based on what styling is applied
       let overlayType: string | undefined;
 
+      // Finalize (which strips protective styling) only once the branch's own
+      // protection is in place — for masked images that means after the
+      // overlay painted, or the unprotected window would reopen
       if (prediction.forcedVisibility === 'blocked') {
+        finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
         applyBlacklistStyling(img, this.hostSettings);
         overlayType = 'blur';
       } else if (prediction.forcedVisibility === 'visible') {
+        finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
         overlayType = undefined; // Whitelisted, no overlay
       } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
+        finalizeImageProcessing(img, 'unsafe');
         overlayType = 'segment';
       } else {
+        finalizeImageProcessing(img, 'safe');
         overlayType = undefined; // No detections, no overlay
       }
 
