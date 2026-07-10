@@ -35,6 +35,7 @@ import {
   type VideoSessionState,
 } from '@/entrypoints/content/video/session/machine';
 import { logger } from '@/utils/logger';
+import { buildMaskingFilter } from '@/utils/masking';
 
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -136,6 +137,30 @@ interface SessionHandle {
 interface PendingAdoption {
   hostSettings: IHostSettings;
   cancel: () => void;
+}
+
+/**
+ * Whole-video blur is applied inline: the BLUR_CLASS stylesheet lives in the
+ * document and does not reach videos inside shadow roots. The class stays on
+ * as the state marker.
+ */
+function applyWholeBlur(video: HTMLVideoElement, hostSettings: IHostSettings): void {
+  if (!video.classList.contains(BLUR_CLASS) && video.style.filter) {
+    video.dataset.hbOriginalFilter = video.style.filter;
+  }
+  video.classList.add(BLUR_CLASS);
+  video.style.setProperty('filter', buildMaskingFilter(hostSettings.masking), 'important');
+}
+
+function clearWholeBlur(video: HTMLVideoElement): void {
+  video.classList.remove(BLUR_CLASS);
+  const original = video.dataset.hbOriginalFilter;
+  delete video.dataset.hbOriginalFilter;
+  if (original) {
+    video.style.setProperty('filter', original);
+  } else {
+    video.style.removeProperty('filter');
+  }
 }
 
 class VideoSessionRegistry {
@@ -319,10 +344,10 @@ class VideoSessionRegistry {
     for (const effect of effects) {
       switch (effect.kind) {
         case 'applyBlur':
-          video.classList.add(BLUR_CLASS);
+          applyWholeBlur(video, handle.hostSettings);
           break;
         case 'clearBlur':
-          video.classList.remove(BLUR_CLASS);
+          clearWholeBlur(video);
           break;
         case 'captureThumbnail':
           void this.captureAndSend(handle, -1);
@@ -477,7 +502,7 @@ class VideoSessionRegistry {
     handle.stopTicker = null;
     handle.removeListeners();
     videoMaskOverlays.clearMaskOverlay(video);
-    video.classList.remove(BLUR_CLASS);
+    clearWholeBlur(video);
     clearProcessedStatus(video);
     releaseCorsVideoCache(video);
     delete video.dataset.hbSrc;

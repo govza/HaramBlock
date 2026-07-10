@@ -3,6 +3,7 @@ import {
   classifyOverlayMutation,
   ensurePositionContext,
   overlayOffsetInParent,
+  resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
 import { logger } from '@/utils/logger';
@@ -22,10 +23,9 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
   /**
    * Creates mask overlay for video elements using poster images or first frame.
    *
-   * `shouldAbort` is re-checked after the awaits, right before injecting the
-   * overlay: attaching late would paint a static mask over an element another
-   * consumer claimed while this render was in flight (the DVR presenter). The
-   * caller says whether the overlay is still wanted.
+   * `shouldAbort` is re-checked after the awaits: attaching late would paint a
+   * static mask over an element another consumer (the DVR presenter) claimed
+   * while this render was in flight.
    */
   async createMaskOverlay(
     video: HTMLVideoElement,
@@ -38,10 +38,10 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       return;
     }
 
-    const parent = video.parentElement;
-    if (!parent) return;
+    const context = resolveInjectionContext(video);
+    if (!context) return;
 
-    ensurePositionContext(parent);
+    ensurePositionContext(context.box);
 
     // Check for existing overlay
     const existingState = this.videoStates.get(video);
@@ -52,7 +52,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     }
 
     // Remove any existing (orphaned) overlays
-    removeExistingVideoOverlays(parent);
+    removeExistingVideoOverlays(context.container);
 
     const isThumbnail = imagePrediction.cacheMetadata?.contentType === 'video/thumbnail';
 
@@ -122,14 +122,12 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       }
       state.destroyed = true;
       liveVideoOverlays.delete(state.overlay);
-      if (state.overlay.parentElement) state.overlay.remove();
+      state.overlay.remove();
       this.videoStates.delete(video);
     } else {
-      // Fallback: remove any stale overlay elements
-      const parent = video.parentElement;
-      if (parent) {
-        removeExistingVideoOverlays(parent);
-      }
+      // Fallback: remove any stale (orphaned) overlay elements
+      const context = resolveInjectionContext(video);
+      if (context) removeExistingVideoOverlays(context.container);
     }
   }
 
@@ -151,15 +149,15 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     sourceWidth?: number,
     sourceHeight?: number,
   ): Promise<IMediaOverlayState> {
-    const parent = video.parentElement;
-    if (!parent) throw new Error('Video has no parent');
+    const context = resolveInjectionContext(video);
+    if (!context) throw new Error('Video has no injection container');
 
     void video.offsetHeight;
 
     const videoRect = video.getBoundingClientRect();
     const contentRect = computeRenderedContentRectWithDimensions(video, videoRect, sourceWidth, sourceHeight);
-    const parentRect = parent.getBoundingClientRect();
-    const offset = overlayOffsetInParent(parent, videoRect, parentRect);
+    const boxRect = context.box.getBoundingClientRect();
+    const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
 
     const overlay = document.createElement('div');
     overlay.setAttribute('data-video-mask-overlay', 'unified-video-mask-overlay');
@@ -197,7 +195,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
 
     overlay.appendChild(canvas);
     liveVideoOverlays.add(overlay);
-    parent.appendChild(overlay);
+    context.container.appendChild(overlay);
 
     // Get CORS-safe video source for cross-origin videos
     let corsVideo: HTMLVideoElement | undefined;
@@ -254,7 +252,8 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       this.updateVideoOverlay(video, state);
     });
     state.resizeObserver.observe(video);
-    if (video.parentElement) state.resizeObserver.observe(video.parentElement);
+    const initialContext = resolveInjectionContext(video);
+    if (initialContext) state.resizeObserver.observe(initialContext.box);
 
     // Cleanup when the video is removed; re-home when a framework re-render
     // merely moved it (or dropped the overlay while keeping the video)
@@ -266,11 +265,11 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
         this.clearMaskOverlay(video);
         return;
       }
-      const parent = video.parentElement;
-      if (parent && state.overlay.parentElement !== parent) {
-        ensurePositionContext(parent);
-        parent.appendChild(state.overlay);
-        state.resizeObserver.observe(parent);
+      const context = resolveInjectionContext(video);
+      if (context && state.overlay.parentNode !== context.container) {
+        ensurePositionContext(context.box);
+        context.container.appendChild(state.overlay);
+        state.resizeObserver.observe(context.box);
       }
       this.updateVideoOverlay(video, state);
     });
@@ -298,19 +297,19 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     state.rafId = requestAnimationFrame(() => {
       state.rafId = null;
 
-      const parent = video.parentElement;
-      if (!parent) return;
+      const context = resolveInjectionContext(video);
+      if (!context) return;
 
-      ensurePositionContext(parent);
+      ensurePositionContext(context.box);
 
       const videoRect = video.getBoundingClientRect();
-      const parentRect = parent.getBoundingClientRect();
+      const boxRect = context.box.getBoundingClientRect();
       const { overlay } = state;
 
       const needsResize = state.lastSize.width !== videoRect.width || state.lastSize.height !== videoRect.height;
 
       if (needsResize) {
-        const offset = overlayOffsetInParent(parent, videoRect, parentRect);
+        const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
         overlay.style.top = `${offset.top}px`;
         overlay.style.left = `${offset.left}px`;
         overlay.style.width = `${videoRect.width}px`;
@@ -572,8 +571,8 @@ async function loadPosterImage(posterUrl: string): Promise<HTMLImageElement> {
 const liveVideoOverlays = new WeakSet<HTMLDivElement>();
 
 // Helper function for removing existing (orphaned) video overlays
-function removeExistingVideoOverlays(parent: HTMLElement): void {
-  const existingOverlays = parent.querySelectorAll('[data-video-mask-overlay]');
+function removeExistingVideoOverlays(container: HTMLElement | ShadowRoot): void {
+  const existingOverlays = container.querySelectorAll('[data-video-mask-overlay]');
   existingOverlays.forEach(overlay => {
     if (!liveVideoOverlays.has(overlay as HTMLDivElement)) overlay.remove();
   });

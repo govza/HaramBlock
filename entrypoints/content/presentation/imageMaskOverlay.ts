@@ -1,4 +1,5 @@
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { hasInitialStyling } from '@/entrypoints/content/presentation/initialStyling';
 import {
   classifyOverlayMutation,
   ensurePositionContext,
@@ -20,17 +21,17 @@ import {
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
 /**
- * Sites render decorative duplicates of an image obscured by their own blur
- * (Reddit dims + blurs a scaled background copy of the post image behind the
- * real one). When the site's blur is at least as strong as our own
- * pending-image blur, the copy is already protected to our standard — an
- * opaque pixelated mask on top of it is MORE visible than the original and
- * reads as a duplicated/broken mask. Hide ours while the site's blur holds;
- * re-evaluated on every geometry update.
+ * An image the site already blurs at least as strongly as our own pending
+ * blur (decorative background copies) is protected to our standard; an opaque
+ * pixelated mask on top would be more visible than the original. Hide ours
+ * while the site's blur holds; re-evaluated on every geometry update.
  */
 const SITE_OBSCURING_MIN_BLUR_PX = 15; // matches .haramblock-initial-blur
 
 const isObscuredBySite = (image: HTMLImageElement): boolean => {
+  // Our own protective styling contributes the same computed filter and must
+  // not count as site obscuration — it is stripped once the overlay is up
+  if (hasInitialStyling(image)) return false;
   const radius = /blur\((\d+(?:\.\d+)?)px\)/.exec(getComputedStyle(image).filter)?.[1];
   return radius !== undefined && parseFloat(radius) >= SITE_OBSCURING_MIN_BLUR_PX;
 };
