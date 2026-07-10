@@ -272,9 +272,13 @@ class VideoSessionRegistry {
 
   /** Dispose the session bound to this element (source change or removal). */
   dispose(video: HTMLVideoElement): void {
-    this.pendingByVideo.get(video)?.cancel();
+    const pending = this.pendingByVideo.get(video);
+    pending?.cancel();
     const handle = this.byVideo.get(video);
-    if (!handle) return;
+    if (!handle) {
+      if (pending) clearWholeBlur(video);
+      return;
+    }
     this.dispatch(handle, { type: 'dispose' });
   }
 
