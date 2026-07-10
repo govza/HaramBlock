@@ -161,7 +161,9 @@ identity attached to the pixels it actually supplies.
 - **Everything else** → `videoSessions.adopt(video, hostSettings)`. The registry itself waits out
   videos with no resolved source yet (`<video><source …>`, MSE, late `src` assignment) via a
   `loadstart` listener that keeps waiting while `currentSrc` is still empty (`srcObject` fires
-  `loadstart` with no URL source), so discovery holds no state of its own.
+  `loadstart` with no URL source), so discovery holds no state of its own. The wait is blurred: a
+  src-less video still displays its poster, and adoption keeps the blur — there is no unprotected
+  gap between discovery and ADOPTED.
 
 ## DVR: delayed masked presentation
 
