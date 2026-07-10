@@ -70,6 +70,7 @@ export class VideoDvrPlayer {
   private destroyed = false;
   private surfaces: DrawSurfaces | null = null;
   private originalOpacity: string | undefined;
+  private hidNativeVideo = false;
   private lastSize = { width: 0, height: 0 };
   private lastOffset = { top: NaN, left: NaN };
   private lastDrawKey = '';
@@ -96,7 +97,7 @@ export class VideoDvrPlayer {
     if (this.surfaces) {
       this.surfaces.overlay.remove();
       this.surfaces = null;
-      restoreOpacity(this.opts.video, this.originalOpacity);
+      if (this.hidNativeVideo) restoreOpacity(this.opts.video, this.originalOpacity);
     }
   }
 
@@ -153,8 +154,14 @@ export class VideoDvrPlayer {
   `;
     overlay.append(baseCanvas, maskCanvas);
 
-    this.originalOpacity = video.style.opacity;
-    video.style.setProperty('opacity', '0', 'important');
+    // Native controls are part of the video element: hiding the whole element
+    // also hides its play/seek/volume/fullscreen UI. For controlled videos the
+    // opaque DVR canvases cover the picture while the native chrome stays live.
+    if (!video.controls) {
+      this.originalOpacity = video.style.opacity;
+      video.style.setProperty('opacity', '0', 'important');
+      this.hidNativeVideo = true;
+    }
     this.surfaces = { overlay, baseCanvas, baseCtx, maskCanvas, maskCtx };
 
     // syncGeometry homes the overlay next to the video and sets lastSize
