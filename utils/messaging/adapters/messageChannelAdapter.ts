@@ -141,6 +141,17 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
       this.messageCallbacks.forEach(callback => callback(event.data));
     };
 
+    // When the service worker is terminated (MV3 idle timeout), its end of the
+    // channel is disentangled and messages posted here vanish with no error.
+    // The port close event is the only signal: mark the channel dead so the
+    // next send re-establishes it instead of posting into the void. Rebuilding
+    // lazily (not here) avoids a wake/idle keepalive loop while the page is
+    // quiet. (No-op on engines without the close event.)
+    mc.port1.addEventListener('close', () => {
+      logger.withTag('MessageChannelInjectAdapter').warn('Channel port closed; will re-establish on next send');
+      this.resetState();
+    });
+
     // Clean up iframe
     if (container.parentNode) {
       container.parentNode.removeChild(container);
@@ -174,6 +185,9 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
       this.doSend(enrichedMessage, transfer);
     } else {
       logger.withTag('MessageChannelInjectAdapter').error('Channel not available');
+      // The message is lost (callers time out and retry); make sure a channel
+      // is being (re-)established for the retry to land on.
+      void this.initialize();
     }
   };
 
