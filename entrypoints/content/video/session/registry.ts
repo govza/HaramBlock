@@ -279,8 +279,9 @@ class VideoSessionRegistry {
   }
 
   disposeAll(): void {
-    for (const pending of [...this.pendingByVideo.values()]) {
+    for (const [video, pending] of [...this.pendingByVideo]) {
       pending.cancel();
+      clearWholeBlur(video);
     }
     for (const handle of this.byId.values()) {
       this.dispatch(handle, { type: 'dispose' });
@@ -300,6 +301,10 @@ class VideoSessionRegistry {
       pending.hostSettings = hostSettings;
       return;
     }
+    // Fail closed during the wait: a src-less video still displays its poster.
+    // Adoption re-applies the blur (idempotent); it never lifts here, so the
+    // wait→ADOPTED handoff has no unprotected gap.
+    applyWholeBlur(video, hostSettings);
     const entry: PendingAdoption = { hostSettings, cancel: () => {} };
     const onLoadstart = () => {
       // loadstart can fire with the source still unresolved (srcObject sets
