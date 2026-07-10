@@ -202,14 +202,21 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the regis
   out).
 - **Per presented frame** (`videoDvrPlayer.ts`): look up verdicts within the Inertia Window
   (observed sampling cadence + jitter margin) around the frame's media time. Unsafe → composite the
-  union of their masks (RLE-decoded once, pixelated content + destination-in); clean → draw plain. A
-  hole in verdict coverage (latency spike) is **bridged from the neighbors** — an unsafe neighbor
-  extends its masks over the hole (fail-safe), clean↔clean holes present clean — so the whole-blur
-  fallback appears only under genuine verdict silence, not as a flash between masked stretches.
-  Sampling continues at the live edge throughout.
-- **Exit**: the clean streak (`stopDvr`, native resumes at the live edge — content jumps forward by
-  `D`), pause/ended (static frame → precise DOM overlay takes back over), seek (ring discontinuity →
-  flush, whole-blur, re-warm), dispose, or terminal ERROR.
+  union of their masks (RLE-decoded once, pixelated content + destination-in). A recent unsafe mask
+  also persists for twice the adaptive cadence window through short clean detector dropouts, so
+  segmentation patches do not blink open/closed at sample cadence; sustained clean coverage draws
+  plain. A hole in verdict coverage (latency spike) is **bridged from the neighbors** — an unsafe
+  neighbor extends its masks over the hole (fail-safe), clean↔clean holes present clean — so the
+  whole-blur fallback appears only under genuine verdict silence, not as a flash between masked
+  stretches. Sampling continues at the live edge throughout.
+- **Clean streak while presenting**: clears the logical mask/status, but leaves the DVR latched for
+  the continuous playback run. Clean frames are drawn plainly by `VerdictTrack`; retaining the
+  delayed timeline preserves unsafe-neighbor inertia and avoids repeated live-edge jumps and re-warm
+  flashes when detections are intermittent.
+- **Exit**: pause/ended (static frame → precise DOM overlay takes back over), seek (ring
+  discontinuity → flush, whole-blur, re-warm), dispose, or terminal ERROR. A clean streak still
+  stops a DVR that never reached `presenting`, so capture failure cannot strand the video under its
+  warm-up blur.
 - **DVR unavailable but analysis works** (buffer capture throws `SecurityError` while the CORS-clone
   sampling path still delivers verdicts): the warm-up whole-blur simply stays; the clean-streak exit
   remains reachable. Only analysis-impossible finalizes as allow.
