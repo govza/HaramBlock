@@ -37,6 +37,7 @@ import {
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
+import type { CapturedFrameSample, PendingFrameSample } from '@/entrypoints/content/video/frameSample';
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
 const log = logger.withTag('videoSession');
@@ -65,7 +66,7 @@ const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
 const DVR_BUFFER_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
- * A verdict that never arrives leaves its sampleSentAt entry behind (the
+ * A verdict that never arrives leaves its pending Frame Sample behind (the
  * sampleTimeout only frees the machine's slot), so an inference outage would
  * grow the map for the session's lifetime. Entries this old are useless to the
  * delay estimator anyway — prune them on the next send.
@@ -128,8 +129,8 @@ interface SessionHandle {
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
   dvr: DvrRuntime | null;
-  /** Send wall-time per in-flight frameIndex, for round-trip measurement. */
-  sampleSentAt: Map<number, number>;
+  /** Session-local Frame Samples awaiting verdicts; future caches must not persist routing identity. */
+  pendingSamples: Map<number, PendingFrameSample>;
   /** Recent sample→verdict round-trips; sizes the adaptive DVR delay. */
   latenciesMs: number[];
 }
@@ -206,7 +207,7 @@ class VideoSessionRegistry {
       removeListeners: () => {},
       overlayChain: Promise.resolve(),
       dvr: null,
-      sampleSentAt: new Map(),
+      pendingSamples: new Map(),
       latenciesMs: [],
     };
     this.byId.set(handle.sessionId, handle);
@@ -220,7 +221,7 @@ class VideoSessionRegistry {
 
     this.bindMediaEvents(handle);
     handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
-      this.dispatch(handle, { type: 'frameAvailable', at });
+      this.dispatch(handle, { type: 'frameAvailable', at, timestampSec: mediaTime });
       this.captureIntoRing(handle, mediaTime);
     });
     this.queueThumbnailSourceReady(handle);
@@ -238,10 +239,10 @@ class VideoSessionRegistry {
       handle.lastPrediction = pred;
       const unsafe = Boolean(pred.predictions?.length);
       if (unsafe) handle.lastUnsafePrediction = pred;
-      const sentAt = handle.sampleSentAt.get(pred.frameIndex);
-      if (sentAt !== undefined) {
-        handle.sampleSentAt.delete(pred.frameIndex);
-        handle.latenciesMs.push(performance.now() - sentAt);
+      const sample = handle.pendingSamples.get(pred.frameIndex);
+      if (sample) {
+        handle.pendingSamples.delete(pred.frameIndex);
+        handle.latenciesMs.push(performance.now() - sample.capturedAt);
         if (handle.latenciesMs.length > LATENCY_SAMPLE_COUNT) handle.latenciesMs.shift();
         // Keep the audio delay tracking the adaptive presentation delay.
         if (handle.dvr) updateAudioDelay(handle.video, computeDvrDelayMs(handle.latenciesMs) / 1000);
@@ -350,13 +351,16 @@ class VideoSessionRegistry {
           clearWholeBlur(video);
           break;
         case 'captureThumbnail':
-          void this.captureAndSend(handle, -1);
+          void this.captureAndSend(handle, -1, 0);
           break;
         case 'sendSample':
-          void this.captureAndSend(handle, effect.frameIndex);
+          void this.captureAndSend(handle, effect.frameIndex, effect.timestampSec);
           break;
         case 'applyVerdict':
           this.applyVerdictOverlay(handle);
+          break;
+        case 'applyVerdictThenClearBlur':
+          this.applyVerdictOverlay(handle, true);
           break;
         case 'clearVerdict':
           // Serialized behind pending renders: a slow applyVerdict must never
@@ -396,7 +400,7 @@ class VideoSessionRegistry {
           // mid-playback there will be no fresh 'play' event — synthesize one.
           handle.stopTicker?.();
           handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
-            this.dispatch(handle, { type: 'frameAvailable', at });
+            this.dispatch(handle, { type: 'frameAvailable', at, timestampSec: mediaTime });
             this.captureIntoRing(handle, mediaTime);
           });
           if (!video.paused && !video.ended) {
@@ -500,6 +504,7 @@ class VideoSessionRegistry {
     handle.timers.clear();
     handle.stopTicker?.();
     handle.stopTicker = null;
+    handle.pendingSamples.clear();
     handle.removeListeners();
     videoMaskOverlays.clearMaskOverlay(video);
     clearWholeBlur(video);
@@ -521,7 +526,7 @@ class VideoSessionRegistry {
     const onPlay = () => this.dispatch(handle, { type: 'play', at: now() });
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now() });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
-    const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now() });
+    const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
     const onSourceChanged = () => {
       const current = video.currentSrc || video.src;
       if (current === handle.src) return;
@@ -583,22 +588,30 @@ class VideoSessionRegistry {
     };
   }
 
-  private async captureAndSend(handle: SessionHandle, frameIndex: number): Promise<void> {
+  private async captureAndSend(handle: SessionHandle, frameIndex: number, timestampSec: number): Promise<void> {
     const { video } = handle;
     const isDisposed = () => handle.state.phase === 'disposed';
     if (isDisposed()) return;
-    // Round-trip is measured from capture start: that is when the frame's media
-    // time is stamped, so it is the span the DVR presentation delay must cover.
+    // Frame Sample identity is fixed by the event that selected the frame
+    // (rVFC mediaTime or seeked currentTime), never reread after async capture.
+    const capturedAt = performance.now();
+    const pendingSample: PendingFrameSample = {
+      sessionId: handle.sessionId,
+      frameIndex,
+      videoUrl: handle.src,
+      timestampSec,
+      capturedAt,
+    };
+    // Round-trip is measured from capture start, the span the DVR delay covers.
     if (frameIndex >= 0) {
-      const now = performance.now();
-      for (const [index, sentAt] of handle.sampleSentAt) {
-        if (now - sentAt > SAMPLE_LATENCY_EXPIRY_MS) handle.sampleSentAt.delete(index);
+      for (const [index, sample] of handle.pendingSamples) {
+        if (capturedAt - sample.capturedAt > SAMPLE_LATENCY_EXPIRY_MS) handle.pendingSamples.delete(index);
       }
-      handle.sampleSentAt.set(frameIndex, now);
+      handle.pendingSamples.set(frameIndex, pendingSample);
     }
     try {
       const captured = await withTimeout(
-        frameIndex === -1 ? captureThumbnailBitmap(video) : captureFrameBitmap(video),
+        frameIndex === -1 ? captureThumbnailBitmap(video) : captureFrameBitmap(video, timestampSec),
         'Frame Sample capture',
         late => late.bitmap?.close(),
       );
@@ -611,7 +624,7 @@ class VideoSessionRegistry {
       const { bitmap } = captured;
       if (!bitmap || bitmap.width === 0 || bitmap.height === 0) {
         bitmap?.close();
-        handle.sampleSentAt.delete(frameIndex);
+        handle.pendingSamples.delete(frameIndex);
         this.dispatch(handle, {
           type: 'sendFailed',
           frameIndex,
@@ -620,14 +633,16 @@ class VideoSessionRegistry {
         });
         return;
       }
+      const sample: CapturedFrameSample = {
+        ...pendingSample,
+        bitmap,
+        originalWidth: video.videoWidth,
+        originalHeight: video.videoHeight,
+      };
       await withTimeout(
         requestVideoFrameInference({
-          video,
-          bitmap,
+          sample,
           hostname: handle.hostSettings.hostname,
-          sessionId: handle.sessionId,
-          frameIndex,
-          timestampSec: frameIndex === -1 ? 0 : video.currentTime,
           priority: 10,
         }),
         'Frame Sample send',
@@ -635,7 +650,7 @@ class VideoSessionRegistry {
       this.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
     } catch (error) {
       log.error('Frame Sample capture/send failed:', error);
-      handle.sampleSentAt.delete(frameIndex);
+      handle.pendingSamples.delete(frameIndex);
       this.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now() });
     }
   }
@@ -657,7 +672,7 @@ class VideoSessionRegistry {
     });
   }
 
-  private applyVerdictOverlay(handle: SessionHandle): void {
+  private applyVerdictOverlay(handle: SessionHandle, clearBlurOnPaint = false): void {
     // The last unsafe prediction, not the last one: a pause-time re-mask must
     // render the mask that made the session masked, not a newer clean verdict.
     const pred = handle.lastUnsafePrediction;
@@ -677,6 +692,10 @@ class VideoSessionRegistry {
       if (handle.state.phase === 'disposed') {
         // Disposed mid-render: undo what the render just re-created.
         videoMaskOverlays.clearMaskOverlay(video);
+      } else if (clearBlurOnPaint && !staleRender() && videoMaskOverlays.hasMaskOverlay(video)) {
+        // Never reveal the native unsafe frame before a real overlay exists.
+        // If rendering failed or became stale, leave the protection in place.
+        clearWholeBlur(video);
       }
     });
   }

@@ -1,4 +1,5 @@
 import type { IRLEMask } from '@/utils/rle';
+import type { IFrameSampleRouting, IVideoTimelinePosition } from '@/utils/types/media';
 
 export interface ICacheMetadata {
   // HTTP Cache headers
@@ -79,15 +80,14 @@ export interface IVideoFramePrediction {
   };
 }
 
-export interface IFramePrediction {
-  sessionId: string; // Stable ID to group frames for the same <video>
-  hostname: string; // Effective hostname
+/**
+ * Verdict data reusable on the same video timeline. Unlike IFramePrediction,
+ * it has no VideoSession routing identity and is suitable for a future cache
+ * once media revision and model identity are added to its key.
+ */
+export interface IVideoFrameVerdict extends IVideoTimelinePosition {
   width: number; // Frame media width
   height: number; // Frame media height
-  frameIndex: number; // Frame number in the video (-1 for thumbnail)
-  timestampSec: number; // Media time (video.currentTime) of the sampled frame; 0 for the Thumbnail
-  videoUrl: string; // Original video source URL (used for DOM element matching)
-  src: string; // URL of the media blob image
   predictions: IElementPrediction[];
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata;
@@ -100,6 +100,12 @@ export interface IFramePrediction {
     e2eTime: number; // End-to-end time from content request start to inference completion
     backend: string; // Inference backend used (webgpu/wasm)
   };
+}
+
+/** A reusable timeline verdict rebound to the VideoSession that requested it. */
+export interface IFramePrediction extends IFrameSampleRouting, IVideoFrameVerdict {
+  hostname: string; // Effective hostname
+  src: string; // URL of the media blob image
 }
 
 export interface IGifFramePrediction {

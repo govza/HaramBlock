@@ -38,13 +38,13 @@ export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<C
   return drawToBitmap(video);
 }
 
-export async function captureFrameBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
+export async function captureFrameBitmap(video: HTMLVideoElement, timestampSec: number): Promise<CaptureResult> {
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     logger.withTag('frameCapture').debug('Skipping frame capture, no current frame data');
     return { failure: 'transient' };
   }
 
-  return drawToBitmap(video);
+  return drawToBitmap(video, timestampSec);
 }
 
 /**
@@ -80,7 +80,7 @@ function trackInferenceCaptureSize(): void {
   onModelSettingsChange(() => void refreshInferenceCaptureSize());
 }
 
-async function drawToBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
+async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Promise<CaptureResult> {
   trackInferenceCaptureSize();
   const { canvas, ctx, width, height } = createDrawingSurface(video, inferenceCaptureSize);
   if (!ctx || width === 0 || height === 0) {
@@ -88,7 +88,7 @@ async function drawToBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
     return { failure: 'transient' };
   }
 
-  const sourceVideo = await ensureCorsSafeSource(video);
+  const sourceVideo = await ensureCorsSafeSource(video, timestampSec);
   ctx.drawImage(sourceVideo, 0, 0, width, height);
 
   try {
@@ -102,7 +102,10 @@ async function drawToBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
   }
 }
 
-export async function ensureCorsSafeSource(video: HTMLVideoElement): Promise<HTMLVideoElement> {
+export async function ensureCorsSafeSource(
+  video: HTMLVideoElement,
+  timestampSec = video.currentTime,
+): Promise<HTMLVideoElement> {
   const actualSrc = video.currentSrc || video.src;
 
   if (video.crossOrigin || actualSrc.startsWith('blob:')) {
@@ -124,8 +127,9 @@ export async function ensureCorsSafeSource(video: HTMLVideoElement): Promise<HTM
       // CORS previously failed for this source - don't retry
       return video;
     } else {
-      // Reuse cached CORS video, just sync currentTime
-      cached.corsVideo.currentTime = video.currentTime;
+      // The clone is a seekable decoder, not a live mirror. Wait until it is
+      // actually presenting the Frame Sample's selected media time before draw.
+      await seekCorsVideo(cached.corsVideo, timestampSec);
       return cached.corsVideo;
     }
   }
@@ -133,7 +137,7 @@ export async function ensureCorsSafeSource(video: HTMLVideoElement): Promise<HTM
   // Create and cache new CORS video (rare path - server supports CORS but page forgot crossOrigin attr)
   logger.withTag('frameCapture').debug('Attempting CORS video workaround for:', actualSrc);
   try {
-    const corsVideo = await createCORSVideo(video);
+    const corsVideo = await createCORSVideo(video, timestampSec);
     logger.withTag('frameCapture').info('CORS video workaround succeeded');
     corsVideoCache.set(video, { corsVideo, src: actualSrc });
     return corsVideo;
@@ -207,12 +211,12 @@ async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null
   }
 }
 
-async function createCORSVideo(originalVideo: HTMLVideoElement): Promise<HTMLVideoElement> {
+async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: number): Promise<HTMLVideoElement> {
   const corsVideo = document.createElement('video');
   corsVideo.setAttribute('crossorigin', 'anonymous');
   corsVideo.src = originalVideo.currentSrc || originalVideo.src;
   corsVideo.muted = true;
-  corsVideo.currentTime = originalVideo.currentTime;
+  corsVideo.currentTime = timestampSec;
 
   return new Promise<HTMLVideoElement>((resolve, reject) => {
     if (corsVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && corsVideo.videoHeight) {
@@ -231,5 +235,29 @@ async function createCORSVideo(originalVideo: HTMLVideoElement): Promise<HTMLVid
     corsVideo.onerror = () => {
       reject(new Error('Failed to load CORS-enabled video element'));
     };
+  });
+}
+
+/** Resolve only once the cached CORS decoder displays the requested sample. */
+async function seekCorsVideo(video: HTMLVideoElement, timestampSec: number): Promise<void> {
+  if (Math.abs(video.currentTime - timestampSec) < 0.001 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onError);
+    };
+    const onSeeked = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('CORS video failed while seeking to Frame Sample'));
+    };
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('error', onError, { once: true });
+    video.currentTime = timestampSec;
   });
 }

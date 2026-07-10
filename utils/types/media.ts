@@ -2,6 +2,21 @@
 // Media Metadata Types (for inference task discrimination)
 // =============================================================================
 
+/** Live delivery identity. Never use this pair as a persistent cache key. */
+export interface IFrameSampleRouting {
+  sessionId: string;
+  frameIndex: number;
+}
+
+/** Reusable position on a video's media timeline; future cache identity starts here. */
+export interface IVideoTimelinePosition {
+  videoUrl: string;
+  timestampSec: number;
+}
+
+/** Complete identity of one Frame Sample before pixels or a verdict are attached. */
+export interface IFrameSampleIdentity extends IFrameSampleRouting, IVideoTimelinePosition {}
+
 export interface IImageMetadata {
   kind: 'image';
   contentType: string | null;
@@ -12,12 +27,8 @@ export interface IImageMetadata {
   expires: string | null;
 }
 
-export interface IFrameMetadata {
+export interface IFrameMetadata extends IFrameSampleIdentity {
   kind: 'frame';
-  videoUrl: string; // Original video source URL (for DOM matching)
-  frameIndex: number; // -1 for thumbnail, 0+ for playback frames
-  sessionId: string; // Unique playback session identifier
-  timestampSec: number; // Position in video (seconds)
 }
 
 export interface IGifFrameMetadata {
@@ -86,16 +97,12 @@ export type IImageTransfer = IImageWithBitmap | IImageWithBlob | IImageWithUrl;
 // - Chrome: 'bitmap' only (MessageChannel zero-copy), throws if unavailable
 // - Firefox: 'blob' only (structured clone with WebP compression)
 
-interface IVideoFrameTransferBase {
-  videoUrl: string; // Original video URL (for DOM matching)
-  frameIndex: number; // -1 for thumbnail, 0+ for playback frames
-  timestampSec: number; // Frame position in video (seconds)
+interface IVideoFrameTransferBase extends IFrameSampleIdentity {
   width: number; // Transferred frame width (may be resized)
   height: number; // Transferred frame height (may be resized)
   originalWidth: number; // Original video width (for prediction mapping)
   originalHeight: number; // Original video height (for prediction mapping)
   hostname: string;
-  sessionId: string; // Unique playback session identifier
   priority: number; // Queue priority (higher = runs first)
 }
 

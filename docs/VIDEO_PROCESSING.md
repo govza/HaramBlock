@@ -81,6 +81,7 @@ Key invariants:
 | Pure state machine | `entrypoints/content/video/session/machine.ts`                     | `(state, event) → (state, effects)`; no DOM, timers, or transport      |
 | Registry + adapter | `entrypoints/content/video/session/registry.ts`                    | Owns live sessions, routes predictions by sessionId, executes effects  |
 | Discovery          | `entrypoints/content/handlers/handleVideos.ts`                     | Routes discovered videos: blacklist styling or registry adoption       |
+| Frame Sample model | `entrypoints/content/video/frameSample.ts`                         | Separates live routing identity from reusable media-timeline identity  |
 | Frame capture      | `entrypoints/content/video/frameCapture.ts`                        | Canvas capture, poster extraction, CORS workaround                     |
 | Transport          | `entrypoints/content/communication/sender.ts`                      | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob) |
 | Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering (paused/standby verdicts)                  |
@@ -94,9 +95,9 @@ Key invariants:
 are requested as effects (`startTimer`/`cancelTimer`), so every behavior is unit-testable without
 fake DOM or real clocks. Its effect vocabulary:
 
-`applyBlur` · `clearBlur` · `captureThumbnail` · `sendSample{frameIndex}` · `applyVerdict` ·
-`clearVerdict` · `setStatus{safe|unsafe|skipped}` · `startTimer`/`cancelTimer` · `stopTicker` ·
-`startDvr`/`stopDvr` · `cleanup`
+`applyBlur` · `clearBlur` · `captureThumbnail` · `sendSample{frameIndex,timestampSec}` ·
+`applyVerdict` · `clearVerdict` · `setStatus{safe|unsafe|skipped}` · `startTimer`/`cancelTimer` ·
+`stopTicker` · `startDvr`/`stopDvr` · `cleanup`
 
 Tuning constants (all in `machine.ts`):
 
@@ -122,8 +123,10 @@ Tuning constants (all in `machine.ts`):
   resolved yet is held in a registry-owned pending set: re-discovery refreshes its host settings,
   and `dispose`/`disposeAll` cancel the wait so it cannot outlive the pipeline.
 - **Frame ticker**: `requestVideoFrameCallback` — fires only when a new frame is actually presented
-  (stalled/paused videos produce no captures). An rAF loop gated on playback state is the fallback
-  for engines without rVFC.
+  (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
+  `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
+  later `video.currentTime`. An rAF loop gated on playback state is the fallback for engines without
+  rVFC.
 - **Prediction routing** (`handlePredictions`): looks up the session by `sessionId` (echoed through
   the inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
   same-URL videos have independent sessions.
@@ -137,6 +140,18 @@ Tuning constants (all in `machine.ts`):
   session as allow immediately, transient counts consecutive failures toward ERROR. Each
   capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`) so a
   never-settling CORS-clone or poster load cannot occupy the in-flight slot forever.
+
+Each Frame Sample has two deliberately separate identities:
+
+- **Live routing** — `sessionId + frameIndex`; used for staleness and delivery to the current
+  VideoSession, never suitable as a persistent key.
+- **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same media and
+  the starting point for future verdict caching. A `CapturedFrameSample` attaches pixels, source
+  dimensions, and capture time to both identities. No video verdicts are persisted yet.
+
+Paused seeks retain their selected `timestampSec` while another sample is in flight. The cached CORS
+decoder also waits for its seek to that timestamp to complete before drawing, keeping the timeline
+identity attached to the pixels it actually supplies.
 
 ### Discovery
 
@@ -292,7 +307,9 @@ session; content jumps forward by `D` when the mask clears.
 - **Loop/seek verdict reuse** — verdicts are keyed by media time, so they stay valid across seeks
   and loop restarts; keeping the track (and, for loops, the ring) through the re-warm would remove
   the whole-blur window there.
-- **Prediction caching** — cache verdicts (not frames) keyed by `[videoSrc+timestampKey]` to skip
-  redundant inference on replays/seeks. The VideoSession identity (element×source) was chosen to
-  keep such a cache coherent.
-- **Timeline synchronization** — reuse cached verdicts during playback.
+- **Prediction caching and persistence** — persist verdicts (not frames) from the reusable
+  `videoUrl + timestampSec` side of Frame Sample identity, augmented with media revision and model
+  identity. Cache hits must be rebound to the requesting `sessionId + frameIndex`; those routing
+  fields must never become persistent keys.
+- **Timeline synchronization** — seed session-local VerdictTracks from cached timeline verdicts and
+  infer only uncovered ranges during playback, seek, and replay.
