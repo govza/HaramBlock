@@ -286,6 +286,37 @@ describe('VideoSession machine', () => {
     expect(afterDispose.effects).toHaveLength(0);
   });
 
+  it('keeps a presenting DVR latched across clean streaks so intermittent masks retain inertia', () => {
+    const presenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
+      { type: 'bufferReady', at: 1300 },
+    );
+
+    const clean = run(
+      presenting.state,
+      { type: 'predictionReceived', frameIndex: 1, unsafe: false, at: 1500 },
+      { type: 'predictionReceived', frameIndex: 2, unsafe: false, at: 1800 },
+    );
+    expect(clean.state.masked).toBe(false);
+    expect(clean.state.dvr).toBe('presenting');
+    expect(clean.effects).not.toContainEqual({ kind: 'stopDvr' });
+
+    const unsafeAgain = run(clean.state, {
+      type: 'predictionReceived',
+      frameIndex: 3,
+      unsafe: true,
+      at: 2100,
+    });
+    expect(unsafeAgain.state.dvr).toBe('presenting');
+    expect(unsafeAgain.effects).not.toContainEqual({ kind: 'startDvr' });
+    expect(unsafeAgain.effects).not.toContainEqual({ kind: 'applyBlur' });
+  });
+
   it('re-warms the DVR on a mid-presentation seek (buffer discontinuity)', () => {
     const presenting = run(
       createVideoSession().state,

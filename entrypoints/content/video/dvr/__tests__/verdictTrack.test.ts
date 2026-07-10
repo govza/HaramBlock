@@ -5,6 +5,7 @@ import {
   INERTIA_JITTER_MARGIN_SEC,
   MAX_INERTIA_WINDOW_SEC,
   MIN_INERTIA_WINDOW_SEC,
+  TRAILING_UNSAFE_INERTIA_MULTIPLIER,
   VerdictTrack,
   type VerdictEntry,
 } from '@/entrypoints/content/video/dvr/verdictTrack';
@@ -78,6 +79,21 @@ describe('VerdictTrack', () => {
 
     const verdict = track.verdictFor(1.2, 0.5);
     expect(verdict).toEqual({ kind: 'unsafe', entries: [a, b] });
+  });
+
+  it('holds the last unsafe mask through short runs of clean detector dropouts', () => {
+    const track = new VerdictTrack();
+    const unsafe = entry(1, true);
+    track.add(unsafe);
+    track.add(entry(1.25, false));
+    track.add(entry(1.5, false));
+
+    const windowSec = 0.5;
+    expect(track.verdictFor(1.75, windowSec)).toEqual({ kind: 'unsafe', entries: [unsafe] });
+    expect(1.75 - unsafe.timestampSec).toBeLessThanOrEqual(windowSec * TRAILING_UNSAFE_INERTIA_MULTIPLIER);
+
+    // Sustained clean coverage beyond the trailing hold opens normally.
+    expect(track.verdictFor(2.1, windowSec)).toEqual({ kind: 'clean' });
   });
 
   it('keeps entries ordered even when an older verdict arrives late', () => {

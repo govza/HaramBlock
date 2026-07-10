@@ -249,11 +249,16 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         next.masked = false;
         next.cleanStreak = 0;
         effects.push({ kind: 'clearVerdict' }, { kind: 'clearBlur' }, { kind: 'setStatus', status: 'safe' });
-        if (state.dvr !== 'off') {
-          // Native playback resumes at the live edge (content jumps forward by D).
+        if (state.dvr === 'warming') {
+          // If the presenter never became ready, the clean streak must remain
+          // an escape from its fail-closed warm-up blur.
           next.dvr = 'off';
           effects.push({ kind: 'stopDvr' });
         }
+        // Once presenting, keep the DVR latched for this continuous playback
+        // run. VerdictTrack renders clean frames plainly and preserves nearby
+        // unsafe-mask inertia; tearing down here would jump to the live edge
+        // and make intermittent detections blink by repeatedly restarting it.
       } else if (state.masked && state.dvr === 'warming') {
         // Clean sample short of the streak: the warm-up blur is the only
         // protection (no DOM overlay on this path) — keep it until bufferReady.

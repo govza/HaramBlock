@@ -39,6 +39,8 @@ const CADENCE_SAMPLE_COUNT = 8;
  * frames show a mask or clean content instead of the whole-blur flash.
  */
 export const BRIDGE_HORIZON_SEC = 3;
+/** Keep the last unsafe mask through short clean detector dropouts. */
+export const TRAILING_UNSAFE_INERTIA_MULTIPLIER = 2;
 
 export class VerdictTrack {
   private entries: VerdictEntry[] = [];
@@ -70,7 +72,18 @@ export class VerdictTrack {
     const inWindow = this.entries.filter(entry => Math.abs(entry.timestampSec - mediaTime) <= windowSec);
     if (inWindow.length) {
       const unsafe = inWindow.filter(entry => entry.unsafe);
-      return unsafe.length ? { kind: 'unsafe', entries: unsafe } : { kind: 'clean' };
+      if (unsafe.length) return { kind: 'unsafe', entries: unsafe };
+
+      // Clean samples inside the symmetric cadence window do not immediately
+      // erase a recent unsafe mask. Segmentation detections commonly miss for
+      // a handful of frames; trailing inertia prevents the visible patch from
+      // blinking open/closed at sample cadence while still allowing sustained
+      // clean playback to clear it.
+      const unsafeHoldSec = windowSec * TRAILING_UNSAFE_INERTIA_MULTIPLIER;
+      const previousUnsafe = this.entries.findLast(
+        entry => entry.unsafe && entry.timestampSec <= mediaTime && mediaTime - entry.timestampSec <= unsafeHoldSec,
+      );
+      return previousUnsafe ? { kind: 'unsafe', entries: [previousUnsafe] } : { kind: 'clean' };
     }
 
     const previous = this.entries.findLast(
