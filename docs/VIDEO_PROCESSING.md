@@ -55,6 +55,13 @@ ADOPTED ──capture thumbnail──► THUMBNAILING
 any state ──source change / element removed──► DISPOSED (terminal)
 ```
 
+Before a VideoSession exists, document-start bootstrap styles hide light-DOM videos and Reddit's
+`<shreddit-player>` host. After settings arrive, a narrower discovery guard remains active for
+video-enabled policies: newly inserted videos/player hosts stay hidden until discovery has applied
+either blacklist styling or the adoption/pending-source blur, then
+`data-haramblock-video-discovered` reveals them. This covers the interval before an asynchronously
+attached shadow root can be observed without delaying the pipeline until `DOMContentLoaded`.
+
 Key invariants:
 
 - **Thumbnail = Frame Sample #−1.** Races between the thumbnail verdict and playback samples are

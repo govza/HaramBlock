@@ -250,7 +250,7 @@ this "flash of unfiltered content":
 document_start (earliest possible)
        │
        ▼
-Inject global hiding: img { opacity: 0 !important; }
+Inject global startup hiding: img, video, shreddit-player { opacity: 0 !important; }
        │
        ▼
 Fetch host settings + cached predictions (async)

@@ -1,4 +1,5 @@
 import { applyBlacklistStyling, hasBlacklistStyling } from '@/entrypoints/content/presentation/initialStyling';
+import { markVideoDiscovered } from '@/entrypoints/content/presentation/styleInjecting';
 import { videoSessions } from '@/entrypoints/content/video/session/registry';
 
 import type { IHostSettings } from '@/utils/types';
@@ -18,10 +19,14 @@ export function handleVideos(videos: HTMLVideoElement[], hostSettings: IHostSett
       if (!hasBlacklistStyling(video)) {
         applyBlacklistStyling(video, hostSettings);
       }
+      markVideoDiscovered(video);
       continue;
     }
 
     videoSessions.adopt(video, hostSettings);
+    // adopt() synchronously applies either the VideoSession adoption blur or
+    // the unresolved-source pending blur. Only now may bootstrap hiding lift.
+    markVideoDiscovered(video);
   }
 }
 

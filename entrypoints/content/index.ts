@@ -4,6 +4,7 @@ import { useHostData } from '@/entrypoints/content/hooks/useHostData';
 import {
   injectGlobalHidingDomStyles,
   injectPredictionDomStyles,
+  injectVideoDiscoveryHidingStyles,
 } from '@/entrypoints/content/presentation/styleInjecting';
 import { logger } from '@/utils/logger';
 import { warmupMessageChannel } from '@/utils/messaging/content';
@@ -24,7 +25,9 @@ export default defineContentScript({
 
     logger.withTag('content').debug('Starting content script initialization...');
     warmupMessageChannel();
-    // Hides images early to prevent cached images from flashing before DOMContentLoaded
+    // Hide media before page code can paint it. `shreddit-player` is included
+    // because document styles cannot reach the video inside its shadow root;
+    // hiding the host closes Reddit's pre-discovery first-frame gap.
     const hideInitStyle = injectGlobalHidingDomStyles();
     injectPredictionDomStyles();
 
@@ -43,22 +46,28 @@ export default defineContentScript({
         }
 
         if (hostSettings.policy.behavior !== 'whitelist') {
+          const protectsVideos =
+            hostSettings.policy.behavior === 'blacklist' ||
+            (hostSettings.policy.behavior === 'process' && hostSettings.policy.targets.video);
+          // Install before removing the broad startup hide. This narrower rule
+          // remains for late Reddit/custom-player construction and is removed
+          // with the pipeline when settings change.
+          const videoDiscoveryStyle = protectsVideos ? injectVideoDiscoveryHidingStyles() : null;
           const pipeline = new MediaPipeline({
             hostSettings,
           });
           pipeline.seedCachedPredictions(cachedPredictions);
 
-          const startProcessing = () => {
-            stopPipeline = pipeline.start(document);
-            hideInitStyle.remove();
+          // DomObserver accepts Document and handles an incomplete tree. Start
+          // immediately so custom elements and their late shadow roots are
+          // watched during page construction, then reveal only after the
+          // synchronous initial scan has applied per-element protection.
+          const stopMediaPipeline = pipeline.start(document);
+          stopPipeline = () => {
+            stopMediaPipeline();
+            videoDiscoveryStyle?.remove();
           };
-
-          // Run after DOMContentLoaded event if the document is still loading
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', startProcessing, { once: true });
-          } else {
-            startProcessing();
-          }
+          hideInitStyle.remove();
         } else {
           hideInitStyle.remove();
         }
