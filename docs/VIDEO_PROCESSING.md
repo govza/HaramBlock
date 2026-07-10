@@ -201,6 +201,13 @@ mutation-batch classification, re-homing); the DVR presenter syncs its geometry 
 draw loop instead — including re-homing itself when the site re-parents the player (YouTube's
 watch-page boot).
 
+**Shadow-DOM players** (Reddit's `<shreddit-player>`) work end to end: discovery pierces open shadow
+roots — including roots attached long after insertion by async-loaded components (see `DomObserver`
+in [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)) — and both presentations inject via
+`resolveInjectionContext`, which handles the video being a direct child of the shadow root
+(`parentElement` is null there: the overlay lives inside the shadow tree, positioned against the
+shadow host). Closed shadow roots remain out of reach.
+
 ## Processed status attributes
 
 Set by the machine's `setStatus` effect (contract kept from the previous pipeline):

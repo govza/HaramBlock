@@ -58,6 +58,12 @@ for media element lifecycle events.
 - Monitors attribute changes for media elements
 - Observes source attributes: `src`, `srcset`, `data-src`, `data-srcset`, `data-lazy-src`
 - Supports reactive frameworks (Vue/React/Angular) that dynamically change `src`
+- **Pierces open shadow DOM**: every discovered open shadow root is scanned and observed with its
+  own MutationObserver (a document observer cannot see inside shadow trees). Custom elements seen
+  _without_ a shadow root are re-checked on a slow interval — `attachShadow` often runs long after
+  insertion (async-loaded components: Reddit's `<shreddit-player>` sits behind
+  `<shreddit-async-loader>`, and its `<video>` is born inside the root minutes of churn later).
+  Closed shadow roots remain invisible (accepted limitation)
 
 #### `core/ImageProcessor.ts`
 
@@ -229,6 +235,11 @@ Shared positioning/lifecycle helpers for all three DOM-injected renderers (image
 - `classifyOverlayMutation(mutations, element, overlay)` - Classifies a cleanup-observer batch as
   `none` / `moved` / `detached` (see
   [Surviving Framework Re-renders](#surviving-framework-re-renders))
+- `resolveInjectionContext(element)` - Shadow-DOM-aware injection target: normally the parent
+  element, but for an element that is a **direct child of a shadow root** (Reddit's
+  `<shreddit-player>` renders its `<video>` that way; `parentElement` is null) the overlay is
+  appended into the shadow root itself while the positioned shadow **host** serves as the containing
+  block and coordinate box
 
 ## Initialization: Preventing Flash of Unfiltered Content
 

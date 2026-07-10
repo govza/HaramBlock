@@ -7,16 +7,18 @@
  * Pure consumer of a FrameRing + VerdictTrack (the video analog of
  * gifMaskPlayer's decoded-frames + framePredictions): the session machine and
  * registry decide when it exists; the player only warms up, draws, and reports
- * readiness via onReady. Presentation is a DOM-injected overlay div
- * ([data-video-dvr-player]) next to the video, in the site's stacking context
- * just above it — player chrome (controls, captions, menus) that renders above
- * the video also renders above the delayed canvas. The player already runs a
- * rAF loop every frame, so geometry (placement, size, re-homing after the site
- * re-parents the player) is synced per tick instead of via observers.
+ * readiness via onReady. Presentation is an overlay div injected next to the
+ * video, one z-index above it, so player chrome stays on top. The rAF draw
+ * loop also syncs geometry per tick — placement, size, and re-homing when the
+ * site re-parents the player — instead of using observers.
  */
 
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
-import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
+import {
+  ensurePositionContext,
+  overlayOffsetInParent,
+  resolveInjectionContext,
+} from '@/entrypoints/content/presentation/overlayPosition';
 import { BRIDGE_HORIZON_SEC, type VerdictEntry, type VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
@@ -119,8 +121,8 @@ export class VideoDvrPlayer {
   /** First frame buffered: inject the overlay, hide the native element, report readiness. */
   private beginPresentation(): void {
     const { video, onReady } = this.opts;
-    // No containing block to inject into yet (mid re-render): retry next tick.
-    if (!video.parentElement) return;
+    // No container to inject into yet (mid re-render): retry next tick.
+    if (!resolveInjectionContext(video)) return;
 
     const baseCanvas = document.createElement('canvas');
     const maskCanvas = document.createElement('canvas');
@@ -165,37 +167,32 @@ export class VideoDvrPlayer {
   }
 
   /**
-   * Per-tick geometry sync (the draw loop already runs every frame): homes the
-   * overlay next to the video — re-homing when the site re-parents the player
-   * (YouTube's watch-page boot) — and keeps offsets/size current. Returns
-   * whether the video is presentable this tick.
+   * Per-tick geometry sync: homes the overlay next to the video and keeps
+   * offsets/size current. Returns whether the video is presentable this tick.
    */
   private syncGeometry(): boolean {
     const { video } = this.opts;
     const { surfaces } = this;
     if (!surfaces) return false;
-    // The element left the document: stop drawing; the session's dispose path
-    // will destroy() us. (If it comes back, the registry re-discovers it.)
+    // The element left the document; the session's dispose path destroys us.
     if (!video.isConnected) {
       this.teardown();
       return false;
     }
-    const parent = video.parentElement;
-    if (!parent) return false;
+    const context = resolveInjectionContext(video);
+    if (!context) return false;
 
-    if (surfaces.overlay.parentElement !== parent) {
-      ensurePositionContext(parent);
-      parent.appendChild(surfaces.overlay);
-      // In the site's stacking context, one above the video: player chrome
-      // (controls, captions) that renders above the video must also render
-      // above the delayed canvas.
+    if (surfaces.overlay.parentNode !== context.container) {
+      ensurePositionContext(context.box);
+      context.container.appendChild(surfaces.overlay);
+      // One above the video, so player chrome above the video stays above the mask
       const videoZIndex = parseInt(getComputedStyle(video).zIndex) || 0;
       surfaces.overlay.style.zIndex = `${videoZIndex + 1}`;
     }
 
     const videoRect = video.getBoundingClientRect();
-    const parentRect = parent.getBoundingClientRect();
-    const offset = overlayOffsetInParent(parent, videoRect, parentRect);
+    const boxRect = context.box.getBoundingClientRect();
+    const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
     if (offset.top !== this.lastOffset.top || offset.left !== this.lastOffset.left) {
       this.lastOffset = offset;
       surfaces.overlay.style.top = `${offset.top}px`;

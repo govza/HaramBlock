@@ -18,10 +18,9 @@ export const applyPredictionsStyling = (
       const overlayPromise = new Promise<void>(resolve => {
         let attempts = 0;
         const tryCreate = () => {
-          // Framework re-renders (Reddit's lightbox) can detach the image
-          // between scheduling and this frame; creating against a detached
-          // image bails silently and nothing would retry — the unsafe image
-          // would stay unmasked. Wait briefly for it to be re-attached.
+          // A re-render can detach the image before this frame; creating
+          // against it bails silently with no retry, leaving the unsafe image
+          // unmasked. Wait briefly for re-attachment.
           if (!image.isConnected && attempts < 30) {
             attempts += 1;
             requestAnimationFrame(tryCreate);

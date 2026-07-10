@@ -37,6 +37,29 @@ export function ensurePositionContext(parent: HTMLElement): void {
  * account for the parent's border between its rect and its padding box.
  */
 /**
+ * Where to inject an overlay for an element. `container` receives the overlay;
+ * `box` anchors positioning (ensurePositionContext + overlayOffsetInParent).
+ * They differ only for a direct child of a shadow root (parentElement is
+ * null): the overlay must live inside the shadow tree — a light-DOM child of
+ * the host would not render without a matching <slot> — and the positioned
+ * shadow host is its containing block in the flat tree.
+ */
+export interface IInjectionContext {
+  container: HTMLElement | ShadowRoot;
+  box: HTMLElement;
+}
+
+export function resolveInjectionContext(element: HTMLElement): IInjectionContext | null {
+  const parent = element.parentElement;
+  if (parent) return { container: parent, box: parent };
+  const root = element.getRootNode();
+  if (root instanceof ShadowRoot && root.host instanceof HTMLElement) {
+    return { container: root, box: root.host };
+  }
+  return null;
+}
+
+/**
  * Classifies a mutation batch for an overlay's cleanup observer.
  *
  * Frameworks (Reddit's Lit lightbox) constantly detach and re-insert nodes

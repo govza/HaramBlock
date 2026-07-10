@@ -5,10 +5,21 @@ export interface DomObserverConfig {
   rescanInterval?: number; // ms - periodic rescan for missed elements
 }
 
+/**
+ * Re-check cadence for elements that may attach a shadow root later. Bounds
+ * how long media born inside such a root stays unprotected, so it errs low;
+ * each check is a shadowRoot property read.
+ */
+const SHADOW_RECHECK_INTERVAL_MS = 250;
+
 export class DomObserver {
   private observer: MutationObserver | null = null;
   private shadowObservers = new Map<ShadowRoot, MutationObserver>();
   private pendingAttributeChanges = new Set<HTMLElement>();
+  // Custom elements seen before attachShadow ran (async-loaded components);
+  // re-checked on an interval until a root appears or they disconnect.
+  private pendingShadowHosts = new Set<Element>();
+  private shadowRecheckTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private config: DomObserverConfig) {}
 
@@ -33,6 +44,37 @@ export class DomObserver {
     }
     this.shadowObservers.clear();
     this.pendingAttributeChanges.clear();
+    this.pendingShadowHosts.clear();
+    if (this.shadowRecheckTimer !== null) {
+      clearInterval(this.shadowRecheckTimer);
+      this.shadowRecheckTimer = null;
+    }
+  }
+
+  /** Track a custom element that may attach a shadow root later. */
+  private trackPossibleShadowHost(element: Element): void {
+    if (!element.tagName.includes('-')) return;
+    if (element.shadowRoot || this.pendingShadowHosts.has(element)) return;
+    this.pendingShadowHosts.add(element);
+    this.shadowRecheckTimer ??= setInterval(() => this.recheckPendingShadowHosts(), SHADOW_RECHECK_INTERVAL_MS);
+  }
+
+  private recheckPendingShadowHosts(): void {
+    for (const element of this.pendingShadowHosts) {
+      if (!element.isConnected) {
+        this.pendingShadowHosts.delete(element);
+        continue;
+      }
+      const root = element.shadowRoot;
+      if (root) {
+        this.pendingShadowHosts.delete(element);
+        if (!this.shadowObservers.has(root)) this.observeShadowRoot(root);
+      }
+    }
+    if (this.pendingShadowHosts.size === 0 && this.shadowRecheckTimer !== null) {
+      clearInterval(this.shadowRecheckTimer);
+      this.shadowRecheckTimer = null;
+    }
   }
 
   private getObserverOptions(): MutationObserverInit {
@@ -158,6 +200,8 @@ export class DomObserver {
     // Check the element itself
     if (element.shadowRoot && !this.shadowObservers.has(element.shadowRoot)) {
       this.observeShadowRoot(element.shadowRoot);
+    } else {
+      this.trackPossibleShadowHost(element);
     }
 
     // Check all descendants for shadow roots
@@ -165,6 +209,8 @@ export class DomObserver {
       const htmlEl = el as HTMLElement;
       if (htmlEl.shadowRoot && !this.shadowObservers.has(htmlEl.shadowRoot)) {
         this.observeShadowRoot(htmlEl.shadowRoot);
+      } else {
+        this.trackPossibleShadowHost(htmlEl);
       }
     });
   }
@@ -184,11 +230,14 @@ export class DomObserver {
     observer.observe(shadowRoot, this.getObserverOptions());
     this.shadowObservers.set(shadowRoot, observer);
 
-    // Also observe any nested shadow roots that already exist
+    // Also observe any nested shadow roots that already exist (and track
+    // nested custom elements whose roots may attach later)
     shadowRoot.querySelectorAll('*').forEach(el => {
       const htmlEl = el as HTMLElement;
       if (htmlEl.shadowRoot && !this.shadowObservers.has(htmlEl.shadowRoot)) {
         this.observeShadowRoot(htmlEl.shadowRoot);
+      } else {
+        this.trackPossibleShadowHost(htmlEl);
       }
     });
   }
@@ -241,7 +290,8 @@ export class DomObserver {
     container.querySelectorAll('img').forEach(img => existingImages.push(img));
     container.querySelectorAll('video').forEach(video => existingVideos.push(video));
 
-    // Find and observe all existing shadow roots
+    // Find and observe all existing shadow roots; track custom elements whose
+    // roots may attach later (async-loaded components)
     container.querySelectorAll('*').forEach(el => {
       const htmlEl = el as HTMLElement;
       if (htmlEl.shadowRoot && !this.shadowObservers.has(htmlEl.shadowRoot)) {
@@ -249,6 +299,8 @@ export class DomObserver {
         const observer = this.createObserver();
         observer.observe(htmlEl.shadowRoot, this.getObserverOptions());
         this.shadowObservers.set(htmlEl.shadowRoot, observer);
+      } else {
+        this.trackPossibleShadowHost(htmlEl);
       }
     });
 
