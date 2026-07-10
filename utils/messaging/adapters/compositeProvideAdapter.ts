@@ -6,6 +6,7 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 interface MessageSender {
   tab?: { id?: number; url?: string };
+  frameId?: number;
   url?: string;
 }
 
@@ -13,6 +14,7 @@ interface PortInfo {
   port: MessagePort;
   secret: string;
   tabId?: number;
+  frameId?: number;
 }
 
 /**
@@ -38,7 +40,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
       (message: Partial<Message<MessageMeta>> | undefined, sender: MessageSender) => {
         const control = message as unknown as { type?: string; secret?: string } | undefined;
         if (control?.type === 'REGISTER_CHANNEL_TAB') {
-          this.associateTab(control.secret, sender.tab?.id);
+          this.associateTab(control.secret, sender.tab?.id, sender.frameId);
           return;
         }
 
@@ -147,19 +149,23 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
   }
 
   /**
-   * Associate a channel secret with the tab that owns it. Sent by the content script
-   * over browser.runtime (which carries sender.tab.id) once the channel is established.
-   * A reload or same-tab navigation produces a fresh secret for the same tab, so any
-   * previous port for that tab is now stale and removed here.
+   * Associate a channel secret with the tab AND frame that own it. Sent by the
+   * content script over browser.runtime (which carries sender.tab.id/frameId)
+   * once the channel is established. A reload or navigation produces a fresh
+   * secret for the same frame, so that frame's previous port is stale and
+   * removed here. Eviction must be per frame, not per tab: the content script
+   * runs in all frames, and each frame owns its own live channel — evicting by
+   * tab alone lets any iframe's registration kill the top frame's port.
    */
-  private associateTab(secret: string | undefined, tabId?: number): void {
+  private associateTab(secret: string | undefined, tabId?: number, frameId?: number): void {
     if (!secret || tabId === undefined) return;
     const portInfo = this.ports.get(secret);
     if (!portInfo) return;
 
     portInfo.tabId = tabId;
+    portInfo.frameId = frameId;
     for (const [otherSecret, info] of this.ports) {
-      if (otherSecret !== secret && info.tabId === tabId) {
+      if (otherSecret !== secret && info.tabId === tabId && info.frameId === frameId) {
         this.removePort(otherSecret);
       }
     }
