@@ -137,10 +137,10 @@ Tuning constants (all in `machine.ts`):
 - **Prediction routing** (`handlePredictions`): looks up the session by `sessionId` (echoed through
   the inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
   same-URL videos have independent sessions.
-- **Source changes**: a `loadstart` or `emptied` whose `currentSrc` no longer matches the session
-  disposes it and adopts a fresh one (immediately, or once the next source resolves). This covers
-  `<source>`-children swaps, MSE attachment, and `removeAttribute('src') + load()` teardowns — the
-  last fires `emptied` but never `loadstart`.
+- **Source changes**: a `loadstart` or `emptied` whose URL or `srcObject` no longer matches the
+  session disposes it and adopts a fresh one (immediately, or once the next source resolves). This
+  covers `<source>`-children swaps, MSE attachment, object-backed streams, and
+  `removeAttribute('src') + load()` teardowns — the last fires `emptied` but never `loadstart`.
 - **Sampling transport**: a failed capture or send dispatches `sendFailed`. `frameCapture.ts`
   distinguishes **permanent** failures (`SecurityError` — the canvas is CORS-tainted and can never
   be read) from **transient** ones (no frame data yet, zero dimensions): permanent finalizes the
@@ -152,8 +152,9 @@ Each Frame Sample has two deliberately separate identities:
 
 - **Live routing** — `sessionId + frameIndex`; used for staleness and delivery to the current
   VideoSession, never suitable as a persistent key.
-- **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same media and
-  the starting point for future verdict caching. A `CapturedFrameSample` attaches pixels, source
+- **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same
+  URL-backed media and the starting point for future verdict caching. Object-backed streams use a
+  session-local, non-cacheable `videoUrl` label. A `CapturedFrameSample` attaches pixels, source
   dimensions, and capture time to both identities. No video verdicts are persisted yet.
 
 Paused seeks retain their selected `timestampSec` while another sample is in flight. The cached CORS
@@ -167,10 +168,10 @@ identity attached to the pixels it actually supplies.
 - **Blacklist policy** → blacklist styling only, no inference, no session.
 - **Everything else** → `videoSessions.adopt(video, hostSettings)`. The registry itself waits out
   videos with no resolved source yet (`<video><source …>`, MSE, late `src` assignment) via a
-  `loadstart` listener that keeps waiting while `currentSrc` is still empty (`srcObject` fires
-  `loadstart` with no URL source), so discovery holds no state of its own. The wait is blurred: a
-  src-less video still displays its poster, and adoption keeps the blur — there is no unprotected
-  gap between discovery and ADOPTED.
+  `loadstart` listener; a non-null `srcObject` is itself a resolved source even though it has no
+  URL, so discovery holds no state of its own. The wait is blurred: a src-less video still displays
+  its poster, and adoption keeps the blur — there is no unprotected gap between discovery and
+  ADOPTED.
 
 ## DVR: delayed masked presentation
 
