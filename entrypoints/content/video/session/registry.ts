@@ -117,6 +117,8 @@ interface DvrRuntime {
 interface SessionHandle {
   readonly sessionId: string;
   readonly video: HTMLVideoElement;
+  /** Object-backed sources have no URL; retain their identity for source-change detection. */
+  readonly srcObject: HTMLVideoElement['srcObject'];
   readonly src: string;
   hostSettings: IHostSettings;
   state: VideoSessionState;
@@ -138,6 +140,24 @@ interface SessionHandle {
 interface PendingAdoption {
   hostSettings: IHostSettings;
   cancel: () => void;
+}
+
+interface ResolvedVideoSource {
+  srcObject: HTMLVideoElement['srcObject'];
+  url: string;
+}
+
+/** `srcObject` is the active source even if a previous URL is still reflected temporarily. */
+function resolveVideoSource(video: HTMLVideoElement): ResolvedVideoSource | null {
+  if (video.srcObject) return { srcObject: video.srcObject, url: '' };
+  const url = video.currentSrc || video.src;
+  return url ? { srcObject: null, url } : null;
+}
+
+function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): boolean {
+  return source.srcObject
+    ? handle.srcObject === source.srcObject
+    : handle.srcObject === null && handle.src === source.url;
 }
 
 /**
@@ -178,8 +198,8 @@ class VideoSessionRegistry {
    */
   adopt(video: HTMLVideoElement, hostSettings: IHostSettings): void {
     this.sweepDisconnected();
-    const src = video.currentSrc || video.src;
-    if (!src) {
+    const source = resolveVideoSource(video);
+    if (!source) {
       this.awaitResolvedSource(video, hostSettings);
       return;
     }
@@ -187,17 +207,21 @@ class VideoSessionRegistry {
 
     const existing = this.byVideo.get(video);
     if (existing) {
-      if (existing.src === src && existing.state.phase !== 'disposed') {
+      if (isSameVideoSource(existing, source) && existing.state.phase !== 'disposed') {
         existing.hostSettings = hostSettings;
         return;
       }
       this.dispose(video);
     }
 
+    const sessionId = generateSessionId();
     const handle: SessionHandle = {
-      sessionId: generateSessionId(),
+      sessionId,
       video,
-      src,
+      srcObject: source.srcObject,
+      // Object-backed streams lack a persistent media URL. A session-local
+      // label preserves sample metadata without pretending it is cacheable.
+      src: source.url || `srcobject:${sessionId}`,
       hostSettings,
       state: null as unknown as VideoSessionState, // set right below via createVideoSession
       lastPrediction: null,
@@ -212,7 +236,7 @@ class VideoSessionRegistry {
     };
     this.byId.set(handle.sessionId, handle);
     this.byVideo.set(video, handle);
-    video.dataset.hbSrc = src;
+    video.dataset.hbSrc = handle.src;
     video.dataset.hbSessionId = handle.sessionId;
 
     const born = createVideoSession();
@@ -295,6 +319,8 @@ class VideoSessionRegistry {
    * A video with no resolved source yet (<source> children still selecting,
    * MSE, late src assignment) is adopted when resource selection yields one:
    * 'loadstart' fires whenever selection begins — even with preload="none".
+   * Object-backed media is adopted as soon as `srcObject` becomes available,
+   * despite having no URL in `currentSrc` or `src`.
    * The wait lives in the registry so re-discovery refreshes its settings and
    * dispose/disposeAll cancel it; it cannot outlive the pipeline.
    */
@@ -310,9 +336,7 @@ class VideoSessionRegistry {
     applyWholeBlur(video, hostSettings);
     const entry: PendingAdoption = { hostSettings, cancel: () => {} };
     const onLoadstart = () => {
-      // loadstart can fire with the source still unresolved (srcObject sets
-      // currentSrc to ''); keep waiting instead of consuming the wait.
-      if (!(video.currentSrc || video.src)) return;
+      if (!resolveVideoSource(video)) return;
       entry.cancel();
       this.adopt(video, entry.hostSettings);
     };
@@ -552,8 +576,8 @@ class VideoSessionRegistry {
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
     const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
     const onSourceChanged = () => {
-      const current = video.currentSrc || video.src;
-      if (current === handle.src) return;
+      const current = resolveVideoSource(video);
+      if (current && isSameVideoSource(handle, current)) return;
       // New or removed source on the same element: the old VideoSession (and
       // its blur, overlays, and status) dies with the content it described. A
       // new session is born now, or once the next source resolves. 'emptied'
