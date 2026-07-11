@@ -171,7 +171,10 @@ Tuning constants (all in `machine.ts`):
   transports) is dropped rather than replacing a fresher queued one. Suspending or disposing a
   session cancels that queued frame explicitly (skipped when the session never sent a playback frame
   — the cancel would be a guaranteed no-op RPC); inference already running is allowed to finish and
-  its session-routed result is harmless if the session has gone away.
+  its session-routed result is harmless if the session has gone away. Firefox discovers some canvas
+  taint only when its WebP transfer calls `OffscreenCanvas.convertToBlob()` (`createImageBitmap()`
+  may still succeed); that write-only-canvas exception is also permanent, so the session stops
+  retrying immediately.
 
 Each Frame Sample has two deliberately separate identities:
 
