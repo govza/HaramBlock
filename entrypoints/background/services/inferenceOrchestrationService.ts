@@ -58,6 +58,8 @@ export class InferenceOrchestrationService {
   private onImagePredictionsCallback?: OnImagePredictionsCallback;
   private onFramePredictionsCallback?: OnFramePredictionsCallback;
   private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
+  /** At most one not-yet-started playback frame is retained per video session. */
+  private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
 
   // Batches concurrent queue tasks into one session.run for dynamic-batch models.
   private batchCollector = new BatchCollector<InferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
@@ -164,13 +166,35 @@ export class InferenceOrchestrationService {
       task = baseTask;
     }
 
-    this.queueService.enqueue(task).catch(error => {
+    let controller: AbortController | undefined;
+    if (mediaMetadata.kind === 'frame' && mediaMetadata.frameIndex >= 0) {
+      const previous = this.queuedPlaybackFrames.get(mediaMetadata.sessionId);
+      if (previous) {
+        // frameIndex is per-session monotonic, but arrival order is not (the
+        // cancel RPC and frame payloads ride different transports): a frame
+        // older than the queued one must be dropped, never replace it.
+        const previousIndex =
+          previous.task.mediaMetadata.kind === 'frame' ? previous.task.mediaMetadata.frameIndex : -1;
+        if (previousIndex >= mediaMetadata.frameIndex) {
+          task.bitmap?.close();
+          return;
+        }
+        previous.controller.abort();
+        previous.task.bitmap?.close();
+      }
+      controller = new AbortController();
+      this.queuedPlaybackFrames.set(mediaMetadata.sessionId, { task, controller });
+    }
+
+    this.queueService.enqueue(task, controller?.signal).catch(error => {
+      if (controller?.signal.aborted) return;
       logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task for ${imageSrc}:`, error);
     });
   }
 
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
+      this.markPlaybackFrameStarted(task);
       try {
         // Dynamic-batch models go through the collector (batched session.run); static models keep the
         // direct path so their decode/preprocess still overlaps the run via queue concurrency.
@@ -209,6 +233,21 @@ export class InferenceOrchestrationService {
         logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
       }
     });
+  }
+
+  /** Abort and release a playback frame that has not started inference yet. */
+  cancelVideoSession(sessionId: string): void {
+    const queued = this.queuedPlaybackFrames.get(sessionId);
+    if (!queued) return;
+    this.queuedPlaybackFrames.delete(sessionId);
+    queued.controller.abort();
+    queued.task.bitmap?.close();
+  }
+
+  private markPlaybackFrameStarted(task: InferenceTask): void {
+    if (task.mediaMetadata.kind !== 'frame' || task.mediaMetadata.frameIndex < 0) return;
+    const queued = this.queuedPlaybackFrames.get(task.mediaMetadata.sessionId);
+    if (queued?.task === task) this.queuedPlaybackFrames.delete(task.mediaMetadata.sessionId);
   }
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
@@ -309,6 +348,11 @@ export class InferenceOrchestrationService {
   }
 
   clearQueue(): void {
+    for (const queued of this.queuedPlaybackFrames.values()) {
+      queued.controller.abort();
+      queued.task.bitmap?.close();
+    }
+    this.queuedPlaybackFrames.clear();
     this.queueService.clear();
   }
 }

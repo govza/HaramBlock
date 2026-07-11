@@ -1,7 +1,7 @@
 # HaramBlock — Claude Code Notes
 
-- Project overview and vocabulary: [docs/CONTEXT.md](docs/CONTEXT.md)
-- Developer documentation index: [docs/INDEX.md](docs/INDEX.md)
+- Documentation entry point: [docs/INDEX.md](docs/INDEX.md). Domain vocabulary lives in the docs it
+  links (media terms in MEDIA_PROCESSING.md, video terms in VIDEO_PROCESSING.md).
 - **Browser debugging via Playwright MCP** (drives Chromium with the built extension installed):
   [docs/PLAYWRIGHT.md](docs/PLAYWRIGHT.md). Rebuild with `pnpm build` before launching the browser —
   the MCP loads the static output in `.output/chrome-mv3`.

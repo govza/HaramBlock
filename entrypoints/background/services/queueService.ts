@@ -22,7 +22,7 @@ export class QueueService {
     this.queue.concurrency = Math.max(1, concurrency);
   }
 
-  enqueue(task: InferenceTask): Promise<void> {
+  enqueue(task: InferenceTask, signal?: AbortSignal): Promise<void> {
     // p-queue: higher priority number = runs first
     return this.queue.add(
       async () => {
@@ -30,7 +30,7 @@ export class QueueService {
           await this.onTaskProcessing(task);
         }
       },
-      { priority: task.priority },
+      { priority: task.priority, signal },
     );
   }
 

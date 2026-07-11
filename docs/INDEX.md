@@ -1,12 +1,16 @@
 # Documentation Index
 
-This folder contains developer-focused documentation for HaramBlock (architecture notes, internal
-APIs, and implementation details). If you’re a user, start with the project
-[`README.md`](../README.md).
+HaramBlock is a browser extension for gaze protection: on-device AI detects awrah in images, GIFs,
+and video frames as the user browses, and masks it before it is seen.
+
+This folder contains developer-focused documentation (architecture notes, internal APIs, and
+implementation details). If you’re a user, start with the project [`README.md`](../README.md).
 
 ## Start Here
 
-- **Project overview and vocabulary**: [CONTEXT.md](CONTEXT.md)
+- **Domain vocabulary**: media terms (Verdict, Prediction, Fail-closed) in
+  [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md); video terms (VideoSession, DVR, …) in
+  [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
 - **Build / verify a release**: [SOURCE_CODE_REVIEW.md](SOURCE_CODE_REVIEW.md)
 - **Understand the overall architecture**:
   - [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md) (content script - runs on webpages)

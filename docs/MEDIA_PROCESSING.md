@@ -6,6 +6,22 @@ and module-level implementation details.
 The content script lives in `entrypoints/content/`. It runs on web pages to observe the DOM, queue
 inference, and apply masking styles to images and videos.
 
+## Vocabulary
+
+**Verdict**: The final safe/unsafe decision for a piece of media, produced by aggregating one or
+more predictions. _Avoid_: result, outcome, classification
+
+**Prediction**: The model's detections for a single inferred input (one image, one GIF frame, one
+video frame). _Avoid_: inference result, detection set
+
+**Fail-closed**: The protection stance while a verdict is genuinely pending: the media stays masked
+rather than being revealed. When analysis is permanently impossible, the media is allowed instead
+(inference-impossible is not evidence of unsafe content). _Avoid_: fail-safe (ambiguous about
+direction)
+
+Video-processing vocabulary (VideoSession, Thumbnail, Frame Sample, Stale Prediction, DVR,
+Presentation Delay, Inertia Window) lives in [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md).
+
 ## Design Principles
 
 1. **Derive state from DOM** - Don't track state separately; read it from CSS classes and overlays
@@ -104,6 +120,9 @@ The main orchestrator that combines DOM observation with image/video processing.
 - Handles video processing via `handleVideos`
 - Subscribes to prediction broadcasts from background
 - Manages cleanup and resource disposal
+- Video sessions additionally suspend outside a 400 px viewport margin (after a 1 s grace period, so
+  boundary flapping cannot thrash the DVR), because feed players can remain connected and autoplay
+  after they have been scrolled away
 
 ### Communication (`communication/`)
 
@@ -339,7 +358,7 @@ performance by prioritizing above-the-fold content.
 
 1. `ImageProcessor` maintains an `IntersectionObserver` that tracks image visibility
 2. When an image is queued for inference, its visibility is checked
-3. Visible images get `priority=10`, offscreen images get `priority=0`
+3. Visible images get `priority=30`, offscreen images get `priority=0`
 4. The background queue (p-queue) processes higher priority tasks first
 
 ```typescript
@@ -361,14 +380,17 @@ await requestImageInference(hostname, img, priority);
 
 **Priority values:**
 
-| Media Type       | Priority | Description                        |
-| ---------------- | -------- | ---------------------------------- |
-| Visible images   | 10       | In viewport (+ 200px margin)       |
-| Offscreen images | 0        | Below fold or hidden               |
-| Video frames     | 10       | Active playback (user is watching) |
-| Video thumbnails | 10       | Usually visible when processed     |
+| Media Type       | Priority | Description                                  |
+| ---------------- | -------- | -------------------------------------------- |
+| Visible images   | 30       | First at the next available inference slot   |
+| Video thumbnails | 20       | Initial verdict before continuous video work |
+| Video frames     | 10       | Active playback                              |
+| Offscreen images | 0        | Below fold or hidden                         |
 
-**Note:** p-queue uses higher number = higher priority (runs first).
+**Note:** p-queue uses higher number = higher priority (runs first). An inference run already in
+progress is not preempted. The same ordering is applied when the dynamic-batch collector chooses the
+next batch, so autoplay frames cannot build an equal-priority backlog ahead of newly queued visible
+images. GIF frame samples use their image's visible/offscreen priority.
 
 ### Prediction Broadcast (Background → Content)
 
@@ -493,6 +515,10 @@ t=8: Image stuck with blur forever (no inference ever sent for C)
 ### The Solution: Debounced Source Change Handling
 
 Instead of immediately processing on every src change, we **debounce** the processing:
+
+The handler first compares the element's resolved `currentSrc || src` with the last source processed
+for that element. Frameworks such as Reddit frequently re-stamp unchanged `src`/`srcset` attributes;
+those no-op mutations must not clear a completed overlay or continually reset the debounce.
 
 ```typescript
 const SRC_STABILIZATION_DELAY = 150; // ms
@@ -655,6 +681,12 @@ initial blur. Instead, a new copy **adopts** the request when the owner is disco
 owner is stalled (not loaded, e.g. a lazy copy in a hidden subtree) while the new copy already has
 pixels. A duplicate send from a superseded owner is harmless — predictions are keyed by src and the
 second result is idempotent. The entry is deleted when a prediction for that src arrives.
+
+Once a request is actually sent, a 20-second watchdog prevents that entry from living forever if the
+background worker loses the task or inference fails without a prediction broadcast. It retries once
+using a loaded, visible same-source copy when possible; a second timeout finalizes all pending
+copies as `skipped`, matching the pipeline's existing inference-impossible behavior rather than
+leaving Reddit images permanently under the initial blur.
 
 ### DOM Processing
 

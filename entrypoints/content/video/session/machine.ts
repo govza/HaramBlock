@@ -65,6 +65,8 @@ export type SessionEvent =
   | { type: 'ended'; at: number }
   /** permanent: capture can never succeed for this source (e.g. canvas taint), not a transient miss. */
   | { type: 'sendFailed'; frameIndex: number; at: number; permanent?: boolean }
+  /** Capture was abandoned before transport (for example, the video left the viewport). */
+  | { type: 'sampleCancelled'; frameIndex: number; at: number }
   /** The DVR ring buffer spans the presentation delay; the canvas has taken over. */
   | { type: 'bufferReady'; at: number }
   | { type: 'dispose' };
@@ -179,6 +181,14 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   if (event.type === 'timerFired' && event.timer === 'sampleTimeout') {
     // The in-flight verdict is lost; free the slot so sampling never stalls.
     return { state: { ...state, inflightIndex: null }, effects: [] };
+  }
+  if (event.type === 'sampleCancelled') {
+    const inflightIndex = event.frameIndex === state.inflightIndex ? null : state.inflightIndex;
+    return {
+      state: { ...state, inflightIndex },
+      effects:
+        inflightIndex === null && state.inflightIndex !== null ? [{ kind: 'cancelTimer', timer: 'sampleTimeout' }] : [],
+    };
   }
   if (event.type === 'predictionReceived' && state.phase === 'thumbnailing') {
     if (state.pendingSeek) {

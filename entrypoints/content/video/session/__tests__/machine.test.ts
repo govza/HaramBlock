@@ -84,6 +84,22 @@ describe('VideoSession machine', () => {
     expect(sent.effects).toContainEqual({ kind: 'startTimer', timer: 'thumbnailTimeout', ms: THUMBNAIL_TIMEOUT_MS });
   });
 
+  it('frees an inference slot when capture is cancelled before transport', () => {
+    const ready = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 10 },
+      { type: 'play', at: 20 },
+      { type: 'frameAvailable', at: 30 },
+    ).state;
+
+    expect(ready.inflightIndex).toBe(0);
+    const cancelled = reduce(ready, { type: 'sampleCancelled', frameIndex: 0, at: 40 });
+    expect(cancelled.state.inflightIndex).toBeNull();
+    expect(cancelled.state.errorStreak).toBe(0);
+    expect(cancelled.effects).toContainEqual({ kind: 'cancelTimer', timer: 'sampleTimeout' });
+  });
+
   it('finalizes a safe Thumbnail verdict: unblur, mark safe, stop the clock', () => {
     const { state, effects } = run(
       createVideoSession().state,

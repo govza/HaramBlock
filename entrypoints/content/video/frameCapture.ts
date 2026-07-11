@@ -7,6 +7,45 @@ import { onModelSettingsChange } from '@/utils/modelSettings';
 type CorsVideoEntry = { corsVideo: HTMLVideoElement; src: string } | { corsVideo: null; src: string };
 const corsVideoCache = new WeakMap<HTMLVideoElement, CorsVideoEntry>();
 
+const POSTER_LOAD_TIMEOUT_MS = 2_500;
+const CORS_VIDEO_LOAD_TIMEOUT_MS = 4_000;
+const CORS_VIDEO_SEEK_TIMEOUT_MS = 2_000;
+const BITMAP_CREATE_TIMEOUT_MS = 2_500;
+const VIDEO_TIME_TOLERANCE_SEC = 0.05;
+
+export class CaptureStageTimeoutError extends Error {
+  constructor(stage: string, timeoutMs: number) {
+    super(`${stage} timed out after ${timeoutMs}ms`);
+    this.name = 'CaptureStageTimeoutError';
+  }
+}
+
+function withStageTimeout<T>(
+  promise: Promise<T>,
+  stage: string,
+  timeoutMs: number,
+  onLate?: (value: T) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      reject(new CaptureStageTimeoutError(stage, timeoutMs));
+    }, timeoutMs);
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        if (timedOut) onLate?.(value);
+        else resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        if (!timedOut) reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 /**
  * A permanent failure (canvas taint) can never succeed for this source, so the
  * session finalizes as allow; a transient one (no frame data yet) may succeed
@@ -92,7 +131,14 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
   ctx.drawImage(sourceVideo, 0, 0, width, height);
 
   try {
-    return { bitmap: await createImageBitmap(canvas) };
+    return {
+      bitmap: await withStageTimeout(
+        createImageBitmap(canvas),
+        'Frame Sample bitmap creation',
+        BITMAP_CREATE_TIMEOUT_MS,
+        late => late.close(),
+      ),
+    };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'SecurityError') {
       logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
@@ -108,7 +154,7 @@ export async function ensureCorsSafeSource(
 ): Promise<HTMLVideoElement> {
   const actualSrc = video.currentSrc || video.src;
 
-  if (video.crossOrigin || actualSrc.startsWith('blob:')) {
+  if (video.srcObject || video.crossOrigin || actualSrc.startsWith('blob:') || !actualSrc) {
     return video;
   }
 
@@ -119,7 +165,7 @@ export async function ensureCorsSafeSource(
     if (cached.src !== actualSrc) {
       logger.withTag('frameCapture').debug('CORS video cache invalidated (src changed)');
       if (cached.corsVideo) {
-        cached.corsVideo.src = '';
+        cached.corsVideo.removeAttribute('src');
         cached.corsVideo.load(); // Force unload
       }
       corsVideoCache.delete(video);
@@ -129,8 +175,18 @@ export async function ensureCorsSafeSource(
     } else {
       // The clone is a seekable decoder, not a live mirror. Wait until it is
       // actually presenting the Frame Sample's selected media time before draw.
-      await seekCorsVideo(cached.corsVideo, timestampSec);
-      return cached.corsVideo;
+      try {
+        await waitForVideoFrameAt(cached.corsVideo, timestampSec, CORS_VIDEO_SEEK_TIMEOUT_MS);
+        return cached.corsVideo;
+      } catch (error) {
+        // Reddit reuses/reparents players; Firefox can leave the old paused
+        // clone without a terminal seeked/error event. Never let that stale
+        // decoder poison every later Frame Sample.
+        cached.corsVideo.removeAttribute('src');
+        cached.corsVideo.load();
+        corsVideoCache.delete(video);
+        throw error;
+      }
     }
   }
 
@@ -142,6 +198,11 @@ export async function ensureCorsSafeSource(
     corsVideoCache.set(video, { corsVideo, src: actualSrc });
     return corsVideo;
   } catch (error) {
+    if (error instanceof CaptureStageTimeoutError) {
+      // A timeout is transient (network/decoder stall), not proof that CORS is
+      // permanently unsupported. Leave the cache empty so a later sample can retry.
+      throw error;
+    }
     // Cache the failure to avoid retrying - this is the common case (server doesn't support CORS)
     logger.withTag('frameCapture').debug('CORS video workaround failed (expected for most videos):', error);
     corsVideoCache.set(video, { corsVideo: null, src: actualSrc });
@@ -156,7 +217,7 @@ export async function ensureCorsSafeSource(
 export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   const cached = corsVideoCache.get(video);
   if (cached?.corsVideo) {
-    cached.corsVideo.src = '';
+    cached.corsVideo.removeAttribute('src');
     cached.corsVideo.load(); // Force unload
   }
   corsVideoCache.delete(video);
@@ -185,18 +246,13 @@ export function createDrawingSurface(
 }
 
 async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null> {
+  const img = new Image();
   try {
-    const img = new Image();
     img.crossOrigin = 'anonymous';
 
-    return new Promise<ImageBitmap>((resolve, reject) => {
-      img.onload = async () => {
-        try {
-          const bitmap = await createImageBitmap(img);
-          resolve(bitmap);
-        } catch (error) {
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
+    const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+      img.onload = () => {
+        resolve(img);
       };
 
       img.onerror = () => {
@@ -205,9 +261,20 @@ async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null
 
       img.src = posterUrl;
     });
+    await withStageTimeout(loaded, 'Thumbnail poster load', POSTER_LOAD_TIMEOUT_MS);
+    return await withStageTimeout(
+      createImageBitmap(img),
+      'Thumbnail poster bitmap creation',
+      BITMAP_CREATE_TIMEOUT_MS,
+      late => late.close(),
+    );
   } catch (error) {
     logger.withTag('frameCapture').debug('Error extracting poster image:', error);
     return null;
+  } finally {
+    img.onload = null;
+    img.onerror = null;
+    img.removeAttribute('src');
   }
 }
 
@@ -218,7 +285,7 @@ async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: nu
   corsVideo.muted = true;
   corsVideo.currentTime = timestampSec;
 
-  return new Promise<HTMLVideoElement>((resolve, reject) => {
+  const loaded = new Promise<HTMLVideoElement>((resolve, reject) => {
     if (corsVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && corsVideo.videoHeight) {
       resolve(corsVideo);
       return;
@@ -236,28 +303,65 @@ async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: nu
       reject(new Error('Failed to load CORS-enabled video element'));
     };
   });
+  try {
+    return await withStageTimeout(loaded, 'CORS video load', CORS_VIDEO_LOAD_TIMEOUT_MS);
+  } catch (error) {
+    corsVideo.onloadeddata = null;
+    corsVideo.onerror = null;
+    corsVideo.removeAttribute('src');
+    corsVideo.load();
+    throw error;
+  }
 }
 
-/** Resolve only once the cached CORS decoder displays the requested sample. */
-async function seekCorsVideo(video: HTMLVideoElement, timestampSec: number): Promise<void> {
-  if (Math.abs(video.currentTime - timestampSec) < 0.001 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+/**
+ * Resolve once the CORS decoder displays the requested sample. Firefox can
+ * omit `seeked` after player churn, so ready state is also polled; the wait is
+ * always bounded and cleans up every listener/timer.
+ */
+export async function waitForVideoFrameAt(
+  video: HTMLVideoElement,
+  timestampSec: number,
+  timeoutMs = CORS_VIDEO_SEEK_TIMEOUT_MS,
+): Promise<void> {
+  const isReady = () =>
+    !video.seeking &&
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    Math.abs(video.currentTime - timestampSec) <= VIDEO_TIME_TOLERANCE_SEC;
+  if (isReady()) {
     return;
   }
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('loadeddata', onSeeked);
       video.removeEventListener('error', onError);
+      clearInterval(pollId);
+      clearTimeout(timeoutId);
     };
     const onSeeked = () => {
-      cleanup();
-      resolve();
+      if (isReady()) {
+        cleanup();
+        resolve();
+      }
     };
     const onError = () => {
       cleanup();
       reject(new Error('CORS video failed while seeking to Frame Sample'));
     };
     video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('loadeddata', onSeeked, { once: true });
     video.addEventListener('error', onError, { once: true });
-    video.currentTime = timestampSec;
+    const pollId = setInterval(onSeeked, 50);
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new CaptureStageTimeoutError('CORS video seek', timeoutMs));
+    }, timeoutMs);
+    try {
+      video.currentTime = timestampSec;
+    } catch (error) {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
