@@ -1,3 +1,4 @@
+import { isWriteOnlyCanvasError, PermanentFrameTransferError } from '@/entrypoints/content/video/frameTransfer';
 import {
   IS_CHROME,
   IMAGE_TRANSFER_KIND,
@@ -280,7 +281,16 @@ async function bitmapToCompressedBlob(bitmap: ImageBitmap): Promise<Blob> {
     throw new Error('Failed to get 2D context for video frame compression');
   }
   ctx.drawImage(bitmap, 0, 0);
-  return canvas.convertToBlob({ type: 'image/webp', quality: 0.85 });
+  try {
+    return await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 });
+  } catch (error) {
+    if (isWriteOnlyCanvasError(error)) {
+      throw new PermanentFrameTransferError('Video frame canvas is cross-origin and cannot be serialized', {
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }
 
 export interface VideoFrameParams {

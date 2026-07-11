@@ -25,6 +25,7 @@ import {
   captureThumbnailBitmap,
   releaseCorsVideoCache,
 } from '@/entrypoints/content/video/frameCapture';
+import { PermanentFrameTransferError } from '@/entrypoints/content/video/frameTransfer';
 import {
   createVideoSession,
   reduce,
@@ -886,9 +887,11 @@ class VideoSessionRegistry {
       );
       this.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
     } catch (error) {
-      log.error('Frame Sample capture/send failed:', error);
+      const permanent = error instanceof PermanentFrameTransferError;
+      if (permanent) log.warn('Frame Sample cannot be serialized for inference:', error);
+      else log.error('Frame Sample capture/send failed:', error);
       handle.pendingSamples.delete(frameIndex);
-      this.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now() });
+      this.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now(), permanent });
     }
   }
 
