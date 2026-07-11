@@ -33,36 +33,4 @@ export class QueueService {
       { priority: task.priority, signal },
     );
   }
-
-  getQueueSize(): number {
-    return this.queue.size;
-  }
-
-  getPendingCount(): number {
-    return this.queue.pending;
-  }
-
-  isIdle(): boolean {
-    return this.queue.isPaused === false && this.queue.size === 0 && this.queue.pending === 0;
-  }
-
-  pause(): void {
-    this.queue.pause();
-  }
-
-  start(): void {
-    this.queue.start();
-  }
-
-  clear(): void {
-    this.queue.clear();
-  }
-
-  onEmpty(): Promise<void> {
-    return this.queue.onEmpty();
-  }
-
-  onIdle(): Promise<void> {
-    return this.queue.onIdle();
-  }
 }

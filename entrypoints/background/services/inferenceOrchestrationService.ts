@@ -329,30 +329,4 @@ export class InferenceOrchestrationService {
       logger.withTag('inferenceOrchestrationService').error('Error sending GIF frame predictions:', error);
     }
   }
-
-  // Public methods for monitoring
-  getQueueStatus(): { size: number; pending: number; isIdle: boolean } {
-    return {
-      size: this.queueService.getQueueSize(),
-      pending: this.queueService.getPendingCount(),
-      isIdle: this.queueService.isIdle(),
-    };
-  }
-
-  pauseProcessing(): void {
-    this.queueService.pause();
-  }
-
-  startProcessing(): void {
-    this.queueService.start();
-  }
-
-  clearQueue(): void {
-    for (const queued of this.queuedPlaybackFrames.values()) {
-      queued.controller.abort();
-      queued.task.bitmap?.close();
-    }
-    this.queuedPlaybackFrames.clear();
-    this.queueService.clear();
-  }
 }
