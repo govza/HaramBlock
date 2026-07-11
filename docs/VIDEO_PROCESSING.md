@@ -2,7 +2,7 @@
 
 This document describes how HaramBlock detects, samples, and masks `<video>` content — the
 architecture, the vocabulary, and the design decisions behind it. General (non-video) vocabulary
-(Verdict, Prediction, Fail-closed) is defined in [CONTEXT.md](CONTEXT.md).
+(Verdict, Prediction, Fail-closed) is defined in [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md).
 
 ## Vocabulary
 
@@ -134,6 +134,19 @@ Tuning constants (all in `machine.ts`):
   `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
   later `video.currentTime`. An rAF loop gated on playback state is the fallback for engines without
   rVFC.
+- **Viewport lifecycle**: a shared `IntersectionObserver` keeps sessions within 400 px of the
+  viewport active. Scrolled-away videos retain their verdict state but stop their frame ticker and
+  release any DVR player, audio delay, and frame ring. Leaving the margin only suspends after a 1 s
+  grace period (`VIDEO_SUSPEND_GRACE_MS`) so boundary flapping in a virtualized feed cannot thrash
+  the DVR; re-entry resumes immediately. Boxless players (`display:none` behind a poster overlay)
+  never intersect and are exempt — their thumbnail still captures eagerly so a reveal finds its
+  verdict ready. Thumbnail capture is otherwise deferred while offscreen and replayed on re-entry
+  whenever the session is still verdict-less; a playback sample deflected during suspension marks
+  the session for a re-sample, which a paused re-entry fires as a synthetic seek (a playing one
+  re-enters sampling anyway). A suspend also bumps a per-session capture epoch so a capture that was
+  in flight across it can never send its stale frame after resume. Re-entry restarts sampling and
+  playback presentation under the existing fail-closed blur. This is essential for virtualized feeds
+  such as Reddit, whose old autoplay players often remain connected to the DOM after scrolling away.
 - **Prediction routing** (`handlePredictions`): looks up the session by `sessionId` (echoed through
   the inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
   same-URL videos have independent sessions.
@@ -146,7 +159,19 @@ Tuning constants (all in `machine.ts`):
   be read) from **transient** ones (no frame data yet, zero dimensions): permanent finalizes the
   session as allow immediately, transient counts consecutive failures toward ERROR. Each
   capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`) so a
-  never-settling CORS-clone or poster load cannot occupy the in-flight slot forever.
+  never-settling CORS-clone or poster load cannot occupy the in-flight slot forever. Capture stages
+  have shorter internal deadlines as well: poster load/bitmap creation, CORS clone load/seek, and
+  frame bitmap creation fail independently. Firefox clone seeks resolve from either media events or
+  observable ready-state/time convergence; a stalled cached clone is evicted so later samples can
+  recreate it instead of timing out forever. Video thumbnails use queue priority 20 and playback
+  samples priority 10, below visible images (30), so autoplay cannot indefinitely hold newly
+  discovered page images behind its frame backlog. The background retains at most one
+  not-yet-started playback frame per `sessionId`: a newer frame aborts and releases the older queued
+  bitmap, while a frame arriving out of order (the cancel RPC and frame payloads ride different
+  transports) is dropped rather than replacing a fresher queued one. Suspending or disposing a
+  session cancels that queued frame explicitly (skipped when the session never sent a playback frame
+  — the cancel would be a guaranteed no-op RPC); inference already running is allowed to finish and
+  its session-routed result is harmless if the session has gone away.
 
 Each Frame Sample has two deliberately separate identities:
 

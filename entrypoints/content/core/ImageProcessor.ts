@@ -30,6 +30,7 @@ import {
 } from '@/entrypoints/content/presentation/quickToggle';
 import { IS_CHROME } from '@/utils/constants/environment';
 import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
+import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import { logger } from '@/utils/logger';
 import {
   cancelContentTiming,
@@ -50,9 +51,8 @@ import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
-
-const PRIORITY_VISIBLE = 10;
-const PRIORITY_OFFSCREEN = 0;
+const IMAGE_INFERENCE_TIMEOUT_MS = 20_000;
+const MAX_IMAGE_INFERENCE_ATTEMPTS = 2;
 
 // Animated GIFs: cap tracked decode sessions and fail closed if frame verdicts
 // never arrive. Native <img> does not expose current-frame masking, so finalized
@@ -102,7 +102,13 @@ export class ImageProcessor {
   private readonly gifSessions = new Map<string, GifSession>();
   // src → the element whose load listeners drive the request (see queueInference)
   private readonly pendingInference = new Map<string, HTMLImageElement>();
+  private readonly pendingInferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly inferenceAttempts = new Map<string, number>();
+  /** Last resolved source seen for an element; filters Reddit's no-op attribute churn. */
+  private readonly resolvedSrcByImage = new WeakMap<HTMLImageElement, string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
+  /** Unloaded copies that deferred to a pending owner and await their own load (see queueInference). */
+  private readonly deferredUntilLoad = new WeakSet<HTMLImageElement>();
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
 
@@ -136,6 +142,7 @@ export class ImageProcessor {
   process(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
     if (!src) return;
+    this.resolvedSrcByImage.set(img, src);
 
     this.visibilityObserver.observe(img);
     this.trackShadowRoot(img);
@@ -210,6 +217,17 @@ export class ImageProcessor {
    * Google Images rapidly changes src (quality upgrades), so we wait for it to settle.
    */
   handleSrcChange(img: HTMLImageElement): void {
+    const resolvedSrc = img.currentSrc || img.src;
+    const previousSrc = this.resolvedSrcByImage.get(img);
+    if (resolvedSrc === previousSrc) {
+      // Lit/React frequently re-stamp an unchanged src/srcset. Treating that
+      // as a source replacement clears a valid verdict and can reset the
+      // debounce forever under continuous Reddit feed churn.
+      return;
+    }
+    if (resolvedSrc) this.resolvedSrcByImage.set(img, resolvedSrc);
+    else this.resolvedSrcByImage.delete(img);
+
     // Clear any existing overlays (they may be for old src)
     this.clearOverlays(img);
 
@@ -251,7 +269,7 @@ export class ImageProcessor {
   handlePredictions(predictions: IImagePrediction[]): void {
     for (const pred of predictions) {
       this.addToCache(pred.src, pred);
-      this.pendingInference.delete(pred.src);
+      this.clearPendingInference(pred.src, undefined, true);
 
       // Find and update all matching images
       const images = this.findImagesBySrc(pred.src);
@@ -284,6 +302,9 @@ export class ImageProcessor {
    */
   dispose(): void {
     this.visibilityObserver.disconnect();
+    for (const timer of this.pendingInferenceTimers.values()) clearTimeout(timer);
+    this.pendingInferenceTimers.clear();
+    this.inferenceAttempts.clear();
     for (const session of this.gifSessions.values()) {
       session.disposed = true;
       if (session.timeoutId) clearTimeout(session.timeoutId);
@@ -361,6 +382,22 @@ export class ImageProcessor {
       // copy already has pixels; then take over so visible copies aren't
       // held hostage. A later duplicate send from the old owner is harmless.
       if (ownerReady || !imgReady) {
+        // An unloaded deferrer may resolve a different currentSrc than the
+        // verdict's src (lazy load + srcset picks a larger candidate), so the
+        // broadcast can miss it and nothing else revisits it — a lazy load
+        // fires no attribute mutation. Re-enter process() once it has pixels;
+        // by then the verdict for its resolved src is usually already cached.
+        if (!imgReady && !this.deferredUntilLoad.has(img)) {
+          this.deferredUntilLoad.add(img);
+          img.addEventListener(
+            'load',
+            () => {
+              this.deferredUntilLoad.delete(img);
+              this.process(img);
+            },
+            { once: true },
+          );
+        }
         return;
       }
     }
@@ -373,7 +410,7 @@ export class ImageProcessor {
       // If src changed before load (common with srcset), reprocess with new src
       const currentSrc = img.currentSrc || img.src;
       if (currentSrc !== src) {
-        this.pendingInference.delete(src);
+        this.clearPendingInference(src, img);
         // Re-process with the actual loaded URL instead of just aborting
         this.process(img);
         cancelContentTiming(src);
@@ -382,7 +419,7 @@ export class ImageProcessor {
 
       // Skip only if all currently pending elements for this src are below threshold.
       if (this.isBelowMinSizeForSrc(src, img)) {
-        this.pendingInference.delete(src);
+        this.clearPendingInference(src, img, true);
         completeContentTiming(src, { status: 'skipped' });
         this.finalizeAllImagesForSrc(src, 'skipped');
         return;
@@ -390,18 +427,21 @@ export class ImageProcessor {
 
       try {
         markSent(src);
+        this.armInferenceWatchdog(src, img);
         const isVisible = this.visibilityMap.get(img) ?? false;
-        const priority = isVisible ? PRIORITY_VISIBLE : PRIORITY_OFFSCREEN;
+        const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
         await requestImageInference(this.hostSettings.hostname, img, priority);
       } catch (err) {
-        this.pendingInference.delete(src);
+        if (this.pendingInference.get(src) !== img) return;
+        this.clearPendingInference(src, img, true);
         completeContentTiming(src, { status: 'error', error: err instanceof Error ? err : undefined });
         this.finalizeAllImagesForSrc(src, 'skipped');
       }
     };
 
     const handleError = (reason?: unknown) => {
-      this.pendingInference.delete(src);
+      if (this.pendingInference.get(src) !== img) return;
+      this.clearPendingInference(src, img, true);
       let error: Error;
       if (reason instanceof Error) {
         error = reason;
@@ -447,6 +487,49 @@ export class ImageProcessor {
         once: true,
       });
     }
+  }
+
+  private armInferenceWatchdog(src: string, owner: HTMLImageElement): void {
+    const existing = this.pendingInferenceTimers.get(src);
+    if (existing) clearTimeout(existing);
+    this.pendingInferenceTimers.set(
+      src,
+      setTimeout(() => {
+        this.pendingInferenceTimers.delete(src);
+        if (this.pendingInference.get(src) !== owner) return;
+
+        const attempts = (this.inferenceAttempts.get(src) ?? 0) + 1;
+        this.inferenceAttempts.set(src, attempts);
+        this.pendingInference.delete(src);
+
+        if (attempts >= MAX_IMAGE_INFERENCE_ATTEMPTS) {
+          this.inferenceAttempts.delete(src);
+          completeContentTiming(src, {
+            status: 'error',
+            error: new Error(`Image inference timed out after ${attempts} attempts`),
+          });
+          this.finalizeAllImagesForSrc(src, 'skipped');
+          return;
+        }
+
+        const candidates = this.findImagesBySrc(src);
+        const retryOwner =
+          candidates.find(candidate => this.visibilityMap.get(candidate) && candidate.complete) ??
+          candidates.find(candidate => candidate.complete) ??
+          candidates[0];
+        if (retryOwner) this.process(retryOwner);
+        else this.inferenceAttempts.delete(src);
+      }, IMAGE_INFERENCE_TIMEOUT_MS),
+    );
+  }
+
+  private clearPendingInference(src: string, owner?: HTMLImageElement, resetAttempts = false): void {
+    if (owner && this.pendingInference.get(src) !== owner) return;
+    this.pendingInference.delete(src);
+    const timer = this.pendingInferenceTimers.get(src);
+    if (timer) clearTimeout(timer);
+    this.pendingInferenceTimers.delete(src);
+    if (resetAttempts) this.inferenceAttempts.delete(src);
   }
 
   private isBelowMinSize(img: HTMLImageElement): boolean {
@@ -565,7 +648,7 @@ export class ImageProcessor {
     markSent(src);
 
     const isVisible = this.visibilityMap.get(img) ?? false;
-    const priority = isVisible ? PRIORITY_VISIBLE : PRIORITY_OFFSCREEN;
+    const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
 
     // Safety net: if verdicts never arrive, fail closed instead of revealing the GIF.
     session.timeoutId = setTimeout(() => this.finalizeGif(src, true), GIF_VERDICT_TIMEOUT_MS);
@@ -814,6 +897,13 @@ export class ImageProcessor {
       // Double-check src after any async wait
       const srcNow = img.currentSrc || img.src;
       if (srcNow !== prediction.src) {
+        // Responsive images can select a different srcset candidate while
+        // decode() is pending without producing another observable attribute
+        // mutation. Hand the newly selected resource back to the normal
+        // pipeline; otherwise the old verdict is discarded and the element
+        // remains under its protective blur forever (notably in Reddit's
+        // foreground/background image pair).
+        this.process(img);
         return;
       }
 

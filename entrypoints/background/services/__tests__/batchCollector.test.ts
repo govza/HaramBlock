@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BatchCollector, type BatchItemResult } from '@/entrypoints/background/services/batchCollector';
+import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -95,6 +96,35 @@ describe('BatchCollector', () => {
     expect(calls[0]).toEqual([0]);
     expect(calls[1]).toEqual([2, 3]); // top two by priority
     expect(calls[2]).toEqual([1]); // leftover
+  });
+
+  it('puts visible images ahead of an autoplay video backlog at the next batch boundary', async () => {
+    const calls: string[][] = [];
+    const gate = deferred<void>();
+    const processBatch = vi.fn(async (tasks: Array<{ id: string; priority: number }>) => {
+      calls.push(tasks.map(task => task.id));
+      if (calls.length === 1) await gate.promise;
+      return ok(tasks);
+    });
+    const collector = new BatchCollector<{ id: string; priority: number }, { id: string; priority: number }>(
+      processBatch,
+      { getCap: () => 2, getPriority: task => task.priority },
+    );
+
+    const runningFrame = collector.submit({ id: 'running-frame', priority: INFERENCE_PRIORITY.videoFrame });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const backlog = [
+      collector.submit({ id: 'queued-frame', priority: INFERENCE_PRIORITY.videoFrame }),
+      collector.submit({ id: 'thumbnail', priority: INFERENCE_PRIORITY.videoThumbnail }),
+      collector.submit({ id: 'visible-image', priority: INFERENCE_PRIORITY.visibleImage }),
+    ];
+
+    gate.resolve();
+    await vi.runAllTimersAsync();
+    await Promise.all([runningFrame, ...backlog]);
+
+    expect(calls).toEqual([['running-frame'], ['visible-image', 'thumbnail'], ['queued-frame']]);
   });
 
   it('isolates a per-item error without failing the batch', async () => {

@@ -211,6 +211,12 @@ export class BackgroundRpc {
     }
   }
 
+  /** Drop a scrolled-away/disposed session's playback frame if it is still queued. */
+  cancelVideoSessionInference(sessionId: string): Promise<void> {
+    this.inferenceService.cancelVideoSession(sessionId);
+    return Promise.resolve();
+  }
+
   /**
    * Process a single GIF frame for inference.
    * Frames are decoded in the content script (ImageDecoder) and sent one-by-one,

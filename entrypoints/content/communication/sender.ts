@@ -198,7 +198,7 @@ async function sendImageForInference(
  * Queue images for AI processing in background script
  * @param hostname - The hostname for these images
  * @param image - Image element to process
- * @param priority - Queue priority (higher = runs first). 10 = visible, 0 = offscreen
+ * @param priority - Queue priority (higher = runs first); use the shared inference priority tiers
  * @returns Promise that resolves when images are queued
  */
 export async function requestImageInference(
@@ -342,6 +342,15 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     }
     logger.withTag('sender').error('Failed to send video frame for inference:', error);
     throw error;
+  }
+}
+
+/** Cancel the latest playback frame while it is still waiting in the background queue. */
+export async function cancelVideoSessionInference(sessionId: string): Promise<void> {
+  try {
+    await backgroundRpc.cancelVideoSessionInference(sessionId);
+  } catch (error) {
+    logger.withTag('sender').debug('Failed to cancel queued video inference:', error);
   }
 }
 

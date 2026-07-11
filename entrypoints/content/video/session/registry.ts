@@ -7,7 +7,7 @@
  * capture + transport, and timers.
  */
 
-import { requestVideoFrameInference } from '@/entrypoints/content/communication/sender';
+import { cancelVideoSessionInference, requestVideoFrameInference } from '@/entrypoints/content/communication/sender';
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import {
   clearProcessedStatus,
@@ -34,6 +34,7 @@ import {
   type SessionTimer,
   type VideoSessionState,
 } from '@/entrypoints/content/video/session/machine';
+import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
@@ -72,6 +73,18 @@ const DVR_BUFFER_MAX_BYTES = 64 * 1024 * 1024;
  * delay estimator anyway — prune them on the next send.
  */
 const SAMPLE_LATENCY_EXPIRY_MS = 30_000;
+
+/** Keep near-viewport players warm while dropping scrolled-away feed videos. */
+const VIDEO_VISIBILITY_ROOT_MARGIN_PX = 400;
+
+/**
+ * A masked playing video pays a full DVR teardown + re-warm (seconds of
+ * whole-blur) and an audio-delay bounce per suspend/resume flip, so boundary
+ * flapping in a virtualized feed (layout shifts, elastic scroll) must not
+ * toggle suspension directly: leaving the margin only suspends after this
+ * grace period; re-entering resumes immediately and cancels a pending suspend.
+ */
+const VIDEO_SUSPEND_GRACE_MS = 1_000;
 
 function withTimeout<T>(promise: Promise<T>, label: string, onLate?: (value: T) => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -135,6 +148,18 @@ interface SessionHandle {
   pendingSamples: Map<number, PendingFrameSample>;
   /** Recent sample→verdict round-trips; sizes the adaptive DVR delay. */
   latenciesMs: number[];
+  /** Offscreen sessions retain verdict state but produce no captures or DVR work. */
+  suspended: boolean;
+  /** Pending grace-period timer between leaving the margin and suspending. */
+  suspendGrace: ReturnType<typeof setTimeout> | null;
+  /** Bumped on suspend so a capture that was in flight across it never sends its stale frame. */
+  captureEpoch: number;
+  /** Thumbnail readiness/capture that occurred while suspended. */
+  pendingThumbnailCapture: boolean;
+  /** A playback sample was deflected while suspended; a paused resume must re-sample the displayed frame. */
+  pendingResample: boolean;
+  /** Whether any playback frame was ever sent — a cancel RPC is a no-op before that. */
+  sentPlaybackFrame: boolean;
 }
 
 interface PendingAdoption {
@@ -158,6 +183,21 @@ function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): 
   return source.srcObject
     ? handle.srcObject === source.srcObject
     : handle.srcObject === null && handle.src === source.url;
+}
+
+function isVideoNearViewport(video: HTMLVideoElement): boolean {
+  if (typeof IntersectionObserver !== 'function') return true;
+  const rect = video.getBoundingClientRect();
+  // No layout box (display:none player behind a poster overlay, not laid out
+  // yet): it can never intersect, but thumbnail capture works from data/poster
+  // and the reveal must find its verdict ready. Only real scroll-aways suspend.
+  if (rect.width <= 0 || rect.height <= 0) return true;
+  return (
+    rect.bottom >= -VIDEO_VISIBILITY_ROOT_MARGIN_PX &&
+    rect.top <= globalThis.innerHeight + VIDEO_VISIBILITY_ROOT_MARGIN_PX &&
+    rect.right >= 0 &&
+    rect.left <= globalThis.innerWidth
+  );
 }
 
 /**
@@ -189,6 +229,7 @@ class VideoSessionRegistry {
   private readonly byVideo = new WeakMap<HTMLVideoElement, SessionHandle>();
   /** Videos awaiting a resolved source; strong so disposeAll/sweep can cancel the waits. */
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAdoption>();
+  private visibilityObserver: IntersectionObserver | null = null;
 
   /**
    * Adopt a video, creating its VideoSession. A video without a resolved
@@ -233,6 +274,12 @@ class VideoSessionRegistry {
       dvr: null,
       pendingSamples: new Map(),
       latenciesMs: [],
+      suspended: !isVideoNearViewport(video),
+      suspendGrace: null,
+      captureEpoch: 0,
+      pendingThumbnailCapture: false,
+      pendingResample: false,
+      sentPlaybackFrame: false,
     };
     this.byId.set(handle.sessionId, handle);
     this.byVideo.set(video, handle);
@@ -244,10 +291,8 @@ class VideoSessionRegistry {
     this.execute(handle, born.effects);
 
     this.bindMediaEvents(handle);
-    handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
-      this.dispatch(handle, { type: 'frameAvailable', at, timestampSec: mediaTime });
-      this.captureIntoRing(handle, mediaTime);
-    });
+    this.observeVisibility(handle);
+    if (!handle.suspended) this.startTicker(handle);
     this.queueThumbnailSourceReady(handle);
   }
 
@@ -372,6 +417,114 @@ class VideoSessionRegistry {
     this.execute(handle, effects);
   }
 
+  private observeVisibility(handle: SessionHandle): void {
+    if (typeof IntersectionObserver !== 'function') return;
+    this.visibilityObserver ??= new IntersectionObserver(
+      entries => {
+        for (const entry of entries) {
+          const video = entry.target as HTMLVideoElement;
+          const current = this.byVideo.get(video);
+          if (!current) continue;
+          // Boxless players never intersect; mirror isVideoNearViewport's
+          // carve-out so hidden-then-revealed videos keep their eager verdict.
+          const rect = entry.boundingClientRect;
+          const offscreen = !entry.isIntersecting && rect.width > 0 && rect.height > 0;
+          this.requestSuspended(current, offscreen);
+        }
+      },
+      { rootMargin: `${VIDEO_VISIBILITY_ROOT_MARGIN_PX}px 0px` },
+    );
+    this.visibilityObserver.observe(handle.video);
+  }
+
+  /** Suspension waits out a grace period so boundary flapping cannot thrash the DVR; resume is immediate. */
+  private requestSuspended(handle: SessionHandle, suspended: boolean): void {
+    if (!suspended) {
+      this.clearSuspendGrace(handle);
+      this.setSuspended(handle, false);
+      return;
+    }
+    if (handle.suspended || handle.suspendGrace !== null) return;
+    handle.suspendGrace = setTimeout(() => {
+      handle.suspendGrace = null;
+      this.setSuspended(handle, true);
+    }, VIDEO_SUSPEND_GRACE_MS);
+  }
+
+  private clearSuspendGrace(handle: SessionHandle): void {
+    if (handle.suspendGrace === null) return;
+    clearTimeout(handle.suspendGrace);
+    handle.suspendGrace = null;
+  }
+
+  private setSuspended(handle: SessionHandle, suspended: boolean): void {
+    if (handle.suspended === suspended || handle.state.phase === 'disposed') return;
+    handle.suspended = suspended;
+    if (suspended) {
+      // Invalidate captures already in flight: one resolving after a fast
+      // suspend→resume must not send its pre-suspension frame (it would evict
+      // a fresher queued frame in the background and restart sampleTimeout).
+      handle.captureEpoch += 1;
+      if (handle.sentPlaybackFrame) void cancelVideoSessionInference(handle.sessionId);
+      const { inflightIndex } = handle.state;
+      if (inflightIndex !== null) {
+        handle.pendingSamples.delete(inflightIndex);
+        // The displayed frame loses its pending verdict; a paused resume must re-sample it.
+        handle.pendingResample = true;
+        this.dispatch(handle, { type: 'sampleCancelled', frameIndex: inflightIndex, at: performance.now() });
+      }
+      // Reuse the machine's playback hand-back so DVR state, audio, and the
+      // ring are released consistently, then stop frame delivery entirely.
+      if (handle.state.phase === 'sampling') {
+        this.dispatch(handle, { type: 'pause', at: performance.now() });
+      }
+      handle.stopTicker?.();
+      handle.stopTicker = null;
+      return;
+    }
+
+    this.startTicker(handle);
+    if (handle.pendingThumbnailCapture) {
+      handle.pendingThumbnailCapture = false;
+      // Replay whenever the session is still verdict-less, not only in
+      // THUMBNAILING: play can preempt readiness, leaving the machine to
+      // re-signal captureThumbnail from standby/sampling with no timer armed —
+      // gating on phase would strand the deferred capture and the blur forever.
+      if (handle.state.lastAppliedIndex === Number.NEGATIVE_INFINITY && handle.state.phase !== 'error') {
+        void this.captureAndSend(handle, -1, 0);
+      }
+    }
+    if (!handle.video.paused && !handle.video.ended) {
+      handle.pendingResample = false; // fresh playback sampling supersedes it
+      this.dispatch(handle, { type: 'play', at: performance.now() });
+    } else {
+      if (handle.state.masked) {
+        // Static unsafe frame returning to view: replace the coarse suspension
+        // blur with its precise overlay now that it has real geometry again.
+        applyWholeBlur(handle.video, handle.hostSettings);
+        this.applyVerdictOverlay(handle, true);
+      }
+      if (handle.pendingResample) {
+        handle.pendingResample = false;
+        // A sample deflected during suspension (page-driven seek, cancelled
+        // in-flight) left the displayed frame unverified, and a paused video
+        // produces no further events — sample it like a fresh seek.
+        this.dispatch(handle, { type: 'seeked', at: performance.now(), timestampSec: handle.video.currentTime });
+      }
+    }
+  }
+
+  private startTicker(handle: SessionHandle): void {
+    // 'error' keeps its ticker stopped by the machine's own stopTicker/resumeTicker
+    // protocol (cooldown expiry re-arms it); a viewport resume must not override that.
+    if (handle.stopTicker || handle.suspended) return;
+    if (handle.state.phase === 'disposed' || handle.state.phase === 'error') return;
+    handle.stopTicker = startFrameTicker(handle.video, (at, mediaTime) => {
+      this.dispatch(handle, { type: 'frameAvailable', at, timestampSec: mediaTime });
+      this.captureIntoRing(handle, mediaTime);
+    });
+  }
+
   /** Commit adapter state only for verdicts accepted by the reducer's ordering rule. */
   private dispatchPrediction(
     handle: SessionHandle,
@@ -399,16 +552,21 @@ class VideoSessionRegistry {
           clearWholeBlur(video);
           break;
         case 'captureThumbnail':
-          void this.captureAndSend(handle, -1, 0);
+          if (handle.suspended) {
+            handle.pendingThumbnailCapture = true;
+          } else {
+            handle.pendingThumbnailCapture = false;
+            void this.captureAndSend(handle, -1, 0);
+          }
           break;
         case 'sendSample':
           void this.captureAndSend(handle, effect.frameIndex, effect.timestampSec);
           break;
         case 'applyVerdict':
-          this.applyVerdictOverlay(handle);
+          if (!handle.suspended) this.applyVerdictOverlay(handle);
           break;
         case 'applyVerdictThenClearBlur':
-          this.applyVerdictOverlay(handle, true);
+          if (!handle.suspended) this.applyVerdictOverlay(handle, true);
           break;
         case 'clearVerdict':
           // Serialized behind pending renders: a slow applyVerdict must never
@@ -447,11 +605,9 @@ class VideoSessionRegistry {
           // Error-cooldown expiry: re-arm frame delivery, and if the video is
           // mid-playback there will be no fresh 'play' event — synthesize one.
           handle.stopTicker?.();
-          handle.stopTicker = startFrameTicker(video, (at, mediaTime) => {
-            this.dispatch(handle, { type: 'frameAvailable', at, timestampSec: mediaTime });
-            this.captureIntoRing(handle, mediaTime);
-          });
-          if (!video.paused && !video.ended) {
+          handle.stopTicker = null;
+          this.startTicker(handle);
+          if (!handle.suspended && !video.paused && !video.ended) {
             this.dispatch(handle, { type: 'play', at: performance.now() });
           }
           break;
@@ -547,6 +703,8 @@ class VideoSessionRegistry {
 
   private teardown(handle: SessionHandle): void {
     const { video } = handle;
+    if (handle.sentPlaybackFrame) void cancelVideoSessionInference(handle.sessionId);
+    this.clearSuspendGrace(handle);
     this.stopDvr(handle);
     for (const pending of handle.timers.values()) clearTimeout(pending);
     handle.timers.clear();
@@ -554,6 +712,7 @@ class VideoSessionRegistry {
     handle.stopTicker = null;
     handle.pendingSamples.clear();
     handle.removeListeners();
+    this.visibilityObserver?.unobserve(video);
     videoMaskOverlays.clearMaskOverlay(video);
     clearWholeBlur(video);
     clearProcessedStatus(video);
@@ -571,7 +730,9 @@ class VideoSessionRegistry {
     const { video } = handle;
     const now = () => performance.now();
 
-    const onPlay = () => this.dispatch(handle, { type: 'play', at: now() });
+    const onPlay = () => {
+      if (!handle.suspended) this.dispatch(handle, { type: 'play', at: now() });
+    };
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now() });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
     const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
@@ -640,6 +801,16 @@ class VideoSessionRegistry {
     const { video } = handle;
     const isDisposed = () => handle.state.phase === 'disposed';
     if (isDisposed()) return;
+    if (handle.suspended) {
+      if (frameIndex === -1) {
+        handle.pendingThumbnailCapture = true;
+      } else {
+        handle.pendingResample = true;
+        this.dispatch(handle, { type: 'sampleCancelled', frameIndex, at: performance.now() });
+      }
+      return;
+    }
+    const epoch = handle.captureEpoch;
     // Frame Sample identity is fixed by the event that selected the frame
     // (rVFC mediaTime or seeked currentTime), never reread after async capture.
     const capturedAt = performance.now();
@@ -669,6 +840,21 @@ class VideoSessionRegistry {
         captured.bitmap?.close();
         return;
       }
+      // Epoch mismatch: a suspend happened mid-capture (even if since resumed).
+      // The machine already freed this slot and a fresher frame may be queued
+      // behind it — sending now would resurrect the cancelled sample. Stale
+      // thumbnails stay valid: frame −1 has no timeline position.
+      if (handle.suspended || (frameIndex >= 0 && handle.captureEpoch !== epoch)) {
+        captured.bitmap?.close();
+        handle.pendingSamples.delete(frameIndex);
+        if (frameIndex === -1) {
+          handle.pendingThumbnailCapture = true;
+        } else {
+          if (handle.suspended) handle.pendingResample = true;
+          this.dispatch(handle, { type: 'sampleCancelled', frameIndex, at: performance.now() });
+        }
+        return;
+      }
       const { bitmap } = captured;
       if (!bitmap || bitmap.width === 0 || bitmap.height === 0) {
         bitmap?.close();
@@ -687,11 +873,14 @@ class VideoSessionRegistry {
         originalWidth: video.videoWidth,
         originalHeight: video.videoHeight,
       };
+      // Set before the transport await: a timed-out send may still deliver,
+      // so a later cancel RPC must not be skipped for it.
+      if (frameIndex >= 0) handle.sentPlaybackFrame = true;
       await withTimeout(
         requestVideoFrameInference({
           sample,
           hostname: handle.hostSettings.hostname,
-          priority: 10,
+          priority: frameIndex === -1 ? INFERENCE_PRIORITY.videoThumbnail : INFERENCE_PRIORITY.videoFrame,
         }),
         'Frame Sample send',
       );
