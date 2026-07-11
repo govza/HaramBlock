@@ -429,7 +429,7 @@ function renderVideoMask(
     inferenceSize: { width: originalWidth, height: originalHeight },
     blockSize,
     usingPoster: Boolean(posterImage),
-    videoSrc: video.src || video.currentSrc,
+    videoSrc: video.currentSrc || video.src,
   });
 
   const tmp = document.createElement('canvas');

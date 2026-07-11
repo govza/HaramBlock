@@ -1,11 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CaptureStageTimeoutError, waitForVideoFrameAt } from '@/entrypoints/content/video/frameCapture';
+import {
+  CaptureStageTimeoutError,
+  ensureCorsSafeSource,
+  waitForVideoFrameAt,
+} from '@/entrypoints/content/video/frameCapture';
 
 class FakeVideo extends EventTarget {
   currentTime = 0;
   readyState = 0;
   seeking = true;
+}
+
+class FakeCorsVideo extends EventTarget {
+  currentTime = 0;
+  readyState = 0;
+  seeking = false;
+  videoHeight = 0;
+  muted = false;
+  playsInline = false;
+  preload = '';
+  src = '';
+  loop = false;
+  playbackRate = 1;
+  onloadeddata: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  play = vi.fn(() => Promise.resolve());
+  pause = vi.fn();
+
+  setAttribute(): void {}
+  removeAttribute(): void {}
+  load(): void {}
 }
 
 describe('waitForVideoFrameAt', () => {
@@ -36,5 +61,33 @@ describe('waitForVideoFrameAt', () => {
     const rejection = expect(waiting).rejects.toBeInstanceOf(CaptureStageTimeoutError);
     await vi.advanceTimersByTimeAsync(200);
     await rejection;
+  });
+
+  it('keeps a successful CORS clone decoding alongside a playing source', async () => {
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    const clone = new FakeCorsVideo();
+    vi.stubGlobal('document', { createElement: vi.fn(() => clone) });
+    const source = {
+      currentSrc: 'https://media.example/video.mp4',
+      src: '',
+      srcObject: null,
+      crossOrigin: null,
+      currentTime: 4.25,
+      paused: false,
+      ended: false,
+      loop: true,
+      playbackRate: 1.5,
+    } as unknown as HTMLVideoElement;
+
+    const pending = ensureCorsSafeSource(source, 4.25);
+    clone.readyState = 2;
+    clone.videoHeight = 360;
+    clone.onloadeddata?.();
+
+    await expect(pending).resolves.toBe(clone);
+    expect(clone.preload).toBe('auto');
+    expect(clone.loop).toBe(true);
+    expect(clone.playbackRate).toBe(1.5);
+    expect(clone.play).toHaveBeenCalledOnce();
   });
 });
