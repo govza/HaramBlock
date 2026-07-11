@@ -161,20 +161,22 @@ Tuning constants (all in `machine.ts`):
   capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`) so a
   never-settling CORS-clone or poster load cannot occupy the in-flight slot forever. Capture stages
   have shorter internal deadlines as well: poster load/bitmap creation, CORS clone load/seek, and
-  frame bitmap creation fail independently. Firefox clone seeks resolve from either media events or
-  observable ready-state/time convergence; a stalled cached clone is evicted so later samples can
-  recreate it instead of timing out forever. Video thumbnails use queue priority 20 and playback
-  samples priority 10, below visible images (30), so autoplay cannot indefinitely hold newly
-  discovered page images behind its frame backlog. The background retains at most one
-  not-yet-started playback frame per `sessionId`: a newer frame aborts and releases the older queued
-  bitmap, while a frame arriving out of order (the cancel RPC and frame payloads ride different
-  transports) is dropped rather than replacing a fresher queued one. Suspending or disposing a
-  session cancels that queued frame explicitly (skipped when the session never sent a playback frame
-  — the cancel would be a guaranteed no-op RPC); inference already running is allowed to finish and
-  its session-routed result is harmless if the session has gone away. Firefox discovers some canvas
-  taint only when its WebP transfer calls `OffscreenCanvas.convertToBlob()` (`createImageBitmap()`
-  may still succeed); that write-only-canvas exception is also permanent, so the session stops
-  retrying immediately.
+  frame bitmap creation fail independently. A CORS clone mirrors active playback after its first
+  exact seek, avoiding a network-backed random seek for every sample; every draw still verifies the
+  selected media time. Firefox clone seeks resolve from either media events or observable
+  ready-state/time convergence, and initial success is reported only after that convergence. A
+  stalled cached clone is evicted so later samples can recreate it instead of timing out forever.
+  Video thumbnails use queue priority 20 and playback samples priority 10, below visible images
+  (30), so autoplay cannot indefinitely hold newly discovered page images behind its frame backlog.
+  The background retains at most one not-yet-started playback frame per `sessionId`: a newer frame
+  aborts and releases the older queued bitmap, while a frame arriving out of order (the cancel RPC
+  and frame payloads ride different transports) is dropped rather than replacing a fresher queued
+  one. Suspending or disposing a session cancels that queued frame explicitly (skipped when the
+  session never sent a playback frame — the cancel would be a guaranteed no-op RPC); inference
+  already running is allowed to finish and its session-routed result is harmless if the session has
+  gone away. Firefox discovers some canvas taint only when its WebP transfer calls
+  `OffscreenCanvas.convertToBlob()` (`createImageBitmap()` may still succeed); that
+  write-only-canvas exception is also permanent, so the session stops retrying immediately.
 
 Each Frame Sample has two deliberately separate identities:
 

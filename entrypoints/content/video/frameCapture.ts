@@ -173,10 +173,14 @@ export async function ensureCorsSafeSource(
       // CORS previously failed for this source - don't retry
       return video;
     } else {
-      // The clone is a seekable decoder, not a live mirror. Wait until it is
-      // actually presenting the Frame Sample's selected media time before draw.
+      // Keep a playing clone decoding alongside the page video. Firefox can
+      // take seconds to service a network-backed seek even when adjacent media
+      // is already buffered; leaving the clone paused forced every playback
+      // sample through that slow path. We still verify the selected media time
+      // before drawing, so the pixels retain the Frame Sample's identity.
       try {
         await waitForVideoFrameAt(cached.corsVideo, timestampSec, CORS_VIDEO_SEEK_TIMEOUT_MS);
+        mirrorVideoPlayback(video, cached.corsVideo);
         return cached.corsVideo;
       } catch (error) {
         // Reddit reuses/reparents players; Firefox can leave the old paused
@@ -281,8 +285,10 @@ async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null
 async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: number): Promise<HTMLVideoElement> {
   const corsVideo = document.createElement('video');
   corsVideo.setAttribute('crossorigin', 'anonymous');
-  corsVideo.src = originalVideo.currentSrc || originalVideo.src;
+  corsVideo.preload = 'auto';
   corsVideo.muted = true;
+  corsVideo.playsInline = true;
+  corsVideo.src = originalVideo.currentSrc || originalVideo.src;
   corsVideo.currentTime = timestampSec;
 
   const loaded = new Promise<HTMLVideoElement>((resolve, reject) => {
@@ -304,7 +310,14 @@ async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: nu
     };
   });
   try {
-    return await withStageTimeout(loaded, 'CORS video load', CORS_VIDEO_LOAD_TIMEOUT_MS);
+    await withStageTimeout(loaded, 'CORS video load', CORS_VIDEO_LOAD_TIMEOUT_MS);
+    // `loadeddata` only promises that some current frame exists. In
+    // particular, Firefox may first expose time zero after a pre-metadata
+    // currentTime assignment. Do not cache or report success until the clone
+    // has observably reached the frame requested by this capture.
+    await waitForVideoFrameAt(corsVideo, timestampSec, CORS_VIDEO_SEEK_TIMEOUT_MS);
+    mirrorVideoPlayback(originalVideo, corsVideo);
+    return corsVideo;
   } catch (error) {
     corsVideo.onloadeddata = null;
     corsVideo.onerror = null;
@@ -312,6 +325,21 @@ async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: nu
     corsVideo.load();
     throw error;
   }
+}
+
+/** Match the source's decode direction after the selected frame is ready. */
+function mirrorVideoPlayback(source: HTMLVideoElement, clone: HTMLVideoElement): void {
+  clone.loop = source.loop;
+  clone.playbackRate = source.playbackRate;
+  if (source.paused || source.ended) {
+    clone.pause();
+    return;
+  }
+  // The clone is muted, so normal autoplay policy permits this. A rejection is
+  // harmless: the next sample falls back to the bounded exact-seek path.
+  void clone.play().catch(error => {
+    logger.withTag('frameCapture').debug('Could not keep CORS video clone playing:', error);
+  });
 }
 
 /**
