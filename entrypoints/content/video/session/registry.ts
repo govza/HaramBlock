@@ -238,7 +238,6 @@ class VideoSessionRegistry {
       }
       handle.lastPrediction = pred;
       const unsafe = Boolean(pred.predictions?.length);
-      if (unsafe) handle.lastUnsafePrediction = pred;
       const sample = handle.pendingSamples.get(pred.frameIndex);
       if (sample) {
         handle.pendingSamples.delete(pred.frameIndex);
@@ -247,7 +246,7 @@ class VideoSessionRegistry {
         // Keep the audio delay tracking the adaptive presentation delay.
         if (handle.dvr) updateAudioDelay(handle.video, computeDvrDelayMs(handle.latenciesMs) / 1000);
       }
-      this.dispatch(handle, {
+      this.dispatchPrediction(handle, pred, {
         type: 'predictionReceived',
         frameIndex: pred.frameIndex,
         unsafe,
@@ -346,6 +345,22 @@ class VideoSessionRegistry {
   private dispatch(handle: SessionHandle, event: SessionEvent): void {
     const { state, effects } = reduce(handle.state, event);
     handle.state = state;
+    this.execute(handle, effects);
+  }
+
+  /** Commit adapter state only for verdicts accepted by the reducer's ordering rule. */
+  private dispatchPrediction(
+    handle: SessionHandle,
+    prediction: IFramePrediction,
+    event: Extract<SessionEvent, { type: 'predictionReceived' }>,
+  ): void {
+    const previousLastAppliedIndex = handle.state.lastAppliedIndex;
+    const { state, effects } = reduce(handle.state, event);
+    handle.state = state;
+    if (event.unsafe && event.frameIndex > previousLastAppliedIndex && state.lastAppliedIndex === event.frameIndex) {
+      // Set before executing effects: applyVerdict reads this synchronously.
+      handle.lastUnsafePrediction = prediction;
+    }
     this.execute(handle, effects);
   }
 
