@@ -64,6 +64,9 @@ When('I inject a video using the first gallery image as poster', async () => {
     video.poster = poster;
     video.src = '/hb-e2e-nonexistent.mp4';
     globalThis.document.querySelector('main')?.append(video);
+    // Offscreen sessions defer capture until viewport re-entry by design;
+    // these scenarios assert the in-view pipeline, so bring the video in view.
+    video.scrollIntoView({ block: 'center' });
   }, Selectors.TEST_VIDEO);
 });
 
@@ -167,6 +170,9 @@ async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsa
               video.src = url;
             }
             doc.querySelector('main')?.append(video);
+            // Offscreen sessions defer sampling until viewport re-entry by
+            // design; these scenarios assert the in-view pipeline.
+            video.scrollIntoView({ block: 'center' });
             video
               .play()
               .then(() => done(null))
