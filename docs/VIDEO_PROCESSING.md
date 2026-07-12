@@ -83,18 +83,22 @@ Key invariants:
 
 ## Components
 
-| Component          | File                                                               | Role                                                                   |
-| ------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Pure state machine | `entrypoints/content/video/session/machine.ts`                     | `(state, event) → (state, effects)`; no DOM, timers, or transport      |
-| Registry + adapter | `entrypoints/content/video/session/registry.ts`                    | Owns live sessions, routes predictions by sessionId, executes effects  |
-| Discovery          | `entrypoints/content/handlers/handleVideos.ts`                     | Routes discovered videos: blacklist styling or registry adoption       |
-| Frame Sample model | `entrypoints/content/video/frameSample.ts`                         | Separates live routing identity from reusable media-timeline identity  |
-| Frame capture      | `entrypoints/content/video/frameCapture.ts`                        | Canvas capture, poster extraction, CORS workaround                     |
-| Transport          | `entrypoints/content/communication/sender.ts`                      | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob) |
-| Overlays           | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering (paused/standby verdicts)                  |
-| DVR presenter      | `entrypoints/content/presentation/videoDvrPlayer.ts`               | Delayed masked canvas playback (playback verdicts)                     |
-| DVR buffers        | `entrypoints/content/video/dvr/{frameRing,verdictTrack}.ts`        | Media-time-keyed frame ring + verdict history                          |
-| Background routing | `entrypoints/background/services/inferenceOrchestrationService.ts` | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`               |
+| Component            | File                                                               | Role                                                                                                    |
+| -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Pure state machine   | `entrypoints/content/video/session/machine.ts`                     | `(state, event) → (state, effects)`; no DOM, timers, or transport                                       |
+| Registry (lifecycle) | `entrypoints/content/video/session/registry.ts`                    | Owns live sessions, routes predictions by sessionId, dispatch loop routing effects to the modules below |
+| Session state        | `entrypoints/content/video/session/handle.ts`                      | `SessionHandle`: per-session mutable record shared by the modules                                       |
+| Frame sampler        | `entrypoints/content/video/session/frameSampler.ts`                | Frame ticker, thumbnail readiness, capture+send rounds, sampling bookkeeping                            |
+| Viewport suspension  | `entrypoints/content/video/session/viewportSuspension.ts`          | IntersectionObserver suspend/resume with grace period                                                   |
+| Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`         | Whole blur, serialized mask overlays, DVR runtime + audio delay                                         |
+| Discovery            | `entrypoints/content/handlers/handleVideos.ts`                     | Routes discovered videos: blacklist styling or registry adoption                                        |
+| Frame Sample model   | `entrypoints/content/video/frameSample.ts`                         | Separates live routing identity from reusable media-timeline identity                                   |
+| Frame capture        | `entrypoints/content/video/frameCapture.ts`                        | Canvas capture, poster extraction, CORS workaround                                                      |
+| Transport            | `entrypoints/content/communication/sender.ts`                      | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                  |
+| Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering (paused/standby verdicts)                                                   |
+| DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`               | Delayed masked canvas playback (playback verdicts)                                                      |
+| DVR buffers          | `entrypoints/content/video/dvr/{frameRing,verdictTrack}.ts`        | Media-time-keyed frame ring + verdict history                                                           |
+| Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts` | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                |
 
 ### The pure machine
 
@@ -119,7 +123,10 @@ Tuning constants (all in `machine.ts`):
 
 ### The registry / DOM adapter
 
-`registry.ts` binds each session to the real world:
+The adapter side is four modules sharing a per-session `SessionHandle` (`handle.ts`): `registry.ts`
+owns lifecycle and the dispatch loop, and routes each machine effect to the module that executes it
+— `frameSampler.ts` (capture and transport), `viewportSuspension.ts` (offscreen suspend/resume), and
+`presentationAdapter.ts` (blur, overlays, DVR). Together they bind each session to the real world:
 
 - **Adoption** (`adopt`): creates the session, applies the initial blur, binds media events (`play`,
   `pause`, `ended`, `seeked`, `loadstart`, `emptied`), starts the frame ticker, and signals
@@ -158,7 +165,7 @@ Tuning constants (all in `machine.ts`):
   distinguishes **permanent** failures (`SecurityError` — the canvas is CORS-tainted and can never
   be read) from **transient** ones (no frame data yet, zero dimensions): permanent finalizes the
   session as allow immediately, transient counts consecutive failures toward ERROR. Each
-  capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `registry.ts`) so a
+  capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `frameSampler.ts`) so a
   never-settling CORS-clone or poster load cannot occupy the in-flight slot forever. Capture stages
   have shorter internal deadlines as well: poster load/bitmap creation, CORS clone load/seek, and
   frame bitmap creation fail independently. A CORS clone mirrors active playback after its first
@@ -215,11 +222,12 @@ sample captures are capped at the active model's input size (`frameCapture.ts`, 
 refreshed on model switches) so the round-trip itself — and therefore `D` — stays small on HD
 videos. Frame and mask are composited in the same draw, mirroring the GIF player.
 
-Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the registry):
+Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the presentation adapter):
 
 - **Unsafe verdict while playing** (or `play` on an already-masked video) → instant whole-blur +
-  `startDvr`: the registry creates a `FrameRing` (rVFC captures, ≤640 px wide, ~13 fps, bounded by
-  `D`+slack and a 64 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by `timestampSec`).
+  `startDvr`: the presentation adapter creates a `FrameRing` (rVFC captures, ≤640 px wide, ~13 fps,
+  bounded by `D`+slack and a 64 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by
+  `timestampSec`).
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out almost immediately.
   While the buffer is still shorter than `D`, presentation pins on the earliest buffered frame —
