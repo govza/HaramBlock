@@ -90,8 +90,8 @@
   "About": {
     "title": "À propos",
     "extensionInformation": "Informations sur l'extension",
-    "version": "Version :",
-    "author": "Auteur :",
+    "version": "Version :",
+    "author": "Auteur :",
     "description": "Description",
     "supportLinks": "Support et liens",
     "reportBug": "Signaler un bug",
@@ -104,12 +104,12 @@
   },
   "HelpPanel": {
     "tooltip": "Survolez les icônes pour voir les info-bulles avec descriptions",
-    "contact": "Des questions ? Je suis là pour aider :"
+    "contact": "Des questions ? Je suis là pour aider :"
   },
   "ModelToggle": {
     "autoTooltip": "Mode automatique - utilise actuellement $1. Cliquez pour changer.",
-    "manualTooltip": "Modèle : $1. Cliquez pour changer.",
-    "singleModelTooltip": "Modèle : $1",
+    "manualTooltip": "Modèle : $1. Cliquez pour changer.",
+    "singleModelTooltip": "Modèle : $1",
     "errorTooltip": "Échec du changement de modèle"
   },
   "ConsoleToggle": {
