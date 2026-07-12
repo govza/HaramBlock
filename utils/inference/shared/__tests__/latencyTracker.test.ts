@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  classifyLatency,
   getLatencySnapshot,
   isLatencyWindowFull,
   onInferenceLatencySample,
@@ -78,15 +77,5 @@ describe('latencyTracker', () => {
     unsubscribe();
     record(1, 20);
     expect(listener).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe('classifyLatency', () => {
-  it('maps latency to the shared bands', () => {
-    expect(classifyLatency(30)).toBe('good');
-    expect(classifyLatency(35)).toBe('good');
-    expect(classifyLatency(36)).toBe('strained');
-    expect(classifyLatency(55)).toBe('strained');
-    expect(classifyLatency(56)).toBe('overloaded');
   });
 });

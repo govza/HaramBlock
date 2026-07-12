@@ -4,7 +4,9 @@ import { TERMINAL_PATH } from '@/components/ui/icons';
 import { CopyLogsButton } from '@/entrypoints/popup/components/footer/CopyLogsButton';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
+import { type LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import { getLogSettings, onLogSettingsChange, setLogSettings } from '@/utils/logging';
+import { backgroundRpc } from '@/utils/messaging/popup';
 import { type IImagePrediction } from '@/utils/types';
 
 interface PredictionStats {
@@ -72,6 +74,7 @@ interface PerformanceStatsProps {
 export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
   const { currentHostname, imageCacheRepository, isGlobalMode } = useHostDataContext();
   const [stats, setStats] = useState<PredictionStats | null>(null);
+  const [liveLatency, setLiveLatency] = useState<LatencySnapshot | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [consoleEnabled, setConsoleEnabled] = useState(false);
 
@@ -104,10 +107,18 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
         setStats(calculatedStats);
       } catch {
         setStats(null);
-      } finally {
-        if (showLoading) {
-          setIsInitialLoading(false);
-        }
+      }
+
+      // Live p75 of pure session.run time from the latency tracker (null until the first
+      // post-warmup samples exist in this service-worker session).
+      try {
+        setLiveLatency(await backgroundRpc.getInferenceLatency());
+      } catch {
+        setLiveLatency(null);
+      }
+
+      if (showLoading) {
+        setIsInitialLoading(false);
       }
     };
 
@@ -173,12 +184,20 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
             <span className='text-white'>
               {Math.round(stats.medianDelay)}
               <span className='text-gray-400'>ms</span>
+              {'\n'}
             </span>
 
             <span className='text-gray-400'>Batch{'\t'}</span>
             <span className='text-white'>
               {stats.avgBatchSize.toFixed(1)}
               <span className='text-gray-400'>avg</span>
+              {'\t'}
+            </span>
+
+            <span className='text-gray-400'>Latency{'\t'}</span>
+            <span className='text-white'>
+              {liveLatency ? Math.round(liveLatency.p75Ms) : 0}
+              <span className='text-gray-400'>ms</span>
             </span>
           </div>
         )}

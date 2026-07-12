@@ -112,10 +112,6 @@
     "singleModelTooltip": "Modell: $1",
     "errorTooltip": "Modellwechsel fehlgeschlagen"
   },
-  "LatencyIndicator": {
-    "tooltip": "Inferenz-Latenz von $1 auf $2 über $3 Messungen. Grün: schnell · Gelb: angespannt · Rot: zu langsam.",
-    "noDataTooltip": "Noch keine Inferenz-Aktivität"
-  },
   "ConsoleToggle": {
     "enable": "Konsolenprotokolle aktivieren",
     "disable": "Konsolenprotokolle deaktivieren"

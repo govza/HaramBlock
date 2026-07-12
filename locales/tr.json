@@ -112,10 +112,6 @@
     "singleModelTooltip": "Model: $1",
     "errorTooltip": "Model değiştirilemedi"
   },
-  "LatencyIndicator": {
-    "tooltip": "$1 modelinin $2 üzerindeki çıkarım gecikmesi ($3 örnek). Yeşil: hızlı · Sarı: zorlanıyor · Kırmızı: çok yavaş.",
-    "noDataTooltip": "Henüz çıkarım etkinliği yok"
-  },
   "ConsoleToggle": {
     "enable": "Konsol günlüklerini etkinleştir",
     "disable": "Konsol günlüklerini devre dışı bırak"
