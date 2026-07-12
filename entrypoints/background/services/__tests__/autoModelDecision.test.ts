@@ -70,8 +70,9 @@ describe('decideModelSwitch', () => {
   });
 
   it('vetoes a re-upgrade via the fresh measurement of a model we downgraded away from', () => {
-    // After downgrading 448→320 with 448 measured at 90ms, a fast 320 must not climb back:
-    // prediction alone (30ms × 1.96 ≈ 59ms... still > 50) - use 20ms so prediction would allow it.
+    // After downgrading 448→320 with 448 measured at 90ms, a fast 320 must not climb back. At
+    // 20ms the WebGPU prediction (20ms × √1.96 ≈ 28ms ≤ 35ms budget) would allow the upgrade, so
+    // only the measured veto holds it.
     const decision = decideModelSwitch(
       input({
         currentModelId: 'sem-i320',
@@ -90,7 +91,7 @@ describe('decideModelSwitch', () => {
         measured: { 'sem-i448': { p75Ms: 90, at: NOW - MEASUREMENT_TTL_MS - 1 } },
       }),
     );
-    // Prediction: 20ms × (448/320)² ≈ 39ms ≤ 50ms budget → upgrade allowed again.
+    // WebGPU prediction: 20ms × √1.96 ≈ 28ms ≤ 35ms budget → upgrade allowed again.
     expect(decision).toMatchObject({ action: 'switch', targetModelId: 'sem-i448', direction: 'upgrade' });
   });
 
