@@ -212,9 +212,9 @@ restores its remembered `auto.selectedModelId` — including a remembered `sem-i
 device, which is a legitimate verdict and not forced back up.
 
 The popup toggle border is color-coded by input size: `sem-i320` green, `sem-i448` yellow,
-`sem-i640` red; in auto mode the label shows the effective model (e.g. `auto·s448`). A separate
-footer latency box shows the live window p75 with the same green/strained/overloaded bands the
-switcher uses (see [POPUP.md](POPUP.md)).
+`sem-i640` red; in auto mode the label shows the effective model (e.g. `auto·s448`). The live window
+p75 the switcher decides on is shown as the Latency row of the popup's performance statistics (see
+[POPUP.md](POPUP.md)).
 
 ### Browser Performance (79 images)
 

@@ -33,7 +33,6 @@ entrypoints/popup/
         ├── AppVersion.tsx       # Version display
         ├── CopyLogsButton.tsx   # Export logs to clipboard
         ├── HelpToggle.tsx       # Toggle help panel
-        ├── LatencyIndicator.tsx # Live inference latency box
         ├── ModelToggle.tsx      # AI model selector
         └── OptionsIcon.tsx      # Open options page
 ```
@@ -160,14 +159,20 @@ Enable/disable quick toggle buttons that appear on images in the content script:
 
 Displays real-time performance statistics when the panel is open:
 
-| Stat       | Description                          |
-| ---------- | ------------------------------------ |
-| Detections | Number of unsafe detections on total |
-| Inference  | Median AI inference time (ms)        |
-| Throughput | Images processed per second          |
-| E2E        | Median end-to-end latency (ms)       |
+| Stat       | Description                                        |
+| ---------- | -------------------------------------------------- |
+| Detections | Number of unsafe detections on total               |
+| Inference  | Median AI inference time (ms)                      |
+| Throughput | Images processed per second                        |
+| E2E        | Median end-to-end latency (ms)                     |
+| Batch      | Average batched images per `session.run`           |
+| Latency    | Live p75 of pure per-image `session.run` time (ms) |
 
-- Data is fetched from `ImageCacheRepository` (global or per-hostname based on mode)
+- Data is fetched from `ImageCacheRepository` (global or per-hostname based on mode), except
+  Latency, which polls the latency tracker's rolling window via
+  `backgroundRpc.getInferenceLatency()` — the same signal the auto model switcher decides on (see
+  [MODEL.md](MODEL.md)); it shows `0ms` until the first post-warmup samples exist in the current
+  service-worker session
 - Stats refresh every 2 seconds while the panel is active
 - Polling stops when the panel is closed to save resources
 
@@ -196,16 +201,6 @@ renders as `s320`; in auto mode the effective model is appended (`auto·s448`), 
 `onModelSettingsChange` because auto switches persist their selection. The border is color-coded by
 input size (`s320` green, `s448` yellow, `s640` red). When only a single model is available the
 toggle is disabled.
-
-### LatencyIndicator
-
-A small box next to `ModelToggle` showing the live inference load: the p75 of pure per-image
-`session.run` time over the current rolling window, polled via `backgroundRpc.getInferenceLatency()`
-every 2s while the popup is open. Colors come from `classifyLatency` in
-`utils/inference/shared/latencyTracker.ts` — the same thresholds the auto switcher decides with — so
-green means fast (≤50ms), yellow strained (50–70ms), and red means the current model is too slow for
-this device (>70ms; auto mode would downgrade). Shows a gray `—ms` until the first samples exist
-after a service-worker start.
 
 ### AppVersion
 

@@ -112,10 +112,6 @@
     "singleModelTooltip": "Model: $1",
     "errorTooltip": "Failed to switch model"
   },
-  "LatencyIndicator": {
-    "tooltip": "Inference latency of $1 on $2 over $3 samples. Green: fast · Yellow: strained · Red: too slow.",
-    "noDataTooltip": "No inference activity yet"
-  },
   "ConsoleToggle": {
     "enable": "Enable console logs",
     "disable": "Disable console logs"

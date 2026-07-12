@@ -112,10 +112,6 @@
     "singleModelTooltip": "Modèle : $1",
     "errorTooltip": "Échec du changement de modèle"
   },
-  "LatencyIndicator": {
-    "tooltip": "Latence d'inférence de $1 sur $2 sur $3 mesures. Vert : rapide · Jaune : tendu · Rouge : trop lent.",
-    "noDataTooltip": "Aucune activité d'inférence pour l'instant"
-  },
   "ConsoleToggle": {
     "enable": "Activer les journaux de console",
     "disable": "Désactiver les journaux de console"

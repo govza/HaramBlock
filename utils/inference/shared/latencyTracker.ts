@@ -15,24 +15,14 @@
 const WINDOW_SIZE = 50;
 const WARMUP_SKIP = 2;
 
-// Shared latency bands: the auto switcher's decision thresholds and the popup's latency indicator
-// colors both derive from these, so what the user sees always matches what auto mode would do.
-//
-// The budget is a throughput target, not a hardware-derived number: the GPU run is single-flight
-// and batching rarely engages while images trickle in during scrolling, so per-image p75 maps
-// directly to images/sec (1000 / p75). Calibrated on real browsing (2026-07-12): sem-i640 at 43ms
-// p75 cleared a 153-image page in ~7s and felt slow, while sem-i448 at ~27ms (~37 img/s) felt
+// The auto switcher's decision thresholds. The budget is a throughput target, not a
+// hardware-derived number: the GPU run is single-flight and batching rarely engages while images
+// trickle in during scrolling, so per-image p75 maps directly to images/sec (1000 / p75).
+// Calibrated on real browsing (2026-07-12): sem-i640 at 43ms p75 - within the original 50ms
+// budget - cleared a 153-image page in ~7s and felt slow, while sem-i448 at ~27ms (~37 img/s) felt
 // right. 448's p75 predicts 640 at ~39ms, so a 35ms budget keeps auto at 448 even on fast GPUs.
 export const TARGET_P75_MS = 35; // budget: largest model whose p75 fits under this is the pick
 export const DOWNGRADE_ABOVE_MS = 55; // hysteresis: only above this is the current model too slow
-
-export type LatencyBand = 'good' | 'strained' | 'overloaded';
-
-export function classifyLatency(p75Ms: number): LatencyBand {
-  if (p75Ms > DOWNGRADE_ABOVE_MS) return 'overloaded';
-  if (p75Ms > TARGET_P75_MS) return 'strained';
-  return 'good';
-}
 
 export interface LatencySnapshot {
   modelId: string;

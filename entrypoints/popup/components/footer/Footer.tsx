@@ -1,6 +1,5 @@
 import { AppVersion } from '@/entrypoints/popup/components/footer/AppVersion';
 import { HelpToggle } from '@/entrypoints/popup/components/footer/HelpToggle';
-import { LatencyIndicator } from '@/entrypoints/popup/components/footer/LatencyIndicator';
 import { ModelToggle } from '@/entrypoints/popup/components/footer/ModelToggle';
 import { OptionsIcon } from '@/entrypoints/popup/components/footer/OptionsIcon';
 
@@ -15,7 +14,6 @@ export const Footer = ({ isHelpOpen, onHelpToggle }: FooterProps) => {
       <OptionsIcon />
       <div className='flex-1' />
       <AppVersion />
-      <LatencyIndicator />
       <ModelToggle />
       <HelpToggle isOpen={isHelpOpen} onToggle={onHelpToggle} />
     </div>
