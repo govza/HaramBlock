@@ -167,7 +167,7 @@ export class AutoModelService {
     this.isEvaluating = true;
     try {
       if (this.settled) {
-        this.runSlowGuard(snapshot.p75Ms);
+        await this.runSlowGuard(snapshot.p75Ms);
         return;
       }
 
@@ -198,7 +198,7 @@ export class AutoModelService {
 
   /** After settling, only a sustained regression - two full windows over the downgrade line at
    *  least SLOW_GUARD_MIN_GAP_MS apart - re-opens evaluation with a downgrade. */
-  private runSlowGuard(p75Ms: number): void {
+  private async runSlowGuard(p75Ms: number): Promise<void> {
     if (p75Ms <= DOWNGRADE_ABOVE_MS) {
       this.slowStrikeAt = 0;
       return;
@@ -214,16 +214,25 @@ export class AutoModelService {
     if (now - this.slowStrikeAt < SLOW_GUARD_MIN_GAP_MS) return;
 
     const rungs = this.getRungs();
-    const currentIndex = rungs.findIndex(r => r.id === getCurrentModelId());
+    const currentModelId = getCurrentModelId();
+    const currentIndex = rungs.findIndex(r => r.id === currentModelId);
     const smaller = rungs[currentIndex - 1];
     this.settled = false;
     this.slowStrikeAt = 0;
-    void updateAutoModelState({ settledAt: undefined });
 
-    if (smaller) {
-      void this.recordMeasurement(getCurrentModelId(), p75Ms);
-      this.requestSwitch(smaller.id, 'downgrade', `sustained p75 ${Math.round(p75Ms)}ms on settled model`);
+    if (!smaller) {
+      await updateAutoModelState({ settledAt: undefined });
+      return;
     }
+
+    // One patch, awaited before the switch: updateAutoModelState is a read-modify-write on the
+    // whole settings object, so concurrent calls clobber each other and a lost settledAt clear
+    // would replay as a false settle after the next SW restart.
+    await updateAutoModelState({
+      settledAt: undefined,
+      measured: { ...this.auto.measured, [currentModelId]: { p75Ms, at: now } },
+    });
+    this.requestSwitch(smaller.id, 'downgrade', `sustained p75 ${Math.round(p75Ms)}ms on settled model`);
   }
 
   private async recordMeasurement(modelId: string, p75Ms: number): Promise<void> {
