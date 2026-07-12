@@ -1,6 +1,7 @@
 import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
 
-import { setModelSettings, type ModelPreference } from '@/utils/modelSettings';
+import { getLatencySnapshot, type LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
+import { getModelSettings, setModelSettings, type ModelPreference } from '@/utils/modelSettings';
 
 export class ModelService {
   private onModelSwitch?: () => void;
@@ -33,8 +34,21 @@ export class ModelService {
     });
   }
 
+  // For background-internal callers after model discovery (e.g. AutoModelService).
+  getAvailableModelsSync(): { id: string; name: string; inputSize: number }[] {
+    return getAvailableModels();
+  }
+
   getCurrentModelId(): string {
     return getCurrentModelId();
+  }
+
+  getInferenceLatency(): LatencySnapshot | null {
+    return getLatencySnapshot();
+  }
+
+  async getModelPreference(): Promise<ModelPreference> {
+    return (await getModelSettings()).preference ?? 'auto';
   }
 
   async switchModel(modelId: string): Promise<void> {
@@ -42,9 +56,12 @@ export class ModelService {
     this.onModelSwitch?.();
   }
 
-  async setModelPreference(modelId: ModelPreference): Promise<void> {
-    await switchModel(modelId);
-    await setModelSettings({ preference: modelId });
-    this.onModelSwitch?.();
+  async setModelPreference(preference: ModelPreference): Promise<void> {
+    // 'auto' only persists the mode - AutoModelService reacts to the settings change, reseeds at
+    // the backend default and applies the switch itself (queue-idle aware).
+    if (preference !== 'auto') {
+      await this.switchModel(preference);
+    }
+    await setModelSettings({ preference });
   }
 }

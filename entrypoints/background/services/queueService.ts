@@ -22,6 +22,16 @@ export class QueueService {
     this.queue.concurrency = Math.max(1, concurrency);
   }
 
+  isIdle(): boolean {
+    return this.queue.size === 0 && this.queue.pending === 0;
+  }
+
+  /** Fires every time the queue drains (PQueue 'idle' event). Returns an unsubscribe function. */
+  onIdle(callback: () => void): () => void {
+    this.queue.on('idle', callback);
+    return () => this.queue.off('idle', callback);
+  }
+
   enqueue(task: InferenceTask, signal?: AbortSignal): Promise<void> {
     // p-queue: higher priority number = runs first
     return this.queue.add(

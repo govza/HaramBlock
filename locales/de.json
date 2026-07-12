@@ -107,9 +107,14 @@
     "contact": "Fragen? Ich bin hier, um zu helfen:"
   },
   "ModelToggle": {
+    "autoTooltip": "Automatischer Modus - verwendet derzeit $1. Klicken zum Wechseln.",
     "manualTooltip": "Modell: $1. Klicken zum Wechseln.",
     "singleModelTooltip": "Modell: $1",
     "errorTooltip": "Modellwechsel fehlgeschlagen"
+  },
+  "LatencyIndicator": {
+    "tooltip": "Inferenz-Latenz von $1 auf $2 über $3 Messungen. Grün: schnell · Gelb: angespannt · Rot: zu langsam.",
+    "noDataTooltip": "Noch keine Inferenz-Aktivität"
   },
   "ConsoleToggle": {
     "enable": "Konsolenprotokolle aktivieren",

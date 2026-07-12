@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { t } from '@/utils/i18n';
 import { backgroundRpc } from '@/utils/messaging/popup';
-import { onModelSettingsChange } from '@/utils/modelSettings';
+import { onModelSettingsChange, type ModelPreference } from '@/utils/modelSettings';
 
 type ModelInfo = { id: string; name: string; inputSize: number };
 
@@ -20,7 +20,8 @@ const borderColorClass = (model: ModelInfo | undefined): string => {
 
 export const ModelToggle = () => {
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [preference, setPreference] = useState<ModelPreference | null>(null);
+  const [effectiveId, setEffectiveId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
 
@@ -32,11 +33,17 @@ export const ModelToggle = () => {
       if (active) setModels(available);
     };
 
-    // The background persists every manual switch via setModelSettings, so re-read the loaded model
-    // whenever settings change to keep the label live (no popup reopen needed).
+    // The background persists every auto/manual switch via setModelSettings, so re-read the loaded
+    // model whenever settings change to keep the label live (no popup reopen needed).
     const refreshSelection = async () => {
-      const effective = await backgroundRpc.getEffectiveModelId();
-      if (active) setCurrentId(effective);
+      const [pref, effective] = await Promise.all([
+        backgroundRpc.getModelPreference(),
+        backgroundRpc.getEffectiveModelId(),
+      ]);
+      if (active) {
+        setPreference(pref);
+        setEffectiveId(effective);
+      }
     };
 
     void loadModels();
@@ -50,21 +57,31 @@ export const ModelToggle = () => {
   }, []);
 
   const sortedModels = [...models].sort((a, b) => a.inputSize - b.inputSize);
+  const isAuto = preference === 'auto';
 
   const handleClick = () => {
     if (sortedModels.length === 0 || isLoading) return;
 
-    // Cycle through the available models in ascending input-size order.
-    const currentIndex = sortedModels.findIndex(m => m.id === currentId);
-    const next = sortedModels[(currentIndex + 1) % sortedModels.length];
+    // Cycle: auto → model1 → model2 → ... → auto. When leaving auto, skip the model that is
+    // already effective - selecting it manually would be a no-op switch.
+    const options = ['auto', ...sortedModels.map(m => m.id)];
+    const currentIndex = options.indexOf(preference ?? 'auto');
+    let nextIndex = (currentIndex + 1) % options.length;
+    if (isAuto && options[nextIndex] === effectiveId) {
+      nextIndex = (nextIndex + 1) % options.length;
+    }
+
+    const next = options[nextIndex];
     if (!next) return;
 
     setIsLoading(true);
     setHasError(false);
     void (async () => {
       try {
-        await backgroundRpc.setModelPreference(next.id);
-        setCurrentId(next.id);
+        await backgroundRpc.setModelPreference(next);
+        setPreference(next);
+        const newEffective = await backgroundRpc.getEffectiveModelId();
+        setEffectiveId(newEffective);
       } catch (error) {
         console.error('Failed to switch model:', error);
         setHasError(true);
@@ -76,18 +93,28 @@ export const ModelToggle = () => {
   };
 
   const singleModel = models.length === 1 ? models[0] : undefined;
-  const currentModel = models.find(m => m.id === currentId);
-  const displayId = formatModelLabel(currentModel) || currentId || '...';
+  const effectiveModel = models.find(m => m.id === effectiveId);
+  const selectedModel = isAuto ? effectiveModel : models.find(m => m.id === preference);
+
+  const getDisplayId = () => {
+    if (singleModel) return formatModelLabel(singleModel);
+    if (isAuto) {
+      const effectiveLabel = formatModelLabel(effectiveModel);
+      return effectiveLabel ? `auto·${effectiveLabel}` : 'auto';
+    }
+    return formatModelLabel(selectedModel) || preference || '...';
+  };
 
   const getTooltip = () => {
     if (hasError) return t('ModelToggle.errorTooltip');
     if (singleModel) return t('ModelToggle.singleModelTooltip', [singleModel.name]);
-    return t('ModelToggle.manualTooltip', [currentModel?.name ?? currentId ?? '']);
+    if (isAuto) return t('ModelToggle.autoTooltip', [effectiveModel?.name ?? effectiveId ?? '...']);
+    return t('ModelToggle.manualTooltip', [selectedModel?.name ?? preference ?? '']);
   };
 
   const baseClasses = 'cursor-pointer rounded border px-0.5 py-px text-[10px] font-medium disabled:opacity-50';
   const cursorClass = isLoading ? 'disabled:cursor-wait' : 'disabled:cursor-default';
-  const stateClasses = hasError ? 'border-red-500 text-red-500' : borderColorClass(currentModel);
+  const stateClasses = hasError ? 'border-red-500 text-red-500' : borderColorClass(selectedModel);
 
   return (
     <button
@@ -96,7 +123,7 @@ export const ModelToggle = () => {
       disabled={isLoading || models.length === 0 || Boolean(singleModel)}
       title={getTooltip()}
     >
-      {displayId}
+      {getDisplayId()}
     </button>
   );
 };

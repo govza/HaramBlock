@@ -164,23 +164,57 @@ These are `dynamic=True` exports (dynamic batch dim), which enables adaptive bat
 
 ### Model Selection
 
-Model selection is **manual**. The popup's model toggle (`ModelToggle`) cycles through the available
-models in ascending input-size order and persists the choice as `preference` in
-`browser.storage.local` (key `modelSettings`), so it survives service-worker restarts.
+Model selection defaults to **auto** (`preference: 'auto'` in `browser.storage.local` key
+`modelSettings`; an absent preference means auto). The popup's model toggle (`ModelToggle`) cycles
+`auto → sem-i320 → sem-i448 → sem-i640 → auto`, so any model can still be pinned manually; a pinned
+model persists and disables the auto switcher until the toggle returns to auto.
 
-On first run, before any choice is made, the startup default uses WebGPU API availability as a
-proxy: browsers exposing `navigator.gpu` start at the balanced `sem-i448` (it runs ~25ms on WebGPU),
-while browsers without WebGPU start at the `sem-i320` baseline (the registry `DEFAULT_MODEL_ID`,
-since `sem-i448` is ~110ms on WASM). If WebGPU is present but the session falls back to WASM, the
-selected model remains `sem-i448`; use the popup toggle to move down to `sem-i320` if the WASM path
-is too slow. Switch up to `sem-i640` (highest quality) or down as needed from the toggle.
+#### Auto switching (`AutoModelService`)
 
-`sem-i640` is WebGPU-only in practice — on WASM it runs at ~247ms — so prefer `sem-i320` /
-`sem-i448` without WebGPU. See the performance tables below for the size/latency trade-off per
-backend.
+Auto mode picks the largest model whose measured latency fits a budget, using a signal designed
+around the failure modes that killed the first auto switcher (removed in `b12fe5f`: polluted
+end-to-end timings, judging a model on its predecessor's samples, and cooldowns that reset with
+every service-worker restart — together they ratcheted every device down to `sem-i320`):
+
+- **Clean signal** (`utils/inference/shared/latencyTracker.ts`): pure per-image `session.run` wall
+  time, measured inside the run lock (no queue wait, no runtime-acquire/switch wait, no
+  pre/postprocessing, no lock wait from overlapping batches; batched runs divide by batch size). The
+  rolling window (50 samples) is keyed by model + backend and resets when either changes, so a model
+  is only judged on its own samples; the first 2 samples after a reset are discarded as residual
+  warmup, and warmup runs themselves are never recorded.
+- **Decision** (`entrypoints/background/services/autoModelDecision.ts`, pure + unit-tested): with
+  ≥30 samples, downgrade when p75 > 55ms; upgrade when the next rung's estimated cost ≤ 35ms —
+  estimated from a fresh measured p75 for that rung when one exists, else extrapolated from the
+  pixel ratio, backend-aware: quadratic on WASM (CPU-bound, 58→110→247ms across the rungs) but
+  √(pixel ratio) on WebGPU, whose dispatch scales much flatter (22→25→36ms per the tables below);
+  otherwise **settle**. The 35ms budget was calibrated on real browsing: `sem-i640` at 43ms p75
+  cleared a 153-image page in ~7s and felt slow, `sem-i448` at ~27ms felt right, so the budget sits
+  below 448's ~39ms prediction for 640 and fast GPUs settle at 448.
+- **Anti-flapping**: the current model's p75 is persisted before every switch
+  (`modelSettings.auto.measured`, 7-day TTL), so a model that was downgraded away from keeps vetoing
+  re-upgrades.
+- **Rare switching**: every switch stalls queued inference through session teardown + reload +
+  warmup, so switches apply only when the inference queue is idle, are capped at 2 per
+  service-worker session (the 3-rung ladder converges in ≤2 steps), and respect persisted cooldowns
+  (30min up / 5min down) anchored on `auto.lastSwitchAt`. Once settled, evaluation stops except for
+  a slow guard: two full windows over the downgrade line ≥10min apart trigger one downgrade. A full
+  re-evaluation only happens on backend change, settle expiry (7 days), or re-enabling auto.
+
+`sem-i640` is WebGPU-only in practice — on WASM it runs at ~247ms — so the auto ladder never
+upgrades to it on WASM and a remembered 640 falls back to the baseline when WebGPU is lost.
+
+#### Startup default
+
+Before any samples exist, startup uses WebGPU API availability as a proxy: browsers exposing
+`navigator.gpu` start at the balanced `sem-i448` (~25ms on WebGPU), others at the `sem-i320`
+baseline (the registry `DEFAULT_MODEL_ID`, since `sem-i448` is ~110ms on WASM). Afterwards auto mode
+restores its remembered `auto.selectedModelId` — including a remembered `sem-i320` on a slow WebGPU
+device, which is a legitimate verdict and not forced back up.
 
 The popup toggle border is color-coded by input size: `sem-i320` green, `sem-i448` yellow,
-`sem-i640` red.
+`sem-i640` red; in auto mode the label shows the effective model (e.g. `auto·s448`). A separate
+footer latency box shows the live window p75 with the same green/strained/overloaded bands the
+switcher uses (see [POPUP.md](POPUP.md)).
 
 ### Browser Performance (79 images)
 
