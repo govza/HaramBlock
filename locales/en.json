@@ -107,9 +107,14 @@
     "contact": "Any questions? I'm here to help:"
   },
   "ModelToggle": {
+    "autoTooltip": "Auto mode - currently using $1. Click to switch.",
     "manualTooltip": "Model: $1. Click to switch.",
     "singleModelTooltip": "Model: $1",
     "errorTooltip": "Failed to switch model"
+  },
+  "LatencyIndicator": {
+    "tooltip": "Inference latency of $1 on $2 over $3 samples. Green: fast · Yellow: strained · Red: too slow.",
+    "noDataTooltip": "No inference activity yet"
   },
   "ConsoleToggle": {
     "enable": "Enable console logs",

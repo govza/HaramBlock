@@ -33,6 +33,7 @@ entrypoints/popup/
         ├── AppVersion.tsx       # Version display
         ├── CopyLogsButton.tsx   # Export logs to clipboard
         ├── HelpToggle.tsx       # Toggle help panel
+        ├── LatencyIndicator.tsx # Live inference latency box
         ├── ModelToggle.tsx      # AI model selector
         └── OptionsIcon.tsx      # Open options page
 ```
@@ -178,18 +179,33 @@ Opens the extension's options page via `browser.runtime.openOptionsPage()`.
 
 ### ModelToggle
 
-Cycles through the available models in ascending input-size order, persisting each manual choice.
-Communicates with the background service worker via `backgroundRpc`:
+Cycles `auto → s320 → s448 → s640 → auto` (models in ascending input-size order; leaving auto skips
+the model that is already effective). Each choice is persisted; picking `auto` hands control to the
+background `AutoModelService` (see [MODEL.md](MODEL.md)). Communicates with the background service
+worker via `backgroundRpc`:
 
 ```ts
 backgroundRpc.getAvailableModels();
-backgroundRpc.setModelPreference(modelId); // persisted model id
+backgroundRpc.setModelPreference(preference); // 'auto' or a persisted model id
+backgroundRpc.getModelPreference();
 backgroundRpc.getEffectiveModelId();
 ```
 
 The button shows a compact label — first letter of the model id plus its input size, so `sem-i320`
-renders as `s320`. The border is color-coded by input size (`s320` green, `s448` yellow, `s640`
-red). When only a single model is available the toggle is disabled.
+renders as `s320`; in auto mode the effective model is appended (`auto·s448`), kept live via
+`onModelSettingsChange` because auto switches persist their selection. The border is color-coded by
+input size (`s320` green, `s448` yellow, `s640` red). When only a single model is available the
+toggle is disabled.
+
+### LatencyIndicator
+
+A small box next to `ModelToggle` showing the live inference load: the p75 of pure per-image
+`session.run` time over the current rolling window, polled via `backgroundRpc.getInferenceLatency()`
+every 2s while the popup is open. Colors come from `classifyLatency` in
+`utils/inference/shared/latencyTracker.ts` — the same thresholds the auto switcher decides with — so
+green means fast (≤50ms), yellow strained (50–70ms), and red means the current model is too slow for
+this device (>70ms; auto mode would downgrade). Shows a gray `—ms` until the first samples exist
+after a service-worker start.
 
 ### AppVersion
 

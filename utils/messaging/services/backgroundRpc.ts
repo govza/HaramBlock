@@ -8,6 +8,7 @@ import type { IconService } from '@/entrypoints/background/services/iconService'
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type { ModelService } from '@/entrypoints/background/services/modelService';
+import type { LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import type { WideEvent } from '@/utils/logging/types';
 import type { ModelPreference } from '@/utils/modelSettings';
 import type {
@@ -299,8 +300,16 @@ export class BackgroundRpc {
     await this.modelService.setModelPreference(preference);
   }
 
+  getModelPreference(): Promise<ModelPreference> {
+    return this.modelService.getModelPreference();
+  }
+
   getEffectiveModelId(): Promise<string> {
     return Promise.resolve(this.modelService.getCurrentModelId());
+  }
+
+  getInferenceLatency(): Promise<LatencySnapshot | null> {
+    return Promise.resolve(this.modelService.getInferenceLatency());
   }
 
   // ============ Subscription Methods (replaces onMessage listeners) ============

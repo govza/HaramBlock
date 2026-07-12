@@ -5,6 +5,7 @@ import '@/utils/inference/serviceWorkerPolyfills';
 import * as ort from 'onnxruntime-web';
 
 import { runWithQueuePoke } from '@/utils/inference/runtimes/onnx/webgpuQueuePoker';
+import { recordInferenceRun } from '@/utils/inference/shared/latencyTracker';
 import {
   createConfigFromMetadata,
   DEFAULT_CONFIG,
@@ -162,16 +163,31 @@ function withRunLock<T>(run: () => Promise<T>): Promise<T> {
 export async function runSession(
   sessionToRun: ort.InferenceSession,
   feeds: Record<string, ort.Tensor>,
+  options: { recordLatency?: boolean } = {},
 ): Promise<ort.InferenceSession.OnnxValueMapType> {
   return withRunLock(async () => {
+    // Time inside the run lock: measured from the caller, overlapping batches would count lock
+    // wait as inference time. These samples drive automatic model switching (latencyTracker.ts).
+    const batchSize = Object.values(feeds)[0]?.dims[0] ?? 1;
+    const runStartAt = performance.now();
+
+    let results: ort.InferenceSession.OnnxValueMapType;
     if (needsFirefoxQueuePoke()) {
       // Fetch the device on every run: ONNX Runtime creates a NEW GPUDevice after a model
       // switch (session release + create), and poking a stale device's queue does nothing.
       // The getter resolves immediately since the WebGPU session already exists here.
       const gpuDevice = await ort.env.webgpu.device;
-      return runWithQueuePoke(gpuDevice, () => sessionToRun.run(feeds));
+      results = await runWithQueuePoke(gpuDevice, () => sessionToRun.run(feeds));
+    } else {
+      results = await sessionToRun.run(feeds);
     }
-    return sessionToRun.run(feeds);
+
+    // Attribute to sessionModelId (the loaded session's model): currentModelId already points at
+    // the target model while a switch is in flight.
+    if (options.recordLatency !== false && sessionModelId && cachedBackend !== 'unknown') {
+      recordInferenceRun(sessionModelId, cachedBackend, (performance.now() - runStartAt) / batchSize);
+    }
+    return results;
   });
 }
 
@@ -200,7 +216,7 @@ async function runSingleWarmup(
   const feeds: Record<string, ort.Tensor> = { [modelConfig.inputName]: dummyTensor };
 
   const t0 = performance.now();
-  const results = await runSession(sessionToWarm, feeds);
+  const results = await runSession(sessionToWarm, feeds, { recordLatency: false });
   const elapsed = performance.now() - t0;
 
   for (const key of Object.keys(results)) {

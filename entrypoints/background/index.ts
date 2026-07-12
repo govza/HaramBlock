@@ -9,13 +9,37 @@ import {
   InferenceOrchestrationService,
   IconService,
 } from '@/entrypoints/background/services';
+import {
+  BALANCED_MODEL_ID,
+  BASELINE_MODEL_ID,
+  isAutoPreference,
+  isBackendCapableOf,
+} from '@/entrypoints/background/services/autoModelDecision';
+import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
-import { getModelSettings, setModelSettings } from '@/utils/modelSettings';
+import { getModelSettings, setModelSettings, updateAutoModelState, type ModelSettings } from '@/utils/modelSettings';
 
-// First-run default when WebGPU is available; without it the registry baseline (sem-i320) loads.
-const WEBGPU_DEFAULT_MODEL_ID = 'sem-i448';
+// Resolve which model to load at startup. A manual preference always wins. In auto mode, honor the
+// remembered auto selection when this environment can run it - unlike the old auto switcher, a
+// remembered sem-i320 on a WebGPU browser is a legitimate slow-GPU verdict, not forced back up to
+// the balanced default. The real backend is unknown until the session exists, so WebGPU API
+// availability is the proxy: with it, first-run starts at the balanced sem-i448 (~25ms on WebGPU);
+// without it, the registry baseline sem-i320 loads (sem-i448 is ~110ms on WASM).
+function getStartupModelId(settings: ModelSettings): string | undefined {
+  if (!isAutoPreference(settings.preference)) {
+    return settings.preference;
+  }
+
+  const hasWebGpu = 'gpu' in navigator;
+  const remembered = settings.auto?.selectedModelId;
+  if (remembered) {
+    return isBackendCapableOf(remembered, hasWebGpu ? 'webgpu' : 'wasm') ? remembered : BASELINE_MODEL_ID;
+  }
+
+  return hasWebGpu ? BALANCED_MODEL_ID : undefined;
+}
 
 export default defineBackground({
   type: 'module',
@@ -60,6 +84,9 @@ export default defineBackground({
     // Re-size queue concurrency to the new model's batch cap on every switch.
     modelService.setOnModelSwitch(() => inferenceService.refreshConcurrency());
 
+    // Latency-driven auto model switching (initialized after inference below).
+    const autoModelService = new AutoModelService(modelService, queueService);
+
     // Initialize all event listeners
     contextMenuListener.initialize((src, forcedVisibility) => {
       backgroundRpc.emitContextMenuToggle(src, forcedVisibility);
@@ -71,11 +98,11 @@ export default defineBackground({
       void iconService.updateIconForActiveTab();
     });
 
-    // Initialize inference with the stored model, or a sensible first-run default: WebGPU can run
-    // the larger 448 comfortably, while WASM stays on the 320 baseline (448 is ~110ms on WASM).
+    // Initialize inference with the resolved startup model, then the auto model service.
     void (async () => {
-      const { preference } = await getModelSettings();
-      const preferredModelId = preference ?? ('gpu' in navigator ? WEBGPU_DEFAULT_MODEL_ID : undefined);
+      const settings = await getModelSettings();
+      const isAuto = isAutoPreference(settings.preference);
+      const preferredModelId = getStartupModelId(settings);
 
       try {
         await initializeInference(preferredModelId);
@@ -97,13 +124,19 @@ export default defineBackground({
             error,
           );
         if (!stillAvailable) {
-          await setModelSettings({ preference: undefined });
+          if (isAuto) {
+            await updateAutoModelState({ selectedModelId: undefined });
+          } else {
+            await setModelSettings({ preference: 'auto' });
+          }
         }
         await initializeInference();
       }
 
       // Backend and model are resolved now: size concurrency to the active model's batch cap.
       inferenceService.refreshConcurrency();
+
+      await autoModelService.initialize();
     })().catch(error => {
       logger.withTag('background').error('Failed to initialize inference:', error);
     });

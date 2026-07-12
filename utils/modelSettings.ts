@@ -1,13 +1,27 @@
 import { logger } from '@/utils/logger';
 
-export type ModelPreference = string;
+export type ModelPreference = 'auto' | (string & {});
+
+/**
+ * Persisted state of the automatic model switcher. Everything the switcher needs to be stable
+ * across service-worker restarts lives here - the old auto switcher kept its cooldowns in memory,
+ * so every SW restart re-armed it and it could ratchet models down repeatedly.
+ */
+export interface AutoModelState {
+  selectedModelId?: string; // What auto chose (applied on startup)
+  backend?: string; // Backend the state was built on; a mismatch invalidates the whole state
+  settledAt?: number; // Set once auto has converged; cleared when re-evaluation is needed
+  lastSwitchAt?: number; // Cooldown anchor for auto switches
+  measured?: Record<string, { p75Ms: number; at: number }>; // Per-model measured latency on `backend`
+}
 
 export interface ModelSettings {
-  preference?: ModelPreference;
+  preference?: ModelPreference; // undefined is treated as 'auto'
+  auto?: AutoModelState;
 }
 
 const STORAGE_KEY = 'modelSettings';
-const DEFAULT_SETTINGS: ModelSettings = {};
+const DEFAULT_SETTINGS: ModelSettings = { preference: 'auto' };
 
 interface StorageChange {
   oldValue?: unknown;
@@ -30,6 +44,12 @@ export const setModelSettings = async (settings: Partial<ModelSettings>): Promis
   await browser.storage.local.set({
     [STORAGE_KEY]: newSettings,
   });
+};
+
+/** Merge a partial update into the persisted auto switcher state. */
+export const updateAutoModelState = async (patch: Partial<AutoModelState>): Promise<void> => {
+  const current = await getModelSettings();
+  await setModelSettings({ auto: { ...current.auto, ...patch } });
 };
 
 export const onModelSettingsChange = (callback: (settings: ModelSettings) => void): (() => void) => {

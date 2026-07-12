@@ -107,9 +107,14 @@
     "contact": "Sorularınız mı var? Yardımcı olmak için buradayım:"
   },
   "ModelToggle": {
+    "autoTooltip": "Otomatik mod - şu anda $1 kullanılıyor. Değiştirmek için tıklayın.",
     "manualTooltip": "Model: $1. Değiştirmek için tıklayın.",
     "singleModelTooltip": "Model: $1",
     "errorTooltip": "Model değiştirilemedi"
+  },
+  "LatencyIndicator": {
+    "tooltip": "$1 modelinin $2 üzerindeki çıkarım gecikmesi ($3 örnek). Yeşil: hızlı · Sarı: zorlanıyor · Kırmızı: çok yavaş.",
+    "noDataTooltip": "Henüz çıkarım etkinliği yok"
   },
   "ConsoleToggle": {
     "enable": "Konsol günlüklerini etkinleştir",
