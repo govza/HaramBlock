@@ -1,13 +1,18 @@
 import { resetBadgeCount } from '@/entrypoints/content/communication/sender';
 import { MediaPipeline } from '@/entrypoints/content/core/MediaPipeline';
 import { useHostData } from '@/entrypoints/content/hooks/useHostData';
+import { InstanceLifecycle } from '@/entrypoints/content/lifecycle/instanceLifecycle';
+import { claimInstanceSentinel } from '@/entrypoints/content/lifecycle/instanceSentinel';
+import { sweepPredecessorArtifacts } from '@/entrypoints/content/lifecycle/predecessorSweep';
+import { removeRemainingInitialStyling } from '@/entrypoints/content/presentation/initialStyling';
 import {
   injectGlobalHidingDomStyles,
   injectPredictionDomStyles,
   injectVideoDiscoveryHidingStyles,
 } from '@/entrypoints/content/presentation/styleInjecting';
+import { isExtensionContextValid } from '@/utils/extensionContext';
 import { logger } from '@/utils/logger';
-import { warmupMessageChannel } from '@/utils/messaging/content';
+import { onMessageChannelPermanentDeath, warmupMessageChannel } from '@/utils/messaging/content';
 
 let stopPipeline: (() => void) | null = null;
 
@@ -24,12 +29,37 @@ export default defineContentScript({
     if (!ct || (ct !== 'text/html' && ct !== 'application/xhtml+xml' && !ct.startsWith('image/'))) return;
 
     logger.withTag('content').debug('Starting content script initialization...');
-    warmupMessageChannel();
+    // Claim the page before anything else: stamping the sentinel makes any
+    // orphaned predecessor (extension reload/update) tear itself down, and the
+    // sweep removes what a crashed predecessor could not.
+    const onSuperseded = claimInstanceSentinel();
+    sweepPredecessorArtifacts();
+
     // Hide media before page code can paint it. `shreddit-player` is included
     // because document styles cannot reach the video inside its shadow root;
     // hiding the host closes Reddit's pre-discovery first-frame gap.
     const hideInitStyle = injectGlobalHidingDomStyles();
     injectPredictionDomStyles();
+
+    const lifecycle = new InstanceLifecycle({
+      isContextValid: isExtensionContextValid,
+      onSuperseded,
+      onTransportDead: onMessageChannelPermanentDeath,
+      stopPipeline: () => {
+        if (stopPipeline) {
+          stopPipeline();
+          stopPipeline = null;
+        }
+      },
+      removeInitialStyling: () => {
+        hideInitStyle.remove();
+        removeRemainingInitialStyling();
+      },
+    });
+    // Subscribe before the channel warmup below so an establishment failure
+    // can never fire the permanent-death event into a missing listener.
+    lifecycle.start();
+    warmupMessageChannel();
 
     try {
       // Get host settings and cached predictions
@@ -39,6 +69,10 @@ export default defineContentScript({
       if (globalThis.self === globalThis.top) void resetBadgeCount();
 
       await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
+        // Orphaned while the settings request was in flight: creating the
+        // pipeline now would resurrect an instance that already failed open.
+        if (lifecycle.isTornDown) return;
+
         // Clean up existing instances
         if (stopPipeline) {
           stopPipeline();

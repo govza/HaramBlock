@@ -521,6 +521,25 @@ import { provideBackgroundRpc, CompositeProvideAdapter } from '@/utils/messaging
 const rpc = provideBackgroundRpc(new CompositeProvideAdapter(), ...services);
 ```
 
+## Channel Death and Instance Lifecycle
+
+The channel dies in two distinct ways, and the content script reacts differently to each:
+
+1. **Service-worker idle kill** (same instance, context still valid): the SW's end of the channel is
+   disentangled and the port `close` event fires. The adapter only marks the channel dead
+   (`resetState()`); the next send lazily re-establishes it. Nothing is torn down.
+2. **Extension context invalidated** (reload, update, disable, removal): channel establishment
+   itself fails because `browser.runtime` APIs throw. The adapter surfaces this as a permanent-death
+   event (`onMessageChannelPermanentDeath` in `utils/messaging/content.ts`), which the content
+   script's `InstanceLifecycle` (`entrypoints/content/lifecycle/`) consumes to fail open: dispose
+   all video sessions, stop the pipeline, and strip pre-verdict styling.
+
+Orphaned instances are additionally detected by a pure-DOM supersede sentinel: each instance stamps
+a nonce onto `<html data-haramblock-instance>` at startup and observes it. When a successor instance
+(injected after an extension reload/update) stamps its own nonce, every earlier instance tears
+itself down — this works even though the orphan's extension APIs all throw. The successor also
+sweeps overlay elements a crashed predecessor left behind before adopting media itself.
+
 ## Security
 
 - Secret-based pairing (crypto.randomUUID)

@@ -38,3 +38,13 @@ export function waitForMessageChannel(): Promise<boolean> {
 export function warmupMessageChannel(): void {
   hybridAdapter.warmupChannel();
 }
+
+/**
+ * Subscribe to permanent MessageChannel death: channel establishment failed
+ * because the extension context is invalidated (reload, update, disable,
+ * removal). The instance lifecycle uses this to fail open when no successor
+ * ever stamps the supersede sentinel. Returns an unsubscribe function.
+ */
+export function onMessageChannelPermanentDeath(callback: () => void): () => void {
+  return hybridAdapter.onChannelPermanentDeath(callback);
+}
