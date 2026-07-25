@@ -35,7 +35,7 @@ import { logger } from '@/utils/logger';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
 
-const log = logger.withTag('videoSession');
+const log = logger.withTag('videoSession:registry');
 
 const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   safe: 'safe',
@@ -84,8 +84,12 @@ class VideoSessionRegistry {
   /** Videos awaiting a resolved source; strong so disposeAll/sweep can cancel the waits. */
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAdoption>();
 
+  // Every port forwards through an arrow so the modules resolve each other at
+  // call time, not at field-initialization time: the wiring stays correct
+  // however these three fields are ordered.
   private readonly presentation = new PresentationAdapter({
     dispatch: (handle, event) => this.dispatch(handle, event),
+    currentDelaySec: handle => this.sampler.currentDvrDelaySec(handle),
   });
 
   private readonly sampler = new FrameSampler({
@@ -96,7 +100,14 @@ class VideoSessionRegistry {
   private readonly suspension = new ViewportSuspension({
     handleFor: video => this.byVideo.get(video),
     dispatch: (handle, event) => this.dispatch(handle, event),
-    sampler: this.sampler,
+    sampler: {
+      startTicker: handle => this.sampler.startTicker(handle),
+      stopTicker: handle => this.sampler.stopTicker(handle),
+      invalidateForSuspend: handle => this.sampler.invalidateForSuspend(handle),
+      replayDeferredThumbnail: handle => this.sampler.replayDeferredThumbnail(handle),
+      consumePendingResample: handle => this.sampler.consumePendingResample(handle),
+      discardPendingResample: handle => this.sampler.discardPendingResample(handle),
+    },
     reapplyStaticMask: handle => {
       applyWholeBlur(handle.video, handle.hostSettings);
       this.presentation.applyVerdictOverlay(handle, true);

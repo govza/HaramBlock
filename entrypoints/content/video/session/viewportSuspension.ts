@@ -39,9 +39,10 @@ export function isVideoNearViewport(video: HTMLVideoElement): boolean {
 export interface SuspensionSamplerPort {
   startTicker(handle: SessionHandle): void;
   stopTicker(handle: SessionHandle): void;
-  cancelInflight(handle: SessionHandle): void;
+  invalidateForSuspend(handle: SessionHandle): void;
   replayDeferredThumbnail(handle: SessionHandle): void;
   consumePendingResample(handle: SessionHandle): boolean;
+  discardPendingResample(handle: SessionHandle): void;
 }
 
 export interface SuspensionPorts {
@@ -106,7 +107,8 @@ export class ViewportSuspension {
     if (handle.suspended === suspended || handle.state.phase === 'disposed') return;
     handle.suspended = suspended;
     if (suspended) {
-      this.ports.sampler.cancelInflight(handle);
+      // After handle.suspended is set: invalidateForSuspend arms the resume re-sample.
+      this.ports.sampler.invalidateForSuspend(handle);
       // Reuse the machine's playback hand-back so DVR state, audio, and the
       // ring are released consistently, then stop frame delivery entirely.
       if (handle.state.phase === 'sampling') {
@@ -119,7 +121,7 @@ export class ViewportSuspension {
     this.ports.sampler.startTicker(handle);
     this.ports.sampler.replayDeferredThumbnail(handle);
     if (!handle.video.paused && !handle.video.ended) {
-      this.ports.sampler.consumePendingResample(handle); // fresh playback sampling supersedes it
+      this.ports.sampler.discardPendingResample(handle); // fresh playback sampling supersedes it
       this.ports.dispatch(handle, { type: 'play', at: performance.now() });
     } else {
       if (handle.state.masked) {

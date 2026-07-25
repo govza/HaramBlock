@@ -1,0 +1,293 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { DEFAULT_DVR_DELAY_MS, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
+import { FrameSampler, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
+import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
+
+import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
+
+const { cancelVideoSessionInference, requestVideoFrameInference } = vi.hoisted(() => ({
+  cancelVideoSessionInference: vi.fn(() => Promise.resolve()),
+  requestVideoFrameInference: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('@/entrypoints/content/communication/sender', () => ({
+  cancelVideoSessionInference,
+  requestVideoFrameInference,
+}));
+
+type FrameCallback = (now: number, metadata: { mediaTime: number }) => void;
+
+class FakeVideo {
+  paused = true;
+  ended = false;
+  currentTime = 0;
+  videoWidth = 640;
+  videoHeight = 360;
+  readonly cancelled: number[] = [];
+  lastFrameCallback: FrameCallback | null = null;
+  private nextCallbackId = 1;
+
+  requestVideoFrameCallback = vi.fn((callback: FrameCallback) => {
+    this.lastFrameCallback = callback;
+    return this.nextCallbackId++;
+  });
+  cancelVideoFrameCallback = vi.fn((id: number) => this.cancelled.push(id));
+}
+
+function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
+  return {
+    sessionId: 'session-1',
+    video: new FakeVideo() as unknown as HTMLVideoElement,
+    srcObject: null,
+    src: 'https://example.test/clip.mp4',
+    hostSettings: { hostname: 'example.test' } as SessionHandle['hostSettings'],
+    state: createVideoSession().state,
+    lastPrediction: null,
+    lastUnsafePrediction: null,
+    timers: new Map(),
+    stopTicker: null,
+    removeListeners: () => {},
+    overlayChain: Promise.resolve(),
+    dvr: null,
+    pendingSamples: new Map(),
+    latenciesMs: [],
+    suspended: false,
+    suspendGrace: null,
+    captureEpoch: 0,
+    pendingThumbnailCapture: false,
+    pendingResample: false,
+    sentPlaybackFrame: false,
+    ...overrides,
+  };
+}
+
+function makeSampler() {
+  const dispatched: SessionEvent[] = [];
+  const ringCaptures: number[] = [];
+  const ports: SamplerPorts = {
+    dispatch: (_handle, event) => dispatched.push(event),
+    captureIntoRing: (_handle, mediaTime) => ringCaptures.push(mediaTime),
+  };
+  return { sampler: new FrameSampler(ports), dispatched, ringCaptures };
+}
+
+describe('FrameSampler suspension bookkeeping', () => {
+  beforeEach(() => {
+    vi.stubGlobal('performance', { now: () => 1_000 });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('invalidates the in-flight capture and arms a re-sample on suspend', () => {
+    const { sampler, dispatched } = makeSampler();
+    const handle = makeHandle({ suspended: true, sentPlaybackFrame: true });
+    handle.state = { ...handle.state, inflightIndex: 7 };
+    handle.pendingSamples.set(7, {
+      sessionId: 'session-1',
+      frameIndex: 7,
+      videoUrl: '',
+      timestampSec: 3,
+      capturedAt: 0,
+    });
+
+    sampler.invalidateForSuspend(handle);
+
+    // The epoch bump is what makes a capture resolving after a fast
+    // suspend→resume drop its stale frame instead of sending it.
+    expect(handle.captureEpoch).toBe(1);
+    expect(handle.pendingSamples.has(7)).toBe(false);
+    expect(handle.pendingResample).toBe(true);
+    expect(dispatched).toEqual([{ type: 'sampleCancelled', frameIndex: 7, at: 1_000 }]);
+    expect(cancelVideoSessionInference).toHaveBeenCalledWith('session-1');
+  });
+
+  it('skips the cancel RPC before any playback frame was sent', () => {
+    const { sampler, dispatched } = makeSampler();
+    const handle = makeHandle({ suspended: true, sentPlaybackFrame: false });
+
+    sampler.invalidateForSuspend(handle);
+
+    expect(handle.captureEpoch).toBe(1);
+    expect(cancelVideoSessionInference).not.toHaveBeenCalled();
+    // No slot in flight: nothing to cancel, and no re-sample to arm.
+    expect(dispatched).toEqual([]);
+    expect(handle.pendingResample).toBe(false);
+  });
+
+  it('reads and clears the deferred re-sample flag exactly once', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle({ pendingResample: true });
+
+    expect(sampler.consumePendingResample(handle)).toBe(true);
+    expect(sampler.consumePendingResample(handle)).toBe(false);
+  });
+
+  it('discards a deferred re-sample without reporting it', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle({ pendingResample: true });
+
+    sampler.discardPendingResample(handle);
+
+    expect(handle.pendingResample).toBe(false);
+  });
+
+  it('defers a thumbnail capture while suspended and replays it on resume', async () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle({ suspended: true });
+
+    sampler.captureThumbnail(handle);
+    expect(handle.pendingThumbnailCapture).toBe(true);
+    expect(requestVideoFrameInference).not.toHaveBeenCalled();
+
+    handle.suspended = false;
+    sampler.replayDeferredThumbnail(handle);
+    await vi.waitFor(() => expect(handle.pendingThumbnailCapture).toBe(false));
+  });
+
+  it('strands no deferred thumbnail once a verdict has landed', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle({ pendingThumbnailCapture: true });
+    handle.state = { ...handle.state, lastAppliedIndex: 4 };
+
+    sampler.replayDeferredThumbnail(handle);
+
+    // The flag clears either way; only a still-verdict-less session re-captures.
+    expect(handle.pendingThumbnailCapture).toBe(false);
+    expect(requestVideoFrameInference).not.toHaveBeenCalled();
+  });
+});
+
+describe('FrameSampler ticker', () => {
+  it('refuses to start while suspended, disposed, or in error cooldown', () => {
+    const { sampler } = makeSampler();
+    for (const handle of [
+      makeHandle({ suspended: true }),
+      makeHandle({ state: { ...createVideoSession().state, phase: 'disposed' } }),
+      makeHandle({ state: { ...createVideoSession().state, phase: 'error' } }),
+    ]) {
+      sampler.startTicker(handle);
+      expect(handle.stopTicker).toBeNull();
+    }
+  });
+
+  it('is idempotent and releases the frame callback on stop', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle();
+    const video = handle.video as unknown as FakeVideo;
+
+    sampler.startTicker(handle);
+    sampler.startTicker(handle);
+    expect(video.requestVideoFrameCallback).toHaveBeenCalledTimes(1);
+
+    sampler.stopTicker(handle);
+    expect(handle.stopTicker).toBeNull();
+    expect(video.cancelled).toEqual([1]);
+  });
+
+  it('feeds the machine and the DVR ring from the same presented frame', () => {
+    const { sampler, dispatched, ringCaptures } = makeSampler();
+    const handle = makeHandle();
+    const video = handle.video as unknown as FakeVideo;
+
+    sampler.startTicker(handle);
+    expect(video.lastFrameCallback).toBeTypeOf('function');
+    video.lastFrameCallback?.(500, { mediaTime: 8.25 });
+
+    expect(dispatched).toEqual([{ type: 'frameAvailable', at: 500, timestampSec: 8.25 }]);
+    expect(ringCaptures).toEqual([8.25]);
+  });
+});
+
+describe('FrameSampler verdict latency', () => {
+  beforeEach(() => {
+    vi.stubGlobal('performance', { now: () => 2_000 });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('settles a pending sample and records its round-trip', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle();
+    handle.pendingSamples.set(3, {
+      sessionId: 'session-1',
+      frameIndex: 3,
+      videoUrl: '',
+      timestampSec: 1,
+      capturedAt: 1_400,
+    });
+
+    expect(sampler.recordVerdictLatency(handle, 3)).toBe(true);
+    expect(handle.latenciesMs).toEqual([600]);
+    expect(handle.pendingSamples.has(3)).toBe(false);
+  });
+
+  it('reports verdicts with no pending sample so the audio delay is left alone', () => {
+    const { sampler } = makeSampler();
+    expect(sampler.recordVerdictLatency(makeHandle(), 3)).toBe(false);
+  });
+
+  it('keeps only the most recent round-trips', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle();
+    for (let index = 0; index <= LATENCY_SAMPLE_COUNT; index++) {
+      handle.pendingSamples.set(index, {
+        sessionId: 'session-1',
+        frameIndex: index,
+        videoUrl: '',
+        timestampSec: index,
+        capturedAt: 1_000 + index,
+      });
+      sampler.recordVerdictLatency(handle, index);
+    }
+
+    expect(handle.latenciesMs).toHaveLength(LATENCY_SAMPLE_COUNT);
+    // The oldest (longest) round-trip was evicted.
+    expect(handle.latenciesMs[0]).toBe(999);
+  });
+
+  it('falls back to the default delay before any round-trip is observed', () => {
+    const { sampler } = makeSampler();
+    expect(sampler.currentDvrDelaySec(makeHandle())).toBe(DEFAULT_DVR_DELAY_MS / 1000);
+  });
+
+  it('derives the DVR delay from observed round-trips', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle({ latenciesMs: [2_000, 2_000, 2_000] });
+    expect(sampler.currentDvrDelaySec(handle)).toBe(2.75);
+  });
+});
+
+describe('FrameSampler teardown', () => {
+  beforeEach(() => {
+    vi.stubGlobal('performance', { now: () => 3_000 });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('cancels queued inference, stops the ticker, and drops pending samples', () => {
+    const { sampler } = makeSampler();
+    const handle = makeHandle({ sentPlaybackFrame: true });
+    handle.pendingSamples.set(1, {
+      sessionId: 'session-1',
+      frameIndex: 1,
+      videoUrl: '',
+      timestampSec: 0,
+      capturedAt: 0,
+    });
+    sampler.startTicker(handle);
+
+    sampler.teardown(handle);
+
+    expect(cancelVideoSessionInference).toHaveBeenCalledWith('session-1');
+    expect(handle.stopTicker).toBeNull();
+    expect((handle.video as unknown as FakeVideo).cancelled).toEqual([1]);
+    expect(handle.pendingSamples.size).toBe(0);
+  });
+});

@@ -2,7 +2,9 @@
  * Presentation side of a VideoSession (docs/VIDEO_PROCESSING.md): whole-video
  * blur, precise mask overlays serialized per session, and the DVR runtime
  * (frame ring, verdict track, delayed player, audio delay). Executes the
- * machine's presentation effects; never branches on session state to decide.
+ * machine's presentation effects: it reads session state only to drop work the
+ * machine has already superseded (disposal, a DVR that took over the element),
+ * never to decide what to present.
  */
 
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
@@ -12,7 +14,6 @@ import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypo
 import { MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
 import { VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
-import { currentDvrDelaySec } from '@/entrypoints/content/video/session/frameSampler';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
@@ -20,7 +21,7 @@ import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { SessionEvent } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
-const log = logger.withTag('videoSession');
+const log = logger.withTag('videoSession:presentation');
 
 /** Buffer captures are cheaper and denser than inference samples (~13 fps). */
 const DVR_CAPTURE_INTERVAL_SEC = 1 / 15;
@@ -57,6 +58,8 @@ export function clearWholeBlur(video: HTMLVideoElement): void {
 
 export interface PresentationPorts {
   dispatch(handle: SessionHandle, event: SessionEvent): void;
+  /** The adaptive presentation delay D, in seconds; the sampler owns the latencies behind it. */
+  currentDelaySec(handle: SessionHandle): number;
 }
 
 export class PresentationAdapter {
@@ -72,12 +75,12 @@ export class PresentationAdapter {
       track,
       // Live: D follows the session's observed sample→verdict round-trips, so a
       // slow page (HD frames, busy queue) gets a longer delay instead of holes.
-      getDelaySec: () => currentDvrDelaySec(handle),
+      getDelaySec: () => this.ports.currentDelaySec(handle),
       getMasking: () => handle.hostSettings.masking,
       onReady: () => {
         this.ports.dispatch(handle, { type: 'bufferReady', at: performance.now() });
         // The canvas now presents D behind the live edge; delay audio to match.
-        void engageAudioDelay(handle.video, currentDvrDelaySec(handle), () => handle.dvr?.player === player);
+        void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player);
       },
     });
     handle.dvr = {
@@ -99,7 +102,7 @@ export class PresentationAdapter {
 
   /** Keep the audio delay tracking the adaptive presentation delay. */
   syncAudioDelay(handle: SessionHandle): void {
-    if (handle.dvr) updateAudioDelay(handle.video, currentDvrDelaySec(handle));
+    if (handle.dvr) updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
   }
 
   /**
