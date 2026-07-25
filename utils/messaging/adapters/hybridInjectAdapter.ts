@@ -19,6 +19,7 @@ export class HybridInjectAdapter implements Adapter<MessageMeta> {
   private channelAdapter: MessageChannelInjectAdapter | null = null;
   private pendingChannelCallbacks = new Set<MessageCallback>();
   private channelCleanups = new Map<MessageCallback, CleanupFn>();
+  private channelDeathCallbacks = new Set<() => void>();
 
   constructor() {
     this.runtimeAdapter = new InjectAdapter('content');
@@ -28,6 +29,9 @@ export class HybridInjectAdapter implements Adapter<MessageMeta> {
     if (!USE_MESSAGE_CHANNEL) return null;
     if (!this.channelAdapter) {
       this.channelAdapter = new MessageChannelInjectAdapter();
+      this.channelAdapter.onPermanentDeath(() => {
+        for (const cb of this.channelDeathCallbacks) cb();
+      });
       for (const cb of this.pendingChannelCallbacks) {
         this.channelCleanups.set(cb, this.channelAdapter.onMessage(cb));
       }
@@ -48,6 +52,12 @@ export class HybridInjectAdapter implements Adapter<MessageMeta> {
 
   warmupChannel(): void {
     this.getChannelAdapter();
+  }
+
+  /** Subscribe to permanent channel death (invalidated extension context). */
+  onChannelPermanentDeath(callback: () => void): () => void {
+    this.channelDeathCallbacks.add(callback);
+    return () => this.channelDeathCallbacks.delete(callback);
   }
 
   sendMessage: SendMessage<MessageMeta> = async (message, transfer) => {

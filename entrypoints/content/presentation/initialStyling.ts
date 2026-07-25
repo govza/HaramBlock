@@ -52,11 +52,22 @@ const removeBlacklistInlineStyles = (element: HTMLImageElement | HTMLVideoElemen
 };
 
 /** Reset image styling - clears all haramblock classes, blacklist styles, and processed status */
-export const resetImageStyling = (image: HTMLImageElement): void => {
-  const classesToRemove = Array.from(image.classList).filter(className => className.startsWith('haramblock'));
-  classesToRemove.forEach(className => image.classList.remove(className));
-  removeBlacklistInlineStyles(image);
-  clearProcessedStatus(image);
+export const resetImageStyling = (element: HTMLImageElement | HTMLVideoElement): void => {
+  const classesToRemove = Array.from(element.classList).filter(className => className.startsWith('haramblock'));
+  classesToRemove.forEach(className => element.classList.remove(className));
+  removeBlacklistInlineStyles(element);
+  clearProcessedStatus(element);
+};
+
+/**
+ * Fail-open sweep for orphan teardown: elements still mid-processing keep
+ * their pre-verdict blur or blacklist filter, and nothing else clears those
+ * once the pipeline is gone.
+ */
+export const removeRemainingInitialStyling = (): void => {
+  document
+    .querySelectorAll<HTMLImageElement | HTMLVideoElement>(`.${BLUR_CLASS}, [${BLACKLIST_ATTR}]`)
+    .forEach(element => resetImageStyling(element));
 };
 
 /** Finalize image processing - clears styling and sets the final processed status */

@@ -1,3 +1,4 @@
+import { isExtensionContextValid } from '@/utils/extensionContext';
 import { logger } from '@/utils/logger';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
@@ -19,6 +20,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
   private port: MessagePort | null = null;
   private channelPromise: Promise<MessagePort> | null = null;
   private messageCallbacks = new Set<(message?: Partial<Message<MessageMeta>>) => void>();
+  private deathCallbacks = new Set<() => void>();
   private isReady = false;
 
   constructor() {
@@ -30,6 +32,19 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     this.channelPromise = null;
     this.port = null;
     this.isReady = false;
+  }
+
+  /**
+   * Establishment failed. With a live context this is transient (the next send
+   * re-initializes); with an invalidated context (extension reloaded, updated,
+   * disabled, or removed) the channel is permanently dead — report it so the
+   * instance lifecycle can fail open.
+   */
+  private handleEstablishFailure(): void {
+    this.resetState();
+    if (isExtensionContextValid()) return;
+    logger.withTag('MessageChannelInjectAdapter').warn('Channel establishment failed: extension context invalidated');
+    this.deathCallbacks.forEach(callback => callback());
   }
 
   private async initialize(): Promise<void> {
@@ -64,12 +79,11 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
             logger.withTag('MessageChannelInjectAdapter').debug('Channel established (late)');
           })
           .catch(() => {
-            this.resetState();
+            this.handleEstablishFailure();
           });
       }
     } catch {
-      // Extension context invalidated (e.g. after extension reload)
-      this.resetState();
+      this.handleEstablishFailure();
     }
   }
 
@@ -199,6 +213,15 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
   };
 
   /**
+   * Subscribe to permanent channel death (invalidated extension context).
+   * Not fired by the service-worker idle kill, which only closes the port and
+   * re-establishes lazily on the next send.
+   */
+  onPermanentDeath(callback: () => void): void {
+    this.deathCallbacks.add(callback);
+  }
+
+  /**
    * Check if the MessageChannel is available and ready
    */
   isAvailable(): boolean {
@@ -240,7 +263,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
         logger.withTag('MessageChannelInjectAdapter').error('Hard timeout waiting for channel');
         return false;
       } catch {
-        this.resetState();
+        this.handleEstablishFailure();
         return false;
       }
     }
