@@ -15,7 +15,7 @@ import type { PendingFrameSample } from '@/entrypoints/content/video/frameSample
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
 
-export interface DvrRuntime {
+interface DvrRuntime {
   ring: FrameRing;
   track: VerdictTrack;
   player: VideoDvrPlayer;

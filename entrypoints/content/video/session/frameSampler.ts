@@ -16,7 +16,7 @@ import type { CapturedFrameSample, PendingFrameSample } from '@/entrypoints/cont
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { SessionEvent } from '@/entrypoints/content/video/session/machine';
 
-const log = logger.withTag('videoSession');
+const log = logger.withTag('videoSession:sampler');
 
 /**
  * Ceiling on one capture+send round. The machine frees the in-flight slot on
@@ -95,8 +95,11 @@ export class FrameSampler {
    * send their pre-suspension frame after a fast suspend→resume (it would
    * evict a fresher queued frame in the background and restart sampleTimeout),
    * and the background's queued frame for this session is cancelled.
+   *
+   * Suspend-only: it arms pendingResample so the resume re-samples the frame
+   * that lost its verdict. Call it with handle.suspended already true.
    */
-  cancelInflight(handle: SessionHandle): void {
+  invalidateForSuspend(handle: SessionHandle): void {
     handle.captureEpoch += 1;
     if (handle.sentPlaybackFrame) void cancelVideoSessionInference(handle.sessionId);
     const { inflightIndex } = handle.state;
@@ -121,11 +124,21 @@ export class FrameSampler {
     }
   }
 
+  /** Recent sample→verdict round-trips converted to the adaptive DVR delay, in seconds. */
+  currentDvrDelaySec(handle: SessionHandle): number {
+    return computeDvrDelayMs(handle.latenciesMs) / 1000;
+  }
+
   /** Read-and-clear the deferred re-sample flag (see SessionHandle.pendingResample). */
   consumePendingResample(handle: SessionHandle): boolean {
     const pending = handle.pendingResample;
     handle.pendingResample = false;
     return pending;
+  }
+
+  /** Drop a deferred re-sample without acting on it, when fresh sampling supersedes it. */
+  discardPendingResample(handle: SessionHandle): void {
+    handle.pendingResample = false;
   }
 
   /**
@@ -272,11 +285,6 @@ export class FrameSampler {
       this.ports.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now(), permanent });
     }
   }
-}
-
-/** Recent sample→verdict round-trips converted to the adaptive DVR delay, in seconds. */
-export function currentDvrDelaySec(handle: SessionHandle): number {
-  return computeDvrDelayMs(handle.latenciesMs) / 1000;
 }
 
 /**
