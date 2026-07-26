@@ -13,6 +13,7 @@
  * site re-parents the player — instead of using observers.
  */
 
+import { DVR_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
   ensurePositionContext,
@@ -142,7 +143,7 @@ export class VideoDvrPlayer {
     }
 
     const overlay = document.createElement('div');
-    overlay.setAttribute('data-video-dvr-player', 'video-dvr-player');
+    overlay.setAttribute(DVR_OVERLAY_ATTR, 'video-dvr-player');
     overlay.style.cssText = `
     position: absolute;
     top: 0;

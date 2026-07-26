@@ -1,3 +1,4 @@
+import { VIDEO_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
   classifyOverlayMutation,
@@ -160,7 +161,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
 
     const overlay = document.createElement('div');
-    overlay.setAttribute('data-video-mask-overlay', 'unified-video-mask-overlay');
+    overlay.setAttribute(VIDEO_MASK_OVERLAY_ATTR, 'unified-video-mask-overlay');
 
     const videoZIndex = parseInt(getComputedStyle(video).zIndex) || 0;
     const overlayZIndex = Math.max(videoZIndex + 1, 9999);
@@ -572,7 +573,7 @@ const liveVideoOverlays = new WeakSet<HTMLDivElement>();
 
 // Helper function for removing existing (orphaned) video overlays
 function removeExistingVideoOverlays(container: HTMLElement | ShadowRoot): void {
-  const existingOverlays = container.querySelectorAll('[data-video-mask-overlay]');
+  const existingOverlays = container.querySelectorAll(`[${VIDEO_MASK_OVERLAY_ATTR}]`);
   existingOverlays.forEach(overlay => {
     if (!liveVideoOverlays.has(overlay as HTMLDivElement)) overlay.remove();
   });

@@ -1,3 +1,4 @@
+import { IMAGE_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { hasInitialStyling } from '@/entrypoints/content/presentation/initialStyling';
 import {
@@ -212,7 +213,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 
     // Create single overlay container for all masks
     const overlay = document.createElement('div');
-    overlay.setAttribute('data-mask-overlay', 'unified-mask-overlay');
+    overlay.setAttribute(IMAGE_MASK_OVERLAY_ATTR, 'unified-mask-overlay');
 
     // Get the image's z-index and add 1
     const imageZIndex = parseInt(getComputedStyle(image).zIndex) || 0;
@@ -574,7 +575,7 @@ const renderUnifiedCanvasMask = (
 
 // Helper function for removing legacy overlays
 const removeExistingImageOverlays = (parent: HTMLElement): void => {
-  const existingOverlays = parent.querySelectorAll('[data-mask-overlay]');
+  const existingOverlays = parent.querySelectorAll(`[${IMAGE_MASK_OVERLAY_ATTR}]`);
   existingOverlays.forEach(overlay => {
     if (!liveOverlays.has(overlay as HTMLDivElement)) overlay.remove();
   });

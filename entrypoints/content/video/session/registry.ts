@@ -24,6 +24,7 @@ import {
   type SessionStatus,
   type VideoSessionState,
 } from '@/entrypoints/content/video/session/machine';
+import { SESSION_ID_ATTR, SESSION_SRC_ATTR } from '@/entrypoints/content/video/session/markers';
 import {
   applyWholeBlur,
   clearWholeBlur,
@@ -31,6 +32,7 @@ import {
 } from '@/entrypoints/content/video/session/presentationAdapter';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { logger } from '@/utils/logger';
+import { generateNonce } from '@/utils/nonce';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
@@ -43,19 +45,7 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   skipped: 'skipped',
 };
 
-/**
- * crypto.randomUUID is undefined in non-secure contexts (plain http: pages,
- * which content scripts on <all_urls> do reach); getRandomValues is not.
- */
 let warnedTimestamplessPrediction = false;
-
-function generateSessionId(): string {
-  if (typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
 
 interface PendingAdoption {
   hostSettings: IHostSettings;
@@ -140,7 +130,7 @@ class VideoSessionRegistry {
       this.dispose(video);
     }
 
-    const sessionId = generateSessionId();
+    const sessionId = generateNonce();
     const handle: SessionHandle = {
       sessionId,
       video,
@@ -168,8 +158,8 @@ class VideoSessionRegistry {
     };
     this.byId.set(handle.sessionId, handle);
     this.byVideo.set(video, handle);
-    video.dataset.hbSrc = handle.src;
-    video.dataset.hbSessionId = handle.sessionId;
+    video.setAttribute(SESSION_SRC_ATTR, handle.src);
+    video.setAttribute(SESSION_ID_ATTR, handle.sessionId);
 
     const born = createVideoSession();
     handle.state = born.state;
@@ -396,8 +386,8 @@ class VideoSessionRegistry {
     clearWholeBlur(video);
     clearProcessedStatus(video);
     releaseCorsVideoCache(video);
-    delete video.dataset.hbSrc;
-    delete video.dataset.hbSessionId;
+    video.removeAttribute(SESSION_SRC_ATTR);
+    video.removeAttribute(SESSION_ID_ATTR);
     this.byId.delete(handle.sessionId);
     if (this.byVideo.get(video) === handle) {
       this.byVideo.delete(video);

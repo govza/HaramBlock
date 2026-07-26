@@ -1,3 +1,4 @@
+import { GIF_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
   classifyOverlayMutation,
@@ -83,7 +84,7 @@ class GifMaskPlayer {
     const parentRect = parent.getBoundingClientRect();
     const offset = overlayOffsetInParent(parent, imageRect, parentRect);
     const overlay = document.createElement('div');
-    overlay.setAttribute('data-gif-mask-player', 'animated-gif-mask-player');
+    overlay.setAttribute(GIF_MASK_OVERLAY_ATTR, 'animated-gif-mask-player');
 
     overlay.style.cssText = `
       position: absolute;

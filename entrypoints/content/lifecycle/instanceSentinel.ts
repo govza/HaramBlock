@@ -1,18 +1,8 @@
+import { generateNonce } from '@/utils/nonce';
+
 const INSTANCE_SENTINEL_ATTR = 'data-haramblock-instance';
 
 export type SupersedeSignal = (listener: () => void) => () => void;
-
-/**
- * crypto.randomUUID is undefined in non-secure contexts (plain http: pages,
- * which content scripts on <all_urls> do reach); getRandomValues is not.
- */
-function generateNonce(): string {
-  if (typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
 
 /**
  * Stamp this instance's nonce onto the page and return a supersede signal.
