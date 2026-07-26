@@ -5,7 +5,9 @@ import { resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
 import { config as baseConfig } from './wdio.conf.js';
+import { ADB_BIN, ADB_DEVICE_SERIAL, ANDROID_HOME, adb, adbOutput, runAdbCleanup } from '../utils/android.js';
 import { getExtensionPath } from '../utils/extension-path.js';
+import { dismissFenixOnboarding } from '../utils/fenix-onboarding.js';
 
 const ADDON_ID = 'admin@haramblock.com';
 const FENIX_PACKAGE = 'org.mozilla.fenix';
@@ -13,12 +15,8 @@ const FENIX_ARCHIVE_BASE = 'https://archive.mozilla.org/pub/fenix/nightly';
 const DEBUG_CI_MODE = process.argv.includes('--debug');
 export const IS_CI = Boolean(process.env.CI) || DEBUG_CI_MODE;
 const AVD_NAME = process.env.AVD_NAME || 'Pixel_3a_API_34_extension_level_7_x86_64';
-const ANDROID_HOME =
-  process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || resolve(process.env.LOCALAPPDATA || '', 'Android/Sdk');
 const EMULATOR_BIN = resolve(ANDROID_HOME, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator');
-const ADB_BIN = resolve(ANDROID_HOME, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');
 const FENIX_CACHE_DIR = resolve(import.meta.dirname, '../../../node_modules/.cache/firefox-nightly');
-const ADB_DEVICE_SERIAL = process.env.ADB_DEVICE_SERIAL || 'emulator-5554';
 
 const envFlag = (value: string | undefined, defaultValue: boolean): boolean => {
   if (value === undefined) return defaultValue;
@@ -40,19 +38,6 @@ const CLEANUP_BETWEEN_SESSIONS = envFlag(process.env.ANDROID_CLEANUP_BETWEEN_SES
 const { ANDROID_E2E_TAGS } = process.env;
 const DEVICE_EXT_PATH = '/data/local/tmp/haramblock-extension';
 const FENIX_TEST_ROOT = `/storage/emulated/0/Android/data/${FENIX_PACKAGE}/files/test_root`;
-
-const adb = (args: string[], options: Parameters<typeof execFileSync>[2] = {}) =>
-  execFileSync(ADB_BIN, ['-s', ADB_DEVICE_SERIAL, ...args], options);
-
-const adbOutput = (args: string[]): string => adb(args, { encoding: 'utf-8', stdio: 'pipe' }) as string;
-
-const runAdbCleanup = (args: string[], description: string): void => {
-  try {
-    adb(args, { stdio: 'pipe' });
-  } catch (err) {
-    console.warn(`[android] Cleanup skipped (${description}): ${(err as Error)?.message ?? err}`);
-  }
-};
 
 const cleanupFirefoxRuntime = (reason: string): void => {
   console.warn(`[android] Cleaning Firefox runtime (${reason}).`);
@@ -332,6 +317,15 @@ export const config: WebdriverIO.Config = {
     if (!firefoxExtensionPath) {
       throw new Error('Firefox extension path not set');
     }
+
+    await dismissFenixOnboarding();
+
+    // The session's initial tab was created behind the onboarding flow and Fenix
+    // never brings it to the foreground, leaving every element non-interactable.
+    // Keep it open: Android geckodriver can return no remaining handles from
+    // closeWindow(), which makes WebdriverIO terminate the entire session.
+    const { handle } = await browser.createWindow('tab');
+    await browser.switchToWindow(handle);
 
     // With pageLoadStrategy 'none', browser.url() returns before the page
     // loads. Override it to wait for navigation to actually complete by
