@@ -74,3 +74,25 @@ Add to `~/.claude.json` under the project:
 - `list_network_requests` - Monitor traffic
 - `evaluate_script` - Run JavaScript
 - `performance_start_trace` - Profile performance
+
+## Dev-Mode Gotchas (`pnpm dev`)
+
+Two dev-only failure modes look like extension bugs but are environment skew:
+
+- **Zombie dev server / port drift.** Killing `pnpm dev` on Windows often orphans the node child,
+  which keeps holding port 3000. `pnpm dev` now fails fast in that case
+  (`scripts/assert-dev-port-free.mjs`) instead of letting WXT drift to 3001: the extension already
+  loaded in the persistent profile keeps its old manifest CSP pinned to the previous port, which
+  CSP-blocks every extension page script (blank popup) while the dev server serves from the new
+  port.
+- **Stale service worker.** WXT reloads the extension over CDP after relaunch/rebuild, and that
+  reload sometimes fails silently
+  (`CDP connection closed before response to Extensions.loadUnpacked`). The service worker then
+  keeps running an old build while content scripts are current. Symptom: playing videos stay
+  permanently whole-blurred while verdict statuses still update, because the old worker returns
+  frame predictions without `timestampSec` and the VerdictTrack can never match them to frames — the
+  content script logs `Frame prediction arrived without timestampSec` when this happens. Fix: reload
+  the extension at `chrome://extensions`.
+
+Production builds install a consistent worker + content pair, so neither issue exists outside
+`pnpm dev`.
