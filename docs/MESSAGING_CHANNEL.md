@@ -540,6 +540,14 @@ a nonce onto `<html data-haramblock-instance>` at startup and observes it. When 
 itself down — this works even though the orphan's extension APIs all throw. The successor also
 sweeps overlay elements a crashed predecessor left behind before adopting media itself.
 
+**Coverage limits.** Neither signal is exhaustive. The permanent-death event only fires when a
+channel establishment attempt fails, i.e. on the orphan's next send — a page whose media all settled
+before the invalidation never sends again and keeps whatever pre-verdict styling it had. And in
+production Chrome does not re-inject content scripts into open tabs on extension update, so no
+successor stamps the sentinel there; the sentinel path covers dev (WXT re-injects) and any future
+explicit re-injection on update. Pages with active video sessions are always covered: the sampler
+keeps sending, which forces an establishment attempt and the death event.
+
 ## Security
 
 - Secret-based pairing (crypto.randomUUID)

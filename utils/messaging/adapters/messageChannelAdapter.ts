@@ -215,10 +215,11 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
   /**
    * Subscribe to permanent channel death (invalidated extension context).
    * Not fired by the service-worker idle kill, which only closes the port and
-   * re-establishes lazily on the next send.
+   * re-establishes lazily on the next send. Returns an unsubscribe function.
    */
-  onPermanentDeath(callback: () => void): void {
+  onPermanentDeath(callback: () => void): () => void {
     this.deathCallbacks.add(callback);
+    return () => this.deathCallbacks.delete(callback);
   }
 
   /**

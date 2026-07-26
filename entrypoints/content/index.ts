@@ -51,6 +51,12 @@ export default defineContentScript({
           stopPipeline = null;
         }
       },
+      // The strip is document-wide but cannot eat a successor's styling: on
+      // the supersede path it runs in the sentinel stamp's microtask
+      // checkpoint, before the successor's `await useHostData` (a message
+      // round-trip, at least one macrotask) can have styled anything; on the
+      // transport-death path a successor would already have superseded us via
+      // the sentinel, so no successor exists.
       removeInitialStyling: () => {
         hideInitStyle.remove();
         removeRemainingInitialStyling();
