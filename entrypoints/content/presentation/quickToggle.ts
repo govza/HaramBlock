@@ -1,5 +1,9 @@
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
-import { computeRenderedContentRect, type ContentRect } from '@/entrypoints/content/presentation/imageLayout';
+import {
+  clipContentRectToBox,
+  computeRenderedContentRect,
+  type ContentRect,
+} from '@/entrypoints/content/presentation/imageLayout';
 import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 
 import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/types';
@@ -83,7 +87,13 @@ function positionEye(element: HTMLImageElement): boolean {
   const imageRect = element.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
   const imageOffset = overlayOffsetInParent(parent, imageRect, parentRect);
-  const contentRect = computeRenderedContentRect(element, imageRect);
+  // Clip cover-fit crop overflow: an overflow-hidden parent would clip a button
+  // anchored past the element box into an unclickable sliver
+  const contentRect = clipContentRectToBox(
+    computeRenderedContentRect(element, imageRect),
+    imageRect.width,
+    imageRect.height,
+  );
   const offset = eyeButtonOffsetInParent(imageOffset, contentRect, BUTTON_SIZE_PX, BUTTON_MARGIN_PX);
 
   eyeButton.style.top = `${offset.top}px`;
