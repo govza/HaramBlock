@@ -18,8 +18,7 @@ describe('eye button placement', () => {
   });
 
   it('lands on the visible picture, not the element box, for a letterboxed lightbox image', () => {
-    // 1000px-wide contain-fit element, picture centered at x=200 with width 600:
-    // the button belongs at the picture's corner (760), not the element's (960)
+    // picture centered at x=200 width 600: corner at 760, not the element box's 960
     const offset = eyeButtonOffsetInParent(
       { top: 0, left: 0 },
       { offsetX: 200, offsetY: 50, width: 600, height: 400 },

@@ -21,9 +21,8 @@ When('I open a lightbox over the gallery', async () => {
 
       const backdrop = globalThis.document.createElement('div');
       backdrop.id = lightboxId;
-      // A realistic lightbox z-index, deliberately modest: the eye button must
-      // stay beneath the backdrop because it stacks just above its image, not
-      // because the backdrop out-bids some huge extension z-index
+      // Modest z-index: the button must lose by stacking, not because the
+      // backdrop out-bids a huge extension z-index
       backdrop.style.cssText = `
         position: fixed;
         inset: 0;
@@ -80,8 +79,7 @@ Then('the eye toggle should be inside the lightbox picture', async () => {
       const eye = globalThis.document.querySelector<HTMLElement>(eyeSelector);
       if (!image || !eye) return null;
 
-      // Contain-fit picture rect derived from the object-fit spec, independent
-      // of the extension's own layout code
+      // Independent oracle: contain-fit math from the object-fit spec, not extension code
       const box = image.getBoundingClientRect();
       const scale = Math.min(box.width / image.naturalWidth, box.height / image.naturalHeight);
       const pictureWidth = image.naturalWidth * scale;

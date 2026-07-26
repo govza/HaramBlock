@@ -9,8 +9,7 @@ const SHOW_DELAY_MS = 500;
 // Delay before hiding button after mouse leaves
 const HIDE_DELAY_MS = 2500;
 
-// Chrome is sized in px, not rem: placement math and the rendered button must
-// agree even on sites with a non-16px root font size
+// px, not rem: placement math and rendered size must agree on non-16px root font sizes
 const BUTTON_SIZE_PX = 32;
 const BUTTON_MARGIN_PX = 8;
 
@@ -39,8 +38,6 @@ function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('fill', 'white');
-  // Inline (not via the injected class rules): inside shadow trees the
-  // document-level stylesheet never applies
   svg.style.cssText = 'width: 20px; height: 20px; opacity: 0.5;';
 
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -61,13 +58,8 @@ function updateButtonIcon(prediction: IImagePrediction): void {
   eyeButton.replaceChildren(createSvgIcon(getNextState(prediction.forcedVisibility)));
 }
 
-/**
- * Absolute offset (in the parent's content coordinates) of the eye button at
- * the top-right of the picture — the rendered content, not the element box,
- * so letterbox bars in contain-fit lightboxes never receive the button.
- * Clamped so a picture narrower than the button still anchors it at its own
- * left edge instead of a neighbour's.
- */
+// Anchors to the rendered content, not the element box: letterbox bars in
+// contain-fit lightboxes must never receive the button
 export function eyeButtonOffsetInParent(
   imageOffset: { top: number; left: number },
   contentRect: ContentRect,
@@ -81,12 +73,6 @@ export function eyeButtonOffsetInParent(
   };
 }
 
-/**
- * Inserts the button next to the image (like the mask overlay) and positions
- * it at the picture's top-right corner. Living in the image's own stacking
- * context is what makes occlusion correct: a lightbox backdrop that covers
- * the image covers the button too, and scrolling moves both together.
- */
 function positionEye(element: HTMLImageElement): boolean {
   if (!eyeButton) return false;
   const parent = element.parentElement;
@@ -102,10 +88,8 @@ function positionEye(element: HTMLImageElement): boolean {
 
   eyeButton.style.top = `${offset.top}px`;
   eyeButton.style.left = `${offset.left}px`;
-  // Just above the image and its mask overlay (image + 1) — never a large
-  // fixed value: `position: relative` on the parent does not create a
-  // stacking context, so a big z-index would float the button over real
-  // lightbox backdrops in the root stacking context
+  // The parent creates no stacking context, so a large z-index would float
+  // over real lightbox backdrops; stay just above the image's mask overlay
   const imageZIndex = parseInt(getComputedStyle(element).zIndex) || 0;
   eyeButton.style.zIndex = String(imageZIndex + 2);
   if (eyeButton.parentElement !== parent) parent.appendChild(eyeButton);
@@ -133,8 +117,7 @@ function showEye(element: HTMLImageElement): void {
   showTimer = setTimeout(() => {
     showTimer = null;
     if (currentElement !== element || !eyeButton) return;
-    // Re-anchor before revealing: a lightbox may still be zooming/centering
-    // during the show delay, which would leave the snapshot position stale
+    // Re-anchor: a lightbox may still be zooming/centering during the show delay
     if (!positionEye(element)) return;
     eyeButton.style.display = 'flex';
     resetHideTimer();
@@ -145,8 +128,7 @@ function hideEye(): void {
   if (!eyeButton) return;
   clearShowTimer();
   eyeButton.style.display = 'none';
-  // Never park the hidden button inside a site's container — a foreign child
-  // left behind can break the site's own child selectors and re-renders
+  // A parked foreign child can break the site's own child selectors
   eyeButton.remove();
   currentElement = null;
 }
@@ -225,9 +207,7 @@ function createGlobalEyeButton(): void {
 
   eyeButton = document.createElement('button');
   eyeButton.className = 'haramblock-eye-toggle';
-  // Full chrome inline for the same reason as the mask overlay: the button is
-  // inserted into arbitrary site parents (possibly inside shadow trees) where
-  // the injected class rules may not reach
+  // Inline chrome: the injected class rules cannot reach shadow trees
   eyeButton.style.cssText = `
     position: absolute;
     display: none;
