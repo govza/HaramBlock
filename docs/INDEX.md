@@ -24,7 +24,8 @@ implementation details). If you’re a user, start with the project [`README.md`
   [INFERENCE_PIPELINE.md](INFERENCE_PIPELINE.md)
 - **Batched inference benchmark results**: [PHASE2_RESULTS.md](PHASE2_RESULTS.md)
 - **Running tests**: [TESTING.md](TESTING.md)
-- **Interactive browser debugging (Playwright MCP + built extension)**:
+- **Interactive browser debugging (launch, probe, iterate, clean up)**:
+  [BROWSER_DEBUGGING.md](BROWSER_DEBUGGING.md); alternative Playwright MCP setup in
   [PLAYWRIGHT.md](PLAYWRIGHT.md)
 
 ## Project Map (High Level)
