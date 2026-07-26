@@ -203,6 +203,18 @@ export default [
       'import/no-default-export': 'off',
     },
   },
+  // Node-only tooling scripts (plain .mjs run by package.json scripts)
+  {
+    files: ['scripts/*.mjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
   // Benchmark scripts override (plain .mjs run in Node and browser pages)
   {
     files: ['scripts/benchmark/**/*.mjs'],

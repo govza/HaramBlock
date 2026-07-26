@@ -47,6 +47,8 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
  * crypto.randomUUID is undefined in non-secure contexts (plain http: pages,
  * which content scripts on <all_urls> do reach); getRandomValues is not.
  */
+let warnedTimestamplessPrediction = false;
+
 function generateSessionId(): string {
   if (typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -187,6 +189,17 @@ class VideoSessionRegistry {
       if (!handle) {
         log.debug('Dropping prediction for unknown session:', pred.sessionId);
         continue;
+      }
+      // A playback frame without a timeline position means the background is
+      // running a different build than this content script (a stale dev
+      // service worker after a failed extension reload). The VerdictTrack can
+      // never match such verdicts to frames, so the DVR stays fail-closed —
+      // surface the skew instead of blurring silently forever.
+      if (pred.frameIndex >= 0 && typeof pred.timestampSec !== 'number' && !warnedTimestamplessPrediction) {
+        warnedTimestamplessPrediction = true;
+        log.error(
+          'Frame prediction arrived without timestampSec — background and content script are from different builds. Reload the extension.',
+        );
       }
       handle.lastPrediction = pred;
       const unsafe = Boolean(pred.predictions?.length);
