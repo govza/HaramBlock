@@ -17,6 +17,8 @@ Feature: Quick Toggle in a lightbox
     Then I should see the eye toggle icon
     And the eye toggle should be inside the lightbox picture
 
+  # Mobile "hover" is a tap, and the backdrop under test intercepts that tap
+  @desktop-only
   Scenario: Eye icon of a covered feed image stays beneath the lightbox backdrop
     When I open a lightbox over the gallery
     And I hover over the first gallery image
