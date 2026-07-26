@@ -1,4 +1,6 @@
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
+import { computeRenderedContentRect, type ContentRect } from '@/entrypoints/content/presentation/imageLayout';
+import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 
 import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -6,6 +8,11 @@ import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/
 const SHOW_DELAY_MS = 500;
 // Delay before hiding button after mouse leaves
 const HIDE_DELAY_MS = 2500;
+
+// Chrome is sized in px, not rem: placement math and the rendered button must
+// agree even on sites with a non-16px root font size
+const BUTTON_SIZE_PX = 32;
+const BUTTON_MARGIN_PX = 8;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
 type RegisteredElement = {
@@ -18,7 +25,6 @@ let currentElement: HTMLImageElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let showTimer: ReturnType<typeof setTimeout> | null = null;
 let toggleCallback: ToggleCallback | null = null;
-let pendingAttachOnReady = false;
 
 const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
 
@@ -33,6 +39,9 @@ function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('fill', 'white');
+  // Inline (not via the injected class rules): inside shadow trees the
+  // document-level stylesheet never applies
+  svg.style.cssText = 'width: 20px; height: 20px; opacity: 0.5;';
 
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   if (nextState === 'visible') {
@@ -52,20 +61,55 @@ function updateButtonIcon(prediction: IImagePrediction): void {
   eyeButton.replaceChildren(createSvgIcon(getNextState(prediction.forcedVisibility)));
 }
 
-function positionEye(element: HTMLElement): void {
-  if (!eyeButton) return;
+/**
+ * Absolute offset (in the parent's content coordinates) of the eye button at
+ * the top-right of the picture — the rendered content, not the element box,
+ * so letterbox bars in contain-fit lightboxes never receive the button.
+ * Clamped so a picture narrower than the button still anchors it at its own
+ * left edge instead of a neighbour's.
+ */
+export function eyeButtonOffsetInParent(
+  imageOffset: { top: number; left: number },
+  contentRect: ContentRect,
+  buttonSize: number,
+  margin: number,
+): { top: number; left: number } {
+  const contentLeft = imageOffset.left + contentRect.offsetX;
+  return {
+    top: imageOffset.top + contentRect.offsetY + margin,
+    left: Math.max(contentLeft, contentLeft + contentRect.width - buttonSize - margin),
+  };
+}
 
-  const rect = element.getBoundingClientRect();
-  const { clientWidth: viewportWidth } = document.documentElement;
+/**
+ * Inserts the button next to the image (like the mask overlay) and positions
+ * it at the picture's top-right corner. Living in the image's own stacking
+ * context is what makes occlusion correct: a lightbox backdrop that covers
+ * the image covers the button too, and scrolling moves both together.
+ */
+function positionEye(element: HTMLImageElement): boolean {
+  if (!eyeButton) return false;
+  const parent = element.parentElement;
+  if (!parent) return false;
 
-  // Position at top-right of element
-  const top = rect.top < 0 ? 0 : rect.top;
-  let left = rect.right - 32; // Button width is 2rem ≈ 32px
-  if (left + 32 > viewportWidth) left = viewportWidth - 32;
-  if (left < rect.left) left = Math.min(Math.max(rect.left, 0), viewportWidth - 32);
+  ensurePositionContext(parent);
 
-  eyeButton.style.top = `${top + 8}px`;
-  eyeButton.style.left = `${left - 8}px`;
+  const imageRect = element.getBoundingClientRect();
+  const parentRect = parent.getBoundingClientRect();
+  const imageOffset = overlayOffsetInParent(parent, imageRect, parentRect);
+  const contentRect = computeRenderedContentRect(element, imageRect);
+  const offset = eyeButtonOffsetInParent(imageOffset, contentRect, BUTTON_SIZE_PX, BUTTON_MARGIN_PX);
+
+  eyeButton.style.top = `${offset.top}px`;
+  eyeButton.style.left = `${offset.left}px`;
+  // Just above the image and its mask overlay (image + 1) — never a large
+  // fixed value: `position: relative` on the parent does not create a
+  // stacking context, so a big z-index would float the button over real
+  // lightbox backdrops in the root stacking context
+  const imageZIndex = parseInt(getComputedStyle(element).zIndex) || 0;
+  eyeButton.style.zIndex = String(imageZIndex + 2);
+  if (eyeButton.parentElement !== parent) parent.appendChild(eyeButton);
+  return true;
 }
 
 function showEye(element: HTMLImageElement): void {
@@ -84,14 +128,16 @@ function showEye(element: HTMLImageElement): void {
 
   currentElement = element;
   updateButtonIcon(registered.prediction);
-  positionEye(element);
+  if (!positionEye(element)) return;
 
   showTimer = setTimeout(() => {
     showTimer = null;
-    if (currentElement === element && eyeButton) {
-      eyeButton.style.display = 'flex';
-      resetHideTimer();
-    }
+    if (currentElement !== element || !eyeButton) return;
+    // Re-anchor before revealing: a lightbox may still be zooming/centering
+    // during the show delay, which would leave the snapshot position stale
+    if (!positionEye(element)) return;
+    eyeButton.style.display = 'flex';
+    resetHideTimer();
   }, SHOW_DELAY_MS);
 }
 
@@ -99,6 +145,9 @@ function hideEye(): void {
   if (!eyeButton) return;
   clearShowTimer();
   eyeButton.style.display = 'none';
+  // Never park the hidden button inside a site's container — a foreign child
+  // left behind can break the site's own child selectors and re-renders
+  eyeButton.remove();
   currentElement = null;
 }
 
@@ -149,7 +198,10 @@ function handleClick(e: Event): void {
     }
     currentElement = clickedElement;
     updateButtonIcon(freshRegistered.prediction);
-    positionEye(clickedElement);
+    if (!positionEye(clickedElement)) {
+      hideEye();
+      return;
+    }
     if (eyeButton) {
       eyeButton.style.display = 'flex';
     }
@@ -168,44 +220,32 @@ function handlePointerLeave(): void {
   resetHideTimer();
 }
 
-function attachEyeButton(): void {
-  if (!eyeButton || eyeButton.isConnected) return;
-
-  if (!document.body) {
-    if (pendingAttachOnReady) return;
-    pendingAttachOnReady = true;
-    document.addEventListener(
-      'DOMContentLoaded',
-      () => {
-        pendingAttachOnReady = false;
-        attachEyeButton();
-      },
-      { once: true },
-    );
-    return;
-  }
-
-  document.body.appendChild(eyeButton);
-}
-
 function createGlobalEyeButton(): void {
-  if (eyeButton) {
-    attachEyeButton();
-    return;
-  }
+  if (eyeButton) return;
 
   eyeButton = document.createElement('button');
   eyeButton.className = 'haramblock-eye-toggle';
-  eyeButton.style.position = 'fixed';
-  eyeButton.style.display = 'none';
+  // Full chrome inline for the same reason as the mask overlay: the button is
+  // inserted into arbitrary site parents (possibly inside shadow trees) where
+  // the injected class rules may not reach
+  eyeButton.style.cssText = `
+    position: absolute;
+    display: none;
+    width: ${BUTTON_SIZE_PX}px;
+    height: ${BUTTON_SIZE_PX}px;
+    padding: 4px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+  `;
   eyeButton.appendChild(createSvgIcon('blocked'));
 
   eyeButton.addEventListener('click', handleClick);
   eyeButton.addEventListener('pointerenter', () => clearHideTimer());
   eyeButton.addEventListener('pointerleave', () => resetHideTimer());
-
-  globalThis.addEventListener('scroll', hideEye, { passive: true });
-  attachEyeButton();
 }
 
 export function initQuickToggle(onToggle: ToggleCallback): void {
@@ -247,7 +287,6 @@ export function unregisterQuickToggle(element: HTMLImageElement): void {
 }
 
 export function destroyQuickToggle(): void {
-  globalThis.removeEventListener('scroll', hideEye);
   clearHideTimer();
   clearShowTimer();
 
@@ -258,5 +297,4 @@ export function destroyQuickToggle(): void {
 
   currentElement = null;
   toggleCallback = null;
-  pendingAttachOnReady = false;
 }

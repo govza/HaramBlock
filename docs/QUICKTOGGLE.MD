@@ -27,20 +27,27 @@ view content I deem appropriate while keeping protection active for other images
 
 - SVG eye button appears on **hover** (desktop) or **tap** (mobile) over registered images
 - Uses pointer events (`pointerenter`/`pointerleave`) so each mobile tap fires fresh — avoids the synthetic-mouse sticky-hover bug where a second tap on the same image would not re-trigger the button
-- Positioned in top-right corner of the image (fixed position, follows viewport)
-- Semi-transparent background (`rgba(0, 0, 0, 0.6)`), auto-hides after 2.5s
+- A single global button that is inserted into the hovered image's parent (absolute position, like
+  the mask overlay), anchored at the top-right of the **rendered content rect** — the visible
+  picture, not the element box, so letterbox bars in contain-fit lightboxes never get the button
+- Stacked just above its image (image z-index + 2, one step above the mask overlay's + 1) — never
+  a large fixed z-index, so a lightbox backdrop that covers the image also covers the button, and
+  scrolling moves both together (no hide-on-scroll)
+- The button's chrome is inline styles (the injected class rules cannot reach shadow trees); the
+  `.haramblock-eye-toggle` class remains for hover styling and test selectors
+- Semi-transparent background (`rgba(0, 0, 0, 0.5)`), auto-hides after 2.5s
 - Icon shows the **next state** (what clicking will do)
 
 ### Toggle States (3-state cycle)
 
-- **null** (AI decides): Uses prediction overlays if unsafe, shows image if safe
+- **'auto'** (AI decides): Uses prediction overlays if unsafe, shows image if safe
 - **'visible'** (force show): Image always visible, no overlays
 - **'blocked'** (force hide): Image always blurred with blacklist overlay
 
 Cycle is the same for both image types:
 
-- **Unsafe images** (has predictions): `null (blocked) → 'blocked' → 'visible' → null`
-- **Safe images** (no predictions): `null (visible) → 'blocked' → 'visible' → null`
+- **Unsafe images** (has predictions): `'auto' (blocked) → 'blocked' → 'visible' → 'auto'`
+- **Safe images** (no predictions): `'auto' (visible) → 'blocked' → 'visible' → 'auto'`
 
 ### Icons
 
@@ -48,7 +55,7 @@ Icon shows the next state that will be applied on click:
 
 **Both unsafe and safe images:**
 
-- Current `null` → shows closed eye (next: blocked)
+- Current `'auto'` → shows closed eye (next: blocked)
 - Current `'blocked'` → shows open eye (next: visible)
 - Current `'visible'` → shows eye with checkmark (next: AI decides)
 
@@ -60,7 +67,7 @@ Icons shared via `@/components/ui/icons.ts`:
 
 ### Persistence
 
-- Toggle state stored in `IImagePrediction.forcedVisibility` field (`null | 'visible' | 'blocked'`)
+- Toggle state stored in `IImagePrediction.forcedVisibility` field (`'auto' | 'visible' | 'blocked'`)
 - Persists in IndexedDB cache via `ImageCacheService.updateToggleState()`
 - Multiple images with same `src` share toggle state
 - Use `shouldBlock(prediction)` helper to determine if image should be blocked
@@ -100,7 +107,7 @@ Disabled when `policy.behavior !== 'process'`.
 ```typescript
 interface IImagePrediction {
   // ... existing fields ...
-  forcedVisibility: null | 'visible' | 'blocked';
+  forcedVisibility: 'auto' | 'visible' | 'blocked';
 }
 
 // Helper function to determine blocking
@@ -140,20 +147,13 @@ registerQuickToggle(
 unregisterQuickToggle(element: HTMLImageElement): void
 ```
 
-### CSS Styling
+### Styling
 
-```css
-.haramblock-eye-toggle {
-  width: 2rem;
-  height: 2rem;
-  padding: 0.25rem;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  cursor: pointer;
-  z-index: 10000;
-}
-```
+The button's core chrome (px-based size, absolute position, background) is set as inline styles at
+creation, because the button is inserted into arbitrary site parents — possibly inside shadow trees
+where the document-level `.haramblock-eye-toggle` rules never apply. Its z-index is computed per
+show (image z-index + 2). The injected class rule only carries the hover effect for light-DOM
+cases; the class name doubles as the e2e test selector.
 
 ## i18n Keys
 

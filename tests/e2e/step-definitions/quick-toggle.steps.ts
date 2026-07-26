@@ -104,8 +104,7 @@ When('I wait for image processing', async () => {
 When('I hover over the first gallery image', async () => {
   const image = await $(Selectors.GALLERY_IMAGE);
   await image.scrollIntoView({ block: 'center' });
-  // The extension's scroll listener hides the eye button and cancels pending show timers.
-  // Hover only after scrolling has fully settled.
+  // Hover only after scrolling has fully settled so moveTo() lands on stable coordinates
   await waitForScrollToSettle();
 
   if (isMobile()) {
