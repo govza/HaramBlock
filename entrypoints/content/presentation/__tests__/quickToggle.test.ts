@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { clipContentRectToBox } from '@/entrypoints/content/presentation/imageLayout';
 import { eyeButtonOffsetInParent } from '@/entrypoints/content/presentation/quickToggle';
 
 const BUTTON_SIZE = 32;
@@ -27,6 +28,15 @@ describe('eye button placement', () => {
     );
 
     expect(offset).toEqual({ top: 58, left: 760 });
+  });
+
+  it('stays inside the element box for a cover-cropped gallery image', () => {
+    // 400x300 landscape rendered cover into a 300x300 grid cell: the unclipped content
+    // rect overflows 50px per side and would push the button past the visible right edge
+    const contentRect = clipContentRectToBox({ offsetX: -50, offsetY: 0, width: 400, height: 300 }, 300, 300);
+    const offset = eyeButtonOffsetInParent({ top: 0, left: 0 }, contentRect, BUTTON_SIZE, MARGIN);
+
+    expect(offset).toEqual({ top: 8, left: 260 });
   });
 
   it('never leaves the picture on the left when the content is narrower than the button', () => {

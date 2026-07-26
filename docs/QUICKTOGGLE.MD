@@ -29,7 +29,9 @@ view content I deem appropriate while keeping protection active for other images
 - Uses pointer events (`pointerenter`/`pointerleave`) so each mobile tap fires fresh — avoids the synthetic-mouse sticky-hover bug where a second tap on the same image would not re-trigger the button
 - A single global button that is inserted into the hovered image's parent (absolute position, like
   the mask overlay), anchored at the top-right of the **rendered content rect** — the visible
-  picture, not the element box, so letterbox bars in contain-fit lightboxes never get the button
+  picture, not the element box, so letterbox bars in contain-fit lightboxes never get the button.
+  The rect is clipped to the element box first: cover-fit crop overflow is never visible, and an
+  `overflow: hidden` parent would clip a button anchored past the box into an unclickable sliver
 - Stacked just above its image (image z-index + 2, one step above the mask overlay's + 1) — never
   a large fixed z-index, so a lightbox backdrop that covers the image also covers the button, and
   scrolling moves both together (no hide-on-scroll)

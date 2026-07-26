@@ -84,6 +84,19 @@ export function computeRenderedContentRect(
 }
 
 /**
+ * Intersect a rendered content rect with its element box. Cover-fit (and oversized none-fit)
+ * content overflows the box and the overflow is clipped, so anchoring against the unclipped
+ * rect would target pixels that are never visible.
+ */
+export function clipContentRectToBox(contentRect: ContentRect, boxWidth: number, boxHeight: number): ContentRect {
+  const left = Math.max(0, contentRect.offsetX);
+  const top = Math.max(0, contentRect.offsetY);
+  const right = Math.min(boxWidth, contentRect.offsetX + contentRect.width);
+  const bottom = Math.min(boxHeight, contentRect.offsetY + contentRect.height);
+  return { offsetX: left, offsetY: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+}
+
+/**
  * Given maskTransform parameters (letterboxing in the model’s output grid) and the
  * original image size, compute the source rect within the mask grid that corresponds
  * to valid image pixels (excluding letterbox padding).
