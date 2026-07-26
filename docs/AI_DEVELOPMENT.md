@@ -5,7 +5,9 @@ extension.
 
 ## Chrome DevTools MCP
 
-Enables Claude to interact with Chrome browser sessions for debugging and testing.
+Enables Claude to interact with Chrome browser sessions for debugging and testing. This section
+covers the one-time server setup; the debugging workflow itself (launch, probe, iterate, clean up)
+is documented in [BROWSER_DEBUGGING.md](BROWSER_DEBUGGING.md).
 
 ### Prerequisites
 
