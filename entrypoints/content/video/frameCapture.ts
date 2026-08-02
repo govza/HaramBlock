@@ -52,8 +52,7 @@ function withStageTimeout<T>(
  * on a later attempt, so the session stays fail-closed while retrying.
  */
 export type CaptureResult =
-  | { bitmap: ImageBitmap; failure?: never }
-  | { bitmap?: never; failure: 'permanent' | 'transient' };
+  { bitmap: ImageBitmap; failure?: never } | { bitmap?: never; failure: 'permanent' | 'transient' };
 
 export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<CaptureResult> {
   if (video.poster) {
