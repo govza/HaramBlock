@@ -33,6 +33,13 @@ const log = logger.withTag('videoDvrPlayer');
 /** Verdicts older than the presented time by more than this are unreachable; prune them. */
 const TRACK_PRUNE_SLACK_SEC = 4;
 
+/**
+ * The verdict-less fallback draws the live element whole-blurred, so per-frame
+ * fidelity buys nothing: cap its redraws at the ring's capture cadence instead
+ * of every rAF tick.
+ */
+const NONE_REDRAWS_PER_SEC = 15;
+
 const CANVAS_STYLE = [
   'position: absolute',
   'top: 0',
@@ -77,6 +84,9 @@ export class VideoDvrPlayer {
   private lastDrawKey = '';
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
   private readonly gridCache = new WeakMap<VerdictEntry, HTMLCanvasElement | null>();
+  /** Scratch canvases for renderMasks, reused across draws instead of allocated per frame. */
+  private readonly pixelateScratch = document.createElement('canvas');
+  private readonly unionScratch = document.createElement('canvas');
 
   constructor(private readonly opts: VideoDvrPlayerOptions) {
     this.rafId = requestAnimationFrame(this.tick);
@@ -238,12 +248,13 @@ export class VideoDvrPlayer {
       ? track.verdictFor(frame.mediaTime, track.inertiaWindowSec(), bridgeHorizonSec)
       : ({ kind: 'none' } as const);
 
-    // The 'none' fallback draws the live element, which changes every tick;
-    // everything else redraws only when the frame, verdict, or size moved
-    // (syncGeometry moves the overlay itself — position never forces a redraw).
+    // The 'none' fallback draws the live element whole-blurred, keyed at the
+    // capture cadence; everything else redraws only when the frame, verdict,
+    // or size moved (syncGeometry moves the overlay itself — position never
+    // forces a redraw).
     const drawKey =
       verdict.kind === 'none'
-        ? ''
+        ? ['none', Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC), width, height].join('|')
         : [
             frame?.mediaTime,
             verdict.kind,
@@ -254,7 +265,7 @@ export class VideoDvrPlayer {
             height,
             masking.pixelationScale,
           ].join('|');
-    if (drawKey && drawKey === this.lastDrawKey) return;
+    if (drawKey === this.lastDrawKey) return;
     this.lastDrawKey = drawKey;
 
     const { baseCanvas, baseCtx, maskCanvas, maskCtx } = surfaces;
@@ -313,22 +324,24 @@ export class VideoDvrPlayer {
     const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
     const smallW = Math.max(1, Math.floor(content.width / blockSize));
     const smallH = Math.max(1, Math.floor(content.height / blockSize));
-    const tmp = document.createElement('canvas');
-    tmp.width = smallW;
-    tmp.height = smallH;
+    const tmp = this.pixelateScratch;
+    if (tmp.width !== smallW) tmp.width = smallW;
+    if (tmp.height !== smallH) tmp.height = smallH;
     const tmpCtx = tmp.getContext('2d');
     if (!tmpCtx) return;
+    tmpCtx.clearRect(0, 0, smallW, smallH);
     tmpCtx.imageSmoothingEnabled = true;
     tmpCtx.drawImage(frameBitmap, 0, 0, frameBitmap.width, frameBitmap.height, 0, 0, smallW, smallH);
 
     maskCtx.imageSmoothingEnabled = false;
     maskCtx.drawImage(tmp, content.offsetX, content.offsetY, content.width, content.height);
 
-    const union = document.createElement('canvas');
-    union.width = maskCanvas.width;
-    union.height = maskCanvas.height;
+    const union = this.unionScratch;
+    if (union.width !== maskCanvas.width) union.width = maskCanvas.width;
+    if (union.height !== maskCanvas.height) union.height = maskCanvas.height;
     const unionCtx = union.getContext('2d');
     if (!unionCtx) return;
+    unionCtx.clearRect(0, 0, union.width, union.height);
     unionCtx.imageSmoothingEnabled = false;
 
     let anyMask = false;

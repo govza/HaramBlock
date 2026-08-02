@@ -21,6 +21,8 @@ interface DvrRuntime {
   player: VideoDvrPlayer;
   /** Throttles buffer captures below the tick rate (rVFC ticks are denser). */
   lastCapturedMediaTime: number;
+  /** Reused capture surface: transferToImageBitmap leaves the canvas reusable, so one per DVR run suffices. */
+  captureSurface: OffscreenCanvas | null;
 }
 
 export interface SessionHandle {

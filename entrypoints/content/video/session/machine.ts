@@ -48,8 +48,10 @@ export const SAMPLE_TIMEOUT_MS = 3_000;
 export const MAX_CONSECUTIVE_ERRORS = 10;
 /** How long a transient-failure ERROR rests before sampling is retried. */
 export const ERROR_RETRY_COOLDOWN_MS = 30_000;
+/** How long a presenting DVR stays latched after its mask clears before returning to native playback. */
+export const DVR_IDLE_TEARDOWN_MS = 5_000;
 
-export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout' | 'errorCooldown';
+export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout' | 'errorCooldown' | 'dvrIdle';
 
 export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 
@@ -244,8 +246,11 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
           effects.push({ kind: 'applyBlur' }, { kind: 'startDvr' });
         } else if (state.dvr === 'warming') {
           next.blurred = true;
+        } else {
+          // presenting: the player composites masks itself; no DOM effects.
+          // A pending clean-idle teardown must not fire under the new mask.
+          effects.push({ kind: 'cancelTimer', timer: 'dvrIdle' });
         }
-        // presenting: the player composites masks itself; no DOM effects.
       } else {
         // Paused (standby) verdict describes a static frame: precise DOM overlay.
         // Cover immediately while the async overlay loads/paints, then reveal it.
@@ -264,11 +269,14 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
           // an escape from its fail-closed warm-up blur.
           next.dvr = 'off';
           effects.push({ kind: 'stopDvr' });
+        } else if (state.dvr === 'presenting') {
+          // Keep the DVR latched briefly: VerdictTrack renders clean frames
+          // plainly and preserves nearby unsafe-mask inertia, so unsafe scenes
+          // within the idle window never blink through a teardown/re-warm. The
+          // timer bounds the expensive canvas path to a tail instead of the
+          // rest of the playback run.
+          effects.push({ kind: 'startTimer', timer: 'dvrIdle', ms: DVR_IDLE_TEARDOWN_MS });
         }
-        // Once presenting, keep the DVR latched for this continuous playback
-        // run. VerdictTrack renders clean frames plainly and preserves nearby
-        // unsafe-mask inertia; tearing down here would jump to the live edge
-        // and make intermittent detections blink by repeatedly restarting it.
       } else if (state.masked && state.dvr === 'warming') {
         // Clean sample short of the streak: the warm-up blur is the only
         // protection (no DOM overlay on this path) — keep it until bufferReady.
@@ -287,8 +295,23 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // and any leftover DOM overlay from a pre-playback verdict.
     return {
       state: { ...state, dvr: 'presenting', blurred: false },
-      effects: [{ kind: 'clearVerdict' }, { kind: 'clearBlur' }],
+      effects: [
+        { kind: 'clearVerdict' },
+        { kind: 'clearBlur' },
+        // Presenting an already-clean video (a seek re-warmed an unmasked
+        // DVR): arm the idle teardown now — no mask clear will ever do it.
+        ...(state.masked ? [] : [{ kind: 'startTimer', timer: 'dvrIdle', ms: DVR_IDLE_TEARDOWN_MS } as const]),
+      ],
     };
+  }
+  if (event.type === 'timerFired' && event.timer === 'dvrIdle') {
+    if (state.dvr !== 'presenting' || state.masked) {
+      // Stale fire: the DVR moved on (teardown, re-warm) or a new mask landed.
+      return { state, effects: [] };
+    }
+    // Clean-idle teardown: the video has played unmasked for the whole idle
+    // window — hand presentation back to the native element.
+    return { state: { ...state, dvr: 'off' }, effects: [{ kind: 'stopDvr' }] };
   }
   if (
     event.type === 'play' &&

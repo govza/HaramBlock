@@ -88,6 +88,7 @@ export class PresentationAdapter {
       track,
       player,
       lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
+      captureSurface: null,
     };
   }
 
@@ -148,7 +149,11 @@ export class PresentationAdapter {
       const scale = Math.min(1, DVR_CAPTURE_MAX_WIDTH / nativeWidth);
       const width = Math.max(1, Math.round(nativeWidth * scale));
       const height = Math.max(1, Math.round(nativeHeight * scale));
-      const surface = new OffscreenCanvas(width, height);
+      let surface = dvr.captureSurface;
+      if (!surface || surface.width !== width || surface.height !== height) {
+        surface = new OffscreenCanvas(width, height);
+        dvr.captureSurface = surface;
+      }
       const ctx = surface.getContext('2d');
       if (!ctx) return;
       ctx.drawImage(video, 0, 0, width, height);
