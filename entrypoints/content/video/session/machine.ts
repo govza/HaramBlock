@@ -376,7 +376,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         // and only lift that protection after the static overlay has painted.
         effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
       }
-      effects.push({ kind: 'stopDvr' });
+      effects.push({ kind: 'stopDvr' }, { kind: 'cancelTimer', timer: 'dvrIdle' });
     }
     return { state: next, effects };
   }
@@ -472,6 +472,7 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
       { kind: 'cancelTimer', timer: 'watchdog' },
       { kind: 'cancelTimer', timer: 'sampleTimeout' },
+      { kind: 'cancelTimer', timer: 'dvrIdle' },
       ...(opts.terminal ? [] : [{ kind: 'startTimer', timer: 'errorCooldown', ms: ERROR_RETRY_COOLDOWN_MS } as const]),
     ],
   };
