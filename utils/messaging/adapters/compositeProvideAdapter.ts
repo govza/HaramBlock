@@ -185,8 +185,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
   sendMessage: SendMessage<MessageMeta> = async (message, transfer) => {
     const meta = message.meta as
-      | (MessageMeta & { _transport?: 'runtime' | 'channel'; _channelSecret?: string })
-      | undefined;
+      (MessageMeta & { _transport?: 'runtime' | 'channel'; _channelSecret?: string }) | undefined;
     const transport = meta?._transport;
 
     if (transport === 'channel') {
