@@ -78,7 +78,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     }
   }
 
-  async findAll(): Promise<IHostSettings[]> {
+  override async findAll(): Promise<IHostSettings[]> {
     const records = this.useSessionStorage ? await this.storageGetAll() : await this.table.toArray();
     return records.map(record => ({ ...record, policy: normalizeStoredPolicy(record.policy) }));
   }
@@ -246,7 +246,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
    * For global settings, resets to default instead of deleting
    * @param hostname - The hostname to delete or reset
    */
-  async delete(hostname: string): Promise<void> {
+  override async delete(hostname: string): Promise<void> {
     const effectiveHostname = getEffectiveHostname(hostname);
 
     // Special case: reset global settings instead of deleting
