@@ -1,5 +1,6 @@
 export interface RpcContext {
   tabId?: number;
+  frameId?: number;
 }
 
 let currentContext: RpcContext = {};

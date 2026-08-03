@@ -70,6 +70,10 @@ export default defineBackground({
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 
+    // Reap a closed tab's subscription entries; frames that navigate away are
+    // evicted when their successor re-subscribes (see BackgroundRpc.subscribe)
+    browser.tabs.onRemoved.addListener(tabId => backgroundRpc.releaseTab(tabId));
+
     // Wire up inference service to emit predictions via BackgroundRpc
     inferenceService.setOnImagePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitImagePredictions(predictions, hostname);

@@ -50,6 +50,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
               meta: {
                 ...message.meta,
                 tabId: sender.tab?.id,
+                frameId: sender.frameId,
                 url: sender.tab?.url || sender.url || '',
                 // Mark as runtime transport for routing
                 _transport: 'runtime' as const,
@@ -108,6 +109,10 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     const data = event.data as Partial<Message<MessageMeta>> | undefined;
     if (!data) return;
 
+    // The channel itself carries no sender info; tabId/frameId come from the
+    // REGISTER_CHANNEL_TAB association done at channel establishment.
+    const portInfo = this.ports.get(secret);
+
     // Enrich message with routing metadata
     const enrichedMessage: Partial<Message<MessageMeta>> = {
       ...data,
@@ -117,7 +122,8 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
         _channelSecret: secret,
         _transport: 'channel' as const,
         url: data.meta?.url || '',
-        tabId: data.meta?.tabId,
+        tabId: data.meta?.tabId ?? portInfo?.tabId,
+        frameId: portInfo?.frameId,
       } as MessageMeta & { _channelSecret: string; _transport: 'channel' },
     };
 
@@ -273,7 +279,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
   onMessage: OnMessage<MessageMeta> = callback => {
     const wrapped = (message?: Partial<Message<MessageMeta>>) => {
-      setRpcContext({ tabId: message?.meta?.tabId });
+      setRpcContext({ tabId: message?.meta?.tabId, frameId: message?.meta?.frameId });
       callback(message);
     };
     this.messageCallbacks.add(wrapped);

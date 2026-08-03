@@ -28,14 +28,67 @@ type GifFramePredictionsCallback = (data: { predictions: IGifFramePrediction[]; 
 type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedVisibility }) => void;
 
 /**
+ * Subscription entry tagged with the owning tab/frame (from the RPC context of
+ * the subscribe call) so background-side entries can be reaped when the frame
+ * goes away without an explicit unsubscribe - content scripts skip unload
+ * cleanup on purpose, so untagged entries accumulate for the background's
+ * lifetime and each one costs a full prediction fan-out per frame sample.
+ */
+interface Subscription<T> {
+  callback: T;
+  tabId?: number;
+  frameId?: number;
+}
+
+/**
  * BackgroundRpc consolidates all controller functionality into one RPC service
  * Provided by background, consumed by content scripts and popup
  */
 export class BackgroundRpc {
-  private imagePredictionsCallbacks = new Map<string, ImagePredictionsCallback>();
-  private framePredictionsCallbacks = new Map<string, FramePredictionsCallback>();
-  private gifFramePredictionsCallbacks = new Map<string, GifFramePredictionsCallback>();
-  private contextMenuToggleCallbacks = new Map<string, ContextMenuToggleCallback>();
+  private imagePredictionsCallbacks = new Map<string, Subscription<ImagePredictionsCallback>>();
+  private framePredictionsCallbacks = new Map<string, Subscription<FramePredictionsCallback>>();
+  private gifFramePredictionsCallbacks = new Map<string, Subscription<GifFramePredictionsCallback>>();
+  private contextMenuToggleCallbacks = new Map<string, Subscription<ContextMenuToggleCallback>>();
+
+  private get subscriptionMaps(): Map<string, Subscription<unknown>>[] {
+    return [
+      this.imagePredictionsCallbacks,
+      this.framePredictionsCallbacks,
+      this.gifFramePredictionsCallbacks,
+      this.contextMenuToggleCallbacks,
+    ];
+  }
+
+  /**
+   * Register a callback keyed by the calling tab/frame. A frame re-subscribing
+   * (fresh content-script instance after navigation or reload) evicts its
+   * predecessor's entry of the same kind, mirroring how
+   * CompositeProvideAdapter.associateTab evicts a frame's stale port.
+   */
+  private subscribe<T>(map: Map<string, Subscription<T>>, callback: T): string {
+    const { tabId, frameId } = getRpcContext();
+    if (tabId !== undefined) {
+      for (const [id, entry] of map) {
+        if (entry.tabId === tabId && entry.frameId === frameId) {
+          map.delete(id);
+        }
+      }
+    }
+    const id = crypto.randomUUID();
+    map.set(id, { callback, tabId, frameId });
+    return id;
+  }
+
+  /** Drop every subscription owned by a closed tab. Wired to browser.tabs.onRemoved. */
+  releaseTab(tabId: number): void {
+    for (const map of this.subscriptionMaps) {
+      for (const [id, entry] of map) {
+        if (entry.tabId === tabId) {
+          map.delete(id);
+        }
+      }
+    }
+  }
 
   constructor(
     private hostSettingsService: HostSettingsService,
@@ -317,9 +370,7 @@ export class BackgroundRpc {
   // serialized over MessageChannel. Use the corresponding off* methods to unsubscribe.
 
   onImagePredictions(callback: ImagePredictionsCallback): string {
-    const id = crypto.randomUUID();
-    this.imagePredictionsCallbacks.set(id, callback);
-    return id;
+    return this.subscribe(this.imagePredictionsCallbacks, callback);
   }
 
   offImagePredictions(subscriptionId: string): void {
@@ -327,9 +378,7 @@ export class BackgroundRpc {
   }
 
   onFramePredictions(callback: FramePredictionsCallback): string {
-    const id = crypto.randomUUID();
-    this.framePredictionsCallbacks.set(id, callback);
-    return id;
+    return this.subscribe(this.framePredictionsCallbacks, callback);
   }
 
   offFramePredictions(subscriptionId: string): void {
@@ -337,9 +386,7 @@ export class BackgroundRpc {
   }
 
   onGifFramePredictions(callback: GifFramePredictionsCallback): string {
-    const id = crypto.randomUUID();
-    this.gifFramePredictionsCallbacks.set(id, callback);
-    return id;
+    return this.subscribe(this.gifFramePredictionsCallbacks, callback);
   }
 
   offGifFramePredictions(subscriptionId: string): void {
@@ -347,9 +394,7 @@ export class BackgroundRpc {
   }
 
   onContextMenuToggle(callback: ContextMenuToggleCallback): string {
-    const id = crypto.randomUUID();
-    this.contextMenuToggleCallbacks.set(id, callback);
-    return id;
+    return this.subscribe(this.contextMenuToggleCallbacks, callback);
   }
 
   offContextMenuToggle(subscriptionId: string): void {
@@ -359,18 +404,18 @@ export class BackgroundRpc {
   // ============ Emit Methods ============
 
   emitImagePredictions(predictions: IImagePrediction[], hostname: string): void {
-    this.imagePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+    this.imagePredictionsCallbacks.forEach(({ callback }) => callback({ predictions, hostname }));
   }
 
   emitFramePredictions(predictions: IFramePrediction[], hostname: string): void {
-    this.framePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+    this.framePredictionsCallbacks.forEach(({ callback }) => callback({ predictions, hostname }));
   }
 
   emitGifFramePredictions(predictions: IGifFramePrediction[], hostname: string): void {
-    this.gifFramePredictionsCallbacks.forEach(callback => callback({ predictions, hostname }));
+    this.gifFramePredictionsCallbacks.forEach(({ callback }) => callback({ predictions, hostname }));
   }
 
   emitContextMenuToggle(src: string, forcedVisibility: ForcedVisibility): void {
-    this.contextMenuToggleCallbacks.forEach(callback => callback({ src, forcedVisibility }));
+    this.contextMenuToggleCallbacks.forEach(({ callback }) => callback({ src, forcedVisibility }));
   }
 }
