@@ -60,7 +60,7 @@ export class MediaPipeline {
   start(root: Node = document.body): () => void {
     const unsubImagePreds = onImagePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
-        this.imageProcessor.handlePredictions(data.predictions);
+        this.imageProcessor.handleInferenceResults(data.results);
       }
     });
 

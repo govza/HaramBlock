@@ -62,6 +62,16 @@ export interface IImagePrediction {
 
 export type ForcedVisibility = 'auto' | 'visible' | 'blocked';
 
+/**
+ * Outcome of one image inference request, broadcast to content scripts.
+ * Only the 'ok' arm carries a cacheable prediction; 'error' feeds the content
+ * script's retry counter instead of leaving the image stuck behind the
+ * inference watchdog. The tag is a literal union so it can grow (e.g. a
+ * future 'skipped').
+ */
+export type ImageInferenceResult =
+  { status: 'ok'; prediction: IImagePrediction } | { status: 'error'; src: string; hostname: string; reason?: string };
+
 export function shouldBlock(prediction: IImagePrediction): boolean {
   if (prediction.forcedVisibility === 'visible') return false;
   if (prediction.forcedVisibility === 'blocked') return true;
