@@ -2,6 +2,7 @@ import type { WideEvent, LogExport } from '@/utils/logging/types';
 
 const MAX_EVENTS = 500;
 const STORAGE_KEY = 'wideEvents';
+const FLUSH_DELAY_MS = 1000;
 
 const getVersion = (): string => {
   try {
@@ -18,24 +19,66 @@ const getStorage = () => {
   return browser.storage.session ?? browser.storage.local;
 };
 
-// Store event directly to session storage - called by background
-export const storeWideEvent = async (event: WideEvent): Promise<void> => {
-  try {
-    const storage = getStorage();
-    const result = await storage.get(STORAGE_KEY);
-    const events: WideEvent[] = (result[STORAGE_KEY] as WideEvent[]) ?? [];
+// Writes go through an in-memory buffer with a debounced flush: serializing the
+// full 500-entry array through storage IPC on every event is too expensive at
+// sample cadence (issue #95). The buffer is seeded from storage once so events
+// from a previous service-worker life are preserved.
+let buffer: WideEvent[] | null = null;
+let bufferLoad: Promise<WideEvent[]> | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-    events.push(event);
-
-    // Keep only last MAX_EVENTS
-    while (events.length > MAX_EVENTS) {
-      events.shift();
+const loadBuffer = (): Promise<WideEvent[]> => {
+  if (buffer) return Promise.resolve(buffer);
+  bufferLoad ??= (async () => {
+    let stored: WideEvent[] = [];
+    try {
+      const result = await getStorage().get(STORAGE_KEY);
+      stored = (result[STORAGE_KEY] as WideEvent[]) ?? [];
+    } catch {
+      // Storage may not be available in all contexts
     }
+    // clearEvents may have run while the load was in flight; its empty buffer wins
+    buffer ??= stored;
+    return buffer;
+  })();
+  return bufferLoad;
+};
 
-    await storage.set({ [STORAGE_KEY]: events });
+const flush = async (): Promise<void> => {
+  try {
+    await getStorage().set({ [STORAGE_KEY]: buffer ?? [] });
   } catch {
     // Silent fail - storage may not be available in all contexts
   }
+};
+
+const scheduleFlush = (): void => {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flush();
+  }, FLUSH_DELAY_MS);
+};
+
+export const __resetEventBufferForTests = (): void => {
+  buffer = null;
+  bufferLoad = null;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+};
+
+// Store event in the buffer - called by background
+export const storeWideEvent = async (event: WideEvent): Promise<void> => {
+  const events = await loadBuffer();
+
+  events.push(event);
+  while (events.length > MAX_EVENTS) {
+    events.shift();
+  }
+
+  scheduleFlush();
 };
 
 /**
@@ -43,47 +86,40 @@ export const storeWideEvent = async (event: WideEvent): Promise<void> => {
  * Returns the merged event if successful, null if no matching background event found.
  */
 export const mergeContentEvent = async (contentEvent: WideEvent): Promise<WideEvent | null> => {
-  try {
-    const storage = getStorage();
-    const result = await storage.get(STORAGE_KEY);
-    const events: WideEvent[] = (result[STORAGE_KEY] as WideEvent[]) ?? [];
+  const events = await loadBuffer();
 
-    // Find most recent background event with same reqId (search from end)
-    const bgIndex = events.findLastIndex(e => e.reqId === contentEvent.reqId && e.context === 'background');
+  // Find most recent background event with same reqId (search from end)
+  const bgIndex = events.findLastIndex(e => e.reqId === contentEvent.reqId && e.context === 'background');
 
-    const bgEvent = events[bgIndex];
-    if (bgIndex === -1 || !bgEvent) {
-      return null;
-    }
-
-    // Merge content fields into background event
-    const merged: WideEvent = {
-      ...bgEvent,
-      sendMs: contentEvent.sendMs,
-      waitMs: contentEvent.waitMs,
-      styleMs: contentEvent.styleMs,
-      overlayType: contentEvent.overlayType,
-      detectionsCount: contentEvent.detectionsCount ?? bgEvent.detectionsCount,
-      status: contentEvent.status === 'error' ? 'error' : bgEvent.status,
-      error: contentEvent.error ?? bgEvent.error,
-    };
-
-    events[bgIndex] = merged;
-    await storage.set({ [STORAGE_KEY]: events });
-    return merged;
-  } catch {
+  const bgEvent = events[bgIndex];
+  if (bgIndex === -1 || !bgEvent) {
     return null;
   }
+
+  // Merge content fields into background event
+  const merged: WideEvent = {
+    ...bgEvent,
+    sendMs: contentEvent.sendMs,
+    waitMs: contentEvent.waitMs,
+    styleMs: contentEvent.styleMs,
+    overlayType: contentEvent.overlayType,
+    detectionsCount: contentEvent.detectionsCount ?? bgEvent.detectionsCount,
+    status: contentEvent.status === 'error' ? 'error' : bgEvent.status,
+    error: contentEvent.error ?? bgEvent.error,
+  };
+
+  events[bgIndex] = merged;
+  scheduleFlush();
+  return merged;
 };
 
 export const getEvents = async (): Promise<WideEvent[]> => {
+  // The background holds the freshest copy in its buffer; other contexts
+  // (popup, options) read the flushed snapshot from storage.
+  if (buffer) return buffer;
   try {
-    const storage = getStorage();
-    const result = await storage.get(STORAGE_KEY);
-    const events = (result[STORAGE_KEY] as WideEvent[]) ?? [];
-    // eslint-disable-next-line no-console
-    console.log('[WideEvent] Retrieved events:', events.length);
-    return events;
+    const result = await getStorage().get(STORAGE_KEY);
+    return (result[STORAGE_KEY] as WideEvent[]) ?? [];
   } catch (err) {
     console.error('[WideEvent] Failed to get events:', err);
     return [];
@@ -91,9 +127,14 @@ export const getEvents = async (): Promise<WideEvent[]> => {
 };
 
 export const clearEvents = async (): Promise<void> => {
+  buffer = [];
+  bufferLoad = null;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
   try {
-    const storage = getStorage();
-    await storage.remove(STORAGE_KEY);
+    await getStorage().remove(STORAGE_KEY);
   } catch {
     // Silent fail
   }

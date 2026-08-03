@@ -12,7 +12,9 @@ image through the entire pipeline.
 
 - **Wide events** - One event per image with all context (not scattered logs)
 - **Stable reqId** - Hash of image URL for consistent correlation
-- **Memory-only storage** - Last 500 events in `browser.storage.session` (ephemeral)
+- **Memory-only storage** - Last 500 events buffered in the background, flushed to
+  `browser.storage.session` (ephemeral) on a 1s debounce
+- **Images only** - Playback video frames are excluded from the wide-event stream
 - **Console toggle** - Enable verbose console output in production via popup
 - **Copy to clipboard** - Export events as JSON for debugging
 - **Merged events** - Content timing merged into background event for complete picture
@@ -39,9 +41,10 @@ Background Service Worker:
 
 ### 1. Wide Event Logging (Ephemeral Debug Output)
 
-Stored in `browser.storage.session` (last 500 events). Used for real-time debugging via console
-toggle and "Copy Logs" button. Events are emitted via `emitEvent()` and lost when the browser
-closes.
+Buffered in background memory (last 500 events) and flushed to `browser.storage.session` on a 1s
+debounce so per-event writes never serialize the whole array through storage IPC. Used for real-time
+debugging via console toggle and "Copy Logs" button. Events are emitted via `emitEvent()` and lost
+when the browser closes. Playback video frames do not emit wide events.
 
 ### 2. Prediction Cache (Persistent Performance Data)
 

@@ -202,6 +202,10 @@ export class InferenceOrchestrationService {
           getBatchCap() > 1 ? await this.batchCollector.submit(task) : await processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
 
+        // Playback frames arrive at sample cadence (~4/s per video) and would
+        // flood the 500-entry wide-event buffer that image debugging relies on
+        if (task.mediaMetadata.kind === 'frame') return;
+
         emitEvent({
           src: task.imageSrc,
           hostname: task.hostname,
@@ -220,16 +224,18 @@ export class InferenceOrchestrationService {
           modelId: getCurrentModelId() ?? undefined,
         });
       } catch (error) {
-        emitEvent({
-          src: task.imageSrc,
-          hostname: task.hostname,
-          context: 'background',
-          status: 'error',
-          totalMs: Date.now() - task.createdAt.getTime(),
-          error: error instanceof Error ? error : new Error(String(error)),
-          backend: getInferenceBackend(),
-          modelId: getCurrentModelId() ?? undefined,
-        });
+        if (task.mediaMetadata.kind !== 'frame') {
+          emitEvent({
+            src: task.imageSrc,
+            hostname: task.hostname,
+            context: 'background',
+            status: 'error',
+            totalMs: Date.now() - task.createdAt.getTime(),
+            error: error instanceof Error ? error : new Error(String(error)),
+            backend: getInferenceBackend(),
+            modelId: getCurrentModelId() ?? undefined,
+          });
+        }
         logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
       }
     });
