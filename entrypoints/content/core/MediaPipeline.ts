@@ -14,7 +14,7 @@ import {
 } from '@/entrypoints/content/handlers/handleVideos';
 import { videoSessions } from '@/entrypoints/content/video/session/registry';
 
-import type { IHostSettings, IImagePrediction, IFramePrediction } from '@/utils/types';
+import type { FrameInferenceResult, IHostSettings, IImagePrediction } from '@/utils/types';
 
 export class MediaPipeline {
   private readonly dom: DomObserver;
@@ -69,7 +69,7 @@ export class MediaPipeline {
     // GIF frame verdicts arrive whenever images are being processed.
     const unsubGifPreds = onGifFramePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
-        this.imageProcessor.handleGifFramePredictions(data.predictions);
+        this.imageProcessor.handleGifFrameResults(data.results);
       }
     });
     this.unsubscribeFns.push(unsubGifPreds);
@@ -77,7 +77,7 @@ export class MediaPipeline {
     if (this.shouldRunVideoInference) {
       const unsubFramePreds = onFramePredictions(data => {
         if (data.hostname === this.opts.hostSettings.hostname) {
-          this.handleFramePredictions(data.predictions);
+          this.handleFrameResults(data.results);
         }
       });
       this.unsubscribeFns.push(unsubFramePreds);
@@ -141,8 +141,8 @@ export class MediaPipeline {
     }
   }
 
-  private handleFramePredictions(preds: IFramePrediction[]): void {
-    if (!preds || preds.length === 0) return;
-    videoSessions.handlePredictions(preds);
+  private handleFrameResults(results: FrameInferenceResult[]): void {
+    if (!results || results.length === 0) return;
+    videoSessions.handleResults(results);
   }
 }

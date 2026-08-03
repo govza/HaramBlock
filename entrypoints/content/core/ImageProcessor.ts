@@ -43,6 +43,7 @@ import {
 import { waitForMessageChannel } from '@/utils/messaging/content';
 import {
   shouldBlock,
+  type GifFrameInferenceResult,
   type IGifFramePrediction,
   type IHostSettings,
   type IImagePrediction,
@@ -703,11 +704,20 @@ export class ImageProcessor {
   }
 
   /**
-   * Aggregate per-frame verdicts. Finalization waits until every sampled frame has
-   * returned (or failed); the fail-closed timeout covers verdicts that never arrive.
+   * Aggregate per-frame inference results. Errored frames count as failed so the
+   * session can finalize (fail closed) without waiting out the verdict timeout.
+   * Finalization waits until every sampled frame has returned (or failed); the
+   * fail-closed timeout covers verdicts that never arrive.
    */
-  handleGifFramePredictions(predictions: IGifFramePrediction[]): void {
-    for (const pred of predictions) {
+  handleGifFrameResults(results: GifFrameInferenceResult[]): void {
+    for (const result of results) {
+      if (result.status === 'error') {
+        const session = this.gifSessions.get(result.src);
+        if (!session || session.sessionId !== result.sessionId) continue;
+        this.handleGifFrameError(result.src, session);
+        continue;
+      }
+      const pred = result.prediction;
       const session = this.gifSessions.get(pred.src);
       if (!session || session.sessionId !== pred.sessionId || session.finalized) {
         continue;

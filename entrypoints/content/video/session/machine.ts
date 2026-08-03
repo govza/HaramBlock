@@ -65,7 +65,9 @@ export type SessionEvent =
   | { type: 'seeked'; at: number; timestampSec: number }
   | { type: 'pause'; at: number }
   | { type: 'ended'; at: number }
-  /** permanent: capture can never succeed for this source (e.g. canvas taint), not a transient miss. */
+  /** The attempt finalized without a verdict: capture/send failure, or the background
+   *  replied with an inference error. permanent: capture can never succeed for this
+   *  source (e.g. canvas taint), not a transient miss. */
   | { type: 'sendFailed'; frameIndex: number; at: number; permanent?: boolean }
   /** Capture was abandoned before transport (for example, the video left the viewport). */
   | { type: 'sampleCancelled'; frameIndex: number; at: number }

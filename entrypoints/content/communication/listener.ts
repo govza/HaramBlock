@@ -2,14 +2,14 @@ import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import {
   type ForcedVisibility,
-  type IFramePrediction,
-  type IGifFramePrediction,
+  type FrameInferenceResult,
+  type GifFrameInferenceResult,
   type ImageInferenceResult,
 } from '@/utils/types';
 
 type ImagePredictionsMessage = { results: ImageInferenceResult[]; hostname: string };
-type FramePredictionsMessage = { predictions: IFramePrediction[]; hostname: string };
-type GifFramePredictionsMessage = { predictions: IGifFramePrediction[]; hostname: string };
+type FramePredictionsMessage = { results: FrameInferenceResult[]; hostname: string };
+type GifFramePredictionsMessage = { results: GifFrameInferenceResult[]; hostname: string };
 type ContextMenuToggleMessage = { src: string; forcedVisibility: ForcedVisibility };
 
 export function onImagePredictions(callback: (data: ImagePredictionsMessage) => void): () => void {

@@ -131,6 +131,25 @@ export interface IGifFramePrediction {
   timestamp: number; // When the prediction was made
 }
 
+/**
+ * Outcome of one video frame inference request. An 'error' frees the session's
+ * in-flight sample slot immediately (via the machine's transient sendFailed
+ * arm) instead of waiting out the sample timeout.
+ */
+export type FrameInferenceResult =
+  | { status: 'ok'; prediction: IFramePrediction }
+  | { status: 'error'; hostname: string; sessionId: string; frameIndex: number; reason?: string };
+
+/**
+ * Outcome of one GIF frame inference request. An 'error' counts toward the
+ * session's failed-frame tally so the GIF finalizes (fail closed) as soon as
+ * every sampled frame is accounted for, instead of waiting out the verdict
+ * timeout.
+ */
+export type GifFrameInferenceResult =
+  | { status: 'ok'; prediction: IGifFramePrediction }
+  | { status: 'error'; hostname: string; src: string; sessionId: string; reason?: string };
+
 export interface IVideoPrediction {
   hostname: string;
   src: string; // Original video source URL
