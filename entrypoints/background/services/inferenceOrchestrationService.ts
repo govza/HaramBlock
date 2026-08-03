@@ -202,9 +202,9 @@ export class InferenceOrchestrationService {
           getBatchCap() > 1 ? await this.batchCollector.submit(task) : await processInferenceTask(task);
         await this.handleSuccess(task, imagePrediction);
 
-        // Playback frames arrive at sample cadence (~4/s per video) and would
-        // flood the 500-entry wide-event buffer that image debugging relies on
-        if (task.mediaMetadata.kind === 'frame') return;
+        // Video and GIF frames arrive at sample cadence (~4/s per video) and
+        // would flood the 500-entry wide-event buffer image debugging relies on
+        if (task.mediaMetadata.kind !== 'image') return;
 
         emitEvent({
           src: task.imageSrc,
@@ -224,7 +224,7 @@ export class InferenceOrchestrationService {
           modelId: getCurrentModelId() ?? undefined,
         });
       } catch (error) {
-        if (task.mediaMetadata.kind !== 'frame') {
+        if (task.mediaMetadata.kind === 'image') {
           emitEvent({
             src: task.imageSrc,
             hostname: task.hostname,
