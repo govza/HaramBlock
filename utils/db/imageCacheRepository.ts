@@ -1,5 +1,6 @@
 import { BaseRepository } from '@/utils/db/baseRepository';
 import { imageDb, isIncognito } from '@/utils/db/db';
+import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { type IImagePrediction } from '@/utils/types';
 
@@ -44,7 +45,7 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
       return [];
     }
     const allRecords = await this.findByHostname(hostname);
-    return allRecords.filter(record => this.isValidPrediction(record));
+    return allRecords.filter(record => isValidPrediction(record));
   }
 
   /**
@@ -55,7 +56,7 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
       return [];
     }
     const allRecords = await this.findAll();
-    return allRecords.filter(record => this.isValidPrediction(record));
+    return allRecords.filter(record => isValidPrediction(record));
   }
 
   /**
@@ -136,7 +137,7 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
     const expiredIds: string[] = [];
 
     for (const record of allRecords) {
-      if (!this.isValidPrediction(record)) {
+      if (!isValidPrediction(record)) {
         expiredIds.push(record.src);
       }
     }
@@ -196,30 +197,5 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
         accessedAt: Date.now(),
       },
     };
-  }
-
-  /**
-   * Check if a cached prediction is still valid based on cache metadata
-   * @param prediction - The prediction record to validate
-   * @returns true if cache is valid, false if expired
-   */
-  private isValidPrediction(prediction: IImagePrediction): boolean {
-    const now = Date.now();
-
-    // Check if explicitly expired
-    if (prediction.cacheMetadata.expires && now > prediction.cacheMetadata.expires) {
-      return false;
-    }
-
-    // Check max-age
-    if (prediction.cacheMetadata.maxAge) {
-      const ageInSeconds = (now - prediction.cacheMetadata.createdAt) / 1000;
-      if (ageInSeconds > prediction.cacheMetadata.maxAge) {
-        return false;
-      }
-    }
-
-    // If no specific cache rules, consider valid
-    return true;
   }
 }
