@@ -123,7 +123,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
         _transport: 'channel' as const,
         url: data.meta?.url || '',
         tabId: data.meta?.tabId ?? portInfo?.tabId,
-        frameId: portInfo?.frameId,
+        frameId: data.meta?.frameId ?? portInfo?.frameId,
       } as MessageMeta & { _channelSecret: string; _transport: 'channel' },
     };
 
