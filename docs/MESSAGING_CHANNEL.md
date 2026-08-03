@@ -38,15 +38,12 @@ is separate: ONNX Runtime tries WebGPU first when `navigator.gpu` exists, then f
 Following the **comctx pattern**, content scripts include their URL in message metadata, and the
 background resolves tab context when needed by querying tabs.
 
-### MessageMeta Interface
+### MessageMeta
 
-```typescript
-interface MessageMeta {
-  url: string; // Content script's document.location.href
-  tabId?: number; // Set by browser.runtime (sender.tab.id) or resolved by background
-  injector?: 'content' | 'popup'; // Identifies the caller context
-}
-```
+`MessageMeta` (`utils/messaging/adapters/browserRuntimeAdapter.ts`) carries three fields: `url` (the
+content script's `document.location.href`), an optional `tabId` (set by browser.runtime from
+`sender.tab.id`, or resolved by the background), and an optional `injector` tag (`'content'` or
+`'popup'`) identifying the caller context.
 
 ### How Meta Flows Through the System
 
@@ -123,53 +120,18 @@ Background: Blob → ImageBitmap → tensor → ONNX inference
 
 ### Image Transfer Types
 
-```typescript
-// Chrome primary: ImageBitmap via MessageChannel (zero-copy)
-interface IImageWithBitmap {
-  kind: 'bitmap';
-  bitmap: ImageBitmap;
-  src: string;
-  width: number;
-  height: number;
-  hostname: string;
-  metadata: IImageMetadata;
-}
-
-// Firefox primary: Blob via browser.runtime (structured clone)
-interface IImageWithBlob {
-  kind: 'blob';
-  blob: Blob;
-  // ... same fields
-}
-
-// Fallback for both: URL only, background fetches from cache
-interface IImageWithUrl {
-  kind: 'url';
-  src: string;
-  width: number;
-  height: number;
-  hostname: string;
-  metadata: IImageMetadata;
-}
-```
+`IImageTransfer` (`utils/types/media.ts`) is a discriminated union on `kind`: `IImageWithBitmap`
+(Chrome primary — ImageBitmap via MessageChannel, zero-copy), `IImageWithBlob` (Firefox primary —
+Blob via browser.runtime, structured clone), and `IImageWithUrl` (fallback for both — URL only, the
+background fetches from cache). All variants share the base fields (src, dimensions, hostname,
+metadata).
 
 ### Transfer Kind Configuration
 
-`IMAGE_TRANSFER_KIND` (`utils/constants/environment.ts`) controls how images are sent:
-
-```typescript
-// Browser detection
-export const IS_CHROME = import.meta.env.CHROME === true;
-
-// Chrome: bitmap primary, url fallback (NEVER blob)
-type ChromeImageTransferKind = 'bitmap' | 'url';
-// Firefox: blob primary, url fallback (NEVER bitmap)
-type FirefoxImageTransferKind = 'blob' | 'url';
-
-// Default based on browser capability
-export const IMAGE_TRANSFER_KIND = IS_CHROME ? 'bitmap' : 'blob';
-export const IMAGE_FALLBACK_KIND = 'url'; // Same for both browsers
-```
+`IMAGE_TRANSFER_KIND` (`utils/constants/environment.ts`) controls how images are sent. It defaults
+by browser: `bitmap` on Chrome, `blob` on Firefox, with `IMAGE_FALLBACK_KIND` fixed to `url` for
+both. Per-browser union types (`bitmap | url` for Chrome, `blob | url` for Firefox) make the
+forbidden combinations unrepresentable.
 
 | Kind     | Transport       | Overhead             | Browser      |
 | -------- | --------------- | -------------------- | ------------ |
@@ -190,23 +152,10 @@ Runtime validation throws if you set an invalid kind for the browser (e.g., `bit
 
 ### Transport Selection Logic
 
-`HybridInjectAdapter` (`utils/messaging/adapters/hybridInjectAdapter.ts`) decides:
-
-```typescript
-// Channel adapter is created lazily on first transferable send
-const channelAdapter = hasTransferables ? this.getChannelAdapter() : null;
-
-if (USE_MESSAGE_CHANNEL && hasTransferables && channelAdapter) {
-  // Chrome with transferables: MUST use MessageChannel
-  // Wait for channel if not ready - runtime fallback would cause DataCloneError
-  if (!channelAdapter.isAvailable()) {
-    await channelAdapter.waitForReady(); // Has 15s timeout
-  }
-  return channelAdapter.sendMessage(message, transfer);
-}
-// Firefox or no transferables → browser.runtime
-return runtimeAdapter.sendMessage(message, transfer);
-```
+`HybridInjectAdapter` (`utils/messaging/adapters/hybridInjectAdapter.ts`) decides per send: on
+Chrome with transferables it lazily creates the channel adapter and sends over MessageChannel,
+waiting for the channel to become ready first (15s hard timeout); Firefox and transferable-free
+messages go via browser.runtime.
 
 **Important**: When Chrome has transferables (ImageBitmap), we **must** wait for MessageChannel.
 Falling back to `browser.runtime` would cause a `DataCloneError` because ImageBitmap isn't
@@ -233,21 +182,10 @@ The MessageChannel has multiple timeout layers to prevent hanging:
 
 ## RPC Protocol (comctx)
 
-comctx provides type-safe RPC calls that look like local method invocations:
-
-```typescript
-// Content script
-const settings = await backgroundRpc.getHostSettings(hostname);
-const predictions = await backgroundRpc.getCachedPredictions(hostname);
-await backgroundRpc.postInferenceImage(imageData);
-
-// Subscriptions (callbacks)
-const subscriptionId = await backgroundRpc.onInferencePredictions(data => {
-  console.log('Received predictions:', data.predictions);
-});
-// Later: cleanup
-await backgroundRpc.offInferencePredictions(subscriptionId);
-```
+comctx provides type-safe RPC calls that look like local method invocations: content code calls
+methods on the `backgroundRpc` proxy (request-response like `getHostSettings`, fire-and-forget like
+`postInferenceImage`, and subscription pairs like `onInferencePredictions` /
+`offInferencePredictions`) and comctx handles the messaging.
 
 **Under the hood**, comctx serializes method calls into messages with:
 
@@ -299,71 +237,29 @@ No manual request/response correlation needed!
 
 ### Request-Response Methods
 
-```typescript
-// Host settings
-getHostSettings(hostname: string): Promise<IHostSettings>
-
-// Image cache
-getCachedPredictions(hostname: string): Promise<IImagePrediction[]>
-
-// Image inference
-// Chrome: receives ImageBitmap (kind: 'bitmap')
-// Firefox: receives URL only (kind: 'url'), fetches from cache
-postInferenceImage(imageData: IImageTransfer): Promise<void>
-
-// Extension icon (RpcContext auto-injected by adapter, see "RpcContext" section)
-updateIcon(hostname: string): Promise<void>
-
-// Notify content scripts of settings changes
-notifyHostSettingsChanged(hostname: string): void
-```
+- `getHostSettings` — per-host settings lookup
+- `getCachedPredictions` — cached predictions for a hostname
+- `postInferenceImage` — submits an `IImageTransfer` for inference (Chrome sends a bitmap, Firefox a
+  blob/url; the verdict arrives later on the results broadcast)
+- `updateIcon` — extension icon update (RpcContext auto-injected by adapter, see "RpcContext"
+  section)
+- `notifyHostSettingsChanged` — pushes settings changes to content scripts
 
 ### Subscription Methods
 
-```typescript
-// Subscribe to host settings updates
-onHostSettingsUpdated(callback: (hostname: string) => void): string
-offHostSettingsUpdated(subscriptionId: string): void
-
-// Subscribe to inference predictions
-onInferencePredictions(callback: (data: { predictions, hostname }) => void): string
-offInferencePredictions(subscriptionId: string): void
-```
+`on*` / `off*` pairs (e.g. `onHostSettingsUpdated`, `onInferencePredictions`): the `on*` method
+registers a callback and returns a subscription ID string; the matching `off*` method unsubscribes
+by ID.
 
 **Note**: Subscription methods return IDs (not functions) because functions can't be serialized over
 MessageChannel. Use the corresponding `off*` methods to unsubscribe.
 
 ### Subscription Cleanup Pattern
 
-Content script listeners use a flag-based pattern for reliable cleanup:
-
-```typescript
-export function onImagePredictions(callback): () => void {
-  let isActive = true;
-  let subscriptionId: string | null = null;
-
-  void (
-    backgroundRpc.onInferencePredictions(data => {
-      if (isActive) {
-        callback(data); // Guard prevents stale callbacks
-      }
-    }) as unknown as Promise<string>
-  ).then(id => {
-    subscriptionId = id;
-    if (!isActive) {
-      // Cleanup if already unsubscribed while waiting
-      void backgroundRpc.offInferencePredictions(id);
-    }
-  });
-
-  return () => {
-    isActive = false; // Immediately stops callback execution
-    if (subscriptionId) {
-      void backgroundRpc.offInferencePredictions(subscriptionId);
-    }
-  };
-}
-```
+Content script listeners (`entrypoints/content/communication/listener.ts`) use a flag-based pattern
+for reliable cleanup: the wrapper sets an `isActive` flag, guards the registered callback on it,
+records the subscription ID when the `on*` promise resolves, and returns an unsubscribe function
+that flips the flag and calls `off*`.
 
 This handles both scenarios:
 
@@ -373,16 +269,9 @@ This handles both scenarios:
 
 ### Prediction Hostname Filtering
 
-Predictions are broadcast to all subscribers, so content scripts filter by hostname:
-
-```typescript
-// MediaPipeline.ts
-const unsubImagePreds = onImagePredictions(data => {
-  if (data.hostname === this.opts.hostSettings.hostname) {
-    this.imageProcessor.handleInferenceResults(data.results);
-  }
-});
-```
+Inference results are broadcast to all subscribers, so each content script filters by hostname:
+`MediaPipeline` drops results whose `hostname` doesn't match its own host settings before handing
+them to `ImageProcessor.handleInferenceResults`.
 
 ## Performance Comparison
 
@@ -441,34 +330,13 @@ const unsubImagePreds = onImagePredictions(data => {
 
 ### Meta Enrichment by Transport
 
-**browser.runtime path** (`CompositeProvideAdapter.initializeBrowserRuntime`):
+**browser.runtime path** (`CompositeProvideAdapter.initializeBrowserRuntime`): enriches meta with
+`tabId` and `url` from the browser.runtime sender context, and tags `_transport: 'runtime'`.
 
-```typescript
-const enrichedMessage = {
-  ...message,
-  meta: {
-    ...message.meta,
-    tabId: sender.tab?.id, // From browser.runtime sender context
-    url: sender.tab?.url || sender.url || '',
-    _transport: 'runtime'
-  }
-};
-```
-
-**MessageChannel path** (`CompositeProvideAdapter.handlePortMessage`):
-
-```typescript
-const enrichedMessage = {
-  ...data,
-  meta: {
-    ...data.meta,
-    _channelSecret: secret, // For routing responses
-    _transport: 'channel',
-    url: data.meta?.url || '' // From content script
-    // tabId not available - resolved by querying tabs
-  }
-};
-```
+**MessageChannel path** (`CompositeProvideAdapter.handlePortMessage`): enriches meta with the
+channel secret (for routing responses) and tags `_transport: 'channel'`. The `url` comes from the
+content script's own meta; `tabId` is not available on this path and is resolved by querying tabs
+when needed.
 
 ### RpcContext — Exposing Sender Tab ID to Handlers
 
@@ -479,47 +347,19 @@ argument lists.
 
 The `onMessage` wrapper calls `setRpcContext({ tabId })` before comctx dispatches. Since JS is
 single-threaded, handlers read `getRpcContext()` synchronously before any `await` and get the
-correct value.
-
-```typescript
-// Caller (content script) — unchanged, no extra args:
-await backgroundRpc.updateIcon("example.com");
-
-// Handler (background) — reads context from module variable:
-async updateIcon(hostname: string): Promise<void> {
-  const { tabId } = getRpcContext(); // must read before any await
-  if (!tabId) return;
-  await this.iconService.updateIconForTab(tabId, hostname);
-}
-```
+correct value. Callers are unchanged (no extra arguments); handlers that need the sender tab (e.g.
+`updateIcon`) read it from the context and no-op when it's absent.
 
 On the MessageChannel path, `tabId` is undefined because raw ports don't carry sender context —
 methods that require it no-op.
 
 ## Usage
 
-### Content Script
-
-```typescript
-import { backgroundRpc } from '@/utils/messaging/content';
-
-// Request-response
-const settings = await backgroundRpc.getHostSettings(hostname);
-await backgroundRpc.postInferenceImage(imageData);
-
-// Subscriptions
-const cleanup = onImagePredictions(({ results }) => {
-  /* ... */
-});
-```
-
-### Background
-
-```typescript
-import { provideBackgroundRpc, CompositeProvideAdapter } from '@/utils/messaging';
-
-const rpc = provideBackgroundRpc(new CompositeProvideAdapter(), ...services);
-```
+Content scripts import the `backgroundRpc` singleton from `utils/messaging/content.ts` and call its
+methods directly; subscriptions go through the wrappers in
+`entrypoints/content/communication/listener.ts`, which return cleanup functions. The background side
+registers the service once at startup via `provideBackgroundRpc` with a `CompositeProvideAdapter`
+(`entrypoints/background/index.ts`).
 
 ## Channel Death and Instance Lifecycle
 
