@@ -3,6 +3,7 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 export interface MessageMeta {
   url: string;
   tabId?: number;
+  frameId?: number;
   injector?: 'content' | 'popup';
 }
 
