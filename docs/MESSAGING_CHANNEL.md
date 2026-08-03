@@ -379,7 +379,7 @@ Predictions are broadcast to all subscribers, so content scripts filter by hostn
 // MediaPipeline.ts
 const unsubImagePreds = onImagePredictions(data => {
   if (data.hostname === this.opts.hostSettings.hostname) {
-    this.onImagePredictions(data.predictions);
+    this.imageProcessor.handleInferenceResults(data.results);
   }
 });
 ```
@@ -508,7 +508,7 @@ const settings = await backgroundRpc.getHostSettings(hostname);
 await backgroundRpc.postInferenceImage(imageData);
 
 // Subscriptions
-const cleanup = onImagePredictions(({ predictions }) => {
+const cleanup = onImagePredictions(({ results }) => {
   /* ... */
 });
 ```

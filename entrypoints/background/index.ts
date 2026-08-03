@@ -75,8 +75,8 @@ export default defineBackground({
     browser.tabs.onRemoved.addListener(tabId => backgroundRpc.releaseTab(tabId));
 
     // Wire up inference service to emit predictions via BackgroundRpc
-    inferenceService.setOnImagePredictionsCallback((predictions, hostname) => {
-      backgroundRpc.emitImagePredictions(predictions, hostname);
+    inferenceService.setOnImagePredictionsCallback((results, hostname) => {
+      backgroundRpc.emitImagePredictions(results, hostname);
     });
     inferenceService.setOnFramePredictionsCallback((predictions, hostname) => {
       backgroundRpc.emitFramePredictions(predictions, hostname);

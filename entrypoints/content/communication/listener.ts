@@ -2,12 +2,12 @@ import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import {
   type ForcedVisibility,
-  type IImagePrediction,
   type IFramePrediction,
   type IGifFramePrediction,
+  type ImageInferenceResult,
 } from '@/utils/types';
 
-type ImagePredictionsMessage = { predictions: IImagePrediction[]; hostname: string };
+type ImagePredictionsMessage = { results: ImageInferenceResult[]; hostname: string };
 type FramePredictionsMessage = { predictions: IFramePrediction[]; hostname: string };
 type GifFramePredictionsMessage = { predictions: IGifFramePrediction[]; hostname: string };
 type ContextMenuToggleMessage = { src: string; forcedVisibility: ForcedVisibility };

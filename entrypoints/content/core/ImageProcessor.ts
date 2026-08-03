@@ -3,6 +3,7 @@ import {
   requestImageInference,
   requestToggleUpdate,
 } from '@/entrypoints/content/communication/sender';
+import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
 import {
   decodeGifFrames,
   gifInferenceFrameCap,
@@ -40,7 +41,13 @@ import {
   startContentTiming,
 } from '@/utils/logging';
 import { waitForMessageChannel } from '@/utils/messaging/content';
-import { shouldBlock, type IGifFramePrediction, type IHostSettings, type IImagePrediction } from '@/utils/types';
+import {
+  shouldBlock,
+  type IGifFramePrediction,
+  type IHostSettings,
+  type IImagePrediction,
+  type ImageInferenceResult,
+} from '@/utils/types';
 
 import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 
@@ -98,7 +105,7 @@ interface GifSession {
  * - Self-cleaning overlays (via src tracking in overlay modules)
  */
 export class ImageProcessor {
-  private readonly cache = new Map<string, IImagePrediction>();
+  private readonly cache = new PredictionCache(MAX_CACHE_SIZE);
   private readonly gifSessions = new Map<string, GifSession>();
   // src → the element whose load listeners drive the request (see queueInference)
   private readonly pendingInference = new Map<string, HTMLImageElement>();
@@ -259,16 +266,23 @@ export class ImageProcessor {
    */
   seedCache(predictions: IImagePrediction[]): void {
     for (const pred of predictions) {
-      this.addToCache(pred.src, pred);
+      this.cache.set(pred.src, pred);
     }
   }
 
   /**
-   * Handle predictions from background. Caches and applies to matching images.
+   * Handle inference results from background. Successful predictions are cached
+   * and applied to matching images; errored results feed the retry counter
+   * (transient failures deserve the retry) and fail open once exhausted.
    */
-  handlePredictions(predictions: IImagePrediction[]): void {
-    for (const pred of predictions) {
-      this.addToCache(pred.src, pred);
+  handleInferenceResults(results: ImageInferenceResult[]): void {
+    for (const result of results) {
+      if (result.status === 'error') {
+        this.handleInferenceFailure(result.src);
+        continue;
+      }
+      const pred = result.prediction;
+      this.cache.set(pred.src, pred);
       this.clearPendingInference(pred.src, undefined, true);
 
       // Find and update all matching images
@@ -497,30 +511,40 @@ export class ImageProcessor {
       setTimeout(() => {
         this.pendingInferenceTimers.delete(src);
         if (this.pendingInference.get(src) !== owner) return;
-
-        const attempts = (this.inferenceAttempts.get(src) ?? 0) + 1;
-        this.inferenceAttempts.set(src, attempts);
-        this.pendingInference.delete(src);
-
-        if (attempts >= MAX_IMAGE_INFERENCE_ATTEMPTS) {
-          this.inferenceAttempts.delete(src);
-          completeContentTiming(src, {
-            status: 'error',
-            error: new Error(`Image inference timed out after ${attempts} attempts`),
-          });
-          this.finalizeAllImagesForSrc(src, 'skipped');
-          return;
-        }
-
-        const candidates = this.findImagesBySrc(src);
-        const retryOwner =
-          candidates.find(candidate => this.visibilityMap.get(candidate) && candidate.complete) ??
-          candidates.find(candidate => candidate.complete) ??
-          candidates[0];
-        if (retryOwner) this.process(retryOwner);
-        else this.inferenceAttempts.delete(src);
+        this.handleInferenceFailure(src);
       }, IMAGE_INFERENCE_TIMEOUT_MS),
     );
+  }
+
+  /**
+   * A pending inference failed (errored result from background, or the
+   * watchdog fired with no reply). Retry with the best candidate element,
+   * failing open once attempts are exhausted.
+   */
+  private handleInferenceFailure(src: string): void {
+    if (!this.pendingInference.has(src)) return;
+    this.clearPendingInference(src);
+
+    const attempts = (this.inferenceAttempts.get(src) ?? 0) + 1;
+    this.inferenceAttempts.set(src, attempts);
+
+    if (attempts >= MAX_IMAGE_INFERENCE_ATTEMPTS) {
+      this.inferenceAttempts.delete(src);
+      completeContentTiming(src, {
+        status: 'error',
+        error: new Error(`Image inference failed after ${attempts} attempts`),
+      });
+      this.finalizeAllImagesForSrc(src, 'skipped');
+      return;
+    }
+
+    const candidates = this.findImagesBySrc(src);
+    const retryOwner =
+      candidates.find(candidate => this.visibilityMap.get(candidate) && candidate.complete) ??
+      candidates.find(candidate => candidate.complete) ??
+      candidates[0];
+    if (retryOwner) this.process(retryOwner);
+    else this.inferenceAttempts.delete(src);
   }
 
   private clearPendingInference(src: string, owner?: HTMLImageElement, resetAttempts = false): void {
@@ -720,7 +744,7 @@ export class ImageProcessor {
 
     const aggregatePrediction = this.createGifAggregatePrediction(src, session, forceBlocked);
     session.aggregatePrediction = aggregatePrediction;
-    this.addToCache(src, aggregatePrediction);
+    this.cache.set(src, aggregatePrediction);
 
     markReceived(src);
     for (const img of this.findImagesBySrc(src)) {
@@ -959,24 +983,6 @@ export class ImageProcessor {
       };
       img.decode().then(onReady).catch(onReady);
       img.addEventListener('load', onReady, { once: true });
-    }
-  }
-
-  // ===========================================================================
-  // Cache Management
-  // ===========================================================================
-
-  private addToCache(src: string, prediction: IImagePrediction): void {
-    this.cache.set(src, prediction);
-
-    // Evict oldest entries if over limit
-    if (this.cache.size > MAX_CACHE_SIZE) {
-      const keysToDelete = this.cache.size - MAX_CACHE_SIZE;
-      const iterator = this.cache.keys();
-      for (let i = 0; i < keysToDelete; i++) {
-        const key = iterator.next().value;
-        if (key) this.cache.delete(key);
-      }
     }
   }
 

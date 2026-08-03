@@ -15,10 +15,11 @@ import type {
   IGifFramePrediction,
   IHostSettings,
   IMediaMetadata,
+  ImageInferenceResult,
   InferenceTask,
 } from '@/utils/types';
 
-type OnImagePredictionsCallback = (predictions: IImagePrediction[], hostname: string) => void;
+type OnImagePredictionsCallback = (results: ImageInferenceResult[], hostname: string) => void;
 type OnFramePredictionsCallback = (predictions: IFramePrediction[], hostname: string) => void;
 type OnGifFramePredictionsCallback = (predictions: IGifFramePrediction[], hostname: string) => void;
 
@@ -109,7 +110,10 @@ export class InferenceOrchestrationService {
             hostname,
           }));
           await this.imageCacheService.cachePredictions(predictionsWithHostname);
-          this.sendImagePredictionsToContent(predictionsWithHostname, hostname);
+          this.sendImageResultsToContent(
+            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction })),
+            hostname,
+          );
 
           emitEvent({
             src: imageSrc,
@@ -189,6 +193,7 @@ export class InferenceOrchestrationService {
     this.queueService.enqueue(task, controller?.signal).catch(error => {
       if (controller?.signal.aborted) return;
       logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task for ${imageSrc}:`, error);
+      this.sendImageErrorToContent(task, error);
     });
   }
 
@@ -237,6 +242,7 @@ export class InferenceOrchestrationService {
           });
         }
         logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
+        this.sendImageErrorToContent(task, error);
       }
     });
   }
@@ -265,8 +271,16 @@ export class InferenceOrchestrationService {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
         this.sendGifFramePredictionsToContent([gifFramePrediction], task.hostname);
       } else {
-        await this.imageCacheService.cachePredictions([imagePrediction]);
-        this.sendImagePredictionsToContent([imagePrediction], task.hostname);
+        // A cache write failure must not suppress the reply - the verdict is
+        // already computed and content is waiting on it.
+        try {
+          await this.imageCacheService.cachePredictions([imagePrediction]);
+        } catch (error) {
+          logger
+            .withTag('inferenceOrchestrationService')
+            .warn(`Failed to cache prediction for ${task.imageSrc}:`, error);
+        }
+        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction }], task.hostname);
       }
     } catch (error) {
       logger.withTag('inferenceOrchestrationService').error(`Error handling success for ${task.imageSrc}:`, error);
@@ -306,13 +320,29 @@ export class InferenceOrchestrationService {
     };
   }
 
-  private sendImagePredictionsToContent(predictions: IImagePrediction[], hostname: string): void {
+  /** Reply for failed image inference so content retries immediately instead of waiting out its watchdog. */
+  private sendImageErrorToContent(task: InferenceTask, error: unknown): void {
+    if (task.mediaMetadata.kind !== 'image') return;
+    this.sendImageResultsToContent(
+      [
+        {
+          status: 'error',
+          src: task.imageSrc,
+          hostname: task.hostname,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      ],
+      task.hostname,
+    );
+  }
+
+  private sendImageResultsToContent(results: ImageInferenceResult[], hostname: string): void {
     try {
       if (this.onImagePredictionsCallback) {
-        this.onImagePredictionsCallback(predictions, hostname);
+        this.onImagePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending image predictions:', error);
+      logger.withTag('inferenceOrchestrationService').error('Error sending image inference results:', error);
     }
   }
 

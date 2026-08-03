@@ -20,9 +20,10 @@ import type {
   IImageTransfer,
   IVideoFrameTransfer,
   IGifFrameTransfer,
+  ImageInferenceResult,
 } from '@/utils/types';
 
-type ImagePredictionsCallback = (data: { predictions: IImagePrediction[]; hostname: string }) => void;
+type ImagePredictionsCallback = (data: { results: ImageInferenceResult[]; hostname: string }) => void;
 type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostname: string }) => void;
 type GifFramePredictionsCallback = (data: { predictions: IGifFramePrediction[]; hostname: string }) => void;
 type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedVisibility }) => void;
@@ -403,8 +404,8 @@ export class BackgroundRpc {
 
   // ============ Emit Methods ============
 
-  emitImagePredictions(predictions: IImagePrediction[], hostname: string): void {
-    this.imagePredictionsCallbacks.forEach(({ callback }) => callback({ predictions, hostname }));
+  emitImagePredictions(results: ImageInferenceResult[], hostname: string): void {
+    this.imagePredictionsCallbacks.forEach(({ callback }) => callback({ results, hostname }));
   }
 
   emitFramePredictions(predictions: IFramePrediction[], hostname: string): void {

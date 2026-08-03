@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setRpcContext } from '@/utils/messaging/rpcContext';
 import { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 
-import type { IFramePrediction, IImagePrediction } from '@/utils/types';
+import type { IFramePrediction, ImageInferenceResult } from '@/utils/types';
 
 const makeRpc = (): BackgroundRpc =>
   // Subscription paths never touch the injected services
   new BackgroundRpc(undefined as never, undefined as never, undefined as never, undefined as never, undefined as never);
 
 const framePredictions = [] as IFramePrediction[];
-const imagePredictions = [] as IImagePrediction[];
+const imageResults = [] as ImageInferenceResult[];
 
 describe('BackgroundRpc subscription reaping', () => {
   let rpc: BackgroundRpc;
@@ -43,7 +43,7 @@ describe('BackgroundRpc subscription reaping', () => {
 
     rpc.releaseTab(7);
 
-    rpc.emitImagePredictions(imagePredictions, 'example.com');
+    rpc.emitImagePredictions(imageResults, 'example.com');
     rpc.emitFramePredictions(framePredictions, 'example.com');
     rpc.emitGifFramePredictions([], 'example.com');
     rpc.emitContextMenuToggle('src', 'visible');
@@ -113,7 +113,7 @@ describe('BackgroundRpc subscription reaping', () => {
     setRpcContext({ tabId: 3, frameId: 0 });
     rpc.onFramePredictions(vi.fn());
 
-    rpc.emitImagePredictions(imagePredictions, 'example.com');
+    rpc.emitImagePredictions(imageResults, 'example.com');
     expect(image).toHaveBeenCalledOnce();
   });
 
