@@ -278,7 +278,7 @@ export class ImageProcessor {
   handleInferenceResults(results: ImageInferenceResult[]): void {
     for (const result of results) {
       if (result.status === 'error') {
-        this.handleInferenceFailure(result.src);
+        this.handleInferenceFailure(result.src, result.reason);
         continue;
       }
       const pred = result.prediction;
@@ -521,7 +521,7 @@ export class ImageProcessor {
    * watchdog fired with no reply). Retry with the best candidate element,
    * failing open once attempts are exhausted.
    */
-  private handleInferenceFailure(src: string): void {
+  private handleInferenceFailure(src: string, reason?: string): void {
     if (!this.pendingInference.has(src)) return;
     this.clearPendingInference(src);
 
@@ -532,7 +532,7 @@ export class ImageProcessor {
       this.inferenceAttempts.delete(src);
       completeContentTiming(src, {
         status: 'error',
-        error: new Error(`Image inference failed after ${attempts} attempts`),
+        error: new Error(`Image inference failed after ${attempts} attempts${reason ? `: ${reason}` : ''}`),
       });
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;
