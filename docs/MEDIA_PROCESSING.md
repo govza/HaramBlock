@@ -105,7 +105,7 @@ class ImageProcessor {
   processAll(images: HTMLImageElement[]): void;
   handleSrcChange(img: HTMLImageElement): void;
   seedCache(predictions: IImagePrediction[]): void;
-  handlePredictions(predictions: IImagePrediction[]): void;
+  handleInferenceResults(results: ImageInferenceResult[]): void;
 }
 ```
 
@@ -410,8 +410,8 @@ For each: apply overlay, remove blur class
 
 Images are processed individually by design. This enables priority ordering (visible images before
 offscreen), predictable memory usage, and isolated error handling. Arrays in the API
-(`handlePredictions[]`, `seedCache[]`) exist for receiving cached predictions on page load, not for
-batch sending.
+(`handleInferenceResults[]`, `seedCache[]`) exist for receiving cached predictions on page load, not
+for batch sending.
 
 ## Handling Source Changes
 
@@ -724,7 +724,7 @@ classDiagram
     +processAll(images): void
     +handleSrcChange(img): void
     +seedCache(predictions): void
-    +handlePredictions(predictions): void
+    +handleInferenceResults(results): void
   }
 
   class DomObserver {

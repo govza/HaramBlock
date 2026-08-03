@@ -65,8 +65,9 @@ decodeAndSendGif()
 background: scheduleInferenceTask({ mediaMetadata.kind: 'gifFrame', sessionId, frameIndex })
    │  emitGifFramePredictions(...)
    ▼
-MediaPipeline.onGifFramePredictions → ImageProcessor.handleGifFramePredictions()
-   │  aggregate per session; finalize when received + failed ≥ frameCount  (or 20s timeout)
+MediaPipeline.onGifFramePredictions → ImageProcessor.handleGifFrameResults()
+   │  aggregate per session; errored results count as failed frames
+   │  finalize when received + failed ≥ frameCount  (or 20s timeout)
    ▼
 finalizeGif() → applyGifVerdict(img)
    ├─ blocked  → gifMaskPlayer.createOrUpdatePlayer()   (masked canvas, native <img> hidden)

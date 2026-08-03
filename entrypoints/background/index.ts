@@ -78,11 +78,11 @@ export default defineBackground({
     inferenceService.setOnImagePredictionsCallback((results, hostname) => {
       backgroundRpc.emitImagePredictions(results, hostname);
     });
-    inferenceService.setOnFramePredictionsCallback((predictions, hostname) => {
-      backgroundRpc.emitFramePredictions(predictions, hostname);
+    inferenceService.setOnFramePredictionsCallback((results, hostname) => {
+      backgroundRpc.emitFramePredictions(results, hostname);
     });
-    inferenceService.setOnGifFramePredictionsCallback((predictions, hostname) => {
-      backgroundRpc.emitGifFramePredictions(predictions, hostname);
+    inferenceService.setOnGifFramePredictionsCallback((results, hostname) => {
+      backgroundRpc.emitGifFramePredictions(results, hostname);
     });
 
     // Re-size queue concurrency to the new model's batch cap on every switch.

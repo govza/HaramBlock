@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setRpcContext } from '@/utils/messaging/rpcContext';
 import { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 
-import type { IFramePrediction, ImageInferenceResult } from '@/utils/types';
+import type { FrameInferenceResult, ImageInferenceResult } from '@/utils/types';
 
 const makeRpc = (): BackgroundRpc =>
   // Subscription paths never touch the injected services
   new BackgroundRpc(undefined as never, undefined as never, undefined as never, undefined as never, undefined as never);
 
-const framePredictions = [] as IFramePrediction[];
+const frameResults = [] as FrameInferenceResult[];
 const imageResults = [] as ImageInferenceResult[];
 
 describe('BackgroundRpc subscription reaping', () => {
@@ -25,9 +25,9 @@ describe('BackgroundRpc subscription reaping', () => {
     const callback = vi.fn();
     rpc.onFramePredictions(callback);
 
-    rpc.emitFramePredictions(framePredictions, 'example.com');
+    rpc.emitFramePredictions(frameResults, 'example.com');
 
-    expect(callback).toHaveBeenCalledWith({ predictions: framePredictions, hostname: 'example.com' });
+    expect(callback).toHaveBeenCalledWith({ results: frameResults, hostname: 'example.com' });
   });
 
   it('releaseTab drops every subscription kind owned by that tab', () => {
@@ -44,7 +44,7 @@ describe('BackgroundRpc subscription reaping', () => {
     rpc.releaseTab(7);
 
     rpc.emitImagePredictions(imageResults, 'example.com');
-    rpc.emitFramePredictions(framePredictions, 'example.com');
+    rpc.emitFramePredictions(frameResults, 'example.com');
     rpc.emitGifFramePredictions([], 'example.com');
     rpc.emitContextMenuToggle('src', 'visible');
 
@@ -68,7 +68,7 @@ describe('BackgroundRpc subscription reaping', () => {
     rpc.onFramePredictions(popup);
 
     rpc.releaseTab(7);
-    rpc.emitFramePredictions(framePredictions, 'example.com');
+    rpc.emitFramePredictions(frameResults, 'example.com');
 
     expect(doomed).not.toHaveBeenCalled();
     expect(otherTab).toHaveBeenCalledOnce();
@@ -84,7 +84,7 @@ describe('BackgroundRpc subscription reaping', () => {
     const fresh = vi.fn();
     rpc.onFramePredictions(fresh);
 
-    rpc.emitFramePredictions(framePredictions, 'example.com');
+    rpc.emitFramePredictions(frameResults, 'example.com');
 
     expect(stale).not.toHaveBeenCalled();
     expect(fresh).toHaveBeenCalledOnce();
@@ -99,7 +99,7 @@ describe('BackgroundRpc subscription reaping', () => {
     const iframe = vi.fn();
     rpc.onFramePredictions(iframe);
 
-    rpc.emitFramePredictions(framePredictions, 'example.com');
+    rpc.emitFramePredictions(frameResults, 'example.com');
 
     expect(top).toHaveBeenCalledOnce();
     expect(iframe).toHaveBeenCalledOnce();
@@ -123,7 +123,7 @@ describe('BackgroundRpc subscription reaping', () => {
     const id = rpc.onFramePredictions(callback);
 
     rpc.offFramePredictions(id);
-    rpc.emitFramePredictions(framePredictions, 'example.com');
+    rpc.emitFramePredictions(frameResults, 'example.com');
 
     expect(callback).not.toHaveBeenCalled();
   });

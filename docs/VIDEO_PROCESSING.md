@@ -154,36 +154,38 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   in flight across it can never send its stale frame after resume. Re-entry restarts sampling and
   playback presentation under the existing fail-closed blur. This is essential for virtualized feeds
   such as Reddit, whose old autoplay players often remain connected to the DOM after scrolling away.
-- **Prediction routing** (`handlePredictions`): looks up the session by `sessionId` (echoed through
-  the inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
-  same-URL videos have independent sessions.
+- **Result routing** (`handleResults`): looks up the session by `sessionId` (echoed through the
+  inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
+  same-URL videos have independent sessions. An inference-error result dispatches transient
+  `sendFailed`, freeing the in-flight slot immediately instead of waiting out the sample timeout.
 - **Source changes**: a `loadstart` or `emptied` whose URL or `srcObject` no longer matches the
   session disposes it and adopts a fresh one (immediately, or once the next source resolves). This
   covers `<source>`-children swaps, MSE attachment, object-backed streams, and
   `removeAttribute('src') + load()` teardowns — the last fires `emptied` but never `loadstart`.
-- **Sampling transport**: a failed capture or send dispatches `sendFailed`. `frameCapture.ts`
-  distinguishes **permanent** failures (`SecurityError` — the canvas is CORS-tainted and can never
-  be read) from **transient** ones (no frame data yet, zero dimensions): permanent finalizes the
-  session as allow immediately, transient counts consecutive failures toward ERROR. Each
-  capture+send round is capped by `CAPTURE_SEND_TIMEOUT_MS` (10 s, `frameSampler.ts`) so a
-  never-settling CORS-clone or poster load cannot occupy the in-flight slot forever. Capture stages
-  have shorter internal deadlines as well: poster load/bitmap creation, CORS clone load/seek, and
-  frame bitmap creation fail independently. A CORS clone mirrors active playback after its first
-  exact seek, avoiding a network-backed random seek for every sample; every draw still verifies the
-  selected media time. Firefox clone seeks resolve from either media events or observable
-  ready-state/time convergence, and initial success is reported only after that convergence. A
-  stalled cached clone is evicted so later samples can recreate it instead of timing out forever.
-  Video thumbnails use queue priority 20 and playback samples priority 10, below visible images
-  (30), so autoplay cannot indefinitely hold newly discovered page images behind its frame backlog.
-  The background retains at most one not-yet-started playback frame per `sessionId`: a newer frame
-  aborts and releases the older queued bitmap, while a frame arriving out of order (the cancel RPC
-  and frame payloads ride different transports) is dropped rather than replacing a fresher queued
-  one. Suspending or disposing a session cancels that queued frame explicitly (skipped when the
-  session never sent a playback frame — the cancel would be a guaranteed no-op RPC); inference
-  already running is allowed to finish and its session-routed result is harmless if the session has
-  gone away. Firefox discovers some canvas taint only when its WebP transfer calls
-  `OffscreenCanvas.convertToBlob()` (`createImageBitmap()` may still succeed); that
-  write-only-canvas exception is also permanent, so the session stops retrying immediately.
+- **Sampling transport**: a failed capture or send dispatches `sendFailed`, as does an
+  inference-error reply from the background. `frameCapture.ts` distinguishes **permanent** failures
+  (`SecurityError` — the canvas is CORS-tainted and can never be read) from **transient** ones (no
+  frame data yet, zero dimensions): permanent finalizes the session as allow immediately, transient
+  counts consecutive failures toward ERROR. Each capture+send round is capped by
+  `CAPTURE_SEND_TIMEOUT_MS` (10 s, `frameSampler.ts`) so a never-settling CORS-clone or poster load
+  cannot occupy the in-flight slot forever. Capture stages have shorter internal deadlines as well:
+  poster load/bitmap creation, CORS clone load/seek, and frame bitmap creation fail independently. A
+  CORS clone mirrors active playback after its first exact seek, avoiding a network-backed random
+  seek for every sample; every draw still verifies the selected media time. Firefox clone seeks
+  resolve from either media events or observable ready-state/time convergence, and initial success
+  is reported only after that convergence. A stalled cached clone is evicted so later samples can
+  recreate it instead of timing out forever. Video thumbnails use queue priority 20 and playback
+  samples priority 10, below visible images (30), so autoplay cannot indefinitely hold newly
+  discovered page images behind its frame backlog. The background retains at most one
+  not-yet-started playback frame per `sessionId`: a newer frame aborts and releases the older queued
+  bitmap, while a frame arriving out of order (the cancel RPC and frame payloads ride different
+  transports) is dropped rather than replacing a fresher queued one. Suspending or disposing a
+  session cancels that queued frame explicitly (skipped when the session never sent a playback frame
+  — the cancel would be a guaranteed no-op RPC); inference already running is allowed to finish and
+  its session-routed result is harmless if the session has gone away. Firefox discovers some canvas
+  taint only when its WebP transfer calls `OffscreenCanvas.convertToBlob()` (`createImageBitmap()`
+  may still succeed); that write-only-canvas exception is also permanent, so the session stops
+  retrying immediately.
 
 Each Frame Sample has two deliberately separate identities:
 

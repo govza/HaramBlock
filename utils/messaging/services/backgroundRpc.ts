@@ -15,17 +15,17 @@ import type {
   ForcedVisibility,
   IHostSettings,
   IImagePrediction,
-  IFramePrediction,
-  IGifFramePrediction,
   IImageTransfer,
   IVideoFrameTransfer,
   IGifFrameTransfer,
+  FrameInferenceResult,
+  GifFrameInferenceResult,
   ImageInferenceResult,
 } from '@/utils/types';
 
 type ImagePredictionsCallback = (data: { results: ImageInferenceResult[]; hostname: string }) => void;
-type FramePredictionsCallback = (data: { predictions: IFramePrediction[]; hostname: string }) => void;
-type GifFramePredictionsCallback = (data: { predictions: IGifFramePrediction[]; hostname: string }) => void;
+type FramePredictionsCallback = (data: { results: FrameInferenceResult[]; hostname: string }) => void;
+type GifFramePredictionsCallback = (data: { results: GifFrameInferenceResult[]; hostname: string }) => void;
 type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedVisibility }) => void;
 
 /**
@@ -408,12 +408,12 @@ export class BackgroundRpc {
     this.imagePredictionsCallbacks.forEach(({ callback }) => callback({ results, hostname }));
   }
 
-  emitFramePredictions(predictions: IFramePrediction[], hostname: string): void {
-    this.framePredictionsCallbacks.forEach(({ callback }) => callback({ predictions, hostname }));
+  emitFramePredictions(results: FrameInferenceResult[], hostname: string): void {
+    this.framePredictionsCallbacks.forEach(({ callback }) => callback({ results, hostname }));
   }
 
-  emitGifFramePredictions(predictions: IGifFramePrediction[], hostname: string): void {
-    this.gifFramePredictionsCallbacks.forEach(({ callback }) => callback({ predictions, hostname }));
+  emitGifFramePredictions(results: GifFrameInferenceResult[], hostname: string): void {
+    this.gifFramePredictionsCallbacks.forEach(({ callback }) => callback({ results, hostname }));
   }
 
   emitContextMenuToggle(src: string, forcedVisibility: ForcedVisibility): void {

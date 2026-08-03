@@ -8,6 +8,8 @@ import { emitEvent } from '@/utils/logging';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
 import type {
+  FrameInferenceResult,
+  GifFrameInferenceResult,
   IImagePrediction,
   IFramePrediction,
   IFrameMetadata,
@@ -20,8 +22,8 @@ import type {
 } from '@/utils/types';
 
 type OnImagePredictionsCallback = (results: ImageInferenceResult[], hostname: string) => void;
-type OnFramePredictionsCallback = (predictions: IFramePrediction[], hostname: string) => void;
-type OnGifFramePredictionsCallback = (predictions: IGifFramePrediction[], hostname: string) => void;
+type OnFramePredictionsCallback = (results: FrameInferenceResult[], hostname: string) => void;
+type OnGifFramePredictionsCallback = (results: GifFrameInferenceResult[], hostname: string) => void;
 
 export type InferenceInput =
   | { kind: 'src'; imageSrc: string; requestStartAt?: number; receivedAt?: number }
@@ -193,7 +195,7 @@ export class InferenceOrchestrationService {
     this.queueService.enqueue(task, controller?.signal).catch(error => {
       if (controller?.signal.aborted) return;
       logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task for ${imageSrc}:`, error);
-      this.sendImageErrorToContent(task, error);
+      this.sendErrorToContent(task, error);
     });
   }
 
@@ -242,7 +244,7 @@ export class InferenceOrchestrationService {
           });
         }
         logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
-        this.sendImageErrorToContent(task, error);
+        this.sendErrorToContent(task, error);
       }
     });
   }
@@ -266,10 +268,10 @@ export class InferenceOrchestrationService {
     try {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendFramePredictionsToContent([framePrediction], task.hostname);
+        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction }], task.hostname);
       } else if (task.mediaMetadata.kind === 'gifFrame') {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendGifFramePredictionsToContent([gifFramePrediction], task.hostname);
+        this.sendGifFrameResultsToContent([{ status: 'ok', prediction: gifFramePrediction }], task.hostname);
       } else {
         // A cache write failure must not suppress the reply - the verdict is
         // already computed and content is waiting on it.
@@ -320,20 +322,47 @@ export class InferenceOrchestrationService {
     };
   }
 
-  /** Reply for failed image inference so content retries immediately instead of waiting out its watchdog. */
-  private sendImageErrorToContent(task: InferenceTask, error: unknown): void {
-    if (task.mediaMetadata.kind !== 'image') return;
-    this.sendImageResultsToContent(
-      [
-        {
-          status: 'error',
-          src: task.imageSrc,
-          hostname: task.hostname,
-          reason: error instanceof Error ? error.message : String(error),
-        },
-      ],
-      task.hostname,
-    );
+  /**
+   * Reply for failed inference so content reacts immediately instead of
+   * waiting out its own timeout: images retry via their attempt counter,
+   * video frames free the in-flight sample slot, GIF frames count toward the
+   * session's failed-frame tally.
+   */
+  private sendErrorToContent(task: InferenceTask, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error);
+    const { mediaMetadata } = task;
+    if (mediaMetadata.kind === 'frame') {
+      this.sendFrameResultsToContent(
+        [
+          {
+            status: 'error',
+            hostname: task.hostname,
+            sessionId: mediaMetadata.sessionId,
+            frameIndex: mediaMetadata.frameIndex,
+            reason,
+          },
+        ],
+        task.hostname,
+      );
+    } else if (mediaMetadata.kind === 'gifFrame') {
+      this.sendGifFrameResultsToContent(
+        [
+          {
+            status: 'error',
+            hostname: task.hostname,
+            src: mediaMetadata.src,
+            sessionId: mediaMetadata.sessionId,
+            reason,
+          },
+        ],
+        task.hostname,
+      );
+    } else {
+      this.sendImageResultsToContent(
+        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason }],
+        task.hostname,
+      );
+    }
   }
 
   private sendImageResultsToContent(results: ImageInferenceResult[], hostname: string): void {
@@ -346,23 +375,23 @@ export class InferenceOrchestrationService {
     }
   }
 
-  private sendFramePredictionsToContent(predictions: IFramePrediction[], hostname: string): void {
+  private sendFrameResultsToContent(results: FrameInferenceResult[], hostname: string): void {
     try {
       if (this.onFramePredictionsCallback) {
-        this.onFramePredictionsCallback(predictions, hostname);
+        this.onFramePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending frame predictions:', error);
+      logger.withTag('inferenceOrchestrationService').error('Error sending frame inference results:', error);
     }
   }
 
-  private sendGifFramePredictionsToContent(predictions: IGifFramePrediction[], hostname: string): void {
+  private sendGifFrameResultsToContent(results: GifFrameInferenceResult[], hostname: string): void {
     try {
       if (this.onGifFramePredictionsCallback) {
-        this.onGifFramePredictionsCallback(predictions, hostname);
+        this.onGifFramePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending GIF frame predictions:', error);
+      logger.withTag('inferenceOrchestrationService').error('Error sending GIF frame inference results:', error);
     }
   }
 }

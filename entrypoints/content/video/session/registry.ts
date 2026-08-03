@@ -35,7 +35,7 @@ import { logger } from '@/utils/logger';
 import { generateNonce } from '@/utils/nonce';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
-import type { IFramePrediction, IHostSettings } from '@/utils/types';
+import type { FrameInferenceResult, IFramePrediction, IHostSettings } from '@/utils/types';
 
 const log = logger.withTag('videoSession:registry');
 
@@ -171,10 +171,24 @@ class VideoSessionRegistry {
     this.sampler.queueThumbnailSourceReady(handle);
   }
 
-  /** Route a batch of frame predictions to their sessions; unknown sessions are dropped. */
-  handlePredictions(preds: IFramePrediction[]): void {
+  /** Route a batch of frame inference results to their sessions; unknown sessions are dropped. */
+  handleResults(results: FrameInferenceResult[]): void {
     this.sweepDisconnected();
-    for (const pred of preds) {
+    for (const result of results) {
+      if (result.status === 'error') {
+        const handle = this.byId.get(result.sessionId);
+        if (!handle) continue;
+        // The attempt is finalized with no verdict — same stance as a capture
+        // failure: free the in-flight slot now instead of waiting out the
+        // sample timeout, and let the error streak decide on a cooldown.
+        this.dispatch(handle, {
+          type: 'sendFailed',
+          frameIndex: result.frameIndex,
+          at: performance.now(),
+        });
+        continue;
+      }
+      const pred = result.prediction;
       const handle = this.byId.get(pred.sessionId);
       if (!handle) {
         log.debug('Dropping prediction for unknown session:', pred.sessionId);
