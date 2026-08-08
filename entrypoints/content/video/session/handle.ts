@@ -33,7 +33,7 @@ export interface SessionHandle {
   hostSettings: IHostSettings;
   state: VideoSessionState;
   lastPrediction: IFramePrediction | null;
-  /** Most recent unsafe prediction: what `applyVerdict` renders (pause re-masks need it). */
+  /** Most recent unsafe prediction: what `applyVerdict` renders (suspension re-masks need it). */
   lastUnsafePrediction: IFramePrediction | null;
   timers: Map<SessionTimer, ReturnType<typeof setTimeout>>;
   stopTicker: (() => void) | null;

@@ -232,6 +232,53 @@ describe('VideoSession machine', () => {
     expect(unsafe.state.dvr).toBe('off');
   });
 
+  it('composites paused verdicts on the canvas while the DVR is active: no DOM overlay', () => {
+    const pausedPresenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'frameAvailable', at: 1010 },
+      { type: 'sampleSent', frameIndex: 0, at: 1015 },
+      { type: 'bufferReady', at: 1100 },
+      { type: 'pause', at: 1150 },
+    );
+    expect(pausedPresenting.state.dvr).toBe('presenting');
+
+    // The canvas owns masking even for the frozen frame: an unsafe verdict
+    // landing after the pause composites there, never as a DOM overlay.
+    const unsafe = run(pausedPresenting.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 });
+    expect(unsafe.state.masked).toBe(true);
+    expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+    expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdict' });
+    expect(unsafe.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(unsafe.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+
+    // Paused mid-warm-up the canvas is not up yet: the whole-blur covers
+    // instead — still no DOM overlay chasing the DVR's element.
+    const pausedWarming = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'frameAvailable', at: 1010 },
+      { type: 'sampleSent', frameIndex: 0, at: 1015 },
+      { type: 'pause', at: 1050 },
+    );
+    expect(pausedWarming.state.dvr).toBe('warming');
+    const unsafeWarming = run(pausedWarming.state, {
+      type: 'predictionReceived',
+      frameIndex: 0,
+      unsafe: true,
+      at: 1200,
+    });
+    expect(unsafeWarming.state.blurred).toBe(true);
+    expect(unsafeWarming.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(unsafeWarming.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+  });
+
   it('clears a mask only after two consecutive clean samples (instant on, slow off)', () => {
     const masked = run(
       createVideoSession().state,
@@ -269,7 +316,7 @@ describe('VideoSession machine', () => {
     expect(cleanAgain.effects).not.toContainEqual({ kind: 'clearVerdict' });
   });
 
-  it('runs the DVR lifecycle: warm-up blur, bufferReady swap, pause hand-back, dispose teardown', () => {
+  it('runs the DVR lifecycle: warm-up blur, bufferReady swap, pause freeze, dispose teardown', () => {
     const warming = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -296,14 +343,19 @@ describe('VideoSession machine', () => {
     const silent = run(nextUnsafe.state, { type: 'timerFired', timer: 'watchdog', at: 9000 });
     expect(silent.effects).toHaveLength(0);
 
-    // Pause: static frame → DOM overlay path; the DVR stops.
+    // Pause: the canvas freezes on the delayed frame; the DVR never hands
+    // back to the DOM overlay. Sampling bookkeeping alone winds down.
     const paused = run(nextUnsafe.state, { type: 'pause', at: 4000 });
     expect(paused.state.phase).toBe('standby');
-    expect(paused.state.dvr).toBe('off');
-    expect(paused.effects).toContainEqual({ kind: 'stopDvr' });
-    expect(paused.effects).toContainEqual({ kind: 'applyBlur' });
-    expect(paused.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
-    expect(paused.effects).not.toContainEqual({ kind: 'clearBlur' });
+    expect(paused.state.dvr).toBe('presenting');
+    expect(paused.effects).toEqual([{ kind: 'cancelTimer', timer: 'watchdog' }]);
+
+    // Resume from the frozen frame: presentation continues, no re-warm, no blur.
+    const resumed = run(paused.state, { type: 'play', at: 4500 });
+    expect(resumed.state.phase).toBe('sampling');
+    expect(resumed.state.dvr).toBe('presenting');
+    expect(resumed.effects).not.toContainEqual({ kind: 'startDvr' });
+    expect(resumed.effects).not.toContainEqual({ kind: 'applyBlur' });
 
     // Dispose mid-presentation: stopDvr and cleanup exactly once.
     const disposed = run(nextUnsafe.state, { type: 'dispose' });
@@ -328,6 +380,84 @@ describe('VideoSession machine', () => {
 
     const clean = run(presenting.state, { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 1200 });
     expect(clean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
+  });
+
+  it('releases the DVR on viewport suspension with the DOM hand-back pause used to do', () => {
+    const presenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'bufferReady', at: 2800 },
+    );
+    expect(presenting.state.dvr).toBe('presenting');
+    expect(presenting.state.masked).toBe(true);
+
+    // Scrolled away mid-playback: the ring releases, and the masked native
+    // element is covered until its static overlay paints.
+    const suspended = run(presenting.state, { type: 'suspend', at: 4000 });
+    expect(suspended.state.phase).toBe('standby');
+    expect(suspended.state.dvr).toBe('off');
+    expect(suspended.effects).toContainEqual({ kind: 'cancelTimer', timer: 'watchdog' });
+    expect(suspended.effects).toContainEqual({ kind: 'stopDvr' });
+    expect(suspended.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(suspended.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+
+    // A DVR frozen by pause releases the same way when it leaves the viewport.
+    const paused = run(presenting.state, { type: 'pause', at: 4000 });
+    expect(paused.state.dvr).toBe('presenting');
+    const suspendedPaused = run(paused.state, { type: 'suspend', at: 5000 });
+    expect(suspendedPaused.state.dvr).toBe('off');
+    expect(suspendedPaused.effects).toContainEqual({ kind: 'stopDvr' });
+  });
+
+  it('drains the buffered tail on ended instead of stopping the DVR', () => {
+    const presenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'bufferReady', at: 2800 },
+    );
+    expect(presenting.state.dvr).toBe('presenting');
+
+    const ended = run(presenting.state, { type: 'ended', at: 9000 });
+    expect(ended.state.phase).toBe('standby');
+    expect(ended.state.dvr).toBe('presenting');
+    expect(ended.effects).toContainEqual({ kind: 'drainDvr' });
+    expect(ended.effects).not.toContainEqual({ kind: 'stopDvr' });
+    expect(ended.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+
+    // Chrome fires 'pause' just before 'ended' at the natural end: the pause
+    // freeze must not swallow the drain.
+    const pausedFirst = run(presenting.state, { type: 'pause', at: 9000 }, { type: 'ended', at: 9001 });
+    expect(pausedFirst.state.dvr).toBe('presenting');
+    expect(pausedFirst.effects).toContainEqual({ kind: 'drainDvr' });
+    expect(pausedFirst.effects).not.toContainEqual({ kind: 'stopDvr' });
+  });
+
+  it('hands a still-warming DVR back to the DOM on ended: there is no tail to drain', () => {
+    // The canvas never took over (capture failed / sub-frame video): a drain
+    // has nothing to consume and bufferReady can never fire after ended, so
+    // the whole-blur would latch forever. The old hand-back path applies.
+    const warming = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'play', at: 1000 },
+    );
+    expect(warming.state.dvr).toBe('warming');
+
+    const ended = run(warming.state, { type: 'ended', at: 9000 });
+    expect(ended.state.phase).toBe('standby');
+    expect(ended.state.dvr).toBe('off');
+    expect(ended.effects).not.toContainEqual({ kind: 'drainDvr' });
+    expect(ended.effects).toContainEqual({ kind: 'stopDvr' });
+    expect(ended.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(ended.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
   });
 
   it('keeps a presenting DVR latched across clean streaks: the presentation never exits', () => {

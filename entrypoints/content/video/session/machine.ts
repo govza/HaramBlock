@@ -63,6 +63,8 @@ export type SessionEvent =
   | { type: 'seeked'; at: number; timestampSec: number }
   | { type: 'pause'; at: number }
   | { type: 'ended'; at: number }
+  /** The video left the viewport: release the DVR and hand masking back to the DOM. */
+  | { type: 'suspend'; at: number }
   /** The attempt finalized without a verdict: capture/send failure, or the background
    *  replied with an inference error. permanent: capture can never succeed for this
    *  source (e.g. canvas taint), not a transient miss. */
@@ -90,6 +92,8 @@ export type SessionEffect =
   | { kind: 'resumeTicker' }
   | { kind: 'startDvr' }
   | { kind: 'stopDvr' }
+  /** Playback ended: keep consuming the ring in real time to the final frame, then hold it. */
+  | { kind: 'drainDvr' }
   | { kind: 'cleanup' };
 
 export interface ReduceResult {
@@ -258,11 +262,20 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
           }
         }
         // presenting: the player composites masks itself; no DOM effects.
-      } else {
+      } else if (state.dvr === 'off') {
         // Paused (standby) verdict describes a static frame: precise DOM overlay.
         // Cover immediately while the async overlay loads/paints, then reveal it.
         effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
+      } else if (state.dvr === 'warming') {
+        // Paused mid-warm-up: the canvas is not presenting yet, so the
+        // whole-blur is the cover; a DOM overlay would fight the DVR's element.
+        next.blurred = true;
+        if (!state.blurred) {
+          effects.push({ kind: 'applyBlur' });
+        }
       }
+      // Paused while presenting: the canvas owns masking even for the frozen
+      // frame; the verdict composites there with no DOM effects.
       effects.push({ kind: 'setStatus', status: 'unsafe' });
     } else {
       next.cleanStreak = state.masked ? state.cleanStreak + 1 : 0;
@@ -358,17 +371,46 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         inflightIndex === null && state.inflightIndex !== null ? [{ kind: 'cancelTimer', timer: 'sampleTimeout' }] : [],
     };
   }
-  if ((event.type === 'pause' || event.type === 'ended') && state.phase === 'sampling') {
+  if (event.type === 'suspend' && (state.phase === 'sampling' || state.phase === 'standby')) {
+    // The one DVR exit playback state cannot see coming: offscreen sessions
+    // must return their ring memory. A paused frame is static again, so the
+    // precise DOM overlay takes over before the native element is revealed.
     const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
     const next = { ...state, phase: 'standby' as const };
     if (state.dvr !== 'off') {
-      // DVR is a playback presentation mode: a paused frame is static, so the
-      // precise DOM overlay takes over before the native element is revealed.
       next.dvr = 'off';
       if (state.masked) {
         next.blurred = false;
         // The native element becomes visible when the DVR stops. Blur it first,
         // and only lift that protection after the static overlay has painted.
+        effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
+      }
+      effects.push({ kind: 'stopDvr' });
+    }
+    return { state: next, effects };
+  }
+  if (event.type === 'pause' && state.phase === 'sampling') {
+    // Pause never exits the DVR: the media clock freezes, so the canvas holds
+    // the delayed frame the viewer was actually seeing. Only the sampling
+    // bookkeeping winds down; play resumes presentation without a re-warm.
+    return { state: { ...state, phase: 'standby' }, effects: [{ kind: 'cancelTimer', timer: 'watchdog' }] };
+  }
+  if (event.type === 'ended' && (state.phase === 'sampling' || state.phase === 'standby')) {
+    // Standby too: Chrome fires 'pause' just before 'ended' at the natural
+    // end, so the drain request usually arrives after the pause freeze.
+    const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
+    const next = { ...state, phase: 'standby' as const };
+    if (state.dvr === 'presenting') {
+      // The ending must play out, not cut off: the presenter keeps consuming
+      // the buffered tail in real time, then holds the final frame.
+      effects.push({ kind: 'drainDvr' });
+    } else if (state.dvr === 'warming') {
+      // The canvas never took over (capture failure, sub-frame video): there
+      // is no tail to drain and bufferReady can never fire after ended, so a
+      // kept warm-up blur would latch forever. Hand back to the DOM overlay.
+      next.dvr = 'off';
+      if (state.masked) {
+        next.blurred = false;
         effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
       }
       effects.push({ kind: 'stopDvr' });

@@ -385,6 +385,9 @@ class VideoSessionRegistry {
         case 'stopDvr':
           this.presentation.stopDvr(handle);
           break;
+        case 'drainDvr':
+          this.presentation.drainDvr(handle);
+          break;
         case 'cleanup':
           this.teardown(handle);
           break;
