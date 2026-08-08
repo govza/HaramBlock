@@ -51,6 +51,7 @@ const sourceOf = (ctx: FakeAudioContext) => ctx.createMediaElementSource.mock.re
 describe('audioDelay routing', () => {
   beforeEach(async () => {
     vi.stubGlobal('AudioContext', FakeAudioContext);
+    vi.stubGlobal('location', new URL('https://example.com/page'));
     FakeAudioContext.instances = [];
     vi.resetModules();
     mod = await import('@/entrypoints/content/video/dvr/audioDelay');
@@ -106,5 +107,59 @@ describe('audioDelay routing', () => {
     const ctx = context();
     // Source may or may not exist, but nothing must be routed through a delay.
     expect(ctx.createdDelays.every(d => d.connections.size === 0)).toBe(true);
+  });
+
+  it('classifies delayability by source origin (WebAudio zeroes tainted samples)', () => {
+    const cases: Array<[Partial<HTMLVideoElement>, boolean]> = [
+      [{ srcObject: {} as MediaProvider }, true],
+      [{ crossOrigin: 'anonymous', currentSrc: 'https://cdn.example.com/v.mp4' }, true],
+      [{ currentSrc: 'blob:https://example.com/uuid' }, true],
+      [{ currentSrc: 'data:video/mp4;base64,AAAA' }, true],
+      [{ currentSrc: 'https://example.com/v.mp4' }, true],
+      [{ currentSrc: 'https://cdn.example.com/v.mp4' }, false],
+      [{ currentSrc: '', src: '' }, false],
+    ];
+    for (const [shape, expected] of cases) {
+      const video = { crossOrigin: null, currentSrc: '', src: '', srcObject: null, ...shape } as HTMLVideoElement;
+      expect(mod.isAudioDelayable(video), JSON.stringify(shape)).toBe(expected);
+    }
+  });
+
+  it('reports a successful engage', async () => {
+    expect(await mod.engageAudioDelay(makeVideo(), 2, () => true)).toBe('engaged');
+  });
+
+  it('reports permanent unavailability when the site already captured the element, and never retries', async () => {
+    const video = makeVideo();
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        override createMediaElementSource = vi.fn(() => {
+          throw new DOMException('already connected', 'InvalidStateError');
+        });
+      },
+    );
+    expect(await mod.engageAudioDelay(video, 2, () => true)).toBe('unavailable');
+    const ctx = context();
+    expect(await mod.engageAudioDelay(video, 2, () => true)).toBe('unavailable');
+    expect(ctx.createMediaElementSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a suspended context as deferred, then engages once a gesture resumes it', async () => {
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        override state = 'suspended';
+        override resume = vi.fn(async () => {});
+      },
+    );
+    const video = makeVideo();
+    expect(await mod.engageAudioDelay(video, 2, () => true)).toBe('deferred');
+
+    // A user gesture resumed the context: the same element engages normally.
+    context().state = 'running';
+    expect(await mod.engageAudioDelay(video, 2, () => true)).toBe('engaged');
+    const source = sourceOf(context());
+    expect([...source.connections]).toEqual([context().createdDelays.at(-1)]);
   });
 });

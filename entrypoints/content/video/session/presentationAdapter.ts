@@ -86,7 +86,15 @@ export class PresentationAdapter {
       onReady: () => {
         this.ports.dispatch(handle, { type: 'bufferReady', at: performance.now() });
         // The canvas now presents D behind the live edge; delay audio to match.
-        void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player);
+        // A permanent engage failure (the site captured the element) withdraws
+        // protection entirely (ADR 0001); a deferred one retries next engage.
+        void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player)
+          .then(result => {
+            if (result === 'unavailable') {
+              this.ports.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
+            }
+          })
+          .catch((error: unknown) => log.debug('Audio delay engage failed:', error));
       },
     });
     handle.dvr = {

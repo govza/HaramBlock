@@ -1030,4 +1030,48 @@ describe('VideoSession machine', () => {
     const played = run(failed.state, { type: 'play', at: 2000 }, { type: 'frameAvailable', at: 2010 });
     expect(played.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
   });
+
+  it('finalizes skipped at adoption when audio is undelayable: nothing is ever spent', () => {
+    const { state, effects } = run(createVideoSession().state, { type: 'audioUndelayable', at: 0 });
+    expect(state.phase).toBe('error');
+    expect(effects).toContainEqual({ kind: 'clearBlur' });
+    expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
+    // Terminal, not an outage: no cooldown may ever resurrect this session.
+    expect(effects).not.toContainEqual(expect.objectContaining({ kind: 'startTimer', timer: 'errorCooldown' }));
+
+    // No Thumbnail, no samples — the pipeline never spends anything on it.
+    const later = run(
+      state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'play', at: 100 },
+      { type: 'frameAvailable', at: 200 },
+    );
+    expect(later.effects).toHaveLength(0);
+  });
+
+  it('tears down a presenting DVR when audio capture fails permanently at engage', () => {
+    const presenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'bufferReady', at: 2800 },
+    );
+    expect(presenting.state.dvr).toBe('presenting');
+
+    const { state, effects } = run(presenting.state, { type: 'audioUndelayable', at: 3000 });
+    expect(state.phase).toBe('error');
+    expect(state.dvr).toBe('off');
+    expect(effects).toContainEqual({ kind: 'stopDvr' });
+    expect(effects).toContainEqual({ kind: 'clearVerdict' });
+    expect(effects).toContainEqual({ kind: 'clearBlur' });
+    expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
+    expect(effects).toContainEqual({ kind: 'stopTicker' });
+    expect(effects).not.toContainEqual(expect.objectContaining({ kind: 'startTimer', timer: 'errorCooldown' }));
+
+    // Terminal: playback never resurrects sampling or the DVR.
+    const played = run(state, { type: 'play', at: 4000 }, { type: 'frameAvailable', at: 4010 });
+    expect(played.effects).toHaveLength(0);
+  });
 });

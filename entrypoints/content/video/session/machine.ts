@@ -73,6 +73,10 @@ export type SessionEvent =
   | { type: 'sampleCancelled'; frameIndex: number; at: number }
   /** The DVR ring buffer spans the presentation delay; the canvas has taken over. */
   | { type: 'bufferReady'; at: number }
+  /** This element's audio can never ride the delay line (origin-tainted source
+   *  at adoption, or the site captured the element — discovered at engage).
+   *  Delayability is a precondition (ADR 0001): protection is withdrawn. */
+  | { type: 'audioUndelayable'; at: number }
   | { type: 'dispose' };
 
 export type SessionEffect =
@@ -169,6 +173,12 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       },
       effects: state.dvr === 'off' ? [{ kind: 'cleanup' }] : [{ kind: 'stopDvr' }, { kind: 'cleanup' }],
     };
+  }
+  if (event.type === 'audioUndelayable') {
+    // Undelayable audio finalizes `skipped` from any live phase — permanently
+    // desynced audio was judged worse than absent protection. ERROR is already
+    // terminal; re-finalizing there would re-run teardown effects.
+    return state.phase === 'error' ? { state, effects: [] } : finalizeAllow(state, { terminal: true });
   }
   if (event.type === 'thumbnailSourceReady' && state.phase === 'adopted') {
     return { state: { ...state, phase: 'thumbnailing' }, effects: [{ kind: 'captureThumbnail' }] };
