@@ -24,8 +24,8 @@ const DELAY_RAMP_TIME_CONSTANT_SEC = 0.3;
 
 interface AudioDelayEntry {
   source: MediaElementAudioSourceNode;
-  delay: DelayNode;
-  engaged: boolean;
+  /** Present only while engaged; a DelayNode is single-use so its buffered tail dies with it. */
+  delay: DelayNode | null;
 }
 
 /** null = permanently unavailable for this element (already captured by the site). */
@@ -80,10 +80,8 @@ export async function engageAudioDelay(
     if (!context || !isStillWanted()) return;
     try {
       const source = context.createMediaElementSource(video);
-      const delay = context.createDelay(MAX_DVR_DELAY_MS / 1000 + 1);
-      delay.connect(context.destination);
       source.connect(context.destination);
-      entry = { source, delay, engaged: false };
+      entry = { source, delay: null };
       entries.set(video, entry);
     } catch (error) {
       // The site already captured this element into its own graph; its audio
@@ -94,26 +92,36 @@ export async function engageAudioDelay(
     }
   }
 
-  if (!isStillWanted() || entry.engaged) return;
+  if (!isStillWanted() || entry.delay || !sharedContext) return;
+  // A fresh DelayNode per engagement: a reused one would still hold the tail
+  // it buffered before release and replay stale audio on top of the stream.
+  const delay = sharedContext.createDelay(MAX_DVR_DELAY_MS / 1000 + 1);
+  delay.delayTime.value = delaySec;
+  delay.connect(sharedContext.destination);
   entry.source.disconnect();
-  entry.source.connect(entry.delay);
-  entry.delay.delayTime.value = delaySec;
-  entry.engaged = true;
+  entry.source.connect(delay);
+  entry.delay = delay;
   log.debug('Audio delayed by', delaySec, 's');
 }
 
 /** Follow the adaptive presentation delay while engaged. */
 export function updateAudioDelay(video: HTMLVideoElement, delaySec: number): void {
   const entry = entries.get(video);
-  if (!entry || !entry.engaged || !sharedContext) return;
+  if (!entry?.delay || !sharedContext) return;
   entry.delay.delayTime.setTargetAtTime(delaySec, sharedContext.currentTime, DELAY_RAMP_TIME_CONSTANT_SEC);
 }
 
-/** Back to the live route (the element itself jumps forward by D visually too). */
+/**
+ * Back to the live route (the element itself jumps forward by D visually too).
+ * The delay line is disconnected and discarded, not just bypassed: it still
+ * holds D seconds of audio, and left attached to the destination it would
+ * drain that tail over the now-live audio.
+ */
 export function releaseAudioDelay(video: HTMLVideoElement): void {
   const entry = entries.get(video);
-  if (!entry || !entry.engaged || !sharedContext) return;
+  if (!entry?.delay || !sharedContext) return;
   entry.source.disconnect();
+  entry.delay.disconnect();
+  entry.delay = null;
   entry.source.connect(sharedContext.destination);
-  entry.engaged = false;
 }
