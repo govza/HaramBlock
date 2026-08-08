@@ -109,11 +109,10 @@ export class ViewportSuspension {
     if (suspended) {
       // After handle.suspended is set: invalidateForSuspend arms the resume re-sample.
       this.ports.sampler.invalidateForSuspend(handle);
-      // Reuse the machine's playback hand-back so DVR state, audio, and the
-      // ring are released consistently, then stop frame delivery entirely.
-      if (handle.state.phase === 'sampling') {
-        this.ports.dispatch(handle, { type: 'pause', at: performance.now() });
-      }
+      // The machine's suspend hand-back releases DVR state, audio, and the
+      // ring consistently (pause no longer exits the DVR — a frozen paused
+      // presentation must release its memory too); then stop frame delivery.
+      this.ports.dispatch(handle, { type: 'suspend', at: performance.now() });
       this.ports.sampler.stopTicker(handle);
       return;
     }

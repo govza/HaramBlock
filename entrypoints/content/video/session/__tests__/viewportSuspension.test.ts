@@ -153,7 +153,7 @@ describe('ViewportSuspension', () => {
 
     vi.advanceTimersByTime(1);
     expect(harness.handle.suspended).toBe(true);
-    expect(harness.trace).toEqual(['invalidateForSuspend', 'stopTicker']);
+    expect(harness.trace).toEqual(['invalidateForSuspend', 'dispatch:suspend', 'stopTicker']);
   });
 
   it('cancels a pending suspend when the video re-enters the margin', () => {
@@ -192,11 +192,11 @@ describe('ViewportSuspension', () => {
     vi.advanceTimersByTime(SUSPEND_GRACE_MS);
 
     // Order is the contract: in-flight work dies, the machine releases DVR and
-    // audio through its own pause path, and only then does the ticker stop.
-    expect(harness.trace).toEqual(['invalidateForSuspend', 'dispatch:pause', 'stopTicker']);
+    // audio through its suspend hand-back, and only then does the ticker stop.
+    expect(harness.trace).toEqual(['invalidateForSuspend', 'dispatch:suspend', 'stopTicker']);
   });
 
-  it('does not synthesize a pause outside sampling', () => {
+  it('dispatches the suspend hand-back outside sampling too (a paused DVR holds ring memory)', () => {
     const harness = makeHarness();
     const handle = makeHandle();
     handle.state = { ...handle.state, phase: 'standby' };
@@ -205,7 +205,7 @@ describe('ViewportSuspension', () => {
     observer.emit([entryFor(handle, false)]);
     vi.advanceTimersByTime(SUSPEND_GRACE_MS);
 
-    expect(harness.trace).toEqual(['invalidateForSuspend', 'stopTicker']);
+    expect(harness.trace).toEqual(['invalidateForSuspend', 'dispatch:suspend', 'stopTicker']);
   });
 
   it('resumes a playing video by discarding the deferred re-sample and replaying playback', () => {

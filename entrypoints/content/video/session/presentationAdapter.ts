@@ -107,6 +107,11 @@ export class PresentationAdapter {
     dvr.ring.release();
   }
 
+  /** Playback ended: the presenter consumes the ring tail in real time, then holds the final frame. */
+  drainDvr(handle: SessionHandle): void {
+    handle.dvr?.player.startDrain();
+  }
+
   /** Keep the audio delay tracking the presentation delay. */
   syncAudioDelay(handle: SessionHandle): void {
     if (handle.dvr) updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
@@ -193,8 +198,8 @@ export class PresentationAdapter {
   }
 
   applyVerdictOverlay(handle: SessionHandle, clearBlurOnPaint = false): void {
-    // The last unsafe prediction, not the last one: a pause-time re-mask must
-    // render the mask that made the session masked, not a newer clean verdict.
+    // The last unsafe prediction, not the last one: a suspend-time re-mask
+    // must render the mask that made the session masked, not a newer clean verdict.
     const pred = handle.lastUnsafePrediction;
     if (!pred) return;
     const { video, hostSettings } = handle;
@@ -205,7 +210,7 @@ export class PresentationAdapter {
       // slot now would evict the live DVR presenter, leaving the machine
       // convinced the DVR still masks. Whenever the DVR is active it (or its
       // warm-up whole-blur) owns masking, so a stale static render is never
-      // wanted — a later pause re-mask regenerates it from lastUnsafePrediction.
+      // wanted — a later suspend re-mask regenerates it from lastUnsafePrediction.
       const staleRender = () => handle.state.phase === 'disposed' || handle.state.dvr !== 'off';
       if (staleRender()) return;
       await videoMaskOverlays.createMaskOverlay(video, imagePrediction, hostSettings, staleRender);

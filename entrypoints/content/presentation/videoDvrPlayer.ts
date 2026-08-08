@@ -20,6 +20,7 @@ import {
   overlayOffsetInParent,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
+import { drainTargetTime, startDrainClock, type DrainClock } from '@/entrypoints/content/video/dvr/drain';
 import {
   BRIDGE_HORIZON_SEC,
   type VerdictEntry,
@@ -89,6 +90,8 @@ export class VideoDvrPlayer {
   /** Scratch canvases for renderMasks, reused across draws instead of allocated per frame. */
   private readonly pixelateScratch = document.createElement('canvas');
   private readonly unionScratch = document.createElement('canvas');
+  /** Set once playback ends: the presented clock runs on wall time through the ring tail. */
+  private drainClock: DrainClock | null = null;
 
   constructor(private readonly opts: VideoDvrPlayerOptions) {
     this.rafId = requestAnimationFrame(this.tick);
@@ -96,6 +99,22 @@ export class VideoDvrPlayer {
 
   presenting(): boolean {
     return this.surfaces !== null;
+  }
+
+  /**
+   * Playback ended: `video.currentTime` stops advancing, so the draw loop can
+   * no longer derive its position from the media clock. Latch a wall-time
+   * clock at the frozen presented position; draw() consumes the buffered tail
+   * at 1x from there and holds the final frame. Seek, source change, and
+   * dispose all destroy this player, which aborts the drain with it.
+   */
+  startDrain(): void {
+    if (this.destroyed || this.drainClock) return;
+    const { video, ring, getDelaySec } = this.opts;
+    this.drainClock = startDrainClock(
+      clampToOldest(video.currentTime - getDelaySec(), ring.oldestTime()),
+      performance.now() / 1000,
+    );
   }
 
   destroy(): void {
@@ -235,11 +254,18 @@ export class VideoDvrPlayer {
     if (width <= 0 || height <= 0) return;
 
     const delaySec = getDelaySec();
+    // A replay fires 'play' before its rewinding 'seeked' reaches the machine:
+    // the moment the media clock runs again, the drain is over.
+    if (this.drainClock && !video.ended) this.drainClock = null;
     // Clamped to the earliest buffered frame: while the buffer is still
     // shorter than D (warm-up, post-seek re-warm, loop restart), playback
     // holds on that frame — masked — until now − D reaches it, then runs.
     const oldest = ring.oldestTime();
-    const targetTime = oldest === null ? video.currentTime - delaySec : Math.max(video.currentTime - delaySec, oldest);
+    const newest = ring.newestTime();
+    const targetTime =
+      this.drainClock && newest !== null
+        ? drainTargetTime(this.drainClock, performance.now() / 1000, newest)
+        : clampToOldest(video.currentTime - delaySec, oldest);
     const frame = ring.frameAt(targetTime);
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
@@ -402,6 +428,11 @@ function rasterizeMaskGrid(entry: VerdictEntry): HTMLCanvasElement | null {
     }
   }
   return grid;
+}
+
+/** A presented position can never reach behind the ring's earliest buffered frame. */
+function clampToOldest(mediaTime: number, oldest: number | null): number {
+  return oldest === null ? mediaTime : Math.max(mediaTime, oldest);
 }
 
 function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number): void {
