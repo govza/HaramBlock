@@ -14,6 +14,7 @@ import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypo
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
 import { deriveDvrDelayMs, MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
+import { dvrRingBudget, SESSION_MAX_BYTES, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
@@ -23,16 +24,8 @@ import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/
 
 const log = logger.withTag('videoSession:presentation');
 
-/**
- * Buffer captures are cheaper and denser than inference samples. Targets
- * ~30 fps: slightly under 1/30 so the throttle cannot alias against a 60 Hz
- * rVFC tick grid and skip extra ticks (exact multiples float-compare short).
- */
-export const DVR_CAPTURE_INTERVAL_SEC = 1 / 33;
 /** Ring horizon: the adaptive delay's ceiling plus slack, so a growing D still finds frames. */
 const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
-/** Per-session byte cap (~4.5 s of 640×360 RGBA at 30 fps ≈ 125 MB); only while masked. */
-const DVR_BUFFER_MAX_BYTES = 128 * 1024 * 1024;
 
 /**
  * Whole-video blur is applied inline: the BLUR_CLASS stylesheet lives in the
@@ -76,7 +69,16 @@ export class PresentationAdapter {
     // disappears on replays and re-visited seeks.
     handle.dvrDelaySec =
       deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000;
-    const ring = new FrameRing(DVR_BUFFER_HORIZON_SEC, DVR_BUFFER_MAX_BYTES);
+    // Claim capacity in the shared budget; every DVR exit funnels through
+    // stopDvr, so suspension and disposal both return it.
+    dvrRingBudget.register(handle.sessionId, {
+      nativeWidth: handle.video.videoWidth,
+      nativeHeight: handle.video.videoHeight,
+      horizonSec: DVR_BUFFER_HORIZON_SEC,
+      minHorizonSec: handle.dvrDelaySec + 1,
+    });
+    const quality = dvrRingBudget.quality();
+    const ring = new FrameRing(this.ringHorizonSec(handle, quality), SESSION_MAX_BYTES);
     const player = new VideoDvrPlayer({
       video: handle.video,
       ring,
@@ -110,9 +112,16 @@ export class PresentationAdapter {
     if (!dvr) return;
     handle.dvr = null;
     handle.dvrDelaySec = null;
+    dvrRingBudget.release(handle.sessionId);
     releaseAudioDelay(handle.video);
     dvr.player.destroy();
     dvr.ring.release();
+  }
+
+  /** Never shrink a live ring below the latched D: presentation would strand on the warm-up frame. */
+  private ringHorizonSec(handle: SessionHandle, quality: RingQuality): number {
+    const delaySec = handle.dvrDelaySec ?? this.ports.currentDelaySec(handle);
+    return Math.max(delaySec + 1, DVR_BUFFER_HORIZON_SEC * quality.horizonScale);
   }
 
   /** Playback ended: the presenter consumes the ring tail in real time, then holds the final frame. */
@@ -155,10 +164,14 @@ export class PresentationAdapter {
   captureIntoRing(handle: SessionHandle, mediaTime: number): void {
     const { dvr } = handle;
     if (!dvr) return;
-    if (mediaTime - dvr.lastCapturedMediaTime < DVR_CAPTURE_INTERVAL_SEC && mediaTime >= dvr.lastCapturedMediaTime) {
+    // Read the shared budget's current tier every capture: degradation and
+    // recovery apply to live rings without a restart.
+    const quality = dvrRingBudget.quality();
+    if (mediaTime - dvr.lastCapturedMediaTime < quality.captureIntervalSec && mediaTime >= dvr.lastCapturedMediaTime) {
       return;
     }
     try {
+      dvr.ring.setLimits(this.ringHorizonSec(handle, quality), SESSION_MAX_BYTES);
       const { video } = handle;
       const nativeWidth = video.videoWidth;
       const nativeHeight = video.videoHeight;
@@ -171,9 +184,10 @@ export class PresentationAdapter {
         nativeWidth,
         nativeHeight,
         displayWidth: video.clientWidth * (globalThis.devicePixelRatio || 1),
+        maxWidth: quality.maxWidth,
         delaySec: this.ports.currentDelaySec(handle),
-        captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
-        maxBytes: DVR_BUFFER_MAX_BYTES,
+        captureIntervalSec: quality.captureIntervalSec,
+        maxBytes: SESSION_MAX_BYTES,
       });
       const width = Math.max(1, Math.round(nativeWidth * scale));
       const height = Math.max(1, Math.round(nativeHeight * scale));
