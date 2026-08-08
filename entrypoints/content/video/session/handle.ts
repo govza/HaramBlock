@@ -10,14 +10,13 @@
 
 import type { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import type { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
-import type { VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
+import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { PendingFrameSample } from '@/entrypoints/content/video/frameSample';
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
 
 interface DvrRuntime {
   ring: FrameRing;
-  track: VerdictTrack;
   player: VideoDvrPlayer;
   /** Throttles buffer captures below the tick rate (rVFC ticks are denser). */
   lastCapturedMediaTime: number;
@@ -42,6 +41,10 @@ export interface SessionHandle {
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
   dvr: DvrRuntime | null;
+  /** Session-lifetime verdict history: survives DVR stop/start, seeks, and loop restarts. */
+  readonly timeline: VerdictTimeline;
+  /** Presentation delay latched for the current DVR run; null while the DVR is off. */
+  dvrDelaySec: number | null;
   /** Session-local Frame Samples awaiting verdicts; future caches must not persist routing identity. */
   pendingSamples: Map<number, PendingFrameSample>;
   /** Recent sample→verdict round-trips; sizes the adaptive DVR delay. */

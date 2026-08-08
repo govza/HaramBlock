@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DVR_DELAY_MS, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
+import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { FrameSampler, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
 import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 
@@ -50,6 +51,8 @@ function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
     removeListeners: () => {},
     overlayChain: Promise.resolve(),
     dvr: null,
+    timeline: new VerdictTimeline(),
+    dvrDelaySec: null,
     pendingSamples: new Map(),
     latenciesMs: [],
     suspended: false,

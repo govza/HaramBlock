@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   computeDvrDelayMs,
+  COVERED_DVR_DELAY_MS,
   DEFAULT_DVR_DELAY_MS,
+  deriveDvrDelayMs,
   MAX_DVR_DELAY_MS,
   MIN_DVR_DELAY_MS,
 } from '@/entrypoints/content/video/dvr/delay';
@@ -31,5 +33,24 @@ describe('computeDvrDelayMs', () => {
     const steady = Array.from({ length: 15 }, () => 600);
     const delay = computeDvrDelayMs([...steady, 9000]);
     expect(delay).toBeLessThan(MAX_DVR_DELAY_MS);
+  });
+});
+
+describe('deriveDvrDelayMs', () => {
+  it('uses the adaptive round-trip delay when the range ahead is uncovered', () => {
+    expect(deriveDvrDelayMs([], 0)).toBe(DEFAULT_DVR_DELAY_MS);
+    expect(deriveDvrDelayMs([800, 850, 900], 0.5)).toBe(computeDvrDelayMs([800, 850, 900]));
+  });
+
+  it('shrinks D for a covered range: verdicts already exist, no inference wait', () => {
+    // Coverage extends at least twice the adaptive delay ahead: covered.
+    const adaptiveSec = computeDvrDelayMs([]) / 1000;
+    expect(deriveDvrDelayMs([], adaptiveSec * 2)).toBe(COVERED_DVR_DELAY_MS);
+    expect(COVERED_DVR_DELAY_MS).toBeLessThan(MIN_DVR_DELAY_MS);
+  });
+
+  it('stays adaptive when coverage falls short of the lookahead threshold', () => {
+    const adaptiveSec = computeDvrDelayMs([]) / 1000;
+    expect(deriveDvrDelayMs([], adaptiveSec * 2 - 0.1)).toBe(DEFAULT_DVR_DELAY_MS);
   });
 });

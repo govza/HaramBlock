@@ -5,10 +5,10 @@ import {
   INERTIA_JITTER_MARGIN_SEC,
   MAX_INERTIA_WINDOW_SEC,
   MIN_INERTIA_WINDOW_SEC,
-  TRAILING_UNSAFE_INERTIA_MULTIPLIER,
-  VerdictTrack,
+  VerdictTimeline,
   type VerdictEntry,
-} from '@/entrypoints/content/video/dvr/verdictTrack';
+  MAX_TIMELINE_ENTRIES,
+} from '@/entrypoints/content/video/dvr/verdictTimeline';
 
 function entry(timestampSec: number, unsafe: boolean): VerdictEntry {
   return {
@@ -21,9 +21,9 @@ function entry(timestampSec: number, unsafe: boolean): VerdictEntry {
   };
 }
 
-describe('VerdictTrack', () => {
+describe('VerdictTimeline', () => {
   it('answers unsafe/clean/none by window lookup, fail-closed when no verdict is near', () => {
-    const track = new VerdictTrack();
+    const track = new VerdictTimeline();
     track.add(entry(1, false));
     track.add(entry(2, true));
 
@@ -36,7 +36,7 @@ describe('VerdictTrack', () => {
   });
 
   it('bridges coverage holes instead of blurring between masked stretches', () => {
-    const track = new VerdictTrack();
+    const track = new VerdictTimeline();
     track.add(entry(1, true));
     track.add(entry(3.5, true)); // 2.5s hole: an inference-latency spike
 
@@ -44,12 +44,14 @@ describe('VerdictTrack', () => {
     const bridged = track.verdictFor(2.2, 0.5);
     expect(bridged.kind).toBe('unsafe');
 
-    // An unsafe verdict also extends forward past its window while the next
-    // verdict is still in flight (never blur away from a known-unsafe region).
-    expect(track.verdictFor(3.5 + 1.5, 0.5).kind).toBe('unsafe');
+    // A past unsafe verdict covers only a short forward overshoot; further out
+    // it may no longer describe the scene, so it fails closed instead of
+    // smearing a stale mask forward.
+    expect(track.verdictFor(3.5 + 0.9, 0.5).kind).toBe('unsafe');
+    expect(track.verdictFor(3.5 + 1.5, 0.5).kind).toBe('none');
 
     // A hole between two clean verdicts presents clean.
-    const cleanTrack = new VerdictTrack();
+    const cleanTrack = new VerdictTimeline();
     cleanTrack.add(entry(1, false));
     cleanTrack.add(entry(3.5, false));
     expect(cleanTrack.verdictFor(2.2, 0.5)).toEqual({ kind: 'clean' });
@@ -59,18 +61,18 @@ describe('VerdictTrack', () => {
     expect(cleanTrack.verdictFor(3.5 + 1.2, 0.5)).toEqual({ kind: 'none' });
   });
 
-  it('stretches the unsafe bridge further when given a wider horizon (slow inference)', () => {
-    const track = new VerdictTrack();
-    track.add(entry(1, true));
+  it('stretches the backward unsafe bridge further when given a wider horizon (slow inference)', () => {
+    const track = new VerdictTimeline();
+    track.add(entry(BRIDGE_HORIZON_SEC + 2, true));
 
     // Beyond the default horizon…
-    expect(track.verdictFor(1 + BRIDGE_HORIZON_SEC + 1, 0.5).kind).toBe('none');
-    // …but a session whose round-trip demands it keeps masking instead.
-    expect(track.verdictFor(1 + BRIDGE_HORIZON_SEC + 1, 0.5, BRIDGE_HORIZON_SEC + 2).kind).toBe('unsafe');
+    expect(track.verdictFor(1, 0.5).kind).toBe('none');
+    // …but a session whose round-trip demands it pre-rolls the mask instead.
+    expect(track.verdictFor(1, 0.5, BRIDGE_HORIZON_SEC + 2).kind).toBe('unsafe');
   });
 
   it('merges all unsafe verdicts inside the window (inertia)', () => {
-    const track = new VerdictTrack();
+    const track = new VerdictTimeline();
     const a = entry(1, true);
     const b = entry(1.4, true);
     track.add(a);
@@ -81,23 +83,18 @@ describe('VerdictTrack', () => {
     expect(verdict).toEqual({ kind: 'unsafe', entries: [a, b] });
   });
 
-  it('holds the last unsafe mask through short runs of clean detector dropouts', () => {
-    const track = new VerdictTrack();
-    const unsafe = entry(1, true);
-    track.add(unsafe);
+  it('clears immediately once only clean verdicts sit in the window (no trailing hold)', () => {
+    const track = new VerdictTimeline();
+    track.add(entry(1, true));
     track.add(entry(1.25, false));
     track.add(entry(1.5, false));
 
-    const windowSec = 0.5;
-    expect(track.verdictFor(1.75, windowSec)).toEqual({ kind: 'unsafe', entries: [unsafe] });
-    expect(1.75 - unsafe.timestampSec).toBeLessThanOrEqual(windowSec * TRAILING_UNSAFE_INERTIA_MULTIPLIER);
-
-    // Sustained clean coverage beyond the trailing hold opens normally.
-    expect(track.verdictFor(2.1, windowSec)).toEqual({ kind: 'clean' });
+    expect(track.verdictFor(1.75, 0.5)).toEqual({ kind: 'clean' });
+    expect(track.verdictFor(2.1, 0.5)).toEqual({ kind: 'clean' });
   });
 
   it('keeps entries ordered even when an older verdict arrives late', () => {
-    const track = new VerdictTrack();
+    const track = new VerdictTimeline();
     track.add(entry(2, false));
     track.add(entry(1, true)); // late redelivery of an older sample
 
@@ -105,22 +102,48 @@ describe('VerdictTrack', () => {
     expect(track.verdictFor(2.05, 0.2).kind).toBe('clean');
   });
 
-  it('prunes verdicts behind the buffer horizon', () => {
-    const track = new VerdictTrack();
-    track.add(entry(1, true));
-    track.add(entry(2, true));
-    track.add(entry(3, true));
+  it('bounds session-lifetime growth by dropping the oldest entries', () => {
+    const timeline = new VerdictTimeline();
+    for (let i = 0; i < MAX_TIMELINE_ENTRIES + 10; i++) timeline.add(entry(i * 0.25, false));
 
-    track.prune(2.5);
-    expect(track.size()).toBe(1);
-    // Pruned entries no longer answer — only the survivor does (via bridging
-    // up to the horizon, so probe beyond it).
-    expect(track.verdictFor(3 - BRIDGE_HORIZON_SEC - 0.5, 0.3)).toEqual({ kind: 'none' });
-    expect(track.verdictFor(3, 0.3).kind).toBe('unsafe');
+    expect(timeline.size()).toBe(MAX_TIMELINE_ENTRIES);
+    // The oldest entries fell off; the newest still answer.
+    expect(timeline.verdictFor(0, 0.1)).toEqual({ kind: 'none' });
+    expect(timeline.verdictFor((MAX_TIMELINE_ENTRIES + 9) * 0.25, 0.1).kind).toBe('clean');
+  });
+
+  it('reports continuous coverage ahead of a position', () => {
+    const timeline = new VerdictTimeline();
+    for (const t of [1, 1.5, 2, 2.5, 3]) timeline.add(entry(t, false));
+
+    // Mid-range: covered up to the last chained verdict.
+    expect(timeline.coverageAheadOf(1.2, 1)).toBeCloseTo(1.8);
+    // Past the last verdict: nothing ahead.
+    expect(timeline.coverageAheadOf(3.5, 1)).toBe(0);
+    // Far from any verdict: uncovered.
+    expect(timeline.coverageAheadOf(10, 1)).toBe(0);
+  });
+
+  it('coverage stops at a gap larger than the tolerance', () => {
+    const timeline = new VerdictTimeline();
+    for (const t of [1, 1.5, 2, 5, 5.5]) timeline.add(entry(t, false));
+
+    // The 2→5 gap breaks the chain even though later verdicts exist.
+    expect(timeline.coverageAheadOf(1.2, 1)).toBeCloseTo(0.8);
+    // Starting inside the later cluster sees only that cluster.
+    expect(timeline.coverageAheadOf(4.8, 1)).toBeCloseTo(0.7);
+  });
+
+  it('coverage survives seeks: verdicts recorded earlier answer for a re-visited range', () => {
+    const timeline = new VerdictTimeline();
+    for (const t of [10, 10.5, 11, 11.5, 12]) timeline.add(entry(t, false));
+
+    // A seek back to 10 finds the watched range still covered.
+    expect(timeline.coverageAheadOf(10, 1)).toBeCloseTo(2);
   });
 
   it('derives the inertia window from the observed cadence, clamped and padded', () => {
-    const track = new VerdictTrack();
+    const track = new VerdictTimeline();
     // No cadence yet: floor + margin.
     expect(track.inertiaWindowSec()).toBeCloseTo(MIN_INERTIA_WINDOW_SEC + INERTIA_JITTER_MARGIN_SEC);
 
@@ -129,12 +152,12 @@ describe('VerdictTrack', () => {
     expect(track.inertiaWindowSec()).toBeCloseTo(0.5 + INERTIA_JITTER_MARGIN_SEC);
 
     // Sparse verdicts (throttled tab): capped so one verdict cannot cover seconds.
-    const sparse = new VerdictTrack();
+    const sparse = new VerdictTimeline();
     for (let i = 0; i < 6; i++) sparse.add(entry(i * 10, false));
     expect(sparse.inertiaWindowSec()).toBeCloseTo(MAX_INERTIA_WINDOW_SEC + INERTIA_JITTER_MARGIN_SEC);
 
     // Dense verdicts: floored to the detection-jitter guard.
-    const dense = new VerdictTrack();
+    const dense = new VerdictTimeline();
     for (let i = 0; i < 6; i++) dense.add(entry(i * 0.05, false));
     expect(dense.inertiaWindowSec()).toBeCloseTo(MIN_INERTIA_WINDOW_SEC + INERTIA_JITTER_MARGIN_SEC);
   });

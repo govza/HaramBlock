@@ -11,9 +11,9 @@ import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypoints/content/video/dvr/audioDelay';
-import { MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
+import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
+import { deriveDvrDelayMs, MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
-import { VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
@@ -23,14 +23,16 @@ import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/
 
 const log = logger.withTag('videoSession:presentation');
 
-/** Buffer captures are cheaper and denser than inference samples (~13 fps). */
-const DVR_CAPTURE_INTERVAL_SEC = 1 / 15;
-/** Buffered frames are presentation-sized, not inference-sized. */
-const DVR_CAPTURE_MAX_WIDTH = 640;
+/**
+ * Buffer captures are cheaper and denser than inference samples. Targets
+ * ~30 fps: slightly under 1/30 so the throttle cannot alias against a 60 Hz
+ * rVFC tick grid and skip extra ticks (exact multiples float-compare short).
+ */
+export const DVR_CAPTURE_INTERVAL_SEC = 1 / 33;
 /** Ring horizon: the adaptive delay's ceiling plus slack, so a growing D still finds frames. */
 const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
-/** Per-session byte cap (~4.5 s of 640×360 RGBA at 15 fps ≈ 62 MB); only while masked. */
-const DVR_BUFFER_MAX_BYTES = 64 * 1024 * 1024;
+/** Per-session byte cap (~4.5 s of 640×360 RGBA at 30 fps ≈ 125 MB); only while masked. */
+const DVR_BUFFER_MAX_BYTES = 128 * 1024 * 1024;
 
 /**
  * Whole-video blur is applied inline: the BLUR_CLASS stylesheet lives in the
@@ -67,14 +69,18 @@ export class PresentationAdapter {
 
   startDvr(handle: SessionHandle): void {
     if (handle.dvr) return;
+    // D is derived once per DVR run — at start and at every seek/loop restart
+    // (the machine re-warms through stopDvr/startDvr there) — then latched, so
+    // presentation never jumps mid-run. A range the timeline already covers
+    // needs no inference wait and gets a small D: the warm-up pause all but
+    // disappears on replays and re-visited seeks.
+    handle.dvrDelaySec =
+      deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000;
     const ring = new FrameRing(DVR_BUFFER_HORIZON_SEC, DVR_BUFFER_MAX_BYTES);
-    const track = new VerdictTrack();
     const player = new VideoDvrPlayer({
       video: handle.video,
       ring,
-      track,
-      // Live: D follows the session's observed sample→verdict round-trips, so a
-      // slow page (HD frames, busy queue) gets a longer delay instead of holes.
+      timeline: handle.timeline,
       getDelaySec: () => this.ports.currentDelaySec(handle),
       getMasking: () => handle.hostSettings.masking,
       onReady: () => {
@@ -85,7 +91,6 @@ export class PresentationAdapter {
     });
     handle.dvr = {
       ring,
-      track,
       player,
       lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
       captureSurface: null,
@@ -96,26 +101,29 @@ export class PresentationAdapter {
     const { dvr } = handle;
     if (!dvr) return;
     handle.dvr = null;
+    handle.dvrDelaySec = null;
     releaseAudioDelay(handle.video);
     dvr.player.destroy();
     dvr.ring.release();
   }
 
-  /** Keep the audio delay tracking the adaptive presentation delay. */
+  /** Keep the audio delay tracking the presentation delay. */
   syncAudioDelay(handle: SessionHandle): void {
     if (handle.dvr) updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
   }
 
   /**
-   * Land a verdict in the DVR track. Called after the machine dispatch: an
-   * unsafe verdict may have just started the DVR, and its own entry must land
-   * in the track. Verdicts are keyed by media time, so even machine-stale
-   * (older-index) ones describe their frame; the Thumbnail (frame −1) has no
-   * media time and stays out.
+   * Land a verdict in the session timeline. Called after the machine dispatch:
+   * an unsafe verdict may have just started the DVR, and its own entry must
+   * land before the first draw. Every playback verdict is recorded — DVR or
+   * not — so the timeline accumulates coverage that later derives a small D;
+   * verdicts are keyed by media time, so even machine-stale (older-index) ones
+   * describe their frame. The Thumbnail (frame −1) has no media time and stays
+   * out.
    */
   recordVerdict(handle: SessionHandle, pred: IFramePrediction, unsafe: boolean): void {
-    if (!handle.dvr || pred.frameIndex < 0) return;
-    handle.dvr.track.add({
+    if (pred.frameIndex < 0) return;
+    handle.timeline.add({
       timestampSec: pred.timestampSec,
       unsafe,
       predictions: pred.predictions ?? [],
@@ -146,7 +154,14 @@ export class PresentationAdapter {
       // Firefox never implemented those, and per WebIDL silently ignores them —
       // native-resolution HD frames then blow the ring's byte budget, its span
       // never reaches the presentation delay, and the DVR warms forever.
-      const scale = Math.min(1, DVR_CAPTURE_MAX_WIDTH / nativeWidth);
+      const scale = dvrCaptureScale({
+        nativeWidth,
+        nativeHeight,
+        displayWidth: video.clientWidth * (globalThis.devicePixelRatio || 1),
+        delaySec: this.ports.currentDelaySec(handle),
+        captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
+        maxBytes: DVR_BUFFER_MAX_BYTES,
+      });
       const width = Math.max(1, Math.round(nativeWidth * scale));
       const height = Math.max(1, Math.round(nativeHeight * scale));
       let surface = dvr.captureSurface;

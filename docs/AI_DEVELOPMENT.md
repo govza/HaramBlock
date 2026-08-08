@@ -92,9 +92,9 @@ Two dev-only failure modes look like extension bugs but are environment skew:
   (`CDP connection closed before response to Extensions.loadUnpacked`). The service worker then
   keeps running an old build while content scripts are current. Symptom: playing videos stay
   permanently whole-blurred while verdict statuses still update, because the old worker returns
-  frame predictions without `timestampSec` and the VerdictTrack can never match them to frames — the
-  content script logs `Frame prediction arrived without timestampSec` when this happens. Fix: reload
-  the extension at `chrome://extensions`.
+  frame predictions without `timestampSec` and the VerdictTimeline can never match them to frames —
+  the content script logs `Frame prediction arrived without timestampSec` when this happens. Fix:
+  reload the extension at `chrome://extensions`.
 
 Production builds install a consistent worker + content pair, so neither issue exists outside
 `pnpm dev`.
