@@ -48,10 +48,8 @@ export const SAMPLE_TIMEOUT_MS = 3_000;
 export const MAX_CONSECUTIVE_ERRORS = 10;
 /** How long a transient-failure ERROR rests before sampling is retried. */
 export const ERROR_RETRY_COOLDOWN_MS = 30_000;
-/** How long a presenting DVR stays latched after its mask clears before returning to native playback. */
-export const DVR_IDLE_TEARDOWN_MS = 5_000;
 
-export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout' | 'errorCooldown' | 'dvrIdle';
+export type SessionTimer = 'thumbnailTimeout' | 'watchdog' | 'sampleTimeout' | 'errorCooldown';
 
 export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 
@@ -258,11 +256,8 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
           if (!state.blurred) {
             effects.push({ kind: 'applyBlur' });
           }
-        } else {
-          // presenting: the player composites masks itself; no DOM effects.
-          // A pending clean-idle teardown must not fire under the new mask.
-          effects.push({ kind: 'cancelTimer', timer: 'dvrIdle' });
         }
+        // presenting: the player composites masks itself; no DOM effects.
       } else {
         // Paused (standby) verdict describes a static frame: precise DOM overlay.
         // Cover immediately while the async overlay loads/paints, then reveal it.
@@ -275,20 +270,11 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         // Slow off: only a sustained clean run may clear the mask.
         next.masked = false;
         next.cleanStreak = 0;
+        // The DVR stays untouched: it is the permanent presentation for the
+        // rest of playback (continuous DVR). For a warming session this
+        // clearBlur is also the un-blur escape when the buffer never becomes
+        // ready (capture failure) — bufferReady can never lift the blur there.
         effects.push({ kind: 'clearVerdict' }, { kind: 'clearBlur' }, { kind: 'setStatus', status: 'safe' });
-        if (state.dvr === 'warming') {
-          // If the presenter never became ready, the clean streak must remain
-          // an escape from its fail-closed warm-up blur.
-          next.dvr = 'off';
-          effects.push({ kind: 'stopDvr' });
-        } else if (state.dvr === 'presenting') {
-          // Keep the DVR latched briefly: the Verdict Timeline renders clean frames
-          // plainly and preserves nearby unsafe-mask inertia, so unsafe scenes
-          // within the idle window never blink through a teardown/re-warm. The
-          // timer bounds the expensive canvas path to a tail instead of the
-          // rest of the playback run.
-          effects.push({ kind: 'startTimer', timer: 'dvrIdle', ms: DVR_IDLE_TEARDOWN_MS });
-        }
       } else if (state.masked && state.dvr === 'warming') {
         // Clean sample short of the streak: the warm-up blur is the only
         // protection (no DOM overlay on this path) — keep it until bufferReady.
@@ -312,23 +298,8 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // and any leftover DOM overlay from a pre-playback verdict.
     return {
       state: { ...state, dvr: 'presenting', blurred: false },
-      effects: [
-        { kind: 'clearVerdict' },
-        { kind: 'clearBlur' },
-        // Presenting an already-clean video (a seek re-warmed an unmasked
-        // DVR): arm the idle teardown now — no mask clear will ever do it.
-        ...(state.masked ? [] : [{ kind: 'startTimer', timer: 'dvrIdle', ms: DVR_IDLE_TEARDOWN_MS } as const]),
-      ],
+      effects: [{ kind: 'clearVerdict' }, { kind: 'clearBlur' }],
     };
-  }
-  if (event.type === 'timerFired' && event.timer === 'dvrIdle') {
-    if (state.dvr !== 'presenting' || state.masked) {
-      // Stale fire: the DVR moved on (teardown, re-warm) or a new mask landed.
-      return { state, effects: [] };
-    }
-    // Clean-idle teardown: the video has played unmasked for the whole idle
-    // window — hand presentation back to the native element.
-    return { state: { ...state, dvr: 'off' }, effects: [{ kind: 'stopDvr' }] };
   }
   if (
     event.type === 'play' &&
@@ -400,7 +371,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         // and only lift that protection after the static overlay has painted.
         effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
       }
-      effects.push({ kind: 'stopDvr' }, { kind: 'cancelTimer', timer: 'dvrIdle' });
+      effects.push({ kind: 'stopDvr' });
     }
     return { state: next, effects };
   }
@@ -507,7 +478,6 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
       { kind: 'cancelTimer', timer: 'watchdog' },
       { kind: 'cancelTimer', timer: 'sampleTimeout' },
-      { kind: 'cancelTimer', timer: 'dvrIdle' },
       ...(opts.terminal ? [] : [{ kind: 'startTimer', timer: 'errorCooldown', ms: ERROR_RETRY_COOLDOWN_MS } as const]),
     ],
   };

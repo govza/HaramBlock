@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createVideoSession,
-  DVR_IDLE_TEARDOWN_MS,
   ERROR_RETRY_COOLDOWN_MS,
   MAX_CONSECUTIVE_ERRORS,
   reduce,
@@ -249,15 +248,23 @@ describe('VideoSession machine', () => {
     expect(oneClean.effects).not.toContainEqual({ kind: 'clearBlur' });
     expect(oneClean.state.blurred).toBe(true);
 
+    // The streak clears mask, status, and blur — this clearBlur is also the
+    // un-blur path for a session whose buffer capture never succeeds (the DVR
+    // stays warming forever, so bufferReady can never lift the blur).
     const twoClean = run(oneClean.state, { type: 'predictionReceived', frameIndex: 2, unsafe: false, at: 1800 });
     expect(twoClean.effects).toContainEqual({ kind: 'clearVerdict' });
+    expect(twoClean.effects).toContainEqual({ kind: 'clearBlur' });
     expect(twoClean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
-    expect(twoClean.effects).toContainEqual({ kind: 'stopDvr' });
-    expect(twoClean.state.dvr).toBe('off');
+    // Continuous DVR: a clean streak never exits the presentation.
+    expect(twoClean.effects).not.toContainEqual({ kind: 'stopDvr' });
+    expect(twoClean.state.dvr).toBe('warming');
+    expect(twoClean.state.blurred).toBe(false);
 
-    // An unsafe sample resets the clean streak (and restarts the DVR path).
+    // An unsafe sample resets the clean streak and re-covers the warm-up.
     const reMasked = run(twoClean.state, { type: 'predictionReceived', frameIndex: 3, unsafe: true, at: 2100 });
-    expect(reMasked.effects).toContainEqual({ kind: 'startDvr' });
+    expect(reMasked.effects).not.toContainEqual({ kind: 'startDvr' });
+    expect(reMasked.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(reMasked.state.dvr).toBe('warming');
     const cleanAgain = run(reMasked.state, { type: 'predictionReceived', frameIndex: 4, unsafe: false, at: 2400 });
     expect(cleanAgain.effects).not.toContainEqual({ kind: 'clearVerdict' });
   });
@@ -323,7 +330,7 @@ describe('VideoSession machine', () => {
     expect(clean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
   });
 
-  it('keeps a presenting DVR latched across clean streaks, bounded by the idle teardown timer', () => {
+  it('keeps a presenting DVR latched across clean streaks: the presentation never exits', () => {
     const presenting = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -341,11 +348,14 @@ describe('VideoSession machine', () => {
     );
     expect(clean.state.masked).toBe(false);
     expect(clean.state.dvr).toBe('presenting');
+    expect(clean.effects).toContainEqual({ kind: 'clearVerdict' });
+    expect(clean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
     expect(clean.effects).not.toContainEqual({ kind: 'stopDvr' });
-    // The mask clear arms the idle teardown: the expensive path is a tail, not forever.
-    expect(clean.effects).toContainEqual({ kind: 'startTimer', timer: 'dvrIdle', ms: DVR_IDLE_TEARDOWN_MS });
+    // No teardown is armed either: the only timers here are watchdog rewinds.
+    expect(clean.effects.filter(e => e.kind === 'startTimer').every(e => e.timer === 'watchdog')).toBe(true);
 
-    // An unsafe verdict within the idle window keeps the DVR: no blink, timer cancelled.
+    // A later unsafe verdict composites into the running presentation: no
+    // re-warm, no DOM effects, no visible mode switch.
     const unsafeAgain = run(clean.state, {
       type: 'predictionReceived',
       frameIndex: 3,
@@ -355,77 +365,6 @@ describe('VideoSession machine', () => {
     expect(unsafeAgain.state.dvr).toBe('presenting');
     expect(unsafeAgain.effects).not.toContainEqual({ kind: 'startDvr' });
     expect(unsafeAgain.effects).not.toContainEqual({ kind: 'applyBlur' });
-    expect(unsafeAgain.effects).toContainEqual({ kind: 'cancelTimer', timer: 'dvrIdle' });
-  });
-
-  it('tears the DVR down when the clean-idle timer fires, returning to native playback', () => {
-    const clean = run(
-      createVideoSession().state,
-      { type: 'thumbnailSourceReady' },
-      { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
-      { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
-      { type: 'bufferReady', at: 1300 },
-      { type: 'predictionReceived', frameIndex: 1, unsafe: false, at: 1500 },
-      { type: 'predictionReceived', frameIndex: 2, unsafe: false, at: 1800 },
-    );
-    expect(clean.state.dvr).toBe('presenting');
-
-    const fired = run(clean.state, { type: 'timerFired', timer: 'dvrIdle', at: 6800 });
-    expect(fired.state.dvr).toBe('off');
-    expect(fired.effects).toContainEqual({ kind: 'stopDvr' });
-    // The video is clean and unblurred: teardown adds no blur or overlay work.
-    expect(fired.effects).not.toContainEqual({ kind: 'applyBlur' });
-
-    // A stale fire after the DVR already moved on is a no-op.
-    const staleFire = run(fired.state, { type: 'timerFired', timer: 'dvrIdle', at: 7000 });
-    expect(staleFire.effects).toHaveLength(0);
-  });
-
-  it('ignores a dvrIdle fire while masked (unsafe re-arrived before an unsafe cancel landed)', () => {
-    const remasked = run(
-      createVideoSession().state,
-      { type: 'thumbnailSourceReady' },
-      { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
-      { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
-      { type: 'bufferReady', at: 1300 },
-    );
-    expect(remasked.state.masked).toBe(true);
-
-    const fired = run(remasked.state, { type: 'timerFired', timer: 'dvrIdle', at: 6300 });
-    expect(fired.effects).toHaveLength(0);
-    expect(fired.state.dvr).toBe('presenting');
-  });
-
-  it('re-arms the idle teardown when a re-warmed DVR presents an already-clean video', () => {
-    // Presenting + mask cleared (idle timer pending), then a seek re-warms the
-    // DVR. The old timer fires harmlessly during warm-up; without a fresh arm
-    // at bufferReady the unmasked DVR would latch forever again.
-    const cleanPresenting = run(
-      createVideoSession().state,
-      { type: 'thumbnailSourceReady' },
-      { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
-      { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
-      { type: 'bufferReady', at: 1300 },
-      { type: 'predictionReceived', frameIndex: 1, unsafe: false, at: 1500 },
-      { type: 'predictionReceived', frameIndex: 2, unsafe: false, at: 1800 },
-    );
-
-    const seeked = run(cleanPresenting.state, { type: 'seeked', at: 2500 });
-    expect(seeked.state.dvr).toBe('warming');
-
-    // Stale fire mid-warm-up: no-op.
-    const midWarm = run(seeked.state, { type: 'timerFired', timer: 'dvrIdle', at: 6800 });
-    expect(midWarm.effects).toHaveLength(0);
-
-    const rePresenting = run(midWarm.state, { type: 'bufferReady', at: 7000 });
-    expect(rePresenting.state.dvr).toBe('presenting');
-    expect(rePresenting.effects).toContainEqual({ kind: 'startTimer', timer: 'dvrIdle', ms: DVR_IDLE_TEARDOWN_MS });
   });
 
   it('re-warms the DVR on a mid-presentation seek (buffer discontinuity)', () => {
@@ -470,6 +409,11 @@ describe('VideoSession machine', () => {
     expect(seeked.effects).not.toContainEqual({ kind: 'applyBlur' });
     expect(seeked.state.blurred).toBe(false);
     expect(seeked.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
+
+    // Presenting again after the re-warm: swap effects only, no timers armed.
+    const rePresenting = run(seeked.state, { type: 'bufferReady', at: 5000 });
+    expect(rePresenting.state.dvr).toBe('presenting');
+    expect(rePresenting.effects).toEqual([{ kind: 'clearVerdict' }, { kind: 'clearBlur' }]);
   });
 
   it('restores the fail-closed cover when a seek tears down a verdict-less presentation', () => {
