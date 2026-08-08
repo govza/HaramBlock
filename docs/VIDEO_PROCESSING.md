@@ -27,8 +27,14 @@ canvas presents buffered frames one Presentation Delay behind the live edge, com
 mask in the same draw. _Avoid_: canvas player (that is the GIF mechanism), delay overlay
 
 **Presentation Delay (D)**: How far behind the live edge the DVR presents, sized so a frame's
-verdict resolves before the frame is shown. _Avoid_: lag, latency (those describe the problem, not
-the mechanism)
+verdict resolves before the frame is shown. Derived per DVR run from Verdict Timeline coverage and
+observed round-trips, then latched until the next discontinuity. _Avoid_: lag, latency (those
+describe the problem, not the mechanism)
+
+**Verdict Timeline**: The session-lifetime, media-time-keyed verdict history. Survives DVR
+stop/start, seeks, and loop restarts; live inference writes it today, the shared verdict cache will
+write it tomorrow — readers cannot tell the difference. _Avoid_: verdict track (the old per-DVR-run
+structure)
 
 **Inertia Window**: The span of media time around a Frame Sample over which its verdict applies
 during DVR presentation, derived from the observed sampling cadence. The video analog of GIF mask
@@ -97,7 +103,7 @@ Key invariants:
 | Transport            | `entrypoints/content/communication/sender.ts`                      | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                  |
 | Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering (paused/standby verdicts)                                                   |
 | DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`               | Delayed masked canvas playback (playback verdicts)                                                      |
-| DVR buffers          | `entrypoints/content/video/dvr/{frameRing,verdictTrack}.ts`        | Media-time-keyed frame ring + verdict history                                                           |
+| DVR buffers          | `entrypoints/content/video/dvr/{frameRing,verdictTimeline}.ts`     | Media-time-keyed frame ring + session-lifetime verdict history                                          |
 | Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts` | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                |
 
 ### The pure machine
@@ -217,19 +223,29 @@ identity attached to the pixels it actually supplies.
 DOM overlays cannot mask moving content: a verdict describes a frame displayed one inference
 round-trip ago. So playback masking presents **delayed**: the `<video>` element keeps decoding (and
 playing audio) while a canvas presents buffered frames a Presentation Delay `D` behind the live edge
-— far enough back that every presented frame's verdict is already resolved. `D` is **adaptive**
-(`dvr/delay.ts`): ~p90 of the session's observed sample→verdict round-trips plus headroom, clamped
-to [1.2 s, 4 s] (1.5 s until round-trips are observed), re-read every presented frame. Inference
-sample captures are capped at the active model's input size (`frameCapture.ts`, longest side,
-refreshed on model switches) so the round-trip itself — and therefore `D` — stays small on HD
-videos. Frame and mask are composited in the same draw, mirroring the GIF player.
+— far enough back that every presented frame's verdict is already resolved. `D` is **derived per DVR
+run and latched** (`dvr/delay.ts`, `deriveDvrDelayMs`): at every DVR (re)start — including the
+stopDvr/startDvr pair a seek re-warm goes through — the Verdict Timeline is consulted first. A range
+whose coverage extends at least 2×the adaptive estimate ahead needs no inference wait and gets
+`COVERED_DVR_DELAY_MS` (300 ms — replays and re-visited seeks all but skip the warm-up pause); an
+uncovered range gets the adaptive estimate: ~p90 of the session's observed sample→verdict
+round-trips plus headroom, clamped to [1.2 s, 4 s] (1.5 s until round-trips are observed). Within a
+continuous playback run D never changes, so presentation never jumps mid-run; a stretch that outruns
+its coverage presents whole-blurred per frame (fail-closed) instead of re-deriving. Inference sample
+captures are capped at the active model's input size (`frameCapture.ts`, longest side, refreshed on
+model switches) so the round-trip itself — and therefore `D` — stays small on HD videos. Frame and
+mask are composited in the same draw, mirroring the GIF player.
 
 Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the presentation adapter):
 
 - **Unsafe verdict while playing** (or `play` on an already-masked video) → instant whole-blur +
-  `startDvr`: the presentation adapter creates a `FrameRing` (rVFC captures, ≤640 px wide, ~13 fps,
-  bounded by `D`+slack and a 64 MB cap) and a `VerdictTrack` (all playback verdicts, keyed by
-  `timestampSec`).
+  `startDvr`: the presentation adapter derives and latches `D`, then creates a `FrameRing` (rVFC
+  captures, ~30 fps, bounded by `D`+slack and a 128 MB cap). Capture resolution is budget-derived
+  (`dvr/captureScale.ts`): the largest size — up to min(display size, 1080p), floored at the legacy
+  640 px — whose frames still let the ring span `D`+slack inside the byte cap, so a covered small-D
+  run presents near display resolution while a slow session degrades resolution rather than ring
+  span. The session's Verdict Timeline (every playback verdict, keyed by `timestampSec`, recorded
+  DVR or not) already exists on the handle and is shared with the player read-only.
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out almost immediately.
   While the buffer is still shorter than `D`, presentation pins on the earliest buffered frame —
@@ -251,13 +267,15 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   whole-blur fallback appears only under genuine verdict silence, not as a flash between masked
   stretches. Sampling continues at the live edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, but leaves the DVR latched for
-  the continuous playback run. Clean frames are drawn plainly by `VerdictTrack`; retaining the
-  delayed timeline preserves unsafe-neighbor inertia and avoids repeated live-edge jumps and re-warm
-  flashes when detections are intermittent.
+  the continuous playback run. Clean frames are drawn plainly via the Verdict Timeline; retaining
+  the delayed presentation preserves unsafe-neighbor inertia and avoids repeated live-edge jumps and
+  re-warm flashes when detections are intermittent.
 - **Exit**: pause/ended (static frame → precise DOM overlay takes back over), seek (ring
-  discontinuity → flush, whole-blur, re-warm), dispose, or terminal ERROR. A clean streak still
-  stops a DVR that never reached `presenting`, so capture failure cannot strand the video under its
-  warm-up blur.
+  discontinuity → flush, whole-blur, re-warm with a freshly derived `D` — small when the seek lands
+  in a range the timeline already covers, so re-visited content barely pauses), dispose, or terminal
+  ERROR. The Verdict Timeline itself survives every exit; only the ring and player are discarded. A
+  clean streak still stops a DVR that never reached `presenting`, so capture failure cannot strand
+  the video under its warm-up blur.
 - **DVR unavailable but analysis works** (buffer capture throws `SecurityError` while the CORS-clone
   sampling path still delivers verdicts): the warm-up whole-blur simply stays; the clean-streak exit
   remains reachable. Only analysis-impossible finalizes as allow.
@@ -351,8 +369,9 @@ session; content jumps forward by `D` when the mask clears.
   pause/ended, terminal allow (error streak + permanent failures), terminal disposal,
   play-preempts-thumbnail, and the DVR lifecycle (warm-up, bufferReady, pause hand-back, seek
   re-warm, dispose). `entrypoints/content/video/dvr/__tests__/` covers the FrameRing (selection,
-  eviction, discontinuity flush, release) and VerdictTrack (window lookup, inertia merging,
-  cadence-derived window, pruning).
+  eviction, discontinuity flush, release), the VerdictTimeline (window lookup, inertia merging,
+  cadence-derived window, coverage-ahead, entry cap), coverage-derived delay derivation, and the
+  budget-derived capture scale.
 - **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
   the `<source>`-child discovery path, a clean playing video, and DVR canvas takeover on an unsafe
   playing video.
@@ -361,12 +380,14 @@ session; content jumps forward by `D` when the mask clears.
 
 - **Global memory guards (stage 2, remaining)** — buffer caps across simultaneously-masked videos
   (per-session byte caps exist; adaptive `D` and downscaled sample captures are implemented).
-- **Loop/seek verdict reuse** — verdicts are keyed by media time, so they stay valid across seeks
-  and loop restarts; keeping the track (and, for loops, the ring) through the re-warm would remove
-  the whole-blur window there.
+- **Loop verdict+ring reuse** — the Verdict Timeline already survives seeks and loop restarts
+  (covered re-warms derive a small `D`); for loops specifically, keeping the ring too would remove
+  even the short covered re-buffer.
 - **Prediction caching and persistence** — persist verdicts (not frames) from the reusable
   `videoUrl + timestampSec` side of Frame Sample identity, augmented with media revision and model
   identity. Cache hits must be rebound to the requesting `sessionId + frameIndex`; those routing
   fields must never become persistent keys.
-- **Timeline synchronization** — seed session-local VerdictTracks from cached timeline verdicts and
-  infer only uncovered ranges during playback, seek, and replay.
+- **Timeline synchronization** — seed the session's Verdict Timeline from cached timeline verdicts
+  and infer only uncovered ranges during playback, seek, and replay. With coverage-derived `D`
+  already in place, a fully cached video plays at `COVERED_DVR_DELAY_MS` from the first unsafe
+  verdict.

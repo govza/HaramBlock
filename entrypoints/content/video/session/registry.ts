@@ -14,6 +14,7 @@ import {
   type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
+import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/frameCapture';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
 import {
@@ -81,7 +82,9 @@ class VideoSessionRegistry {
   // however these three fields are ordered.
   private readonly presentation = new PresentationAdapter({
     dispatch: (handle, event) => this.dispatch(handle, event),
-    currentDelaySec: handle => this.sampler.currentDvrDelaySec(handle),
+    // Latched per DVR run (set at startDvr); the adaptive estimate only seeds
+    // runs that derive it fresh.
+    currentDelaySec: handle => handle.dvrDelaySec ?? this.sampler.currentDvrDelaySec(handle),
   });
 
   private readonly sampler = new FrameSampler({
@@ -147,6 +150,8 @@ class VideoSessionRegistry {
       removeListeners: () => {},
       overlayChain: Promise.resolve(),
       dvr: null,
+      timeline: new VerdictTimeline(),
+      dvrDelaySec: null,
       pendingSamples: new Map(),
       latenciesMs: [],
       suspended: !isVideoNearViewport(video),
@@ -196,7 +201,7 @@ class VideoSessionRegistry {
       }
       // A playback frame without a timeline position means the background is
       // running a different build than this content script (a stale dev
-      // service worker after a failed extension reload). The VerdictTrack can
+      // service worker after a failed extension reload). The VerdictTimeline can
       // never match such verdicts to frames, so the DVR stays fail-closed —
       // surface the skew instead of blurring silently forever.
       if (pred.frameIndex >= 0 && typeof pred.timestampSec !== 'number' && !warnedTimestamplessPrediction) {

@@ -272,7 +272,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
           next.dvr = 'off';
           effects.push({ kind: 'stopDvr' });
         } else if (state.dvr === 'presenting') {
-          // Keep the DVR latched briefly: VerdictTrack renders clean frames
+          // Keep the DVR latched briefly: the Verdict Timeline renders clean frames
           // plainly and preserves nearby unsafe-mask inertia, so unsafe scenes
           // within the idle window never blink through a teardown/re-warm. The
           // timer bounds the expensive canvas path to a tail instead of the

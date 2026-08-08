@@ -4,7 +4,7 @@
  * is already resolved. Frame and mask are composited in the same draw — they
  * cannot desynchronize the way a DOM overlay chasing native playback can.
  *
- * Pure consumer of a FrameRing + VerdictTrack (the video analog of
+ * Pure consumer of a FrameRing + VerdictTimeline (the video analog of
  * gifMaskPlayer's decoded-frames + framePredictions): the session machine and
  * registry decide when it exists; the player only warms up, draws, and reports
  * readiness via onReady. Presentation is an overlay div injected next to the
@@ -20,7 +20,11 @@ import {
   overlayOffsetInParent,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
-import { BRIDGE_HORIZON_SEC, type VerdictEntry, type VerdictTrack } from '@/entrypoints/content/video/dvr/verdictTrack';
+import {
+  BRIDGE_HORIZON_SEC,
+  type VerdictEntry,
+  type VerdictTimeline,
+} from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
@@ -30,15 +34,12 @@ import type { IMaskingSettings } from '@/utils/types';
 
 const log = logger.withTag('videoDvrPlayer');
 
-/** Verdicts older than the presented time by more than this are unreachable; prune them. */
-const TRACK_PRUNE_SLACK_SEC = 4;
-
 /**
  * The verdict-less fallback draws the live element whole-blurred, so per-frame
  * fidelity buys nothing: cap its redraws at the ring's capture cadence instead
  * of every rAF tick.
  */
-const NONE_REDRAWS_PER_SEC = 15;
+const NONE_REDRAWS_PER_SEC = 30;
 
 const CANVAS_STYLE = [
   'position: absolute',
@@ -52,7 +53,8 @@ const CANVAS_STYLE = [
 export interface VideoDvrPlayerOptions {
   video: HTMLVideoElement;
   ring: FrameRing;
-  track: VerdictTrack;
+  /** Session-lifetime verdict history; the player only reads it. */
+  timeline: VerdictTimeline;
   /**
    * Presentation delay D: the canvas presents mediaTime ≈ currentTime − D.
    * Read per tick — the registry adapts it to the session's observed
@@ -226,7 +228,7 @@ export class VideoDvrPlayer {
   }
 
   private draw(): void {
-    const { video, ring, track, getDelaySec, getMasking } = this.opts;
+    const { video, ring, timeline, getDelaySec, getMasking } = this.opts;
     const { surfaces } = this;
     if (!surfaces) return;
     const { width, height } = this.lastSize;
@@ -239,13 +241,12 @@ export class VideoDvrPlayer {
     const oldest = ring.oldestTime();
     const targetTime = oldest === null ? video.currentTime - delaySec : Math.max(video.currentTime - delaySec, oldest);
     const frame = ring.frameAt(targetTime);
-    track.prune(targetTime - TRACK_PRUNE_SLACK_SEC);
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
     // than blurring: the bridge horizon scales with the observed round-trip.
     const bridgeHorizonSec = Math.max(BRIDGE_HORIZON_SEC, delaySec * 2);
     const verdict = frame
-      ? track.verdictFor(frame.mediaTime, track.inertiaWindowSec(), bridgeHorizonSec)
+      ? timeline.verdictFor(frame.mediaTime, timeline.inertiaWindowSec(), bridgeHorizonSec)
       : ({ kind: 'none' } as const);
 
     // The 'none' fallback draws the live element whole-blurred, keyed at the
