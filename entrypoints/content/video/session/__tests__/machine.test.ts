@@ -185,7 +185,7 @@ describe('VideoSession machine', () => {
     expect(afterFloor.effects).toContainEqual({ kind: 'sendSample', frameIndex: 1 });
   });
 
-  it('masks unsafe playback samples instantly (whole-blur + DVR) and drops Stale Predictions', () => {
+  it('masks unsafe playback samples instantly (whole-blur over the warm-up) and drops Stale Predictions', () => {
     const sampling = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -195,16 +195,19 @@ describe('VideoSession machine', () => {
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
     );
+    // The DVR is already warming (continuous DVR starts on play), unblurred.
+    expect(sampling.state.dvr).toBe('warming');
+    expect(sampling.state.blurred).toBe(false);
 
-    // Playback masking goes through the DVR: instant whole-blur covers the
-    // warm-up; a DOM overlay would describe a frame that already moved on.
+    // An unsafe verdict mid-warm-up must cover instantly: the canvas is not
+    // presenting yet, and a DOM overlay would describe a frame that moved on.
     const unsafe = run(sampling.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 });
     expect(unsafe.effects).toContainEqual({ kind: 'applyBlur' });
-    expect(unsafe.effects).toContainEqual({ kind: 'startDvr' });
     expect(unsafe.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdict' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'clearBlur' });
     expect(unsafe.state.dvr).toBe('warming');
+    expect(unsafe.state.blurred).toBe(true);
 
     // A late redelivery of the Thumbnail verdict (frame -1) is a Stale Prediction:
     // it must not clear the mask the newer unsafe sample just applied.
@@ -301,6 +304,23 @@ describe('VideoSession machine', () => {
     expect(disposed.effects.filter(e => e.kind === 'cleanup')).toHaveLength(1);
     const afterDispose = run(disposed.state, { type: 'bufferReady', at: 5000 });
     expect(afterDispose.effects).toHaveLength(0);
+  });
+
+  it('finalizes safe when the first clean verdict arrives after bufferReady lifted the blur', () => {
+    // bufferReady beats the first inference round-trip on the common path
+    // (~100 ms vs ~1 s+): the blur is already gone, but the first verdict must
+    // still land a status attribute.
+    const presenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'play', at: 100 },
+      { type: 'bufferReady', at: 300 },
+    );
+    expect(presenting.state.dvr).toBe('presenting');
+    expect(presenting.state.blurred).toBe(false);
+
+    const clean = run(presenting.state, { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 1200 });
+    expect(clean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
   });
 
   it('keeps a presenting DVR latched across clean streaks, bounded by the idle teardown timer', () => {
@@ -429,6 +449,74 @@ describe('VideoSession machine', () => {
     expect(seeked.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
   });
 
+  it('re-warms without blur on a mid-presentation seek of a safe session', () => {
+    const safePresenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'bufferReady', at: 2800 },
+    );
+    expect(safePresenting.state.dvr).toBe('presenting');
+    expect(safePresenting.state.masked).toBe(false);
+
+    // Same flush + re-warm as a masked seek, but the safe verdict means no
+    // fail-closed cover: the pinned frame is the warm-up presentation.
+    const seeked = run(safePresenting.state, { type: 'seeked', at: 3500 });
+    expect(seeked.state.dvr).toBe('warming');
+    expect(seeked.effects).toContainEqual({ kind: 'stopDvr' });
+    expect(seeked.effects).toContainEqual({ kind: 'startDvr' });
+    expect(seeked.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(seeked.state.blurred).toBe(false);
+    expect(seeked.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
+  });
+
+  it('restores the fail-closed cover when a seek tears down a verdict-less presentation', () => {
+    // Play preempted the Thumbnail: the session presents verdict-less, the
+    // canvas whole-blurs verdict-late frames itself. A seek stops that canvas,
+    // so the DOM blur must return before the native element shows.
+    const verdictlessPresenting = run(
+      createVideoSession().state,
+      { type: 'play', at: 50 },
+      { type: 'bufferReady', at: 2800 },
+    );
+    expect(verdictlessPresenting.state.dvr).toBe('presenting');
+    expect(verdictlessPresenting.state.blurred).toBe(false);
+
+    const seeked = run(verdictlessPresenting.state, { type: 'seeked', at: 3500 });
+    expect(seeked.state.dvr).toBe('warming');
+    expect(seeked.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(seeked.state.blurred).toBe(true);
+  });
+
+  it('does not blur a seek re-warm on a resumed skipped session (allow stance preserved)', () => {
+    const failing = run(
+      createVideoSession().state,
+      { type: 'play', at: 50 },
+      { type: 'frameAvailable', at: 60 },
+      { type: 'sampleSent', frameIndex: 0, at: 65 },
+    );
+    let errored = failing.state;
+    for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
+      errored = run(errored, { type: 'sendFailed', frameIndex: 0, at: 5000 + i }).state;
+    }
+    const resumed = run(
+      errored,
+      { type: 'timerFired', timer: 'errorCooldown', at: 40_000 },
+      { type: 'play', at: 40_010 },
+    );
+    expect(resumed.state.dvr).toBe('warming');
+    expect(resumed.state.blurred).toBe(false);
+
+    // Still verdict-less, but deliberately allowed (status skipped): a seek
+    // must not resurrect the blur the finalize deliberately cleared.
+    const seeked = run(resumed.state, { type: 'seeked', at: 40_500 });
+    expect(seeked.state.dvr).toBe('warming');
+    expect(seeked.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(seeked.state.blurred).toBe(false);
+  });
+
   it('starts the DVR when a masked (poster-verdicted) video begins playing', () => {
     const maskedStandby = run(
       createVideoSession().state,
@@ -443,6 +531,32 @@ describe('VideoSession machine', () => {
     expect(playing.state.dvr).toBe('warming');
     expect(playing.effects).toContainEqual({ kind: 'applyBlur' });
     expect(playing.effects).toContainEqual({ kind: 'startDvr' });
+  });
+
+  it('starts the DVR unblurred when a safe-verdicted video begins playing', () => {
+    const safeStandby = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+    );
+    expect(safeStandby.state.dvr).toBe('off');
+
+    const playing = run(safeStandby.state, { type: 'play', at: 1000 });
+    expect(playing.state.dvr).toBe('warming');
+    expect(playing.effects).toContainEqual({ kind: 'startDvr' });
+    // Safe warm-up is uncovered on purpose: the pinned earliest frame is the cover.
+    expect(playing.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(playing.state.blurred).toBe(false);
+  });
+
+  it('keeps the adoption blur when a verdict-less video begins playing (fail-closed warm-up)', () => {
+    const eager = run(createVideoSession().state, { type: 'thumbnailSourceReady' }, { type: 'play', at: 50 });
+    expect(eager.state.phase).toBe('sampling');
+    expect(eager.state.dvr).toBe('warming');
+    expect(eager.effects).toContainEqual({ kind: 'startDvr' });
+    expect(eager.effects).not.toContainEqual({ kind: 'clearBlur' });
+    expect(eager.state.blurred).toBe(true);
   });
 
   it('re-blurs fail-closed when verdicts go silent mid-playback, and self-heals on the next verdict', () => {
@@ -616,6 +730,11 @@ describe('VideoSession machine', () => {
     const resumed = run(rested.state, { type: 'play', at: 40_010 }, { type: 'frameAvailable', at: 40_020 });
     expect(resumed.state.phase).toBe('sampling');
     expect(resumed.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
+    // Re-entering SAMPLING restarts the continuous DVR; the skipped session
+    // stays unblurred until a fresh verdict says otherwise.
+    expect(resumed.state.dvr).toBe('warming');
+    expect(resumed.effects).toContainEqual({ kind: 'startDvr' });
+    expect(resumed.effects).not.toContainEqual({ kind: 'applyBlur' });
 
     // A second unbroken streak rests again — the retry loop is indefinite.
     let failingAgain = resumed.state;
