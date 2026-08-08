@@ -36,8 +36,11 @@ let sharedContext: AudioContext | null = null;
 /**
  * WebAudio outputs zeros for origin-tainted media — routing such audio through
  * the graph would MUTE it. Only sources whose samples are readable qualify.
+ * The delayability precondition (ADR 0001): an undelayable source is not
+ * processed at all, so this check is exported for the adoption-time gate.
  */
-function isOriginClean(video: HTMLVideoElement): boolean {
+export function isAudioDelayable(video: HTMLVideoElement): boolean {
+  if (video.srcObject) return true;
   if (video.crossOrigin) return true;
   const src = video.currentSrc || video.src;
   if (!src) return false;
@@ -62,6 +65,13 @@ async function ensureRunningContext(): Promise<AudioContext | null> {
 }
 
 /**
+ * 'unavailable' is permanent for this element (tainted source or captured by
+ * the site); 'deferred' is transient (suspended context, torn-down DVR) and
+ * safe to retry on a later engage.
+ */
+export type AudioDelayEngageResult = 'engaged' | 'deferred' | 'unavailable';
+
+/**
  * Route the element's audio through the delay line. Async (context resume);
  * `isStillWanted` re-checks after each await so a DVR torn down mid-engage
  * cannot leave live video with delayed audio.
@@ -70,14 +80,14 @@ export async function engageAudioDelay(
   video: HTMLVideoElement,
   delaySec: number,
   isStillWanted: () => boolean,
-): Promise<void> {
-  if (entries.get(video) === null) return;
-  if (!isOriginClean(video)) return;
+): Promise<AudioDelayEngageResult> {
+  if (entries.get(video) === null) return 'unavailable';
+  if (!isAudioDelayable(video)) return 'unavailable';
 
   let entry = entries.get(video);
   if (!entry) {
     const context = await ensureRunningContext();
-    if (!context || !isStillWanted()) return;
+    if (!context || !isStillWanted()) return 'deferred';
     try {
       const source = context.createMediaElementSource(video);
       source.connect(context.destination);
@@ -88,11 +98,12 @@ export async function engageAudioDelay(
       // routing is not ours to change. Never retry.
       entries.set(video, null);
       log.debug('Cannot capture element audio (already captured?):', error);
-      return;
+      return 'unavailable';
     }
   }
 
-  if (!isStillWanted() || entry.delay || !sharedContext) return;
+  if (entry.delay) return 'engaged';
+  if (!isStillWanted() || !sharedContext) return 'deferred';
   // A fresh DelayNode per engagement: a reused one would still hold the tail
   // it buffered before release and replay stale audio on top of the stream.
   const delay = sharedContext.createDelay(MAX_DVR_DELAY_MS / 1000 + 1);
@@ -102,6 +113,7 @@ export async function engageAudioDelay(
   entry.source.connect(delay);
   entry.delay = delay;
   log.debug('Audio delayed by', delaySec, 's');
+  return 'engaged';
 }
 
 /** Follow the adaptive presentation delay while engaged. */

@@ -14,6 +14,7 @@ import {
   type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
+import { isAudioDelayable } from '@/entrypoints/content/video/dvr/audioDelay';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/frameCapture';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
@@ -170,7 +171,15 @@ class VideoSessionRegistry {
     handle.state = born.state;
     this.execute(handle, born.effects);
 
+    // Audio delayability is a precondition (ADR 0001): an origin-tainted
+    // source finalizes `skipped` before the Thumbnail or sampler spend
+    // anything. Media events still bind so a source change can re-adopt.
+    const delayable = isAudioDelayable(video);
+    if (!delayable) {
+      this.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
+    }
     this.bindMediaEvents(handle);
+    if (!delayable) return;
     this.suspension.observe(handle);
     if (!handle.suspended) this.sampler.startTicker(handle);
     this.sampler.queueThumbnailSourceReady(handle);
