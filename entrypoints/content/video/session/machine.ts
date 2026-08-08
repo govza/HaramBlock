@@ -36,7 +36,7 @@ export interface VideoSessionState {
   pendingSeek: boolean;
   /** Media position belonging to the remembered seek's displayed frame. */
   pendingSeekTimestampSec: number | null;
-  /** Delayed-presentation state; masked playback drives it (DVR is a playback mode). */
+  /** Delayed-presentation state; every playing processed video drives it (continuous DVR). */
   dvr: DvrMode;
 }
 
@@ -146,6 +146,11 @@ function eventTime(event: SessionEvent): number {
   return 'at' in event ? event.at : 0;
 }
 
+/** No verdict has ever been applied: the session is fail-closed pending its first. */
+function verdictPending(state: VideoSessionState): boolean {
+  return state.lastAppliedIndex === Number.NEGATIVE_INFINITY;
+}
+
 function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult {
   if (state.phase === 'disposed') {
     return { state, effects: [] };
@@ -169,7 +174,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   if (
     event.type === 'thumbnailSourceReady' &&
     (state.phase === 'sampling' || state.phase === 'standby') &&
-    state.lastAppliedIndex === Number.NEGATIVE_INFINITY
+    verdictPending(state)
   ) {
     // Play preempted THUMBNAILING before readiness. The session is active but
     // verdict-less (still blurred); the Thumbnail is just sample #-1, so the
@@ -247,7 +252,12 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
           next.blurred = true;
           effects.push({ kind: 'applyBlur' }, { kind: 'startDvr' });
         } else if (state.dvr === 'warming') {
+          // A safe session warms up unblurred; an unsafe verdict must cover it
+          // now — the canvas is not presenting yet.
           next.blurred = true;
+          if (!state.blurred) {
+            effects.push({ kind: 'applyBlur' });
+          }
         } else {
           // presenting: the player composites masks itself; no DOM effects.
           // A pending clean-idle teardown must not fire under the new mask.
@@ -283,8 +293,13 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         // Clean sample short of the streak: the warm-up blur is the only
         // protection (no DOM overlay on this path) — keep it until bufferReady.
         next.blurred = true;
-      } else if (state.blurred) {
-        effects.push({ kind: 'clearBlur' });
+      } else if (state.blurred || verdictPending(state)) {
+        // verdictPending: the first verdict must land a status even when
+        // bufferReady already lifted the blur (it beats the inference
+        // round-trip on the common continuous-DVR path).
+        if (state.blurred) {
+          effects.push({ kind: 'clearBlur' });
+        }
         if (!next.masked) {
           effects.push({ kind: 'setStatus', status: 'safe' });
         }
@@ -321,12 +336,19 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   ) {
     const effects: SessionEffect[] = [{ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS }];
     const next = { ...state, phase: 'sampling' as const };
-    if (state.masked && state.dvr === 'off') {
-      // A masked video starts playing: its static DOM overlay would lag the
-      // moving content. Whole-blur instantly, warm the DVR.
+    if (state.dvr === 'off') {
+      // Continuous DVR: every playing video presents delayed, so a later
+      // unsafe verdict composites in without a visible mode switch. Cover the
+      // warm-up only when fail-closed demands it: whole-blur for a masked
+      // session (its static DOM overlay would lag the moving content); the
+      // adoption blur is simply retained for a verdict-less one. A
+      // safe-verdicted session warms up unblurred behind its pinned frame.
       next.dvr = 'warming';
-      next.blurred = true;
-      effects.push({ kind: 'applyBlur' }, { kind: 'startDvr' });
+      if (state.masked) {
+        next.blurred = true;
+        effects.push({ kind: 'applyBlur' });
+      }
+      effects.push({ kind: 'startDvr' });
     }
     return { state: next, effects };
   }
@@ -404,10 +426,21 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         : sendNextSample(state, event.at, event.timestampSec);
     if (state.dvr === 'off') return sampled;
     // Ring-buffer discontinuity: the buffered frames no longer precede the new
-    // position. Flush by re-warming; blur covers until the canvas catches up.
+    // position. Flush by re-warming, re-establishing whatever fail-closed
+    // cover the torn-down canvas was providing: whole-blur while masked, or
+    // when a verdict-less presentation loses its per-frame canvas cover. A
+    // safe session re-warms behind its pinned frame; a verdict-less warm-up
+    // keeps whatever blur it already had (a resumed skipped session stays
+    // deliberately unblurred, an adoption-blurred one stays covered).
+    const coverWarmUp = state.masked || (verdictPending(state) && state.dvr === 'presenting');
     return {
-      state: { ...sampled.state, dvr: 'warming', blurred: true },
-      effects: [{ kind: 'applyBlur' }, { kind: 'stopDvr' }, { kind: 'startDvr' }, ...sampled.effects],
+      state: { ...sampled.state, dvr: 'warming', blurred: coverWarmUp || sampled.state.blurred },
+      effects: [
+        ...(coverWarmUp ? [{ kind: 'applyBlur' } as const] : []),
+        { kind: 'stopDvr' },
+        { kind: 'startDvr' },
+        ...sampled.effects,
+      ],
     };
   }
   if (event.type === 'timerFired' && event.timer === 'watchdog' && state.phase === 'sampling') {
