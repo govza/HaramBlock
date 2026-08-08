@@ -25,9 +25,16 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
   private totalBytes = 0;
 
   constructor(
-    private readonly maxDurationSec: number,
-    private readonly maxBytes: number,
+    private maxDurationSec: number,
+    private maxBytes: number,
   ) {}
+
+  /** Budget degradation resizes a live ring; tighter limits evict immediately. */
+  setLimits(maxDurationSec: number, maxBytes: number): void {
+    this.maxDurationSec = maxDurationSec;
+    this.maxBytes = maxBytes;
+    this.evict();
+  }
 
   /**
    * Append a frame. A backwards jump in media time (seek without a `seeked`

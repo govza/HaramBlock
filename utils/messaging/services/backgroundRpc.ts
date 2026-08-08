@@ -366,6 +366,11 @@ export class BackgroundRpc {
     return Promise.resolve(this.modelService.getInferenceLatency());
   }
 
+  /** Sizes the content-side DVR ring budget; 'unknown' until the model loads. */
+  getInferenceBackend(): Promise<'webgpu' | 'wasm' | 'unknown'> {
+    return Promise.resolve(this.modelService.getInferenceBackend());
+  }
+
   // ============ Subscription Methods (replaces onMessage listeners) ============
   // Note: These return subscription IDs instead of functions because functions can't be
   // serialized over MessageChannel. Use the corresponding off* methods to unsubscribe.

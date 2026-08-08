@@ -44,6 +44,18 @@ describe('FrameRing', () => {
     expect(ring.spanSec()).toBeCloseTo(1.5);
   });
 
+  it('tightened limits evict immediately (budget degradation on a live ring)', () => {
+    const ring = new FrameRing<FakeBitmap>(10, BIG);
+    const first = new FakeBitmap();
+    ring.push({ bitmap: first, mediaTime: 0 });
+    ring.push({ bitmap: new FakeBitmap(), mediaTime: 2 });
+    ring.push({ bitmap: new FakeBitmap(), mediaTime: 3 });
+
+    ring.setLimits(1, BIG);
+    expect(first.closed).toBe(true);
+    expect(ring.oldestTime()).toBe(2);
+  });
+
   it('evicts oldest frames when over the byte budget', () => {
     // 100×100×4 = 40 000 bytes per frame; budget fits two frames.
     const ring = new FrameRing<FakeBitmap>(1000, 90_000);

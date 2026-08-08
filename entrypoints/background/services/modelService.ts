@@ -1,4 +1,4 @@
-import { getAvailableModels, getCurrentModelId, switchModel } from '@inference-runtime';
+import { getAvailableModels, getBackend, getCurrentModelId, switchModel } from '@inference-runtime';
 
 import { getLatencySnapshot, type LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import { getModelSettings, setModelSettings, type ModelPreference } from '@/utils/modelSettings';
@@ -45,6 +45,12 @@ export class ModelService {
 
   getInferenceLatency(): LatencySnapshot | null {
     return getLatencySnapshot();
+  }
+
+  /** 'unknown' until the model finishes loading; callers treat it as the conservative tier. */
+  getInferenceBackend(): 'webgpu' | 'wasm' | 'unknown' {
+    const backend = getBackend();
+    return backend === 'webgpu' || backend === 'wasm' ? backend : 'unknown';
   }
 
   async getModelPreference(): Promise<ModelPreference> {

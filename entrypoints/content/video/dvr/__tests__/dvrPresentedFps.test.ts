@@ -11,7 +11,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
-import { DVR_CAPTURE_INTERVAL_SEC } from '@/entrypoints/content/video/session/presentationAdapter';
+import { RING_QUALITY_LADDER } from '@/entrypoints/content/video/dvr/ringBudget';
+
+/** The harness guards the full-quality tier — the cadence every session gets under budget. */
+const DVR_CAPTURE_INTERVAL_SEC = RING_QUALITY_LADDER[0]!.captureIntervalSec;
 
 const SOURCE_FPS = 60;
 const DELAY_SEC = 1.5;
