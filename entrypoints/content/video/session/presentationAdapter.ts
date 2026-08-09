@@ -136,8 +136,9 @@ export class PresentationAdapter {
 
   /**
    * Land a verdict in the session timeline. Called after the machine dispatch:
-   * an unsafe verdict may have just started the DVR, and its own entry must
-   * land before the first draw. Every playback verdict is recorded — DVR or
+   * the verdict may have just started the DVR (an unsafe sample on a session
+   * whose DVR was off, e.g. after an error-cooldown resume), and its own entry
+   * must land before the first draw. Every playback verdict is recorded — DVR or
    * not — so the timeline accumulates coverage that later derives a small D;
    * verdicts are keyed by media time, so even machine-stale (older-index) ones
    * describe their frame. The Thumbnail (frame −1) has no media time and stays

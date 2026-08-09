@@ -85,15 +85,28 @@ When('I inject and play a generated safe video using {string}', async (mode: str
 
 /**
  * DVR path: the recorded frames replay the known-unsafe gallery image, so
- * playback Frame Samples verdict unsafe and the session switches to delayed
- * canvas presentation. Recorded longer than the presentation delay so the
- * ring buffer can span D within one loop.
+ * playback Frame Samples verdict unsafe and composite into the delayed canvas
+ * presentation the continuous DVR already runs. Recorded longer than the
+ * presentation delay so the ring buffer can span D within one loop.
  */
 When('I inject and play a generated unsafe video', async () => {
   await injectAndPlayGeneratedVideo('src', 'unsafe');
 });
 
-async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsafe'): Promise<void> {
+/**
+ * Mid-playback verdict path: neutral frames first (Thumbnail and early Frame
+ * Samples verdict safe, the DVR canvas takes over unblurred), then the
+ * known-unsafe gallery image appears, so the unsafe verdict lands while the
+ * DVR is already presenting. Recorded long so the loop-restart re-warm (which
+ * legitimately re-blurs a masked session) stays outside the assertion window.
+ */
+When('I inject and play a generated video that turns unsafe mid-playback', async () => {
+  await injectAndPlayGeneratedVideo('src', 'turns-unsafe');
+});
+
+type GeneratedContent = 'safe' | 'unsafe' | 'turns-unsafe';
+
+async function injectAndPlayGeneratedVideo(mode: string, content: GeneratedContent): Promise<void> {
   const failure = await browser.executeAsync(
     (sourceMode: string, contentMode: string, videoSelector: string, done: (failure: string | null) => void) => {
       // Read name/message as plain properties: `instanceof Error` is false for
@@ -122,11 +135,15 @@ async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsa
             return;
           }
           let hue = 0;
+          const recordingStart = Date.now();
           const draw = () => {
             hue = (hue + 7) % 360;
             ctx.fillStyle = `hsl(${hue}, 60%, 60%)`;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            if (unsafeImage) {
+            // 'turns-unsafe' opens with neutral frames so the unsafe verdict
+            // lands mid-playback, after the DVR canvas has taken over.
+            const unsafeNow = contentMode !== 'turns-unsafe' || Date.now() - recordingStart >= 2000;
+            if (unsafeImage && unsafeNow) {
               // Replay the known-unsafe gallery image; the hue border keeps the
               // encoder emitting distinct frames.
               ctx.drawImage(unsafeImage, 4, 4, canvas.width - 8, canvas.height - 8);
@@ -182,15 +199,18 @@ async function injectAndPlayGeneratedVideo(mode: string, content: 'safe' | 'unsa
               });
           };
           recorder.start();
-          // The unsafe recording must outlast the DVR presentation delay so the
-          // ring buffer can warm up within a single loop of the video.
-          setTimeout(() => recorder.stop(), contentMode === 'unsafe' ? 4000 : 2500);
+          // Unsafe recordings must outlast the DVR presentation delay so the
+          // ring buffer can warm up within a single loop of the video; the
+          // turns-unsafe one is longer still so its mid-playback verdict is
+          // asserted before the first loop restart.
+          const durations = { safe: 2500, unsafe: 4000, 'turns-unsafe': 8000 } as const;
+          setTimeout(() => recorder.stop(), durations[contentMode as GeneratedContent] ?? 2500);
         } catch (err) {
           done(`video generation threw: ${describe(err)}`);
         }
       };
 
-      if (contentMode !== 'unsafe') {
+      if (contentMode === 'safe') {
         record(null);
         return;
       }
@@ -274,20 +294,76 @@ Then('I should see exactly {string} video mask overlays', async (count: string) 
 });
 
 /**
- * The DVR takes over once its ring buffer spans the presentation delay: its
- * element-anchored slot appears next to the video and the native element is
- * visually hidden (opacity 0), while the session keeps sampling at the live edge.
+ * The DVR takes over once its first frame is buffered: its element-anchored
+ * slot appears next to the video and the native element is visually hidden
+ * (opacity 0), while the session keeps sampling at the live edge. Both are
+ * checked in one poll tick: a looping video re-warms at every loop restart
+ * (flush + re-warm), briefly revealing the native element again.
  */
 Then('the DVR canvas player replaces the native video', async () => {
   const canvasSelector = `${Selectors.VIDEO_DVR_PLAYER} canvas`;
-  await browser.waitUntil(async () => (await countVisibleOnPage(canvasSelector)) > 0, {
-    timeout: INFERENCE_TIMEOUT,
-    timeoutMsg: 'Expected the DVR canvas player to appear, but timed out',
-  });
-
-  const nativeOpacity = await browser.execute(
-    (sel: string) => globalThis.document.querySelector<HTMLVideoElement>(sel)?.style.opacity,
-    Selectors.TEST_VIDEO,
+  await browser.waitUntil(
+    async () => {
+      if ((await countVisibleOnPage(canvasSelector)) === 0) return false;
+      const nativeOpacity = await browser.execute(
+        (sel: string) => globalThis.document.querySelector<HTMLVideoElement>(sel)?.style.opacity,
+        Selectors.TEST_VIDEO,
+      );
+      return nativeOpacity === '0';
+    },
+    {
+      timeout: INFERENCE_TIMEOUT,
+      timeoutMsg: 'Expected the DVR canvas player to replace the native video, but timed out',
+    },
   );
-  expect(nativeOpacity).toBe('0');
+});
+
+/**
+ * Whole-blur watcher: records (in-page) whether the machine's whole-video blur
+ * class lands on the native element after the DVR canvas has taken over. The
+ * continuous DVR composites verdicts into the running presentation, so the
+ * blur may appear only before takeover (adoption / warm-up cover).
+ */
+When('I watch the native video for whole-blur changes', async () => {
+  const failure = await browser.execute(
+    (videoSelector: string, dvrSelector: string, blurClass: string) => {
+      const doc = globalThis.document;
+      const video = doc.querySelector<HTMLVideoElement>(videoSelector);
+      if (!video) return 'test video missing';
+      const state = {
+        takenOver: false,
+        blurAppliedAfterTakeover: false,
+        wasBlurred: video.classList.contains(blurClass),
+      };
+      (globalThis as unknown as { __hbBlurWatch?: typeof state }).__hbBlurWatch = state;
+      new MutationObserver(() => {
+        const blurred = video.classList.contains(blurClass);
+        if (blurred && !state.wasBlurred && state.takenOver) state.blurAppliedAfterTakeover = true;
+        state.wasBlurred = blurred;
+      }).observe(video, { attributes: true, attributeFilter: ['class'] });
+      const poll = setInterval(() => {
+        if (doc.querySelector(`${dvrSelector} canvas`) && video.style.opacity === '0') {
+          state.takenOver = true;
+          clearInterval(poll);
+        }
+      }, 50);
+      return null;
+    },
+    Selectors.TEST_VIDEO,
+    Selectors.VIDEO_DVR_PLAYER,
+    // BLUR_CLASS from entrypoints/content/presentation/constants.ts
+    'haramblock-initial-blur',
+  );
+  if (failure) throw new Error(`Failed to install the whole-blur watcher — ${failure}`);
+});
+
+Then('no whole-blur was applied after the DVR canvas took over', async () => {
+  const state = await browser.execute(
+    () =>
+      (globalThis as unknown as { __hbBlurWatch?: { takenOver: boolean; blurAppliedAfterTakeover: boolean } })
+        .__hbBlurWatch ?? null,
+  );
+  if (!state) throw new Error('Whole-blur watcher was never installed');
+  expect(state.takenOver).toBe(true);
+  expect(state.blurAppliedAfterTakeover).toBe(false);
 });

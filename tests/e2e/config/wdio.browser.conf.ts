@@ -64,6 +64,12 @@ const chromeCapabilities = {
       // Video scenarios generate and play muted test clips programmatically.
       '--autoplay-policy=no-user-gesture-required',
       '--mute-audio',
+      // An occluded test window must not pause the muted test clips
+      // ("video-only background media was paused to save power") or throttle
+      // the pages driving them.
+      '--disable-background-media-suspend',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
       `--load-extension=${chromeExtensionPath}`,
       ...(IS_CI ? ciChromeArgs : []),
     ],
