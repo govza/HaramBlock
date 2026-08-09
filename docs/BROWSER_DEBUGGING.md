@@ -71,8 +71,9 @@ The extension marks everything it touches, so page-side `evaluate_script` can au
 **The DVR tell:** a `[data-video-dvr-player]` overlay present with an **empty** base-canvas
 `style.filter` is the happy path (verdicts are matching frames). A **persistent blur filter** on the
 base canvas means the presenter is fail-closed — verdicts are not reaching or not matching the
-frames. The DVR overlay exists only during playback — on pause it is replaced by a
-`[data-video-mask-overlay]`; that handover is normal, not a failure.
+frames. The DVR overlay persists across pause, clean streaks, and `ended` (continuous DVR) — it is
+replaced by a `[data-video-mask-overlay]` only when the video leaves the viewport; that suspension
+handover is normal, not a failure.
 
 ## Test Pages
 

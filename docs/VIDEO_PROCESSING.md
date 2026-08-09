@@ -22,9 +22,11 @@ screenshot
 **Stale Prediction**: A prediction that must not be applied: it belongs to a dead VideoSession, or
 an older Frame Sample than one already applied. _Avoid_: late result, outdated frame
 
-**DVR**: The delayed-presentation mode for masked playback: the video element keeps decoding while a
-canvas presents buffered frames one Presentation Delay behind the live edge, compositing frame and
-mask in the same draw. _Avoid_: canvas player (that is the GIF mechanism), delay overlay
+**DVR**: The delayed presentation for all processed playback: from `play` onward the video element
+keeps decoding while a canvas presents buffered frames one Presentation Delay behind the live edge,
+compositing frame and mask in the same draw. Not a mode entered on unsafe verdicts — every playing
+processed video presents through it (ADR [0001](adr/0001-continuous-dvr-and-audio-precondition.md)).
+_Avoid_: canvas player (that is the GIF mechanism), delay overlay, masked mode
 
 **Presentation Delay (D)**: How far behind the live edge the DVR presents, sized so a frame's
 verdict resolves before the frame is shown. Derived per DVR run from Verdict Timeline coverage and
@@ -50,7 +52,7 @@ ADOPTED ──capture thumbnail──► THUMBNAILING
                                     ▼
              play ┌──────────── STANDBY ◄──── sendFailed, transient (capture failed;
                   ▼               ▲            blur kept, still playable)
-              SAMPLING ──pause/ended
+              SAMPLING ──pause/ended (the DVR keeps presenting; see the DVR section)
                │  (rVFC loop; seeked → immediate one-shot sample,
                │   also fires from STANDBY while paused)
                │ MAX_CONSECUTIVE_ERRORS or sendFailed(permanent)
@@ -58,8 +60,13 @@ ADOPTED ──capture thumbnail──► THUMBNAILING
              ERROR (ALLOW: blur cleared, status skipped, loop stopped;
               transient streaks retry after a cooldown, canvas taint is terminal)
 
+any live state ──audio undelayable──► ERROR (terminal: status skipped, no DVR, no masking)
 any state ──source change / element removed──► DISPOSED (terminal)
 ```
+
+Orthogonal to the phase, the machine tracks the DVR sub-state (`dvr: off | warming | presenting`):
+`play` starts it, and it survives pause, `ended`, and clean streaks — see the DVR section for its
+lifecycle and exits.
 
 Before a VideoSession exists, document-start bootstrap styles hide light-DOM videos and Reddit's
 `<shreddit-player>` host. After settings arrive, a narrower discovery guard remains active for
@@ -86,6 +93,10 @@ Key invariants:
   rest of the tab's lifetime.
 - **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
   `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
+- **Audio delayability is a precondition.** A video whose audio can never ride the DVR's delay line
+  is not processed at all — finalized `skipped`, native playback, no inference spent (ADR
+  [0001](adr/0001-continuous-dvr-and-audio-precondition.md)). Permanently desynced audio was judged
+  worse than absent protection.
 
 ## Components
 
@@ -104,6 +115,9 @@ Key invariants:
 | Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`             | Segmentation mask rendering (paused/standby verdicts)                                                   |
 | DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`               | Delayed masked canvas playback (playback verdicts)                                                      |
 | DVR buffers          | `entrypoints/content/video/dvr/{frameRing,verdictTimeline}.ts`     | Media-time-keyed frame ring + session-lifetime verdict history                                          |
+| DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                      | Global backend-tiered byte budget with a shared quality-degradation ladder                              |
+| DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                      | WebAudio DelayNode routing + the delayability precondition check                                        |
+| DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                           | Plays out the buffered tail at 1x after `ended`, then pins the final frame                              |
 | Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts` | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                |
 
 ### The pure machine
@@ -218,70 +232,117 @@ identity attached to the pixels it actually supplies.
   its poster, and adoption keeps the blur — there is no unprotected gap between discovery and
   ADOPTED.
 
-## DVR: delayed masked presentation
+## DVR: continuous delayed presentation
 
 DOM overlays cannot mask moving content: a verdict describes a frame displayed one inference
-round-trip ago. So playback masking presents **delayed**: the `<video>` element keeps decoding (and
-playing audio) while a canvas presents buffered frames a Presentation Delay `D` behind the live edge
-— far enough back that every presented frame's verdict is already resolved. `D` is **derived per DVR
-run and latched** (`dvr/delay.ts`, `deriveDvrDelayMs`): at every DVR (re)start — including the
-stopDvr/startDvr pair a seek re-warm goes through — the Verdict Timeline is consulted first. A range
-whose coverage extends at least 2×the adaptive estimate ahead needs no inference wait and gets
-`COVERED_DVR_DELAY_MS` (300 ms — replays and re-visited seeks all but skip the warm-up pause); an
-uncovered range gets the adaptive estimate: ~p90 of the session's observed sample→verdict
-round-trips plus headroom, clamped to [1.2 s, 4 s] (1.5 s until round-trips are observed). Within a
-continuous playback run D never changes, so presentation never jumps mid-run; a stretch that outruns
-its coverage presents whole-blurred per frame (fail-closed) instead of re-deriving. Inference sample
-captures are capped at the active model's input size (`frameCapture.ts`, longest side, refreshed on
-model switches) so the round-trip itself — and therefore `D` — stays small on HD videos. Frame and
-mask are composited in the same draw, mirroring the GIF player.
+round-trip ago. So processed playback presents **delayed**: the `<video>` element keeps decoding
+while a canvas presents buffered frames a Presentation Delay `D` behind the live edge — far enough
+back that every presented frame's verdict is already resolved. The DVR is **continuous** (ADR
+[0001](adr/0001-continuous-dvr-and-audio-precondition.md)): it starts on `play`, before any verdict
+exists, and runs for the rest of playback. Because the delayed canvas and delayed audio are already
+in place when an unsafe verdict lands, the verdict composites into the running presentation with no
+visible or audible mode switch, and a clean streak clears masks without ever leaving the DVR — the
+engage-gap and release-jump glitches of the old enter-on-unsafe design cannot occur.
+
+`D` is **derived per DVR run and latched** (`dvr/delay.ts`, `deriveDvrDelayMs`): at every DVR
+(re)start — including the stopDvr/startDvr pair a seek re-warm goes through — the Verdict Timeline
+is consulted first. A range whose coverage extends at least 2×the adaptive estimate ahead needs no
+inference wait and gets `COVERED_DVR_DELAY_MS` (300 ms — replays and re-visited seeks all but skip
+the warm-up pause); an uncovered range gets the adaptive estimate: ~p90 of the session's observed
+sample→verdict round-trips plus headroom, clamped to [1.2 s, 4 s] (1.5 s until round-trips are
+observed). Within a continuous playback run D never changes, so presentation never jumps mid-run; a
+stretch that outruns its coverage presents whole-blurred per frame (fail-closed) instead of
+re-deriving. Inference sample captures are capped at the active model's input size
+(`frameCapture.ts`, longest side, refreshed on model switches) so the round-trip itself — and
+therefore `D` — stays small on HD videos. Frame and mask are composited in the same draw, mirroring
+the GIF player.
 
 Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the presentation adapter):
 
-- **Unsafe verdict while playing** (or `play` on an already-masked video) → instant whole-blur +
-  `startDvr`: the presentation adapter derives and latches `D`, then creates a `FrameRing` (rVFC
-  captures, ~30 fps, bounded by `D`+slack and a 128 MB cap). Capture resolution is budget-derived
-  (`dvr/captureScale.ts`): the largest size — up to min(display size, 1080p), floored at the legacy
-  640 px — whose frames still let the ring span `D`+slack inside the byte cap, so a covered small-D
-  run presents near display resolution while a slow session degrades resolution rather than ring
-  span. The session's Verdict Timeline (every playback verdict, keyed by `timestampSec`, recorded
-  DVR or not) already exists on the handle and is shared with the player read-only.
+- **`play`** → `startDvr`: the presentation adapter derives and latches `D`, registers the session's
+  demand with the global ring budget, and creates a `FrameRing` (rVFC captures, capped by the budget
+  ladder's tier). Warm-up cover follows fail-closed only: a verdict-less session keeps its adoption
+  blur, an already-masked session gets a whole-blur (its static DOM overlay would lag the moving
+  content), and a safe-verdicted session warms up **unblurred**. The session's Verdict Timeline
+  (every playback verdict, keyed by `timestampSec`) already exists on the handle and is shared with
+  the player read-only.
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
-  element) → `presenting`: blur and any leftover DOM overlay are swapped out almost immediately.
-  While the buffer is still shorter than `D`, presentation pins on the earliest buffered frame —
-  masked — like a rebuffering pause (the audio delay-line fill produces a matching gap), then runs
-  `D` behind the live edge. The whole-blur therefore covers only the ~100 ms until the first buffer
-  capture, not a `D`-long warm-up; seeks and loop restarts get the same masked pause. While
-  presenting, per-verdict `applyVerdict` DOM renders are suppressed — the player composites masks
-  itself. Audio is routed through a WebAudio `DelayNode` at the same `D` (`dvr/audioDelay.ts`),
-  keeping lip-sync; it falls back to live audio when the element cannot be captured (site already
-  holds a `MediaElementSource`, suspended `AudioContext`, cross-origin samples WebAudio would zero
-  out).
+  element) → `presenting`: blur and any leftover DOM overlay are swapped out. While the buffer is
+  still shorter than `D`, presentation pins on the earliest buffered frame — unblurred when the
+  latest applied verdict is safe, whole-blurred while a verdict is pending — like a rebuffering
+  pause (the audio delay-line fill produces a matching gap), then runs `D` behind the live edge.
+  While presenting, per-verdict `applyVerdict` DOM renders are suppressed — the player composites
+  masks itself. Audio is routed through a WebAudio `DelayNode` at the same `D`
+  (`dvr/audioDelay.ts`), keeping lip-sync; a permanent capture failure withdraws protection entirely
+  (see the audio precondition below).
+- **Unsafe verdict while playing**: no transition — the verdict lands in the Verdict Timeline and
+  the already-running presentation composites its masks `D` later. Only a DVR still `warming`
+  (canvas not yet presenting) gets an interim whole-blur cover.
 - **Per presented frame** (`videoDvrPlayer.ts`): look up verdicts within the Inertia Window
   (observed sampling cadence + jitter margin) around the frame's media time. Unsafe → composite the
-  union of their masks (RLE-decoded once, pixelated content + destination-in). A recent unsafe mask
-  also persists for twice the adaptive cadence window through short clean detector dropouts, so
-  segmentation patches do not blink open/closed at sample cadence; sustained clean coverage draws
-  plain. A hole in verdict coverage (latency spike) is **bridged from the neighbors** — an unsafe
-  neighbor extends its masks over the hole (fail-safe), clean↔clean holes present clean — so the
+  union of their masks (RLE-decoded once, pixelated content + destination-in); once only clean
+  verdicts sit in the window, the frame draws plain. A hole in verdict coverage (latency spike) is
+  **bridged from the neighbors** — an upcoming unsafe verdict extends its masks backward over the
+  hole (pre-roll before known content), a past unsafe verdict covers only a short forward overshoot
+  so a stale mask cannot smear across a scene change, clean↔clean holes present clean — so the
   whole-blur fallback appears only under genuine verdict silence, not as a flash between masked
   stretches. Sampling continues at the live edge throughout.
-- **Clean streak while presenting**: clears the logical mask/status, but leaves the DVR latched for
-  the continuous playback run. Clean frames are drawn plainly via the Verdict Timeline; retaining
-  the delayed presentation preserves unsafe-neighbor inertia and avoids repeated live-edge jumps and
-  re-warm flashes when detections are intermittent.
-- **Exit**: pause/ended (static frame → precise DOM overlay takes back over), seek (ring
-  discontinuity → flush, whole-blur, re-warm with a freshly derived `D` — small when the seek lands
-  in a range the timeline already covers, so re-visited content barely pauses), dispose, or terminal
-  ERROR. The Verdict Timeline itself survives every exit; only the ring and player are discarded. A
-  clean streak still stops a DVR that never reached `presenting`, so capture failure cannot strand
-  the video under its warm-up blur.
+- **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
+  permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
+  Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
+- **Pause**: never exits the DVR. The media clock freezes, so the canvas holds the delayed frame the
+  viewer was actually seeing; `play` resumes presentation without a re-warm. Only the sampling
+  bookkeeping winds down.
+- **`ended`** → `drainDvr`: the presenter switches to a drain clock (`dvr/drain.ts`) that advances
+  the presented media time at 1x wall rate from where presentation froze to the newest buffered
+  frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A
+  DVR still `warming` at `ended` has no tail to drain and `bufferReady` can never fire, so it hands
+  back to the DOM overlay instead of latching its warm-up blur forever.
+- **Seek**: ring discontinuity → flush and re-warm (stopDvr/startDvr) with a freshly derived `D` —
+  small when the seek lands in a range the timeline already covers, so re-visited content barely
+  pauses. The warm-up cover is re-established under the same fail-closed rule: whole-blur while
+  masked or verdict-pending, unblurred pinned frame when safe.
+- **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
+  hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
+  ERROR, source change, and the undelayable-audio demotion. Pause, `ended`, and clean streaks are
+  **not** exits. The Verdict Timeline itself survives every exit; only the ring and player are
+  discarded.
 - **DVR unavailable but analysis works** (buffer capture throws `SecurityError` while the CORS-clone
-  sampling path still delivers verdicts): the warm-up whole-blur simply stays; the clean-streak exit
-  remains reachable. Only analysis-impossible finalizes as allow.
+  sampling path still delivers verdicts): the warm-up whole-blur simply stays while masked or
+  verdict-pending; the clean-streak `clearBlur` is the un-blur escape, since `bufferReady` can never
+  lift the blur there. Only analysis-impossible finalizes as allow.
 
-Paused/standby verdicts never involve the DVR: a static frame has nothing to chase, so the precise
-mask overlay (`videoMaskOverlay.ts`) renders it, as before.
+The precise mask overlay (`videoMaskOverlay.ts`) still renders static-frame verdicts whenever the
+DVR is off: before first play, and after a viewport suspension hands the element back. While the DVR
+is warming or presenting, it owns masking even for a paused frame.
+
+### Audio as a precondition
+
+Delayed picture with live audio means permanent lip-sync desync, and switching audio routes
+mid-playback is audible — so audio delayability gates processing entirely (ADR
+[0001](adr/0001-continuous-dvr-and-audio-precondition.md)):
+
+- **Origin-tainted source** (WebAudio would zero its samples): detected synchronously at adoption
+  (`isAudioDelayable`) → finalized `skipped` immediately. No DVR, no masking, no inference spent.
+- **Element already captured by the site's own audio graph**: discoverable only when the first
+  engage's `createMediaElementSource` throws → `audioUndelayable` tears down the DVR and masking and
+  finalizes `skipped` (one final visible switch, unavoidable).
+- **Suspended `AudioContext`** (no user gesture yet): transient — the engage defers and retries on
+  the next one; never a demotion.
+
+### Memory: the global ring budget
+
+All active rings share one byte budget (`dvr/ringBudget.ts`), tiered by the active inference backend
+as a hardware proxy — WebGPU → 512 MB, WASM → 128 MB (the WASM tier fails safe until the backend,
+known in the background at model load, arrives with host settings). When the projected demand of all
+registered sessions exceeds the budget, every session degrades down a shared ladder — capture width
+640 → 480 → 320 px, then capture rate ~30 → ~15 fps, then ring horizon shrink — and recovers in
+reverse as sessions release (suspension, disposal). Demand is projected from registered geometry
+rather than measured from live ring bytes, so degradation and recovery are immediate. Per-session,
+the ring stays bounded by `D`+slack, a 128 MB cap, and the budget-derived capture scale
+(`dvr/captureScale.ts`): the largest capture size — up to min(display size, the ladder's width
+ceiling) — whose frames still let the ring span `D`+slack inside the byte cap. A live ring never
+shrinks below its latched `D`, or presentation would strand on the warm-up frame.
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs next to the
 video (see [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)), in the site's stacking context one z-index
@@ -355,31 +416,36 @@ Considered and rejected:
 - **Block on inference-impossible** — permanently blurring everything the pipeline cannot read (most
   cross-origin videos without CORS headers) breaks far more legitimate content than it protects;
   hence ERROR = allow.
-- **Buffer every playing video pre-emptively** — tens of MB per video for the common safe case; the
-  masked rebuffer already covers the warm-up gap.
+- **Buffer every playing video pre-emptively** — rejected here for its per-video memory cost in the
+  common safe case, then **adopted after all** by ADR
+  [0001](adr/0001-continuous-dvr-and-audio-precondition.md): the engage/release switches of
+  DVR-only-while-masked proved worse than the cost, which the global backend-tiered ring budget now
+  bounds. This bullet is kept as history; the ADR supersedes it.
 
-Accepted consequences: masked playback costs one delayed canvas plus a hard-capped ring buffer per
-session; content jumps forward by `D` when the mask clears.
+Accepted consequences (per ADR 0001): every processed video pays ~`D` of pinned start, is watched
+`D` behind the live edge (including live streams), and costs capture/canvas CPU plus bounded ring
+memory while playing; the seek bar reads `D` ahead of the picture; endings complete ~`D` late; sites
+where audio cannot be delayed receive no protection at all.
 
 ## Testing
 
 - **Unit** (`entrypoints/content/video/session/__tests__/machine.test.ts`): every machine behavior —
   adoption, timeout-at-first-send, verdict finalization, retry-then-blocked, pacing, staleness,
   hysteresis, watchdog re-blur + self-heal, lost-sample slot recovery, paused-seek one-shots,
-  pause/ended, terminal allow (error streak + permanent failures), terminal disposal,
-  play-preempts-thumbnail, and the DVR lifecycle (warm-up, bufferReady, pause hand-back, seek
-  re-warm, dispose). `entrypoints/content/video/dvr/__tests__/` covers the FrameRing (selection,
+  terminal allow (error streak + permanent failures), terminal disposal, play-preempts-thumbnail,
+  and the continuous-DVR lifecycle (start on play, warm-up cover rules, bufferReady, clean streak
+  staying in the DVR, pause hold, ended drain, seek re-warm, suspension hand-back, undelayable-audio
+  demotion, dispose). `entrypoints/content/video/dvr/__tests__/` covers the FrameRing (selection,
   eviction, discontinuity flush, release), the VerdictTimeline (window lookup, inertia merging,
-  cadence-derived window, coverage-ahead, entry cap), coverage-derived delay derivation, and the
-  budget-derived capture scale.
+  cadence-derived window, coverage-ahead, entry cap), coverage-derived delay derivation, the
+  budget-derived capture scale, the global ring budget's degradation ladder, the drain clock, and
+  the presented-fps simulation harness.
 - **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
-  the `<source>`-child discovery path, a clean playing video, and DVR canvas takeover on an unsafe
-  playing video.
+  the `<source>`-child discovery path, DVR canvas takeover on a clean playing video, and an unsafe
+  verdict landing mid-playback compositing into the running DVR without a whole-blur flash.
 
 ## Future enhancements
 
-- **Global memory guards (stage 2, remaining)** — buffer caps across simultaneously-masked videos
-  (per-session byte caps exist; adaptive `D` and downscaled sample captures are implemented).
 - **Loop verdict+ring reuse** — the Verdict Timeline already survives seeks and loop restarts
   (covered re-warms derive a small `D`); for loops specifically, keeping the ring too would remove
   even the short covered re-buffer.
