@@ -9,14 +9,14 @@
  */
 
 import type { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
-import type { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
+import type { SessionFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { PendingFrameSample } from '@/entrypoints/content/video/frameSample';
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
 
 interface DvrRuntime {
-  ring: FrameRing;
+  store: SessionFrameStore;
   player: VideoDvrPlayer;
   /** Throttles buffer captures below the tick rate (rVFC ticks are denser). */
   lastCapturedMediaTime: number;
@@ -27,6 +27,10 @@ interface DvrRuntime {
   registeredHeight: number;
   /** Display-derived capture-width cap last registered; re-registers on a material resize. */
   registeredCaptureCap: number;
+  /** Store's covered-miss counter at the last per-verdict sync; a diff is a decode stall. */
+  lastCoveredMisses: number;
+  /** Consecutive underrun observations this run; dispatches analysisUnderrun at the hysteresis threshold. */
+  underrunStreak: number;
 }
 
 export interface SessionHandle {
@@ -50,6 +54,8 @@ export interface SessionHandle {
   readonly timeline: VerdictTimeline;
   /** Presentation delay latched for the current DVR run; null while the DVR is off. */
   dvrDelaySec: number | null;
+  /** A WebCodecs error happened once: this session stays on the raw ring for its lifetime. */
+  dvrEncodedIneligible: boolean;
   /** Session-local Frame Samples awaiting verdicts; future caches must not persist routing identity. */
   pendingSamples: Map<number, PendingFrameSample>;
   /** Recent sample→verdict round-trips; sizes the adaptive DVR delay. */

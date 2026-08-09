@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { drainTargetTime, startDrainClock } from '@/entrypoints/content/video/dvr/drain';
-import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
+import { FrameRing } from '@/entrypoints/content/video/dvr/rawFrameRing';
 
 const FRAME = { width: 640, height: 360, close: () => {} };
 

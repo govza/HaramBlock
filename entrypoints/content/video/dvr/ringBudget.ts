@@ -81,7 +81,17 @@ export interface SessionDemand {
    * ring never shrinks below it, so the projection must not either.
    */
   readonly minHorizonSec: number;
+  /**
+   * Set for sessions on the WebCodecs-encoded store: demand is bitrate ×
+   * horizon (plus a small decode-lookahead allowance) instead of the RGBA
+   * projection, so encoded sessions barely register on the ladder and never
+   * degrade raw sessions on their behalf.
+   */
+  readonly encodedBytesPerSec?: number;
 }
+
+/** Decode-lookahead allowance for encoded sessions: a handful of RGBA frames. */
+const ENCODED_DECODE_LOOKAHEAD_FRAMES = 5;
 
 export class DvrRingBudget {
   private backendBudget = WASM_GLOBAL_BUDGET_BYTES;
@@ -142,7 +152,13 @@ export class DvrRingBudget {
 }
 
 function projectSessionBytes(demand: SessionDemand, quality: RingQuality, sessionMaxBytes: number): number {
-  const { nativeWidth, nativeHeight, captureMaxWidth, horizonSec, minHorizonSec } = demand;
+  const { nativeWidth, nativeHeight, captureMaxWidth, horizonSec, minHorizonSec, encodedBytesPerSec } = demand;
+  if (encodedBytesPerSec !== undefined) {
+    const effectiveHorizonSec = Math.max(minHorizonSec, horizonSec * quality.horizonScale);
+    // The encoded ring captures and decodes at native resolution.
+    const lookaheadBytes = nativeWidth * nativeHeight * BYTES_PER_PIXEL * ENCODED_DECODE_LOOKAHEAD_FRAMES;
+    return Math.min(sessionMaxBytes, encodedBytesPerSec * effectiveHorizonSec + lookaheadBytes);
+  }
   const aspect = nativeWidth > 0 && nativeHeight > 0 ? nativeHeight / nativeWidth : 9 / 16;
   const widthCeiling = Math.min(quality.maxWidth, captureMaxWidth);
   const width = nativeWidth > 0 ? Math.min(widthCeiling, nativeWidth) : widthCeiling;

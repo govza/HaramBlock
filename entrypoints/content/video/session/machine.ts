@@ -38,10 +38,15 @@ export interface VideoSessionState {
   pendingSeekTimestampSec: number | null;
   /** Delayed-presentation state; every playing processed video drives it (continuous DVR). */
   dvr: DvrMode;
+  /** A sustained analysis underrun already widened the sampling interval; a second demotes. */
+  samplingRelieved: boolean;
 }
 
 export const THUMBNAIL_TIMEOUT_MS = 10_000;
 export const SAMPLE_FLOOR_MS = 250;
+/** Widened sampling floor after an analysisUnderrun: fewer samples relieve inference pressure.
+ *  Must stay under the timeline's coverage gap tolerance or relief itself breaks coverage. */
+export const RELIEVED_SAMPLE_FLOOR_MS = 1000;
 export const CLEAN_STREAK_TO_CLEAR = 2;
 export const WATCHDOG_MS = 5_000;
 export const SAMPLE_TIMEOUT_MS = 3_000;
@@ -73,6 +78,9 @@ export type SessionEvent =
   | { type: 'sampleCancelled'; frameIndex: number; at: number }
   /** The DVR ring buffer spans the presentation delay; the canvas has taken over. */
   | { type: 'bufferReady'; at: number }
+  /** Analysis persistently cannot keep up with playback (hysteresis applied by
+   *  the adapter). First occurrence widens the sampling interval; a second demotes. */
+  | { type: 'analysisUnderrun'; at: number }
   /** This element's audio can never ride the delay line (origin-tainted source
    *  at adoption, or the site captured the element — discovered at engage).
    *  Delayability is a precondition (ADR 0001): protection is withdrawn. */
@@ -125,6 +133,7 @@ export function createVideoSession(): ReduceResult {
       pendingSeek: false,
       pendingSeekTimestampSec: null,
       dvr: 'off',
+      samplingRelieved: false,
     },
     effects: [{ kind: 'applyBlur' }],
   };
@@ -320,6 +329,19 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     }
     return { state: next, effects };
   }
+  if (event.type === 'analysisUnderrun') {
+    // Only a live DVR run can underrun; elsewhere the event is stale.
+    if (state.dvr === 'off' || (state.phase !== 'sampling' && state.phase !== 'standby')) {
+      return { state, effects: [] };
+    }
+    if (!state.samplingRelieved) {
+      // Sampling relief: the wider floor takes effect on the next frameAvailable.
+      return { state: { ...state, samplingRelieved: true }, effects: [] };
+    }
+    // A second sustained underrun after relief: analysis simply cannot keep up
+    // on this machine. Demote out of the DVR the same way audioUndelayable does.
+    return finalizeAllow(state, { terminal: true });
+  }
   if (event.type === 'bufferReady' && state.dvr === 'warming') {
     // The delayed canvas is drawing (masked, synced): swap out the whole-blur
     // and any leftover DOM overlay from a pre-playback verdict.
@@ -440,7 +462,8 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     return { state: next, effects };
   }
   if (event.type === 'frameAvailable' && state.phase === 'sampling') {
-    if (state.inflightIndex !== null || event.at - state.lastSentAt < SAMPLE_FLOOR_MS) {
+    const floorMs = state.samplingRelieved ? RELIEVED_SAMPLE_FLOOR_MS : SAMPLE_FLOOR_MS;
+    if (state.inflightIndex !== null || event.at - state.lastSentAt < floorMs) {
       return { state, effects: [] };
     }
     return sendNextSample(state, event.at, event.timestampSec);

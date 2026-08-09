@@ -153,6 +153,7 @@ class VideoSessionRegistry {
       dvr: null,
       timeline: new VerdictTimeline(),
       dvrDelaySec: null,
+      dvrEncodedIneligible: false,
       pendingSamples: new Map(),
       latenciesMs: [],
       suspended: !isVideoNearViewport(video),

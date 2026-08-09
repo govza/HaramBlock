@@ -4,7 +4,7 @@
  * is already resolved. Frame and mask are composited in the same draw — they
  * cannot desynchronize the way a DOM overlay chasing native playback can.
  *
- * Pure consumer of a FrameRing + VerdictTimeline (the video analog of
+ * Pure consumer of a DvrFrameStore + VerdictTimeline (the video analog of
  * gifMaskPlayer's decoded-frames + framePredictions): the session machine and
  * registry decide when it exists; the player only warms up, draws, and reports
  * readiness via onReady. Presentation is an overlay div injected next to the
@@ -30,7 +30,7 @@ import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 
-import type { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
+import type { DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
 import type { IMaskingSettings } from '@/utils/types';
 
 const log = logger.withTag('videoDvrPlayer');
@@ -53,7 +53,7 @@ const MASK_CANVAS_STYLE = [CANVAS_STYLE, 'image-rendering: pixelated', 'image-re
 
 export interface VideoDvrPlayerOptions {
   video: HTMLVideoElement;
-  ring: FrameRing;
+  store: DvrFrameStore;
   /** Session-lifetime verdict history; the player only reads it. */
   timeline: VerdictTimeline;
   /**
@@ -116,9 +116,9 @@ export class VideoDvrPlayer {
    */
   startDrain(): void {
     if (this.destroyed || this.drainClock) return;
-    const { video, ring, getDelaySec } = this.opts;
+    const { video, store, getDelaySec } = this.opts;
     this.drainClock = startDrainClock(
-      clampToOldest(video.currentTime - getDelaySec(), ring.oldestTime()),
+      clampToOldest(video.currentTime - getDelaySec(), store.oldestTime()),
       performance.now() / 1000,
     );
   }
@@ -147,7 +147,7 @@ export class VideoDvrPlayer {
         // Present from the very first buffered frame: instead of a whole-blur
         // warm-up, the viewer sees a masked "rebuffering" pause — the earliest
         // frame, pinned until the buffer reaches back D (see draw()).
-        if (this.opts.ring.oldestTime() !== null) this.beginPresentation();
+        if (this.opts.store.oldestTime() !== null) this.beginPresentation();
         return;
       }
       if (!this.syncGeometry()) return;
@@ -252,7 +252,7 @@ export class VideoDvrPlayer {
   }
 
   private draw(): void {
-    const { video, ring, timeline, getDelaySec, getMasking } = this.opts;
+    const { video, store, timeline, getDelaySec, getMasking } = this.opts;
     const { surfaces } = this;
     if (!surfaces) return;
     const { width, height } = this.lastSize;
@@ -265,13 +265,13 @@ export class VideoDvrPlayer {
     // Clamped to the earliest buffered frame: while the buffer is still
     // shorter than D (warm-up, post-seek re-warm, loop restart), playback
     // holds on that frame — masked — until now − D reaches it, then runs.
-    const oldest = ring.oldestTime();
-    const newest = ring.newestTime();
+    const oldest = store.oldestTime();
+    const newest = store.newestTime();
     const targetTime =
       this.drainClock && newest !== null
         ? drainTargetTime(this.drainClock, performance.now() / 1000, newest)
         : clampToOldest(video.currentTime - delaySec, oldest);
-    const frame = ring.frameAt(targetTime);
+    const frame = store.frameAt(targetTime);
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
     // than blurring: the bridge horizon scales with the observed round-trip.
@@ -337,11 +337,11 @@ export class VideoDvrPlayer {
         // frame as-is rather than flashing a blur over content already judged.
         baseCanvas.style.filter = '';
         baseCtx.drawImage(
-          frame.bitmap,
+          frame.source,
           0,
           0,
-          frame.bitmap.width,
-          frame.bitmap.height,
+          frame.width,
+          frame.height,
           content.offsetX,
           content.offsetY,
           content.width,
@@ -359,11 +359,11 @@ export class VideoDvrPlayer {
 
     baseCanvas.style.filter = '';
     baseCtx.drawImage(
-      frame.bitmap,
+      frame.source,
       0,
       0,
-      frame.bitmap.width,
-      frame.bitmap.height,
+      frame.width,
+      frame.height,
       content.offsetX,
       content.offsetY,
       content.width,
@@ -371,7 +371,7 @@ export class VideoDvrPlayer {
     );
 
     if (verdict.kind === 'unsafe') {
-      this.renderMasks(frame.bitmap, verdict.entries, content, masking);
+      this.renderMasks(frame, verdict.entries, content, masking);
     } else {
       maskCanvas.style.filter = '';
     }
@@ -382,7 +382,7 @@ export class VideoDvrPlayer {
    * rect, then destination-in with the union of all in-window mask grids.
    */
   private renderMasks(
-    frameBitmap: ImageBitmap,
+    frame: PresentableFrame,
     entries: VerdictEntry[],
     content: { offsetX: number; offsetY: number; width: number; height: number },
     masking: IMaskingSettings,
@@ -401,7 +401,7 @@ export class VideoDvrPlayer {
     if (!tmpCtx) return;
     tmpCtx.clearRect(0, 0, smallW, smallH);
     tmpCtx.imageSmoothingEnabled = true;
-    tmpCtx.drawImage(frameBitmap, 0, 0, frameBitmap.width, frameBitmap.height, 0, 0, smallW, smallH);
+    tmpCtx.drawImage(frame.source, 0, 0, frame.width, frame.height, 0, 0, smallW, smallH);
 
     maskCtx.imageSmoothingEnabled = false;
     maskCtx.drawImage(tmp, content.offsetX, content.offsetY, content.width, content.height);

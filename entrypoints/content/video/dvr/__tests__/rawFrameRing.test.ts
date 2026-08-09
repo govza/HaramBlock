@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { FrameRing, type RingBitmap } from '@/entrypoints/content/video/dvr/frameRing';
+import { runDvrFrameStoreContract } from '@/entrypoints/content/video/dvr/__tests__/frameStoreContract';
+import { FrameRing, RawFrameRing, type RingBitmap } from '@/entrypoints/content/video/dvr/rawFrameRing';
 
 class FakeBitmap implements RingBitmap {
   closed = false;
@@ -100,4 +101,20 @@ describe('FrameRing', () => {
     expect(ring.bytes()).toBe(0);
     expect(ring.frameAt(99)).toBeNull();
   });
+});
+
+describe('RawFrameRing covered misses', () => {
+  it('stays zero: a covered frameAt always hits on the raw ring', () => {
+    const store = new RawFrameRing(10, BIG);
+    for (let t = 0; t <= 2; t += 0.1) store.push(new FakeBitmap(), t);
+    store.frameAt(1);
+    store.frameAt(-5);
+    expect(store.coveredMisses()).toBe(0);
+    store.release();
+  });
+});
+
+runDvrFrameStoreContract('RawFrameRing', {
+  create: (maxDurationSec, maxBytes = Number.MAX_SAFE_INTEGER) => new RawFrameRing(maxDurationSec, maxBytes),
+  frame: () => new FakeBitmap(),
 });

@@ -42,6 +42,26 @@ export function computeDvrDelayMs(latenciesMs: readonly number[]): number {
 }
 
 /**
+ * Consecutive underrun observations before analysisUnderrun is dispatched:
+ * hysteresis, so a single slow round-trip never triggers relief or demotion.
+ */
+export const UNDERRUN_VERDICT_STREAK = 3;
+
+/**
+ * One post-verdict underrun observation: the derived D is clamped at its
+ * ceiling while coverage ahead of the playhead still trails the latched D —
+ * growing D can no longer buy analysis more headroom.
+ */
+export function isAnalysisUnderrun(
+  latenciesMs: readonly number[],
+  coverageAheadSec: number,
+  latchedDelaySec: number,
+): boolean {
+  if (computeDvrDelayMs(latenciesMs) < MAX_DVR_DELAY_MS) return false;
+  return coverageAheadSec < latchedDelaySec;
+}
+
+/**
  * D at a DVR (re)start: small for a covered range, adaptive otherwise. Called
  * only at discontinuities (start, seek, loop restart) — within a continuous
  * playback run D stays latched, so presentation never jumps mid-run.

@@ -1,9 +1,14 @@
 /**
- * Ring buffer of captured video frames for the DVR presentation path
- * (docs/VIDEO_PROCESSING.md). Frames are keyed by their media time so the
- * presenter can look up "the frame displayed `delay` seconds ago". Bounded by
- * both a time horizon and a byte budget; evicted frames close their bitmaps.
+ * Raw-bitmap implementation of the DVR frame store (docs/VIDEO_PROCESSING.md):
+ * a ring buffer of presentation-sized RGBA ImageBitmaps keyed by media time.
+ * The universal fallback — works everywhere, but memory scales as
+ * resolution² × fps × horizon, which is what the ring budget ladder manages.
+ * The WebCodecs-encoded store (encodedFrameRing.ts) replaces it when hardware
+ * allows. Bounded by both a time horizon and a byte budget; evicted frames
+ * close their bitmaps.
  */
+
+import type { DvrCaptureFrame, DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
 
 /** Structural subset of ImageBitmap, so the ring is unit-testable without a DOM. */
 export interface RingBitmap {
@@ -110,5 +115,69 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
     this.frames.shift();
     this.totalBytes -= frame.bitmap.width * frame.bitmap.height * BYTES_PER_PIXEL;
     frame.bitmap.close();
+  }
+}
+
+/**
+ * DvrFrameStore adapter over FrameRing. Capture stays outside: the adapter's
+ * capture tick downscales through a canvas (budget-sized) and pushes the
+ * resulting ImageBitmap. A VideoFrame arriving here is a swap-race tick
+ * (the factory just exchanged an encoded store for this one mid-run) — one
+ * dropped capture, closed rather than stored.
+ */
+export class RawFrameRing implements DvrFrameStore {
+  readonly captureMode = 'bitmap';
+  private readonly ring: FrameRing;
+
+  constructor(maxDurationSec: number, maxBytes: number) {
+    this.ring = new FrameRing(maxDurationSec, maxBytes);
+  }
+
+  push(frame: DvrCaptureFrame, mediaTime: number): void {
+    if ('displayWidth' in frame) {
+      frame.close();
+      return;
+    }
+    this.ring.push({ bitmap: frame, mediaTime });
+  }
+
+  frameAt(mediaTime: number): PresentableFrame | null {
+    const frame = this.ring.frameAt(mediaTime);
+    if (!frame) return null;
+    return {
+      source: frame.bitmap,
+      width: frame.bitmap.width,
+      height: frame.bitmap.height,
+      mediaTime: frame.mediaTime,
+    };
+  }
+
+  /** A covered `frameAt` always hits on the raw ring: the counter never advances. */
+  coveredMisses(): number {
+    return 0;
+  }
+
+  spanSec(): number {
+    return this.ring.spanSec();
+  }
+
+  oldestTime(): number | null {
+    return this.ring.oldestTime();
+  }
+
+  newestTime(): number | null {
+    return this.ring.newestTime();
+  }
+
+  bytes(): number {
+    return this.ring.bytes();
+  }
+
+  setLimits(maxDurationSec: number, maxBytes: number): void {
+    this.ring.setLimits(maxDurationSec, maxBytes);
+  }
+
+  release(): void {
+    this.ring.release();
   }
 }
