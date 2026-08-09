@@ -250,12 +250,16 @@ is consulted first. A range whose coverage extends at least 2×the adaptive esti
 inference wait and gets `COVERED_DVR_DELAY_MS` (300 ms — replays and re-visited seeks all but skip
 the warm-up pause); an uncovered range gets the adaptive estimate: ~p90 of the session's observed
 sample→verdict round-trips plus headroom, clamped to [1.2 s, 4 s] (1.5 s until round-trips are
-observed). Within a continuous playback run D never changes, so presentation never jumps mid-run; a
-stretch that outruns its coverage presents whole-blurred per frame (fail-closed) instead of
-re-deriving. Inference sample captures are capped at the active model's input size
-(`frameCapture.ts`, longest side, refreshed on model switches) so the round-trip itself — and
-therefore `D` — stays small on HD videos. Frame and mask are composited in the same draw, mirroring
-the GIF player.
+observed). Within a continuous playback run D **only ever grows**: each verdict re-derives it, and a
+larger result is adopted (`raiseDelayIfLagging`) so a run that latched too small a D — no
+round-trips observed yet at the first `play`, or a covered range whose coverage ran out — does not
+present verdict-less, whole-blurred frames for the rest of the run. Growing D slides presentation
+further behind the live edge (repeating a moment of already-seen video, within the ring horizon); it
+never shrinks, so presentation never jumps forward into content no verdict describes. A genuinely
+covered range still re-derives the small covered D, so it is left alone. Inference sample captures
+are capped at the active model's input size (`frameCapture.ts`, longest side, refreshed on model
+switches) so the round-trip itself — and therefore `D` — stays small on HD videos. Frame and mask
+are composited in the same draw, mirroring the GIF player.
 
 Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the presentation adapter):
 
@@ -284,15 +288,26 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   verdicts sit in the window, the frame draws plain. A hole in verdict coverage (latency spike) is
   **bridged from the neighbors** — an upcoming unsafe verdict extends its masks backward over the
   hole (pre-roll before known content), a past unsafe verdict covers only a short forward overshoot
-  so a stale mask cannot smear across a scene change, clean↔clean holes present clean — so the
-  whole-blur fallback appears only under genuine verdict silence, not as a flash between masked
-  stretches. Sampling continues at the live edge throughout.
+  so a stale mask cannot smear across a scene change (past that overshoot the hole fails closed —
+  never bridges to clean, since a stalled verdict behind an unsafe one is not evidence of clean
+  content), clean↔clean holes present clean — so the whole-blur fallback appears only under genuine
+  verdict silence, not as a flash between masked stretches. The one exception to fail-closed is the
+  warm-up of a session the machine already cleared: its timeline is still empty (the Thumbnail
+  verdict carries no media time), and blurring there would flash over every play and seek of a clean
+  video — exactly the cover the machine deliberately withheld. Once any playback verdict exists,
+  holes are genuine gaps and blur. Lookups binary-search the timestamp-ordered timeline and scan
+  outward, so per-tick cost stays bounded by the window rather than the session's history. Sampling
+  continues at the live edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
   permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
 - **Pause**: never exits the DVR. The media clock freezes, so the canvas holds the delayed frame the
-  viewer was actually seeing; `play` resumes presentation without a re-warm. Only the sampling
-  bookkeeping winds down.
+  viewer was actually seeing; `play` resumes presentation without a re-warm. The sampling
+  bookkeeping winds down, and the audio delay line is dropped (`holdAudioDelay`) and rebuilt on
+  resume (`resumeAudioDelay`): a `DelayNode` runs on the audio clock, not the media clock, so a line
+  left attached would drain its buffered `D` seconds of speech over the frozen frame. Resume
+  therefore costs `D` seconds of silence while the fresh line refills — the buffered tail is gone
+  either way.
 - **`ended`** → `drainDvr`: the presenter switches to a drain clock (`dvr/drain.ts`) that advances
   the presented media time at 1x wall rate from where presentation froze to the newest buffered
   frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A
@@ -327,22 +342,34 @@ mid-playback is audible — so audio delayability gates processing entirely (ADR
 - **Element already captured by the site's own audio graph**: discoverable only when the first
   engage's `createMediaElementSource` throws → `audioUndelayable` tears down the DVR and masking and
   finalizes `skipped` (one final visible switch, unavoidable).
-- **Suspended `AudioContext`** (no user gesture yet): transient — the engage defers and retries on
-  the next one; never a demotion.
+- **Suspended `AudioContext`** (no user gesture yet): transient — the engage defers, and every
+  subsequent verdict retries it (`syncAudioDelay`) until it lands; never a demotion. The retry is
+  not optional: a deferred engage left alone would present delayed picture against live audio, the
+  same permanent desync the precondition exists to prevent.
 
 ### Memory: the global ring budget
 
 All active rings share one byte budget (`dvr/ringBudget.ts`), tiered by the active inference backend
-as a hardware proxy — WebGPU → 512 MB, WASM → 128 MB (the WASM tier fails safe until the backend,
-known in the background at model load, arrives with host settings). When the projected demand of all
-registered sessions exceeds the budget, every session degrades down a shared ladder — capture width
-640 → 480 → 320 px, then capture rate ~30 → ~15 fps, then ring horizon shrink — and recovers in
-reverse as sessions release (suspension, disposal). Demand is projected from registered geometry
-rather than measured from live ring bytes, so degradation and recovery are immediate. Per-session,
-the ring stays bounded by `D`+slack, a 128 MB cap, and the budget-derived capture scale
-(`dvr/captureScale.ts`): the largest capture size — up to min(display size, the ladder's width
-ceiling) — whose frames still let the ring span `D`+slack inside the byte cap. A live ring never
-shrinks below its latched `D`, or presentation would strand on the warm-up frame.
+as a hardware proxy — WebGPU → 1 GB global / 768 MB per session, WASM → 128 MB for both (the WASM
+tier fails safe until the backend, known in the background at model load, arrives with host
+settings). The ladder's full tier has **no width ceiling**: capture is capped by the rendered size
+in device pixels (up to native), so an embedded player buffers cheaply while a fullscreen 1080p one
+captures at full resolution — pixels the viewer cannot see are wasted bytes, everything they can see
+is captured when the byte budget allows. When the projected demand of all registered sessions
+exceeds the budget, every session degrades down a shared ladder — capture width ∞ (display-capped) →
+1280 → 640 → 480 → 320 px, then capture rate ~30 → ~15 fps, then ring horizon shrink — and recovers
+in reverse as sessions release (suspension, disposal). Demand is projected from registered geometry
+rather than measured from live ring bytes, so degradation and recovery are immediate; a session that
+started its DVR before metadata landed re-registers as soon as the real frame geometry arrives, so
+the projection cannot stay stuck on the fallback 16:9 estimate — and a materially resized player
+(embedded → fullscreen crosses the 1.25× hysteresis) re-registers its display-derived cap the same
+way. Per-session, the ring stays bounded by `D`+slack, the backend-tiered session cap, and the
+budget-derived capture scale (`dvr/captureScale.ts`): the largest capture size — up to min(display
+size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack inside the byte
+cap. A live ring never shrinks below its latched `D`, or presentation would strand on the warm-up
+frame. The presenter's base canvas backs at device-pixel resolution and scales buffered frames
+smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is the masking
+effect itself).
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs next to the
 video (see [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)), in the site's stacking context one z-index

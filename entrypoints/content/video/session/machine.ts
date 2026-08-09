@@ -98,6 +98,10 @@ export type SessionEffect =
   | { kind: 'stopDvr' }
   /** Playback ended: keep consuming the ring in real time to the final frame, then hold it. */
   | { kind: 'drainDvr' }
+  /** Pause under a presenting DVR: drop the delay line so its tail cannot drain over the frozen canvas. */
+  | { kind: 'holdAudioDelay' }
+  /** Resume under a presenting DVR: rebuild the delay line the pause discarded. */
+  | { kind: 'resumeAudioDelay' }
   | { kind: 'cleanup' };
 
 export interface ReduceResult {
@@ -153,7 +157,7 @@ function eventTime(event: SessionEvent): number {
 }
 
 /** No verdict has ever been applied: the session is fail-closed pending its first. */
-function verdictPending(state: VideoSessionState): boolean {
+export function verdictPending(state: VideoSessionState): boolean {
   return state.lastAppliedIndex === Number.NEGATIVE_INFINITY;
 }
 
@@ -343,6 +347,10 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         effects.push({ kind: 'applyBlur' });
       }
       effects.push({ kind: 'startDvr' });
+    } else if (state.dvr === 'presenting') {
+      // Resume without a re-warm: the canvas keeps presenting, so the delay
+      // line the pause discarded has to come back with it.
+      effects.push({ kind: 'resumeAudioDelay' });
     }
     return { state: next, effects };
   }
@@ -403,7 +411,11 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // Pause never exits the DVR: the media clock freezes, so the canvas holds
     // the delayed frame the viewer was actually seeing. Only the sampling
     // bookkeeping winds down; play resumes presentation without a re-warm.
-    return { state: { ...state, phase: 'standby' }, effects: [{ kind: 'cancelTimer', timer: 'watchdog' }] };
+    // The audio delay line does not freeze with the media clock, though — it
+    // must be dropped here and rebuilt on resume.
+    const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
+    if (state.dvr === 'presenting') effects.push({ kind: 'holdAudioDelay' });
+    return { state: { ...state, phase: 'standby' }, effects };
   }
   if (event.type === 'ended' && (state.phase === 'sampling' || state.phase === 'standby')) {
     // Standby too: Chrome fires 'pause' just before 'ended' at the natural

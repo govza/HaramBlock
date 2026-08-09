@@ -5,8 +5,10 @@
  * Quality follows D: a covered range (small D) captures at the ceiling; a slow
  * session (large D) degrades toward the floor rather than shrinking the ring
  * below D, which would strand presentation on the warm-up frame forever. The
- * width ceiling itself comes from the global ring budget's degradation ladder
- * (ringBudget.ts) and only ever lowers the historical 640 px cap.
+ * width ceiling comes from the global ring budget's degradation ladder
+ * (ringBudget.ts); its full tier is unbounded, so there the display size is
+ * the only cap — pixels the viewer cannot see are wasted bytes, everything
+ * they can see is captured when the byte budget allows.
  */
 
 /** Never capture blurrier than this — unless the ladder ceiling is already below it. */
