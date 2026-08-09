@@ -29,10 +29,43 @@ describe('VerdictTimeline', () => {
 
     // Near the clean verdict only.
     expect(track.verdictFor(1.1, 0.3)).toEqual({ kind: 'clean' });
-    // Any unsafe verdict in the window wins over a clean one.
-    expect(track.verdictFor(1.6, 0.5).kind).toBe('unsafe');
+    // A mask starts exactly at its unsafe sample: no pre-masking before it.
+    expect(track.verdictFor(1.6, 0.5)).toEqual({ kind: 'clean' });
     // Nothing anywhere near (beyond the bridge horizon too) — fail closed.
     expect(track.verdictFor(2 + BRIDGE_HORIZON_SEC + 0.1, 0.5)).toEqual({ kind: 'none' });
+  });
+
+  it('cuts the mask at a clean verdict confirmed by a following clean verdict', () => {
+    const track = new VerdictTimeline();
+    const unsafe = entry(10, true);
+    track.add(unsafe);
+    track.add(entry(10.5, false));
+    track.add(entry(11, false));
+
+    // Masked from the unsafe sample right up to the clean sample…
+    expect(track.verdictFor(10.4, 0.5)).toEqual({ kind: 'unsafe', entries: [unsafe] });
+    // …then cut: the clean verdict is confirmed by the one after it.
+    expect(track.verdictFor(10.6, 0.5)).toEqual({ kind: 'clean' });
+  });
+
+  it('holds the mask over an unconfirmed clean verdict (no following verdict yet)', () => {
+    const track = new VerdictTimeline();
+    const unsafe = entry(10, true);
+    track.add(unsafe);
+    track.add(entry(10.5, false));
+
+    expect(track.verdictFor(10.6, 0.5)).toEqual({ kind: 'unsafe', entries: [unsafe] });
+  });
+
+  it('does not trust a lone clean verdict between two unsafe ones', () => {
+    const track = new VerdictTimeline();
+    const a = entry(10, true);
+    const b = entry(11, true);
+    track.add(a);
+    track.add(entry(10.5, false));
+    track.add(b);
+
+    expect(track.verdictFor(10.6, 0.5)).toEqual({ kind: 'unsafe', entries: [a, b] });
   });
 
   it('bridges coverage holes instead of blurring between masked stretches', () => {
@@ -61,29 +94,35 @@ describe('VerdictTimeline', () => {
     expect(cleanTrack.verdictFor(3.5 + 1.2, 0.5)).toEqual({ kind: 'none' });
   });
 
-  it('fails closed in the hole trailing an unsafe verdict instead of bridging to clean', () => {
+  it('masks the whole span from an unsafe sample to the next clean verdict', () => {
     const track = new VerdictTimeline();
     track.add(entry(10, true));
     track.add(entry(12, false)); // inference stalled, then came back clean
 
-    // Inside the overshoot the stale mask still covers.
+    // The mask holds across the hole right up to the clean sample — the
+    // frames in between have no verdict, and a mask is the fail-closed cover.
     expect(track.verdictFor(10.5, 0.35).kind).toBe('unsafe');
-    // Past it the mask must not smear — but a clean verdict two seconds later
-    // says nothing about this frame either: whole-blur, never clean.
-    expect(track.verdictFor(11.2, 0.35)).toEqual({ kind: 'none' });
+    expect(track.verdictFor(11.2, 0.35).kind).toBe('unsafe');
+    // A gap wider than the bridge horizon whole-blurs instead: that far out
+    // the stale mask geometry no longer describes the scene.
+    const wide = new VerdictTimeline();
+    wide.add(entry(10, true));
+    wide.add(entry(10 + BRIDGE_HORIZON_SEC + 2, false));
+    expect(wide.verdictFor(10 + BRIDGE_HORIZON_SEC + 1, 0.35)).toEqual({ kind: 'none' });
   });
 
-  it('stretches the backward unsafe bridge further when given a wider horizon (slow inference)', () => {
+  it('never masks before the first verdict (no pre-roll)', () => {
     const track = new VerdictTimeline();
     track.add(entry(BRIDGE_HORIZON_SEC + 2, true));
 
-    // Beyond the default horizon…
+    // A frame before an upcoming unsafe sample has no verdict: fail closed
+    // with the whole-blur, never a pre-rolled mask.
     expect(track.verdictFor(1, 0.5).kind).toBe('none');
-    // …but a session whose round-trip demands it pre-rolls the mask instead.
-    expect(track.verdictFor(1, 0.5, BRIDGE_HORIZON_SEC + 2).kind).toBe('unsafe');
+    expect(track.verdictFor(1, 0.5, BRIDGE_HORIZON_SEC + 2).kind).toBe('none');
+    expect(track.verdictFor(BRIDGE_HORIZON_SEC + 1.9, 0.5).kind).toBe('none');
   });
 
-  it('merges all unsafe verdicts inside the window (inertia)', () => {
+  it('merges the unsafe verdicts bounding a frame (inertia)', () => {
     const track = new VerdictTimeline();
     const a = entry(1, true);
     const b = entry(1.4, true);
@@ -105,13 +144,35 @@ describe('VerdictTimeline', () => {
     expect(track.verdictFor(2.1, 0.5)).toEqual({ kind: 'clean' });
   });
 
+  it('whole-blurs a clean↔clean hole wider than the bridge horizon (never fail-open)', () => {
+    const track = new VerdictTimeline();
+    track.add(entry(10, false));
+    track.add(entry(500, false));
+
+    // Near either clean verdict: clean.
+    expect(track.verdictFor(10.4, 0.5)).toEqual({ kind: 'clean' });
+    // Deep inside the never-analyzed hole: fail closed.
+    expect(track.verdictFor(250, 0.5)).toEqual({ kind: 'none' });
+  });
+
+  it('does not composite mask geometry from a verdict beyond the bridge horizon', () => {
+    const track = new VerdictTimeline();
+    const near = entry(10, true);
+    track.add(near);
+    track.add(entry(600, true));
+
+    expect(track.verdictFor(10.4, 0.5)).toEqual({ kind: 'unsafe', entries: [near] });
+  });
+
   it('keeps entries ordered even when an older verdict arrives late', () => {
     const track = new VerdictTimeline();
     track.add(entry(2, false));
     track.add(entry(1, true)); // late redelivery of an older sample
 
     expect(track.verdictFor(1.05, 0.2).kind).toBe('unsafe');
-    expect(track.verdictFor(2.05, 0.2).kind).toBe('clean');
+    // The clean verdict at 2 is not yet confirmed by a following clean one,
+    // so the earlier unsafe mask still holds past it.
+    expect(track.verdictFor(2.05, 0.2).kind).toBe('unsafe');
   });
 
   it('bounds session-lifetime growth by dropping the oldest entries', () => {
