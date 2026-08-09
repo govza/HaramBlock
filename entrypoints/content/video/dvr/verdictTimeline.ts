@@ -43,6 +43,12 @@ const CADENCE_SAMPLE_COUNT = 8;
  */
 export const BRIDGE_HORIZON_SEC = 3;
 /**
+ * A neighbor just outside the Inertia Window still covers a short overshoot —
+ * for a past unsafe verdict this bounds how far its mask may extend forward
+ * (a stale mask must not smear over a scene change).
+ */
+export const OVERSHOOT_WINDOW_MULTIPLIER = 2;
+/**
  * Session-lifetime bound: verdicts are small (clean entries carry no masks),
  * but a very long playback must not grow the timeline without limit. At ~4
  * verdicts/sec this covers well over 15 minutes of continuous coverage.
@@ -116,12 +122,16 @@ export class VerdictTimeline {
     );
 
     const unsafeNeighbors: VerdictEntry[] = [];
-    if (previous?.unsafe && mediaTime - previous.timestampSec <= windowSec * 2) unsafeNeighbors.push(previous);
+    if (previous?.unsafe && mediaTime - previous.timestampSec <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
+      unsafeNeighbors.push(previous);
+    }
     if (next?.unsafe) unsafeNeighbors.push(next);
     if (unsafeNeighbors.length) return { kind: 'unsafe', entries: unsafeNeighbors };
     if (previous && next) return { kind: 'clean' };
     const lone = previous ?? next;
-    if (lone && Math.abs(lone.timestampSec - mediaTime) <= windowSec * 2) return { kind: 'clean' };
+    if (lone && Math.abs(lone.timestampSec - mediaTime) <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
+      return { kind: 'clean' };
+    }
     return { kind: 'none' };
   }
 

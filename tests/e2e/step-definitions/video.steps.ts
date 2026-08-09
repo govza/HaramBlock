@@ -108,7 +108,12 @@ type GeneratedContent = 'safe' | 'unsafe' | 'turns-unsafe';
 
 async function injectAndPlayGeneratedVideo(mode: string, content: GeneratedContent): Promise<void> {
   const failure = await browser.executeAsync(
-    (sourceMode: string, contentMode: string, videoSelector: string, done: (failure: string | null) => void) => {
+    (
+      sourceMode: string,
+      contentMode: GeneratedContent,
+      videoSelector: string,
+      done: (failure: string | null) => void,
+    ) => {
       // Read name/message as plain properties: `instanceof Error` is false for
       // page DOMExceptions inside the Marionette sandbox, which previously
       // collapsed rejections to "{}" in CI logs.
@@ -203,8 +208,8 @@ async function injectAndPlayGeneratedVideo(mode: string, content: GeneratedConte
           // ring buffer can warm up within a single loop of the video; the
           // turns-unsafe one is longer still so its mid-playback verdict is
           // asserted before the first loop restart.
-          const durations = { safe: 2500, unsafe: 4000, 'turns-unsafe': 8000 } as const;
-          setTimeout(() => recorder.stop(), durations[contentMode as GeneratedContent] ?? 2500);
+          const durations: Record<GeneratedContent, number> = { safe: 2500, unsafe: 4000, 'turns-unsafe': 8000 };
+          setTimeout(() => recorder.stop(), durations[contentMode]);
         } catch (err) {
           done(`video generation threw: ${describe(err)}`);
         }
