@@ -5,6 +5,7 @@ import {
   COVERED_DVR_DELAY_MS,
   DEFAULT_DVR_DELAY_MS,
   deriveDvrDelayMs,
+  isAnalysisUnderrun,
   MAX_DVR_DELAY_MS,
   MIN_DVR_DELAY_MS,
 } from '@/entrypoints/content/video/dvr/delay';
@@ -52,5 +53,25 @@ describe('deriveDvrDelayMs', () => {
   it('stays adaptive when coverage falls short of the lookahead threshold', () => {
     const adaptiveSec = computeDvrDelayMs([]) / 1000;
     expect(deriveDvrDelayMs([], adaptiveSec * 2 - 0.1)).toBe(DEFAULT_DVR_DELAY_MS);
+  });
+});
+
+describe('isAnalysisUnderrun', () => {
+  const ceilingSec = MAX_DVR_DELAY_MS / 1000;
+  const slow = [5000, 6000, 5500, 5800];
+
+  it('detects an underrun when D is ceiling-clamped and coverage trails the latched D', () => {
+    expect(isAnalysisUnderrun(slow, ceilingSec - 1, ceilingSec)).toBe(true);
+  });
+
+  it('is not an underrun while the derived D stays under the ceiling', () => {
+    const large = [2000, 2100, 2050, 1950];
+    expect(computeDvrDelayMs(large)).toBeLessThan(MAX_DVR_DELAY_MS);
+    expect(isAnalysisUnderrun(large, 0, ceilingSec)).toBe(false);
+  });
+
+  it('clears when coverage catches back up to the latched D (recovery)', () => {
+    expect(isAnalysisUnderrun(slow, ceilingSec, ceilingSec)).toBe(false);
+    expect(isAnalysisUnderrun(slow, ceilingSec + 2, ceilingSec)).toBe(false);
   });
 });

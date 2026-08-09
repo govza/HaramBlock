@@ -5,6 +5,7 @@ import {
   ERROR_RETRY_COOLDOWN_MS,
   MAX_CONSECUTIVE_ERRORS,
   reduce,
+  RELIEVED_SAMPLE_FLOOR_MS,
   SAMPLE_TIMEOUT_MS,
   THUMBNAIL_TIMEOUT_MS,
   WATCHDOG_MS,
@@ -1076,5 +1077,62 @@ describe('VideoSession machine', () => {
     // Terminal: playback never resurrects sampling or the DVR.
     const played = run(state, { type: 'play', at: 4000 }, { type: 'frameAvailable', at: 4010 });
     expect(played.effects).toHaveLength(0);
+  });
+});
+
+describe('analysis underrun', () => {
+  const presenting = () =>
+    run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'bufferReady', at: 2800 },
+    ).state;
+
+  it('first underrun while presenting widens the sampling floor (relief), keeping the DVR', () => {
+    const relieved = run(presenting(), { type: 'analysisUnderrun', at: 3000 });
+    expect(relieved.state.samplingRelieved).toBe(true);
+    expect(relieved.state.dvr).toBe('presenting');
+    expect(relieved.effects).toHaveLength(0);
+
+    // The floor widened: a frame inside the relieved interval is skipped, one past it samples.
+    const first = run(relieved.state, { type: 'frameAvailable', at: 3100 });
+    expect(first.effects).toContainEqual(expect.objectContaining({ kind: 'sendSample' }));
+    const settled = run(
+      first.state,
+      { type: 'sampleSent', frameIndex: 0, at: 3110 },
+      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 3200 },
+    );
+    const early = run(settled.state, { type: 'frameAvailable', at: 3100 + RELIEVED_SAMPLE_FLOOR_MS - 50 });
+    expect(early.effects).not.toContainEqual(expect.objectContaining({ kind: 'sendSample' }));
+    const late = run(settled.state, { type: 'frameAvailable', at: 3100 + RELIEVED_SAMPLE_FLOOR_MS + 50 });
+    expect(late.effects).toContainEqual(expect.objectContaining({ kind: 'sendSample' }));
+  });
+
+  it('a second sustained underrun after relief demotes out of the DVR like audioUndelayable', () => {
+    const relieved = run(presenting(), { type: 'analysisUnderrun', at: 3000 }).state;
+    const { state, effects } = run(relieved, { type: 'analysisUnderrun', at: 9000 });
+    expect(state.phase).toBe('error');
+    expect(state.dvr).toBe('off');
+    expect(effects).toContainEqual({ kind: 'stopDvr' });
+    expect(effects).toContainEqual({ kind: 'clearBlur' });
+    expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
+    // Terminal for the run: no cooldown resurrects a machine that cannot keep up.
+    expect(effects).not.toContainEqual(expect.objectContaining({ kind: 'startTimer', timer: 'errorCooldown' }));
+  });
+
+  it('is ignored while the DVR is off', () => {
+    const standby = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+    );
+    expect(standby.state.dvr).toBe('off');
+    const { state, effects } = run(standby.state, { type: 'analysisUnderrun', at: 200 });
+    expect(state).toEqual(standby.state);
+    expect(effects).toHaveLength(0);
   });
 });

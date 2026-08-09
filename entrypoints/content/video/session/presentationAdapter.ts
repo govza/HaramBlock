@@ -17,8 +17,14 @@ import {
   updateAudioDelay,
 } from '@/entrypoints/content/video/dvr/audioDelay';
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
-import { deriveDvrDelayMs, MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
-import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
+import {
+  deriveDvrDelayMs,
+  isAnalysisUnderrun,
+  MAX_DVR_DELAY_MS,
+  UNDERRUN_VERDICT_STREAK,
+} from '@/entrypoints/content/video/dvr/delay';
+import { encodedBitrate } from '@/entrypoints/content/video/dvr/encodedFrameRing';
+import { createDvrFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import { dvrRingBudget, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
 import { verdictPending, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { logger } from '@/utils/logger';
@@ -35,6 +41,8 @@ const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
 const FALLBACK_CAPTURE_CAP_PX = 1920;
 /** Re-register only on a material display resize (embedded → fullscreen), not layout jitter. */
 const CAP_REREGISTER_RATIO = 1.25;
+/** Per-verdict D growth when the store reports a decode stall (covered miss). */
+const DECODE_STALL_DELAY_STEP_SEC = 0.25;
 
 /**
  * Finite capture-width cap: rendered width in device pixels, up to native. The
@@ -100,10 +108,28 @@ export class PresentationAdapter {
     const registeredHeight = handle.video.videoHeight;
     this.registerDemand(handle, registeredWidth, registeredHeight);
     const quality = dvrRingBudget.quality();
-    const ring = new FrameRing(this.ringHorizonSec(handle, quality), dvrRingBudget.sessionMaxBytes());
+    const store = createDvrFrameStore({
+      maxDurationSec: this.ringHorizonSec(handle, quality),
+      maxBytes: dvrRingBudget.sessionMaxBytes(),
+      probeWidth: registeredWidth || FALLBACK_CAPTURE_CAP_PX,
+      probeHeight: registeredHeight || Math.round((FALLBACK_CAPTURE_CAP_PX * 9) / 16),
+      encodedIneligible: handle.dvrEncodedIneligible,
+      onEncodedError: () => {
+        handle.dvrEncodedIneligible = true;
+      },
+      // Fires on the async raw → encoded upgrade and on the error fallback:
+      // the debug attribute (e2e asserts which path ran) and the budget's
+      // demand model both follow the backing implementation.
+      onKindChange: kind => {
+        if (handle.dvr?.store !== store) return;
+        handle.video.dataset.hbDvrStore = kind;
+        this.registerDemand(handle, handle.dvr.registeredWidth, handle.dvr.registeredHeight);
+      },
+    });
+    handle.video.dataset.hbDvrStore = store.kind();
     const player = new VideoDvrPlayer({
       video: handle.video,
-      ring,
+      store,
       timeline: handle.timeline,
       getDelaySec: () => this.ports.currentDelaySec(handle),
       getMasking: () => handle.hostSettings.masking,
@@ -115,13 +141,15 @@ export class PresentationAdapter {
       },
     });
     handle.dvr = {
-      ring,
+      store,
       player,
       lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
       captureSurface: null,
       registeredWidth,
       registeredHeight,
       registeredCaptureCap: captureWidthCap(handle.video, registeredWidth),
+      lastCoveredMisses: 0,
+      underrunStreak: 0,
     };
   }
 
@@ -155,12 +183,18 @@ export class PresentationAdapter {
   }
 
   private registerDemand(handle: SessionHandle, nativeWidth: number, nativeHeight: number): void {
+    // An encoded session's demand is bitrate-shaped, not RGBA-shaped: it
+    // barely registers on the ladder, so it never degrades raw sessions.
+    const encoded = handle.dvr?.store.kind() === 'encoded';
+    const bitrateWidth = nativeWidth || FALLBACK_CAPTURE_CAP_PX;
+    const bitrateHeight = nativeHeight || Math.round((FALLBACK_CAPTURE_CAP_PX * 9) / 16);
     dvrRingBudget.register(handle.sessionId, {
       nativeWidth,
       nativeHeight,
       captureMaxWidth: captureWidthCap(handle.video, nativeWidth),
       horizonSec: DVR_BUFFER_HORIZON_SEC,
       minHorizonSec: (handle.dvrDelaySec ?? this.ports.currentDelaySec(handle)) + 1,
+      ...(encoded ? { encodedBytesPerSec: encodedBitrate(bitrateWidth, bitrateHeight) / 8 } : {}),
     });
   }
 
@@ -172,7 +206,8 @@ export class PresentationAdapter {
     dvrRingBudget.release(handle.sessionId);
     releaseAudioDelay(handle.video);
     dvr.player.destroy();
-    dvr.ring.release();
+    dvr.store.release();
+    delete handle.video.dataset.hbDvrStore;
   }
 
   /** Never shrink a live ring below the latched D: presentation would strand on the warm-up frame. */
@@ -207,13 +242,42 @@ export class PresentationAdapter {
    * range still derives the small covered D, so this leaves it alone.
    */
   raiseDelayIfLagging(handle: SessionHandle): void {
-    if (!handle.dvr || handle.dvrDelaySec === null) return;
-    const derivedSec =
-      deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000;
-    if (derivedSec <= handle.dvrDelaySec) return;
-    handle.dvrDelaySec = derivedSec;
-    this.registerDemand(handle, handle.dvr.registeredWidth, handle.dvr.registeredHeight);
-    updateAudioDelay(handle.video, derivedSec);
+    const { dvr } = handle;
+    if (!dvr || handle.dvrDelaySec === null) return;
+    const coverageAheadSec = handle.timeline.coverageAheadOf(handle.video.currentTime);
+    const derivedSec = deriveDvrDelayMs(handle.latenciesMs, coverageAheadSec) / 1000;
+    // A decode stall (covered miss since the last sync) feeds the same
+    // let-D-grow path: the slow decoder buys itself headroom by sliding
+    // further behind the live edge, bounded per verdict and by the ceiling
+    // the ring horizon is sized for.
+    const misses = dvr.store.coveredMisses();
+    const stalled = misses > dvr.lastCoveredMisses;
+    dvr.lastCoveredMisses = misses;
+    const stallTargetSec = stalled
+      ? Math.min(MAX_DVR_DELAY_MS / 1000, handle.dvrDelaySec + DECODE_STALL_DELAY_STEP_SEC)
+      : 0;
+    const targetSec = Math.max(derivedSec, stallTargetSec);
+    if (targetSec > handle.dvrDelaySec) {
+      handle.dvrDelaySec = targetSec;
+      this.registerDemand(handle, dvr.registeredWidth, dvr.registeredHeight);
+      updateAudioDelay(handle.video, targetSec);
+    }
+    this.detectUnderrun(handle, coverageAheadSec);
+  }
+
+  /** Sustained "D pinned at ceiling, coverage trailing" becomes a machine event; the machine decides the response. */
+  private detectUnderrun(handle: SessionHandle, coverageAheadSec: number): void {
+    const { dvr } = handle;
+    if (!dvr || handle.dvrDelaySec === null) return;
+    if (!isAnalysisUnderrun(handle.latenciesMs, coverageAheadSec, handle.dvrDelaySec)) {
+      dvr.underrunStreak = 0;
+      return;
+    }
+    dvr.underrunStreak++;
+    if (dvr.underrunStreak < UNDERRUN_VERDICT_STREAK) return;
+    // Reset so the post-relief window measures fresh verdicts before a second fire.
+    dvr.underrunStreak = 0;
+    this.ports.dispatch(handle, { type: 'analysisUnderrun', at: performance.now() });
   }
 
   /**
@@ -254,7 +318,7 @@ export class PresentationAdapter {
       return;
     }
     try {
-      dvr.ring.setLimits(this.ringHorizonSec(handle, quality), dvrRingBudget.sessionMaxBytes());
+      dvr.store.setLimits(this.ringHorizonSec(handle, quality), dvrRingBudget.sessionMaxBytes());
       const { video } = handle;
       const nativeWidth = video.videoWidth;
       const nativeHeight = video.videoHeight;
@@ -275,6 +339,23 @@ export class PresentationAdapter {
         dvr.registeredHeight = nativeHeight;
         dvr.registeredCaptureCap = widthCap;
         this.registerDemand(handle, nativeWidth, nativeHeight);
+      }
+      if (dvr.store.captureMode === 'video-frame') {
+        // Encoded store: zero-copy GPU reference at native resolution — the
+        // capture-scale ladder is bypassed, hardware encoding replaces it. The
+        // timestamp carries the media time through encode → store → decode.
+        try {
+          const frame = new VideoFrame(video, { timestamp: Math.round(mediaTime * 1_000_000) });
+          dvr.lastCapturedMediaTime = mediaTime;
+          dvr.store.push(frame, mediaTime);
+        } catch (error) {
+          // Typically SecurityError on a tainted source: VideoFrame needs
+          // readable pixels, which the display-only canvas path does not.
+          log.debug('VideoFrame capture failed; demoting to raw ring:', error);
+          handle.dvrEncodedIneligible = true;
+          dvr.store.demoteToRaw();
+        }
+        return;
       }
       // Downscale through a canvas, NOT createImageBitmap's resize options:
       // Firefox never implemented those, and per WebIDL silently ignores them —
@@ -303,7 +384,7 @@ export class PresentationAdapter {
       // taint carried along) even for sources whose pixels we may not read.
       const bitmap = surface.transferToImageBitmap();
       dvr.lastCapturedMediaTime = mediaTime;
-      dvr.ring.push({ bitmap, mediaTime });
+      dvr.store.push(bitmap, mediaTime);
     } catch (error) {
       log.debug('DVR buffer capture failed:', error);
     }

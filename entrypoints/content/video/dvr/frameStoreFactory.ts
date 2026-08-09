@@ -1,0 +1,297 @@
+/**
+ * Per-DVR-run frame store selection (docs/VIDEO_PROCESSING.md): every session
+ * starts on a raw ring immediately (startDvr is synchronous), and upgrades to
+ * the WebCodecs-encoded ring when the async capability probe passes — the
+ * upgrade flushes a few warm-up frames, equivalent to a seek re-warm the
+ * presenter already tolerates. A codec error mid-run swaps back to a fresh raw
+ * ring and marks the session webcodecs-ineligible for its lifetime. Selection
+ * is re-evaluated at each DVR (re)start, never mid-run (errors excepted).
+ */
+
+import {
+  EncodedFrameRing,
+  createWebCodecsPair,
+  encoderConfigFor,
+  type EncodedRingCodecs,
+} from '@/entrypoints/content/video/dvr/encodedFrameRing';
+import { RawFrameRing } from '@/entrypoints/content/video/dvr/rawFrameRing';
+import { logger } from '@/utils/logger';
+
+import type {
+  DvrCaptureFrame,
+  DvrCaptureMode,
+  DvrFrameStore,
+  DvrStoreKind,
+  PresentableFrame,
+} from '@/entrypoints/content/video/dvr/frameStore';
+
+const log = logger.withTag('frameStoreFactory');
+
+/**
+ * Conservative cap on concurrent hardware encoder sessions; sessions beyond it
+ * get raw rings. NVIDIA consumer drivers historically cap NVENC at 3-8
+ * concurrent sessions — measure before raising, and record numbers and
+ * hardware here.
+ */
+export const ENCODED_SESSION_CAP = 4;
+
+/**
+ * Debug flag for the encoded ring: on in dev builds for measurement, off in
+ * production until the rollout flips it (spec: rollout steps 2-3).
+ */
+let encodedRingEnabled = Boolean(import.meta.env.DEV);
+
+export function setEncodedDvrRingEnabled(enabled: boolean): void {
+  encodedRingEnabled = enabled;
+}
+
+export function isEncodedDvrRingEnabled(): boolean {
+  return encodedRingEnabled;
+}
+
+/** Pure selection rule: probe result × concurrency cap × prior error × flag. */
+export function selectStoreKind(input: {
+  enabled: boolean;
+  probeSupported: boolean;
+  activeEncodedSessions: number;
+  encodedIneligible: boolean;
+}): DvrStoreKind {
+  const { enabled, probeSupported, activeEncodedSessions, encodedIneligible } = input;
+  if (!enabled || !probeSupported || encodedIneligible) return 'raw';
+  return activeEncodedSessions < ENCODED_SESSION_CAP ? 'encoded' : 'raw';
+}
+
+/** Global counter of live encoded sessions; injectable for factory tests. */
+export interface EncodedSessionSlots {
+  active(): number;
+  acquire(): boolean;
+  release(): void;
+}
+
+function createSlots(cap: number): EncodedSessionSlots {
+  let active = 0;
+  return {
+    active: () => active,
+    acquire: () => {
+      if (active >= cap) return false;
+      active++;
+      return true;
+    },
+    release: () => {
+      active = Math.max(0, active - 1);
+    },
+  };
+}
+
+const globalSlots = createSlots(ENCODED_SESSION_CAP);
+
+export type EncodedSupportProbe = (width: number, height: number) => Promise<boolean>;
+
+/**
+ * Hardware-only probe: `prefer-hardware` rejects configs that would fall back
+ * to software — the encoded ring must never software-encode silently.
+ */
+const webCodecsProbe: EncodedSupportProbe = async (width, height) => {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') return false;
+  try {
+    const config = { ...encoderConfigFor(width, height), hardwareAcceleration: 'prefer-hardware' as const };
+    const encoderSupport = await VideoEncoder.isConfigSupported(config);
+    if (!encoderSupport.supported) return false;
+    const decoderSupport = await VideoDecoder.isConfigSupported({
+      codec: config.codec,
+      hardwareAcceleration: 'prefer-hardware',
+    });
+    return decoderSupport.supported === true;
+  } catch {
+    return false;
+  }
+};
+
+/** Probe verdicts are per-geometry and stable for the page's lifetime. */
+const probeCache = new Map<string, Promise<boolean>>();
+
+function cachedProbe(probe: EncodedSupportProbe, width: number, height: number): Promise<boolean> {
+  const key = `${width}x${height}`;
+  let result = probeCache.get(key);
+  if (!result) {
+    result = probe(width, height);
+    probeCache.set(key, result);
+  }
+  return result;
+}
+
+export interface SessionFrameStore extends DvrFrameStore {
+  /** Which implementation currently backs the store (budget demand, debug attribute). */
+  kind(): DvrStoreKind;
+  /**
+   * Force the raw fallback mid-run for failures the store cannot see itself —
+   * e.g. `new VideoFrame(video)` throwing SecurityError on a tainted source
+   * that the display-only canvas capture path still handles. No-op when
+   * already raw.
+   */
+  demoteToRaw(): void;
+}
+
+export interface CreateDvrFrameStoreOptions {
+  maxDurationSec: number;
+  maxBytes: number;
+  /** Best-known frame geometry at DVR start; the probe keys off it. */
+  probeWidth: number;
+  probeHeight: number;
+  /** Session already failed WebCodecs once: raw for its lifetime. */
+  encodedIneligible: boolean;
+  /** Fired on the first codec error, before the swap back to raw. */
+  onEncodedError: () => void;
+  /** Fired whenever the backing implementation changes (upgrade or error fallback). */
+  onKindChange?: (kind: DvrStoreKind) => void;
+  /** Test seams. */
+  codecs?: EncodedRingCodecs;
+  probe?: EncodedSupportProbe;
+  slots?: EncodedSessionSlots;
+}
+
+export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): SessionFrameStore {
+  const slots = options.slots ?? globalSlots;
+  const probe = options.probe ?? webCodecsProbe;
+  const store = new SwappableFrameStore(
+    new RawFrameRing(options.maxDurationSec, options.maxBytes),
+    options.maxDurationSec,
+    options.maxBytes,
+    options.onKindChange,
+  );
+
+  const preSelection = selectStoreKind({
+    enabled: encodedRingEnabled,
+    probeSupported: true, // probe result pending; re-checked below
+    activeEncodedSessions: slots.active(),
+    encodedIneligible: options.encodedIneligible,
+  });
+  if (preSelection === 'encoded') {
+    void cachedProbe(probe, options.probeWidth, options.probeHeight)
+      .then(supported => {
+        if (!supported || store.isReleased() || !slots.acquire()) return;
+        const encoded = new EncodedFrameRing({
+          maxDurationSec: store.currentMaxDurationSec(),
+          maxBytes: store.currentMaxBytes(),
+          codecs: options.codecs ?? createWebCodecsPair(),
+          onFatalError: () => {
+            options.onEncodedError();
+            if (!store.isReleased() && store.kind() === 'encoded') {
+              store.swapTo(new RawFrameRing(store.currentMaxDurationSec(), store.currentMaxBytes()), null);
+            }
+          },
+        });
+        store.swapTo(encoded, () => slots.release());
+      })
+      .catch((error: unknown) => log.debug('Encoded ring probe failed:', error));
+  }
+  return store;
+}
+
+/**
+ * Delegating store whose backing implementation can be exchanged mid-run
+ * (raw → encoded on probe success, encoded → raw on codec error). A swap
+ * releases the old store — the presenter re-warms exactly as after a seek.
+ */
+class SwappableFrameStore implements SessionFrameStore {
+  private current: DvrFrameStore;
+  private currentDispose: (() => void) | null = null;
+  /** Misses accumulated by earlier backings, so the counter stays monotonic across swaps. */
+  private coveredMissBase = 0;
+  private released = false;
+  private maxDurationSec: number;
+  private maxBytes: number;
+
+  constructor(
+    initial: RawFrameRing,
+    maxDurationSec: number,
+    maxBytes: number,
+    private readonly onKindChange?: (kind: DvrStoreKind) => void,
+  ) {
+    this.current = initial;
+    this.maxDurationSec = maxDurationSec;
+    this.maxBytes = maxBytes;
+  }
+
+  kind(): DvrStoreKind {
+    return this.current.captureMode === 'video-frame' ? 'encoded' : 'raw';
+  }
+
+  isReleased(): boolean {
+    return this.released;
+  }
+
+  demoteToRaw(): void {
+    if (this.released || this.kind() === 'raw') return;
+    this.swapTo(new RawFrameRing(this.maxDurationSec, this.maxBytes), null);
+  }
+
+  currentMaxDurationSec(): number {
+    return this.maxDurationSec;
+  }
+
+  currentMaxBytes(): number {
+    return this.maxBytes;
+  }
+
+  swapTo(next: DvrFrameStore, dispose: (() => void) | null): void {
+    if (this.released) {
+      next.release();
+      dispose?.();
+      return;
+    }
+    this.coveredMissBase += this.current.coveredMisses();
+    this.current.release();
+    this.currentDispose?.();
+    this.current = next;
+    this.currentDispose = dispose;
+    next.setLimits(this.maxDurationSec, this.maxBytes);
+    this.onKindChange?.(this.kind());
+  }
+
+  get captureMode(): DvrCaptureMode {
+    return this.current.captureMode;
+  }
+
+  push(frame: DvrCaptureFrame, mediaTime: number): void {
+    this.current.push(frame, mediaTime);
+  }
+
+  frameAt(mediaTime: number): PresentableFrame | null {
+    return this.current.frameAt(mediaTime);
+  }
+
+  coveredMisses(): number {
+    return this.coveredMissBase + this.current.coveredMisses();
+  }
+
+  spanSec(): number {
+    return this.current.spanSec();
+  }
+
+  oldestTime(): number | null {
+    return this.current.oldestTime();
+  }
+
+  newestTime(): number | null {
+    return this.current.newestTime();
+  }
+
+  bytes(): number {
+    return this.current.bytes();
+  }
+
+  setLimits(maxDurationSec: number, maxBytes: number): void {
+    this.maxDurationSec = maxDurationSec;
+    this.maxBytes = maxBytes;
+    this.current.setLimits(maxDurationSec, maxBytes);
+  }
+
+  release(): void {
+    if (this.released) return;
+    this.released = true;
+    this.current.release();
+    this.currentDispose?.();
+    this.currentDispose = null;
+  }
+}
