@@ -61,6 +61,18 @@ describe('VerdictTimeline', () => {
     expect(cleanTrack.verdictFor(3.5 + 1.2, 0.5)).toEqual({ kind: 'none' });
   });
 
+  it('fails closed in the hole trailing an unsafe verdict instead of bridging to clean', () => {
+    const track = new VerdictTimeline();
+    track.add(entry(10, true));
+    track.add(entry(12, false)); // inference stalled, then came back clean
+
+    // Inside the overshoot the stale mask still covers.
+    expect(track.verdictFor(10.5, 0.35).kind).toBe('unsafe');
+    // Past it the mask must not smear — but a clean verdict two seconds later
+    // says nothing about this frame either: whole-blur, never clean.
+    expect(track.verdictFor(11.2, 0.35)).toEqual({ kind: 'none' });
+  });
+
   it('stretches the backward unsafe bridge further when given a wider horizon (slow inference)', () => {
     const track = new VerdictTimeline();
     track.add(entry(BRIDGE_HORIZON_SEC + 2, true));

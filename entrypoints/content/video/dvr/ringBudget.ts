@@ -11,10 +11,15 @@
 
 export type InferenceBackend = 'webgpu' | 'wasm';
 
-export const WEBGPU_GLOBAL_BUDGET_BYTES = 512 * 1024 * 1024;
+export const WEBGPU_GLOBAL_BUDGET_BYTES = 1024 * 1024 * 1024;
 export const WASM_GLOBAL_BUDGET_BYTES = 128 * 1024 * 1024;
-/** Per-session ceiling regardless of tier. */
-export const SESSION_MAX_BYTES = 128 * 1024 * 1024;
+/**
+ * Per-session ceiling, backend-tiered like the global budget: a 1080p30 ring
+ * over the full horizon needs ~600 MB, which only WebGPU-class hardware can
+ * afford. The WASM tier keeps the historical cap and degrades instead.
+ */
+export const WEBGPU_SESSION_MAX_BYTES = 768 * 1024 * 1024;
+export const WASM_SESSION_MAX_BYTES = 128 * 1024 * 1024;
 
 /**
  * Full-quality capture cadence, ~30 fps: slightly under 1/30 so the throttle
@@ -35,11 +40,23 @@ export interface RingQuality {
   readonly horizonScale: number;
 }
 
-const FULL_QUALITY: RingQuality = { maxWidth: 640, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 };
+/**
+ * The full tier has no ladder ceiling: capture is capped by what the viewer
+ * actually sees (the session's registered display width, up to native), so an
+ * embedded player buffers cheaply while a fullscreen 1080p one captures at
+ * full resolution when the byte budget allows.
+ */
+const FULL_QUALITY: RingQuality = {
+  maxWidth: Number.POSITIVE_INFINITY,
+  captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
+  horizonScale: 1,
+};
 
-/** Degradation order per spec: width 640 → 480 → 320, then fps 30 → 15, then horizon shrink. */
+/** Degradation order per spec: width ∞ → 1280 → 640 → 480 → 320, then fps 30 → 15, then horizon shrink. */
 export const RING_QUALITY_LADDER: readonly RingQuality[] = [
   FULL_QUALITY,
+  { maxWidth: 1280, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
+  { maxWidth: 640, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
   { maxWidth: 480, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
   { maxWidth: 320, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
   { maxWidth: 320, captureIntervalSec: HALF_RATE_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
@@ -51,6 +68,12 @@ export interface SessionDemand {
   /** Native frame geometry; only the aspect ratio and any sub-ceiling width matter. */
   readonly nativeWidth: number;
   readonly nativeHeight: number;
+  /**
+   * Finite capture-width cap for this session: rendered width in device
+   * pixels, up to native. The full ladder tier has no ceiling of its own, so
+   * this is what keeps its projection bounded.
+   */
+  readonly captureMaxWidth: number;
   /** Ring time horizon this session buffers at full quality, in seconds. */
   readonly horizonSec: number;
   /**
@@ -62,13 +85,20 @@ export interface SessionDemand {
 
 export class DvrRingBudget {
   private backendBudget = WASM_GLOBAL_BUDGET_BYTES;
+  private backendSessionMax = WASM_SESSION_MAX_BYTES;
   private readonly sessions = new Map<string, SessionDemand>();
   private currentQuality: RingQuality = FULL_QUALITY;
 
   /** The backend is known at model load; until it arrives the WASM tier fails safe. */
   setBackend(backend: InferenceBackend): void {
     this.backendBudget = backend === 'webgpu' ? WEBGPU_GLOBAL_BUDGET_BYTES : WASM_GLOBAL_BUDGET_BYTES;
+    this.backendSessionMax = backend === 'webgpu' ? WEBGPU_SESSION_MAX_BYTES : WASM_SESSION_MAX_BYTES;
     this.reevaluate();
+  }
+
+  /** Per-session byte ceiling at the current backend tier (ring limit and capture sizing). */
+  sessionMaxBytes(): number {
+    return this.backendSessionMax;
   }
 
   register(sessionId: string, demand: SessionDemand): void {
@@ -105,20 +135,21 @@ export class DvrRingBudget {
   private projectAt(quality: RingQuality): number {
     let total = 0;
     for (const demand of this.sessions.values()) {
-      total += projectSessionBytes(demand, quality);
+      total += projectSessionBytes(demand, quality, this.backendSessionMax);
     }
     return total;
   }
 }
 
-function projectSessionBytes(demand: SessionDemand, quality: RingQuality): number {
-  const { nativeWidth, nativeHeight, horizonSec, minHorizonSec } = demand;
+function projectSessionBytes(demand: SessionDemand, quality: RingQuality, sessionMaxBytes: number): number {
+  const { nativeWidth, nativeHeight, captureMaxWidth, horizonSec, minHorizonSec } = demand;
   const aspect = nativeWidth > 0 && nativeHeight > 0 ? nativeHeight / nativeWidth : 9 / 16;
-  const width = nativeWidth > 0 ? Math.min(quality.maxWidth, nativeWidth) : quality.maxWidth;
+  const widthCeiling = Math.min(quality.maxWidth, captureMaxWidth);
+  const width = nativeWidth > 0 ? Math.min(widthCeiling, nativeWidth) : widthCeiling;
   const bytesPerFrame = width * width * aspect * BYTES_PER_PIXEL;
   const effectiveHorizonSec = Math.max(minHorizonSec, horizonSec * quality.horizonScale);
   const frames = effectiveHorizonSec / quality.captureIntervalSec;
-  return Math.min(SESSION_MAX_BYTES, bytesPerFrame * frames);
+  return Math.min(sessionMaxBytes, bytesPerFrame * frames);
 }
 
 /** Shared by all sessions in this content script; the backend is fed in once known. */

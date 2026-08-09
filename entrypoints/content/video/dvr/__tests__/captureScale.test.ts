@@ -42,4 +42,26 @@ describe('dvrCaptureScale', () => {
     const scale = dvrCaptureScale({ ...base, displayWidth: 0, delaySec: 0.3 });
     expect(scale * base.nativeWidth).toBe(base.maxWidth);
   });
+
+  it('captures at the display size under the unbounded full tier when the budget allows', () => {
+    const scale = dvrCaptureScale({
+      ...base,
+      maxWidth: Number.POSITIVE_INFINITY,
+      maxBytes: 768 * 1024 * 1024,
+      delaySec: 1.5,
+    });
+    // Display = native = 1920: full-resolution capture.
+    expect(scale).toBe(1);
+  });
+
+  it('the byte budget still bounds an unbounded tier under a large D', () => {
+    const scale = dvrCaptureScale({
+      ...base,
+      maxWidth: Number.POSITIVE_INFINITY,
+      maxBytes: 128 * 1024 * 1024,
+      delaySec: 4,
+    });
+    expect(scale).toBeLessThan(1);
+    expect(scale * base.nativeWidth).toBeGreaterThanOrEqual(DVR_CAPTURE_MIN_WIDTH);
+  });
 });

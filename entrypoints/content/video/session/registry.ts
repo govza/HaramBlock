@@ -221,9 +221,7 @@ class VideoSessionRegistry {
       }
       handle.lastPrediction = pred;
       const unsafe = Boolean(pred.predictions?.length);
-      if (this.sampler.recordVerdictLatency(handle, pred.frameIndex)) {
-        this.presentation.syncAudioDelay(handle);
-      }
+      const settled = this.sampler.recordVerdictLatency(handle, pred.frameIndex);
       this.dispatchPrediction(handle, pred, {
         type: 'predictionReceived',
         frameIndex: pred.frameIndex,
@@ -231,6 +229,12 @@ class VideoSessionRegistry {
         at: performance.now(),
       });
       this.presentation.recordVerdict(handle, pred, unsafe);
+      if (settled) {
+        // After the verdict lands in the timeline: the coverage it just added
+        // decides whether the latched delay is still large enough.
+        this.presentation.raiseDelayIfLagging(handle);
+        this.presentation.syncAudioDelay(handle);
+      }
     }
   }
 
@@ -396,6 +400,12 @@ class VideoSessionRegistry {
           break;
         case 'drainDvr':
           this.presentation.drainDvr(handle);
+          break;
+        case 'holdAudioDelay':
+          this.presentation.holdAudioDelay(handle);
+          break;
+        case 'resumeAudioDelay':
+          this.presentation.resumeAudioDelay(handle);
           break;
         case 'cleanup':
           this.teardown(handle);

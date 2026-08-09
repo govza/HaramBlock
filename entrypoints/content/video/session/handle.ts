@@ -22,6 +22,11 @@ interface DvrRuntime {
   lastCapturedMediaTime: number;
   /** Reused capture surface: transferToImageBitmap leaves the canvas reusable, so one per DVR run suffices. */
   captureSurface: OffscreenCanvas | null;
+  /** Frame geometry the ring budget was last told about; 0 until metadata lands. */
+  registeredWidth: number;
+  registeredHeight: number;
+  /** Display-derived capture-width cap last registered; re-registers on a material resize. */
+  registeredCaptureCap: number;
 }
 
 export interface SessionHandle {

@@ -105,21 +105,36 @@ export class VerdictTimeline {
    * stale mask cannot smear over a scene change, a hole between two clean
    * verdicts presents clean, and a lone clean neighbor covers a short
    * overshoot. Only genuine verdict silence stays 'none'.
+   *
+   * Entries are timestamp-ordered, so the lookup binary-searches to the
+   * position and scans outward: this runs on every draw tick of every playing
+   * video, and a full-history scan would grow with the session.
    */
   verdictFor(mediaTime: number, windowSec: number, bridgeHorizonSec = BRIDGE_HORIZON_SEC): VerdictLookup {
-    const inWindow = this.entries.filter(entry => Math.abs(entry.timestampSec - mediaTime) <= windowSec);
-    if (inWindow.length) {
-      const unsafe = inWindow.filter(entry => entry.unsafe);
-      if (unsafe.length) return { kind: 'unsafe', entries: unsafe };
-      return { kind: 'clean' };
+    const after = this.upperBound(mediaTime);
+    const unsafeInWindow: VerdictEntry[] = [];
+    let anyInWindow = false;
+    for (let index = after - 1; index >= 0; index--) {
+      const entry = this.entries[index];
+      if (!entry || mediaTime - entry.timestampSec > windowSec) break;
+      anyInWindow = true;
+      if (entry.unsafe) unsafeInWindow.push(entry);
+    }
+    unsafeInWindow.reverse();
+    for (let index = after; index < this.entries.length; index++) {
+      const entry = this.entries[index];
+      if (!entry || entry.timestampSec - mediaTime > windowSec) break;
+      anyInWindow = true;
+      if (entry.unsafe) unsafeInWindow.push(entry);
+    }
+    if (anyInWindow) {
+      return unsafeInWindow.length ? { kind: 'unsafe', entries: unsafeInWindow } : { kind: 'clean' };
     }
 
-    const previous = this.entries.findLast(
-      entry => entry.timestampSec <= mediaTime && mediaTime - entry.timestampSec <= bridgeHorizonSec,
-    );
-    const next = this.entries.find(
-      entry => entry.timestampSec >= mediaTime && entry.timestampSec - mediaTime <= bridgeHorizonSec,
-    );
+    const previousEntry = this.entries[after - 1];
+    const previous = previousEntry && mediaTime - previousEntry.timestampSec <= bridgeHorizonSec ? previousEntry : null;
+    const nextEntry = this.entries[after];
+    const next = nextEntry && nextEntry.timestampSec - mediaTime <= bridgeHorizonSec ? nextEntry : null;
 
     const unsafeNeighbors: VerdictEntry[] = [];
     if (previous?.unsafe && mediaTime - previous.timestampSec <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
@@ -127,12 +142,32 @@ export class VerdictTimeline {
     }
     if (next?.unsafe) unsafeNeighbors.push(next);
     if (unsafeNeighbors.length) return { kind: 'unsafe', entries: unsafeNeighbors };
+    // Past the overshoot a stale mask must not smear over a scene change — but
+    // a hole trailing an unsafe verdict is not evidence of clean content
+    // either. Whole-blur it instead of bridging to 'clean'.
+    if (previous?.unsafe) return { kind: 'none' };
     if (previous && next) return { kind: 'clean' };
     const lone = previous ?? next;
     if (lone && Math.abs(lone.timestampSec - mediaTime) <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
       return { kind: 'clean' };
     }
     return { kind: 'none' };
+  }
+
+  /** Index of the first entry strictly after `mediaTime`. */
+  private upperBound(mediaTime: number): number {
+    let low = 0;
+    let high = this.entries.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      const entry = this.entries[mid];
+      if (entry && entry.timestampSec <= mediaTime) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
   }
 
   /**

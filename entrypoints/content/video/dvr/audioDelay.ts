@@ -116,6 +116,11 @@ export async function engageAudioDelay(
   return 'engaged';
 }
 
+/** Whether this element's audio is currently riding the delay line. */
+export function isAudioDelayEngaged(video: HTMLVideoElement): boolean {
+  return Boolean(entries.get(video)?.delay);
+}
+
 /** Follow the adaptive presentation delay while engaged. */
 export function updateAudioDelay(video: HTMLVideoElement, delaySec: number): void {
   const entry = entries.get(video);
@@ -128,6 +133,12 @@ export function updateAudioDelay(video: HTMLVideoElement, delaySec: number): voi
  * The delay line is disconnected and discarded, not just bypassed: it still
  * holds D seconds of audio, and left attached to the destination it would
  * drain that tail over the now-live audio.
+ *
+ * Also the pause path: a DelayNode runs on the audio clock, not the media
+ * clock, so a paused element's line keeps draining its buffered D seconds over
+ * a canvas frozen at `currentTime − D`. Discarding it kills the tail; the
+ * resume path engages a fresh line (which costs D seconds of silence while it
+ * refills — the tail is gone either way, and silence beats desynced speech).
  */
 export function releaseAudioDelay(video: HTMLVideoElement): void {
   const entry = entries.get(video);

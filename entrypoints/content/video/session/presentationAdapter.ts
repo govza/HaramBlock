@@ -10,22 +10,47 @@
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypoints/content/video/dvr/audioDelay';
+import {
+  engageAudioDelay,
+  isAudioDelayEngaged,
+  releaseAudioDelay,
+  updateAudioDelay,
+} from '@/entrypoints/content/video/dvr/audioDelay';
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
 import { deriveDvrDelayMs, MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
 import { FrameRing } from '@/entrypoints/content/video/dvr/frameRing';
-import { dvrRingBudget, SESSION_MAX_BYTES, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
+import { dvrRingBudget, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
+import { verdictPending, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
-import type { SessionEvent } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
 const log = logger.withTag('videoSession:presentation');
 
 /** Ring horizon: the adaptive delay's ceiling plus slack, so a growing D still finds frames. */
 const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
+/** Projection cap when neither display nor native size is known yet: assume 1080p rather than under-budget. */
+const FALLBACK_CAPTURE_CAP_PX = 1920;
+/** Re-register only on a material display resize (embedded → fullscreen), not layout jitter. */
+const CAP_REREGISTER_RATIO = 1.25;
+
+/**
+ * Finite capture-width cap: rendered width in device pixels, up to native. The
+ * budget ladder's full tier has no ceiling of its own, so this is the number
+ * that bounds both the capture and its projection in the shared budget.
+ */
+function captureWidthCap(video: HTMLVideoElement, nativeWidth: number): number {
+  const displayWidth = Math.round(video.clientWidth * (globalThis.devicePixelRatio || 1));
+  if (displayWidth > 0 && nativeWidth > 0) return Math.min(displayWidth, nativeWidth);
+  return displayWidth || nativeWidth || FALLBACK_CAPTURE_CAP_PX;
+}
+
+function capChangedMaterially(nextCap: number, registeredCap: number): boolean {
+  const [smaller, larger] = nextCap < registeredCap ? [nextCap, registeredCap] : [registeredCap, nextCap];
+  return smaller <= 0 || larger / smaller >= CAP_REREGISTER_RATIO;
+}
 
 /**
  * Whole-video blur is applied inline: the BLUR_CLASS stylesheet lives in the
@@ -71,32 +96,22 @@ export class PresentationAdapter {
       deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000;
     // Claim capacity in the shared budget; every DVR exit funnels through
     // stopDvr, so suspension and disposal both return it.
-    dvrRingBudget.register(handle.sessionId, {
-      nativeWidth: handle.video.videoWidth,
-      nativeHeight: handle.video.videoHeight,
-      horizonSec: DVR_BUFFER_HORIZON_SEC,
-      minHorizonSec: handle.dvrDelaySec + 1,
-    });
+    const registeredWidth = handle.video.videoWidth;
+    const registeredHeight = handle.video.videoHeight;
+    this.registerDemand(handle, registeredWidth, registeredHeight);
     const quality = dvrRingBudget.quality();
-    const ring = new FrameRing(this.ringHorizonSec(handle, quality), SESSION_MAX_BYTES);
+    const ring = new FrameRing(this.ringHorizonSec(handle, quality), dvrRingBudget.sessionMaxBytes());
     const player = new VideoDvrPlayer({
       video: handle.video,
       ring,
       timeline: handle.timeline,
       getDelaySec: () => this.ports.currentDelaySec(handle),
       getMasking: () => handle.hostSettings.masking,
+      failClosedWhenVerdictless: () => handle.state.masked || verdictPending(handle.state),
       onReady: () => {
         this.ports.dispatch(handle, { type: 'bufferReady', at: performance.now() });
         // The canvas now presents D behind the live edge; delay audio to match.
-        // A permanent engage failure (the site captured the element) withdraws
-        // protection entirely (ADR 0001); a deferred one retries next engage.
-        void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player)
-          .then(result => {
-            if (result === 'unavailable') {
-              this.ports.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
-            }
-          })
-          .catch((error: unknown) => log.debug('Audio delay engage failed:', error));
+        this.engageAudioDelay(handle);
       },
     });
     handle.dvr = {
@@ -104,7 +119,49 @@ export class PresentationAdapter {
       player,
       lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
       captureSurface: null,
+      registeredWidth,
+      registeredHeight,
+      registeredCaptureCap: captureWidthCap(handle.video, registeredWidth),
     };
+  }
+
+  /**
+   * Route audio through the delay line while the canvas presents behind the
+   * live edge. A permanent failure (the site captured the element) withdraws
+   * protection entirely (ADR 0001). A deferred one — typically an AudioContext
+   * still awaiting a user gesture — leaves delayed video against live audio,
+   * the same permanent desync, so it must be retried rather than dropped:
+   * syncAudioDelay re-attempts on every verdict until it lands.
+   */
+  private engageAudioDelay(handle: SessionHandle): void {
+    const { player } = handle.dvr ?? {};
+    void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player)
+      .then(result => {
+        if (result === 'unavailable') {
+          this.ports.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
+        }
+      })
+      .catch((error: unknown) => log.debug('Audio delay engage failed:', error));
+  }
+
+  /** Pause: drop the delay line before its tail drains over the frozen canvas. */
+  holdAudioDelay(handle: SessionHandle): void {
+    releaseAudioDelay(handle.video);
+  }
+
+  /** Resume under a still-presenting DVR: rebuild what the pause discarded. */
+  resumeAudioDelay(handle: SessionHandle): void {
+    if (handle.dvr) this.engageAudioDelay(handle);
+  }
+
+  private registerDemand(handle: SessionHandle, nativeWidth: number, nativeHeight: number): void {
+    dvrRingBudget.register(handle.sessionId, {
+      nativeWidth,
+      nativeHeight,
+      captureMaxWidth: captureWidthCap(handle.video, nativeWidth),
+      horizonSec: DVR_BUFFER_HORIZON_SEC,
+      minHorizonSec: (handle.dvrDelaySec ?? this.ports.currentDelaySec(handle)) + 1,
+    });
   }
 
   stopDvr(handle: SessionHandle): void {
@@ -129,9 +186,34 @@ export class PresentationAdapter {
     handle.dvr?.player.startDrain();
   }
 
-  /** Keep the audio delay tracking the presentation delay. */
+  /** Keep the audio delay tracking the presentation delay, retrying a deferred engage. */
   syncAudioDelay(handle: SessionHandle): void {
-    if (handle.dvr) updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
+    if (!handle.dvr) return;
+    if (handle.state.dvr === 'presenting' && !handle.video.paused && !isAudioDelayEngaged(handle.video)) {
+      this.engageAudioDelay(handle);
+      return;
+    }
+    updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
+  }
+
+  /**
+   * D is latched per DVR run so presentation never jumps mid-run — but a run
+   * that latched too small a D (no observed round-trips yet at the first play,
+   * or a covered range whose coverage ran out) would present verdict-less
+   * frames, and therefore whole-blur, for the rest of the run. Let D grow, and
+   * only grow: presentation slides further behind the live edge — repeating a
+   * moment of already-seen video, within the ring's horizon — instead of
+   * jumping forward into content no verdict describes. A genuinely covered
+   * range still derives the small covered D, so this leaves it alone.
+   */
+  raiseDelayIfLagging(handle: SessionHandle): void {
+    if (!handle.dvr || handle.dvrDelaySec === null) return;
+    const derivedSec =
+      deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000;
+    if (derivedSec <= handle.dvrDelaySec) return;
+    handle.dvrDelaySec = derivedSec;
+    this.registerDemand(handle, handle.dvr.registeredWidth, handle.dvr.registeredHeight);
+    updateAudioDelay(handle.video, derivedSec);
   }
 
   /**
@@ -172,11 +254,28 @@ export class PresentationAdapter {
       return;
     }
     try {
-      dvr.ring.setLimits(this.ringHorizonSec(handle, quality), SESSION_MAX_BYTES);
+      dvr.ring.setLimits(this.ringHorizonSec(handle, quality), dvrRingBudget.sessionMaxBytes());
       const { video } = handle;
       const nativeWidth = video.videoWidth;
       const nativeHeight = video.videoHeight;
       if (!nativeWidth || !nativeHeight) return;
+      const widthCap = captureWidthCap(video, nativeWidth);
+      if (
+        nativeWidth !== dvr.registeredWidth ||
+        nativeHeight !== dvr.registeredHeight ||
+        capChangedMaterially(widthCap, dvr.registeredCaptureCap)
+      ) {
+        // The DVR can start off the 'play' event, which fires before metadata:
+        // the budget then holds a fallback 16:9 projection that understates a
+        // portrait session by ~3x. Correct it as soon as the real geometry
+        // lands. The display cap is demand too (the full tier has no ladder
+        // ceiling), so a materially resized player — embedded → fullscreen —
+        // also re-registers; small layout jitter stays below the hysteresis.
+        dvr.registeredWidth = nativeWidth;
+        dvr.registeredHeight = nativeHeight;
+        dvr.registeredCaptureCap = widthCap;
+        this.registerDemand(handle, nativeWidth, nativeHeight);
+      }
       // Downscale through a canvas, NOT createImageBitmap's resize options:
       // Firefox never implemented those, and per WebIDL silently ignores them —
       // native-resolution HD frames then blow the ring's byte budget, its span
@@ -188,7 +287,7 @@ export class PresentationAdapter {
         maxWidth: quality.maxWidth,
         delaySec: this.ports.currentDelaySec(handle),
         captureIntervalSec: quality.captureIntervalSec,
-        maxBytes: SESSION_MAX_BYTES,
+        maxBytes: dvrRingBudget.sessionMaxBytes(),
       });
       const width = Math.max(1, Math.round(nativeWidth * scale));
       const height = Math.max(1, Math.round(nativeHeight * scale));

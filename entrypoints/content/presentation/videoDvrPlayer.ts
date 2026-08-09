@@ -42,14 +42,14 @@ const log = logger.withTag('videoDvrPlayer');
  */
 const NONE_REDRAWS_PER_SEC = 30;
 
-const CANVAS_STYLE = [
-  'position: absolute',
-  'top: 0',
-  'left: 0',
-  'pointer-events: none',
-  'image-rendering: pixelated',
-  'image-rendering: crisp-edges',
-].join('; ');
+/**
+ * The base canvas scales smoothly: buffered frames below display resolution
+ * (budget degradation) must interpolate, not nearest-neighbour into visible
+ * blocks. The mask canvas keeps pixelated scaling — its blockiness is the
+ * masking effect itself.
+ */
+const CANVAS_STYLE = ['position: absolute', 'top: 0', 'left: 0', 'pointer-events: none'].join('; ');
+const MASK_CANVAS_STYLE = [CANVAS_STYLE, 'image-rendering: pixelated', 'image-rendering: crisp-edges'].join('; ');
 
 export interface VideoDvrPlayerOptions {
   video: HTMLVideoElement;
@@ -64,6 +64,12 @@ export interface VideoDvrPlayerOptions {
   getDelaySec: () => number;
   /** Live view of the host masking settings (quick toggle may change them). */
   getMasking: () => IMaskingSettings;
+  /**
+   * Whether a verdict-less frame must be whole-blurred. False only for a
+   * session the machine has already cleared (a resolved, non-masking verdict),
+   * which is why it deliberately left the element unblurred for the warm-up.
+   */
+  failClosedWhenVerdictless: () => boolean;
   /** Fired once, when the canvas takes over (first buffered frame, pinned until the buffer spans D). */
   onReady: () => void;
 }
@@ -158,10 +164,9 @@ export class VideoDvrPlayer {
     if (!resolveInjectionContext(video)) return;
 
     const baseCanvas = document.createElement('canvas');
+    baseCanvas.style.cssText = CANVAS_STYLE;
     const maskCanvas = document.createElement('canvas');
-    for (const canvas of [baseCanvas, maskCanvas]) {
-      canvas.style.cssText = CANVAS_STYLE;
-    }
+    maskCanvas.style.cssText = MASK_CANVAS_STYLE;
     const baseCtx = baseCanvas.getContext('2d');
     const maskCtx = maskCanvas.getContext('2d');
     if (!baseCtx || !maskCtx) {
@@ -275,13 +280,27 @@ export class VideoDvrPlayer {
       ? timeline.verdictFor(frame.mediaTime, timeline.inertiaWindowSec(), bridgeHorizonSec)
       : ({ kind: 'none' } as const);
 
-    // The 'none' fallback draws the live element whole-blurred, keyed at the
-    // capture cadence; everything else redraws only when the frame, verdict,
-    // or size moved (syncGeometry moves the overlay itself — position never
-    // forces a redraw).
+    // A verdict-less frame normally fails closed. The exception is the warm-up
+    // of a session the machine already cleared: its timeline is still empty
+    // (the Thumbnail verdict has no media time), and whole-blurring here would
+    // flash a blur over every play and seek of a clean video — exactly the
+    // cover the machine deliberately withheld. Once any playback verdict
+    // exists, holes are genuine coverage gaps and stay blurred.
+    const failClosed = timeline.size() > 0 || this.opts.failClosedWhenVerdictless();
+    // The blurred fallback draws the live element, keyed at the capture
+    // cadence; everything else redraws only when the frame, verdict, or size
+    // moved (syncGeometry moves the overlay itself — position never forces a
+    // redraw).
     const drawKey =
       verdict.kind === 'none'
-        ? ['none', Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC), width, height].join('|')
+        ? [
+            'none',
+            failClosed,
+            frame?.mediaTime ?? Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
+            width,
+            height,
+            globalThis.devicePixelRatio || 1,
+          ].join('|')
         : [
             frame?.mediaTime,
             verdict.kind,
@@ -290,14 +309,21 @@ export class VideoDvrPlayer {
             verdict.kind === 'unsafe' ? verdict.entries.map(entry => entry.timestampSec).join(',') : '',
             width,
             height,
+            globalThis.devicePixelRatio || 1,
             masking.pixelationScale,
           ].join('|');
     if (drawKey === this.lastDrawKey) return;
     this.lastDrawKey = drawKey;
 
     const { baseCanvas, baseCtx, maskCanvas, maskCtx } = surfaces;
-    resizeCanvas(baseCanvas, width, height);
-    resizeCanvas(maskCanvas, width, height);
+    // Device-pixel backing stores, CSS-pixel draw coordinates: without the dpr
+    // scale a HiDPI display presents at CSS resolution and every frame looks
+    // soft no matter how large the capture is.
+    const dpr = globalThis.devicePixelRatio || 1;
+    resizeCanvas(baseCanvas, width, height, dpr);
+    resizeCanvas(maskCanvas, width, height, dpr);
+    baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const content = computeRenderedContentRect(video, this.lastSize);
 
@@ -305,12 +331,29 @@ export class VideoDvrPlayer {
     maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
 
     if (!frame || verdict.kind === 'none') {
+      maskCanvas.style.filter = '';
+      if (frame && !failClosed) {
+        // Cleared session, no verdict for this frame yet: present the buffered
+        // frame as-is rather than flashing a blur over content already judged.
+        baseCanvas.style.filter = '';
+        baseCtx.drawImage(
+          frame.bitmap,
+          0,
+          0,
+          frame.bitmap.width,
+          frame.bitmap.height,
+          content.offsetX,
+          content.offsetY,
+          content.width,
+          content.height,
+        );
+        return;
+      }
       // Verdict not resolved yet (or the buffer cannot reach back D): present
-      // the live frame whole-blurred. Fail-closed without ever pausing.
+      // the live frame, whole-blurred while fail-closed. Never pauses.
       // Drawing a cross-origin video only taints the canvas — display still works.
       baseCtx.drawImage(video, content.offsetX, content.offsetY, content.width, content.height);
-      baseCanvas.style.filter = buildMaskingFilter(masking);
-      maskCanvas.style.filter = '';
+      baseCanvas.style.filter = failClosed ? buildMaskingFilter(masking) : '';
       return;
     }
 
@@ -363,9 +406,15 @@ export class VideoDvrPlayer {
     maskCtx.imageSmoothingEnabled = false;
     maskCtx.drawImage(tmp, content.offsetX, content.offsetY, content.width, content.height);
 
+    // The union stencil lives in CSS coordinates: maskCtx carries the dpr
+    // transform, so drawImage(union, 0, 0) at natural size spans the canvas.
+    // Mask grids are far coarser than CSS resolution, so the stencil needs no
+    // device-pixel backing of its own.
     const union = this.unionScratch;
-    if (union.width !== maskCanvas.width) union.width = maskCanvas.width;
-    if (union.height !== maskCanvas.height) union.height = maskCanvas.height;
+    const unionWidth = Math.max(1, Math.round(this.lastSize.width));
+    const unionHeight = Math.max(1, Math.round(this.lastSize.height));
+    if (union.width !== unionWidth) union.width = unionWidth;
+    if (union.height !== unionHeight) union.height = unionHeight;
     const unionCtx = union.getContext('2d');
     if (!unionCtx) return;
     unionCtx.clearRect(0, 0, union.width, union.height);
@@ -435,9 +484,10 @@ function clampToOldest(mediaTime: number, oldest: number | null): number {
   return oldest === null ? mediaTime : Math.max(mediaTime, oldest);
 }
 
-function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number): void {
-  const canvasWidth = Math.max(1, Math.round(width));
-  const canvasHeight = Math.max(1, Math.round(height));
+/** Backing store in device pixels, CSS size in layout pixels. */
+function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number, dpr: number): void {
+  const canvasWidth = Math.max(1, Math.round(width * dpr));
+  const canvasHeight = Math.max(1, Math.round(height * dpr));
   if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
   if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
   canvas.style.width = `${width}px`;

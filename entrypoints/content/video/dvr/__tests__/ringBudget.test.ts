@@ -4,12 +4,18 @@ import {
   DVR_CAPTURE_INTERVAL_SEC,
   DvrRingBudget,
   RING_QUALITY_LADDER,
-  SESSION_MAX_BYTES,
   WASM_GLOBAL_BUDGET_BYTES,
   WEBGPU_GLOBAL_BUDGET_BYTES,
+  WEBGPU_SESSION_MAX_BYTES,
 } from '@/entrypoints/content/video/dvr/ringBudget';
 
-const HD_SESSION = { nativeWidth: 1920, nativeHeight: 1080, horizonSec: 5, minHorizonSec: 2.5 };
+const HD_SESSION = {
+  nativeWidth: 1920,
+  nativeHeight: 1080,
+  captureMaxWidth: 1920,
+  horizonSec: 5,
+  minHorizonSec: 2.5,
+};
 
 function registerMany(budget: DvrRingBudget, count: number): string[] {
   const ids = Array.from({ length: count }, (_, i) => `session-${i}`);
@@ -48,9 +54,10 @@ describe('DvrRingBudget', () => {
         expect(step.horizonScale).toBeLessThan(prev.horizonScale);
       }
     }
-    // The full tier drives the presented-fps harness's ~30 fps capture cadence.
+    // The full tier drives the presented-fps harness's ~30 fps capture cadence,
+    // and has no ladder ceiling: the session's display-derived cap bounds it.
     expect(RING_QUALITY_LADDER[0]).toEqual({
-      maxWidth: 640,
+      maxWidth: Number.POSITIVE_INFINITY,
       captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
       horizonScale: 1,
     });
@@ -66,10 +73,21 @@ describe('DvrRingBudget', () => {
   it('caps a single session projection at the per-session cap instead of degrading', () => {
     const budget = new DvrRingBudget();
     budget.setBackend('webgpu');
-    // Uncapped this would project far past 512 MB; the 128 MB session cap absorbs it.
-    budget.register('huge', { nativeWidth: 1920, nativeHeight: 1080, horizonSec: 10_000, minHorizonSec: 2.5 });
+    // Uncapped this would project far past the global budget; the backend-tiered
+    // session cap absorbs it.
+    budget.register('huge', { ...HD_SESSION, horizonSec: 10_000 });
     expect(budget.quality()).toEqual(RING_QUALITY_LADDER[0]);
-    expect(budget.projectedBytes()).toBeLessThanOrEqual(SESSION_MAX_BYTES);
+    expect(budget.projectedBytes()).toBeLessThanOrEqual(WEBGPU_SESSION_MAX_BYTES);
+  });
+
+  it('projects the display-derived cap, not native size, at the unbounded full tier', () => {
+    const embedded = new DvrRingBudget();
+    embedded.setBackend('webgpu');
+    embedded.register('a', { ...HD_SESSION, captureMaxWidth: 480 });
+    const fullscreen = new DvrRingBudget();
+    fullscreen.setBackend('webgpu');
+    fullscreen.register('a', HD_SESSION);
+    expect(embedded.projectedBytes()).toBeLessThan(fullscreen.projectedBytes());
   });
 
   it('degrades sessions in ladder order as the budget tightens, and recovers in reverse', () => {

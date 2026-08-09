@@ -344,18 +344,21 @@ describe('VideoSession machine', () => {
     expect(silent.effects).toHaveLength(0);
 
     // Pause: the canvas freezes on the delayed frame; the DVR never hands
-    // back to the DOM overlay. Sampling bookkeeping alone winds down.
+    // back to the DOM overlay. Sampling bookkeeping winds down, and the delay
+    // line is dropped so its tail cannot drain over the frozen frame.
     const paused = run(nextUnsafe.state, { type: 'pause', at: 4000 });
     expect(paused.state.phase).toBe('standby');
     expect(paused.state.dvr).toBe('presenting');
-    expect(paused.effects).toEqual([{ kind: 'cancelTimer', timer: 'watchdog' }]);
+    expect(paused.effects).toEqual([{ kind: 'cancelTimer', timer: 'watchdog' }, { kind: 'holdAudioDelay' }]);
 
-    // Resume from the frozen frame: presentation continues, no re-warm, no blur.
+    // Resume from the frozen frame: presentation continues, no re-warm, no
+    // blur — but the delay line the pause discarded comes back.
     const resumed = run(paused.state, { type: 'play', at: 4500 });
     expect(resumed.state.phase).toBe('sampling');
     expect(resumed.state.dvr).toBe('presenting');
     expect(resumed.effects).not.toContainEqual({ kind: 'startDvr' });
     expect(resumed.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(resumed.effects).toContainEqual({ kind: 'resumeAudioDelay' });
 
     // Dispose mid-presentation: stopDvr and cleanup exactly once.
     const disposed = run(nextUnsafe.state, { type: 'dispose' });
