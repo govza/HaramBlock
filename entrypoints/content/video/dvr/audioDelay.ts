@@ -72,11 +72,32 @@ async function ensureRunningContext(): Promise<AudioContext | null> {
 export type AudioDelayEngageResult = 'engaged' | 'deferred' | 'unavailable';
 
 /**
+ * Engages stack while the AudioContext awaits its user gesture (every verdict
+ * retries a deferred engage, and `resume()` stays pending until the gesture):
+ * without this guard they would all race `createMediaElementSource` on resume,
+ * and the losers' InvalidStateError would mark a just-engaged element
+ * permanently unavailable. Concurrent callers share the first call's promise.
+ */
+const inflight = new WeakMap<HTMLVideoElement, Promise<AudioDelayEngageResult>>();
+
+/**
  * Route the element's audio through the delay line. Async (context resume);
  * `isStillWanted` re-checks after each await so a DVR torn down mid-engage
  * cannot leave live video with delayed audio.
  */
-export async function engageAudioDelay(
+export function engageAudioDelay(
+  video: HTMLVideoElement,
+  delaySec: number,
+  isStillWanted: () => boolean,
+): Promise<AudioDelayEngageResult> {
+  const pending = inflight.get(video);
+  if (pending) return pending;
+  const engage = doEngage(video, delaySec, isStillWanted).finally(() => inflight.delete(video));
+  inflight.set(video, engage);
+  return engage;
+}
+
+async function doEngage(
   video: HTMLVideoElement,
   delaySec: number,
   isStillWanted: () => boolean,
@@ -88,6 +109,15 @@ export async function engageAudioDelay(
   if (!entry) {
     const context = await ensureRunningContext();
     if (!context || !isStillWanted()) return 'deferred';
+    // Re-read after the await (belt-and-braces under the in-flight guard): an
+    // entry created or nulled while this call awaited must not be recaptured.
+    const settled = entries.get(video);
+    if (settled === null) return 'unavailable';
+    entry = settled;
+  }
+  if (!entry) {
+    const context = sharedContext;
+    if (!context) return 'deferred';
     try {
       const source = context.createMediaElementSource(video);
       source.connect(context.destination);

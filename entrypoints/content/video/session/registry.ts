@@ -444,7 +444,7 @@ class VideoSessionRegistry {
     const onPlay = () => {
       if (!handle.suspended) this.dispatch(handle, { type: 'play', at: now() });
     };
-    const onPause = () => this.dispatch(handle, { type: 'pause', at: now() });
+    const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
     const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
     const onSourceChanged = () => {

@@ -66,7 +66,8 @@ export type SessionEvent =
   | { type: 'play'; at: number }
   | { type: 'frameAvailable'; at: number; timestampSec: number }
   | { type: 'seeked'; at: number; timestampSec: number }
-  | { type: 'pause'; at: number }
+  /** atEnd: the element reached its natural end (Chrome fires this pause just before 'ended'). */
+  | { type: 'pause'; at: number; atEnd?: boolean }
   | { type: 'ended'; at: number }
   /** The video left the viewport: release the DVR and hand masking back to the DOM. */
   | { type: 'suspend'; at: number }
@@ -434,9 +435,12 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // the delayed frame the viewer was actually seeing. Only the sampling
     // bookkeeping winds down; play resumes presentation without a re-warm.
     // The audio delay line does not freeze with the media clock, though — it
-    // must be dropped here and rebuilt on resume.
+    // must be dropped here and rebuilt on resume. Except at the natural end:
+    // the imminent 'ended' drains the buffered picture tail, and the line's
+    // buffered audio is exactly that tail's soundtrack — dropping it would
+    // play the ending mute.
     const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
-    if (state.dvr === 'presenting') effects.push({ kind: 'holdAudioDelay' });
+    if (state.dvr === 'presenting' && !event.atEnd) effects.push({ kind: 'holdAudioDelay' });
     return { state: { ...state, phase: 'standby' }, effects };
   }
   if (event.type === 'ended' && (state.phase === 'sampling' || state.phase === 'standby')) {

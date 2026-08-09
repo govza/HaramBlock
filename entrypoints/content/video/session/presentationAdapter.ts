@@ -149,6 +149,7 @@ export class PresentationAdapter {
       registeredHeight,
       registeredCaptureCap: captureWidthCap(handle.video, registeredWidth),
       lastCoveredMisses: 0,
+      stallHoldoff: false,
       underrunStreak: 0,
     };
   }
@@ -249,16 +250,21 @@ export class PresentationAdapter {
     // A decode stall (covered miss since the last sync) feeds the same
     // let-D-grow path: the slow decoder buys itself headroom by sliding
     // further behind the live edge, bounded per verdict and by the ceiling
-    // the ring horizon is sized for.
+    // the ring horizon is sized for. A raise itself moves the target backward,
+    // forcing a decoder re-warm whose misses would read as a fresh stall and
+    // ratchet D to the ceiling — so the sync after any raise swallows its miss
+    // delta; a genuine sustained stall re-raises on the sync after that.
     const misses = dvr.store.coveredMisses();
-    const stalled = misses > dvr.lastCoveredMisses;
+    const stalled = misses > dvr.lastCoveredMisses && !dvr.stallHoldoff;
     dvr.lastCoveredMisses = misses;
+    dvr.stallHoldoff = false;
     const stallTargetSec = stalled
       ? Math.min(MAX_DVR_DELAY_MS / 1000, handle.dvrDelaySec + DECODE_STALL_DELAY_STEP_SEC)
       : 0;
     const targetSec = Math.max(derivedSec, stallTargetSec);
     if (targetSec > handle.dvrDelaySec) {
       handle.dvrDelaySec = targetSec;
+      dvr.stallHoldoff = true;
       this.registerDemand(handle, dvr.registeredWidth, dvr.registeredHeight);
       updateAudioDelay(handle.video, targetSec);
     }

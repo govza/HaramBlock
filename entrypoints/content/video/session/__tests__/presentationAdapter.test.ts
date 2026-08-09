@@ -67,6 +67,7 @@ function makeHandle(store: SessionFrameStore, latchedDelaySec: number): SessionH
       registeredHeight: 360,
       registeredCaptureCap: 640,
       lastCoveredMisses: 0,
+      stallHoldoff: false,
       underrunStreak: 0,
     },
     timeline: new VerdictTimeline(),
@@ -122,6 +123,32 @@ describe('PresentationAdapter.raiseDelayIfLagging', () => {
     adapter.raiseDelayIfLagging(handle);
     expect(handle.dvrDelaySec).toBe(raised);
     expect(updateAudioDelay).not.toHaveBeenCalled();
+  });
+
+  it('misses caused by the raise itself do not ratchet D further', () => {
+    const { adapter } = makeAdapter();
+    const store = makeStore();
+    const handle = makeHandle(store, DEFAULT_DVR_DELAY_MS / 1000);
+
+    // Genuine stall raises D; the raise moves the target backward and the
+    // decoder re-warm produces new covered misses before the next sync.
+    store.misses = 1;
+    adapter.raiseDelayIfLagging(handle);
+    const raised = handle.dvrDelaySec;
+
+    // Self-inflicted re-warm misses: swallowed, not a fresh stall.
+    store.misses = 3;
+    adapter.raiseDelayIfLagging(handle);
+    expect(handle.dvrDelaySec).toBe(raised);
+
+    // Decoder caught up: D stays put.
+    adapter.raiseDelayIfLagging(handle);
+    expect(handle.dvrDelaySec).toBe(raised);
+
+    // A genuinely persistent stall still raises on the sync after the holdoff.
+    store.misses = 4;
+    adapter.raiseDelayIfLagging(handle);
+    expect(handle.dvrDelaySec).toBeGreaterThan(raised as number);
   });
 
   it('stall-driven growth never exceeds the delay ceiling', () => {

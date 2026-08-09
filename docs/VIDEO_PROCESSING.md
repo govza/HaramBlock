@@ -327,7 +327,9 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   resume (`resumeAudioDelay`): a `DelayNode` runs on the audio clock, not the media clock, so a line
   left attached would drain its buffered `D` seconds of speech over the frozen frame. Resume
   therefore costs `D` seconds of silence while the fresh line refills — the buffered tail is gone
-  either way.
+  either way. The exception is the pause Chrome fires just before `ended` (`atEnd` on the event):
+  there the line is kept, because its buffered audio is the soundtrack of the picture tail the drain
+  is about to replay — dropping it would play every natural ending mute.
 - **`ended`** → `drainDvr`: the presenter switches to a drain clock (`dvr/drain.ts`) that advances
   the presented media time at 1x wall rate from where presentation froze to the newest buffered
   frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A

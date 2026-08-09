@@ -435,11 +435,13 @@ describe('VideoSession machine', () => {
     expect(ended.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
 
     // Chrome fires 'pause' just before 'ended' at the natural end: the pause
-    // freeze must not swallow the drain.
-    const pausedFirst = run(presenting.state, { type: 'pause', at: 9000 }, { type: 'ended', at: 9001 });
+    // freeze must not swallow the drain, and must not drop the delay line —
+    // its buffered audio is the soundtrack of the tail the drain replays.
+    const pausedFirst = run(presenting.state, { type: 'pause', at: 9000, atEnd: true }, { type: 'ended', at: 9001 });
     expect(pausedFirst.state.dvr).toBe('presenting');
     expect(pausedFirst.effects).toContainEqual({ kind: 'drainDvr' });
     expect(pausedFirst.effects).not.toContainEqual({ kind: 'stopDvr' });
+    expect(pausedFirst.effects).not.toContainEqual({ kind: 'holdAudioDelay' });
   });
 
   it('hands a still-warming DVR back to the DOM on ended: there is no tail to drain', () => {
