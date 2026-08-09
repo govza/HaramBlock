@@ -38,9 +38,10 @@ stop/start, seeks, and loop restarts; live inference writes it today, the shared
 write it tomorrow — readers cannot tell the difference. _Avoid_: verdict track (the old per-DVR-run
 structure)
 
-**Inertia Window**: The span of media time around a Frame Sample over which its verdict applies
-during DVR presentation, derived from the observed sampling cadence. The video analog of GIF mask
-inertia. _Avoid_: tolerance, slack
+**Inertia Window**: The cadence-derived span (observed sampling gap + jitter margin) that bounds how
+far past the last verdict a mask or clean verdict still applies during DVR presentation. Between
+verdicts the clean-cut rule governs instead: a mask spans exactly unsafe-sample → next confirmed
+clean verdict. The video analog of GIF mask inertia. _Avoid_: tolerance, slack
 
 ## Overview
 
@@ -300,22 +301,23 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
 - **Unsafe verdict while playing**: no transition — the verdict lands in the Verdict Timeline and
   the already-running presentation composites its masks `D` later. Only a DVR still `warming`
   (canvas not yet presenting) gets an interim whole-blur cover.
-- **Per presented frame** (`videoDvrPlayer.ts`): look up verdicts within the Inertia Window
-  (observed sampling cadence + jitter margin) around the frame's media time. Unsafe → composite the
-  union of their masks (RLE-decoded once, pixelated content + destination-in); once only clean
-  verdicts sit in the window, the frame draws plain. A hole in verdict coverage (latency spike) is
-  **bridged from the neighbors** — an upcoming unsafe verdict extends its masks backward over the
-  hole (pre-roll before known content), a past unsafe verdict covers only a short forward overshoot
-  so a stale mask cannot smear across a scene change (past that overshoot the hole fails closed —
-  never bridges to clean, since a stalled verdict behind an unsafe one is not evidence of clean
-  content), clean↔clean holes present clean — so the whole-blur fallback appears only under genuine
-  verdict silence, not as a flash between masked stretches. The one exception to fail-closed is the
-  warm-up of a session the machine already cleared: its timeline is still empty (the Thumbnail
-  verdict carries no media time), and blurring there would flash over every play and seek of a clean
-  video — exactly the cover the machine deliberately withheld. Once any playback verdict exists,
-  holes are genuine gaps and blur. Lookups binary-search the timestamp-ordered timeline and scan
-  outward, so per-tick cost stays bounded by the window rather than the session's history. Sampling
-  continues at the live edge throughout.
+- **Per presented frame** (`videoDvrPlayer.ts`): the **clean-cut rule** — a mask exists exactly on
+  the span from its unsafe sample's timestamp to the next clean verdict's timestamp. Never before
+  the unsafe sample (no pre-roll), and never after a clean verdict that a following clean verdict
+  confirms; because presentation runs `D` behind the live edge, that confirming verdict has normally
+  already arrived by the time the clean frame is presented, so the streak costs no extra trail. An
+  unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right after) does not cut —
+  the mask holds, fail closed. Frames between two unsafe samples composite the union of both
+  bounding masks (RLE-decoded once, pixelated content + destination-in) — inertia over the unknown
+  motion in between. Past the last verdict an unsafe mask covers only a short overshoot, and a
+  masked span wider than the bridge horizon whole-blurs instead — that far out the stale geometry no
+  longer describes the scene. The one exception to fail-closed is the warm-up of a session the
+  machine already cleared: its timeline is still empty (the Thumbnail verdict carries no media
+  time), and blurring there would flash over every play and seek of a clean video — exactly the
+  cover the machine deliberately withheld. Once any playback verdict exists, holes are genuine gaps
+  and blur. Lookups binary-search the timestamp-ordered timeline and read the bounding neighbors, so
+  per-tick cost stays constant rather than growing with the session. Sampling continues at the live
+  edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
   permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.

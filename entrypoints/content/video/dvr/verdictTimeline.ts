@@ -93,62 +93,69 @@ export class VerdictTimeline {
   }
 
   /**
-   * Verdict for the frame at `mediaTime`: any unsafe verdict within the window
-   * masks (all of them merged — inertia stretches each over the sampling gap),
-   * a clean verdict clears.
+   * Verdict for the frame at `mediaTime` — the clean-cut rule: a mask exists
+   * exactly on the span from its unsafe sample's timestamp to the next clean
+   * verdict's timestamp. Never before the unsafe sample (no pre-roll), never
+   * after a clean verdict that a following clean verdict confirms — the DVR
+   * delay means that confirming verdict has normally already arrived by
+   * presentation time. An unconfirmed clean verdict (nothing after it yet, or
+   * an unsafe verdict right after) does not cut: the mask holds, fail closed.
    *
-   * A hole in coverage (no verdict within the window — an inference-latency
-   * spike) is bridged from the neighbors instead of whole-blurring, which read
-   * as an annoying blur flash between masked stretches: an upcoming unsafe
-   * verdict extends its masks backward over the hole (pre-roll before known
-   * content), a past unsafe verdict only covers a short forward overshoot so a
-   * stale mask cannot smear over a scene change, a hole between two clean
-   * verdicts presents clean, and a lone clean neighbor covers a short
-   * overshoot. Only genuine verdict silence stays 'none'.
+   * Frames between two unsafe samples composite both bounding masks (inertia
+   * over the unknown motion in between). Past the last verdict an unsafe mask
+   * covers only a short overshoot, and a span wider than the bridge horizon
+   * whole-blurs — that far out the stale geometry no longer describes the
+   * scene. Only genuine verdict silence stays 'none'.
    *
    * Entries are timestamp-ordered, so the lookup binary-searches to the
-   * position and scans outward: this runs on every draw tick of every playing
-   * video, and a full-history scan would grow with the session.
+   * position and reads the bounding neighbors: this runs on every draw tick of
+   * every playing video, and a full-history scan would grow with the session.
    */
   verdictFor(mediaTime: number, windowSec: number, bridgeHorizonSec = BRIDGE_HORIZON_SEC): VerdictLookup {
     const after = this.upperBound(mediaTime);
-    const unsafeInWindow: VerdictEntry[] = [];
-    let anyInWindow = false;
-    for (let index = after - 1; index >= 0; index--) {
-      const entry = this.entries[index];
-      if (!entry || mediaTime - entry.timestampSec > windowSec) break;
-      anyInWindow = true;
-      if (entry.unsafe) unsafeInWindow.push(entry);
-    }
-    unsafeInWindow.reverse();
-    for (let index = after; index < this.entries.length; index++) {
-      const entry = this.entries[index];
-      if (!entry || entry.timestampSec - mediaTime > windowSec) break;
-      anyInWindow = true;
-      if (entry.unsafe) unsafeInWindow.push(entry);
-    }
-    if (anyInWindow) {
-      return unsafeInWindow.length ? { kind: 'unsafe', entries: unsafeInWindow } : { kind: 'clean' };
+    const previous = this.entries[after - 1];
+    const next = this.entries[after];
+
+    if (!previous) {
+      // Nothing describes any frame at or before this one. No pre-masking: an
+      // upcoming clean verdict near warm-up presents clean, anything else
+      // fails closed with the whole-blur.
+      if (next && !next.unsafe && next.timestampSec - mediaTime <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
+        return { kind: 'clean' };
+      }
+      return { kind: 'none' };
     }
 
-    const previousEntry = this.entries[after - 1];
-    const previous = previousEntry && mediaTime - previousEntry.timestampSec <= bridgeHorizonSec ? previousEntry : null;
-    const nextEntry = this.entries[after];
-    const next = nextEntry && nextEntry.timestampSec - mediaTime <= bridgeHorizonSec ? nextEntry : null;
+    // A verdict beyond the bridge horizon no longer describes this frame:
+    // never composite its mask geometry here, and never let a clean pair
+    // bridge across a hole that wide — whole-blur instead.
+    const nextNear = next && next.timestampSec - mediaTime <= bridgeHorizonSec ? next : null;
 
-    const unsafeNeighbors: VerdictEntry[] = [];
-    if (previous?.unsafe && mediaTime - previous.timestampSec <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
-      unsafeNeighbors.push(previous);
+    if (previous.unsafe) {
+      if (next) {
+        if (mediaTime - previous.timestampSec > bridgeHorizonSec) return { kind: 'none' };
+        return { kind: 'unsafe', entries: nextNear?.unsafe ? [previous, nextNear] : [previous] };
+      }
+      // Live edge: cover a short overshoot ahead of the newest unsafe sample,
+      // then whole-blur so a stale mask cannot smear over a scene change.
+      if (mediaTime - previous.timestampSec <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
+        return { kind: 'unsafe', entries: [previous] };
+      }
+      return { kind: 'none' };
     }
-    if (next?.unsafe) unsafeNeighbors.push(next);
-    if (unsafeNeighbors.length) return { kind: 'unsafe', entries: unsafeNeighbors };
-    // Past the overshoot a stale mask must not smear over a scene change — but
-    // a hole trailing an unsafe verdict is not evidence of clean content
-    // either. Whole-blur it instead of bridging to 'clean'.
-    if (previous?.unsafe) return { kind: 'none' };
-    if (previous && next) return { kind: 'clean' };
-    const lone = previous ?? next;
-    if (lone && Math.abs(lone.timestampSec - mediaTime) <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
+
+    const before = this.entries[after - 2];
+    if (before?.unsafe && (!next || next.unsafe)) {
+      // The clean verdict at `previous` is unconfirmed: hold the mask.
+      if (mediaTime - before.timestampSec > bridgeHorizonSec) return { kind: 'none' };
+      return { kind: 'unsafe', entries: nextNear?.unsafe ? [before, nextNear] : [before] };
+    }
+    if (mediaTime - previous.timestampSec <= (nextNear ? bridgeHorizonSec : windowSec * OVERSHOOT_WINDOW_MULTIPLIER)) {
+      return { kind: 'clean' };
+    }
+    // Far from the clean verdict behind, but just ahead of an upcoming clean
+    // one (seek into a hole): the short approach presents clean.
+    if (nextNear && !nextNear.unsafe && nextNear.timestampSec - mediaTime <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
       return { kind: 'clean' };
     }
     return { kind: 'none' };
