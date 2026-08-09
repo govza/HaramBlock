@@ -145,6 +145,44 @@ describe('audioDelay routing', () => {
     expect(ctx.createMediaElementSource).toHaveBeenCalledTimes(1);
   });
 
+  it('engages stacked while resume() awaits the user gesture share one attempt instead of racing the capture', async () => {
+    // resume() stays pending until the gesture; every verdict retries the
+    // engage meanwhile. Without the in-flight guard the resolved retries all
+    // race createMediaElementSource, and the losers' InvalidStateError marks
+    // a just-engaged element permanently unavailable.
+    let releaseGesture!: () => void;
+    const gesture = new Promise<void>(resolve => {
+      releaseGesture = resolve;
+    });
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        override state = 'suspended';
+        override resume = vi.fn(async () => {
+          await gesture;
+          this.state = 'running';
+        });
+        override createMediaElementSource = vi.fn(() => {
+          if (this.createMediaElementSource.mock.calls.length > 1) {
+            throw new DOMException('already connected', 'InvalidStateError');
+          }
+          return new FakeNode();
+        });
+      },
+    );
+    const video = makeVideo();
+    const attempts = [
+      mod.engageAudioDelay(video, 2, () => true),
+      mod.engageAudioDelay(video, 2, () => true),
+      mod.engageAudioDelay(video, 2, () => true),
+    ];
+    releaseGesture();
+    // Stacked calls share one outcome; the follow-up retry then engages.
+    expect(await Promise.all(attempts)).toEqual(['engaged', 'engaged', 'engaged']);
+    expect(context().createMediaElementSource).toHaveBeenCalledTimes(1);
+    expect(await mod.engageAudioDelay(video, 2, () => true)).toBe('engaged');
+  });
+
   it('reports a suspended context as deferred, then engages once a gesture resumes it', async () => {
     vi.stubGlobal(
       'AudioContext',

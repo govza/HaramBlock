@@ -91,6 +91,8 @@ export class VideoDvrPlayer {
   private lastSize = { width: 0, height: 0 };
   private lastOffset = { top: NaN, left: NaN };
   private lastDrawKey = '';
+  /** A buffered frame has been presented: the canvases hold real content a covered miss can pin. */
+  private hasPresentedFrame = false;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
   private readonly gridCache = new WeakMap<VerdictEntry, HTMLCanvasElement | null>();
   /** Scratch canvases for renderMasks, reused across draws instead of allocated per frame. */
@@ -272,6 +274,12 @@ export class VideoDvrPlayer {
         ? drainTargetTime(this.drainClock, performance.now() / 1000, newest)
         : clampToOldest(video.currentTime - delaySec, oldest);
     const frame = store.frameAt(targetTime);
+    // Covered miss (decode stall: the buffer spans the target — it is clamped
+    // to oldest — but the decoder is behind): hold the last presented frame
+    // and its mask, per the store contract. Flashing the live fallback would
+    // jump forward by D (and whole-blur a masked session) for a stall of a
+    // few ticks. Warm-up has nothing to hold yet and keeps the live fallback.
+    if (!frame && this.hasPresentedFrame && oldest !== null) return;
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
     // than blurring: the bridge horizon scales with the observed round-trip.
@@ -288,15 +296,17 @@ export class VideoDvrPlayer {
     // exists, holes are genuine coverage gaps and stay blurred.
     const failClosed = timeline.size() > 0 || this.opts.failClosedWhenVerdictless();
     // The blurred fallback draws the live element, keyed at the capture
-    // cadence; everything else redraws only when the frame, verdict, or size
-    // moved (syncGeometry moves the overlay itself — position never forces a
-    // redraw).
+    // cadence — even when a buffered frame exists (warm-up/re-warm pins it, so
+    // its mediaTime would freeze the key while the live picture moves). Only
+    // the cleared-session branch draws the buffered frame itself and keys on
+    // it. Everything else redraws only when the frame, verdict, or size moved
+    // (syncGeometry moves the overlay itself — position never forces a redraw).
     const drawKey =
       verdict.kind === 'none'
         ? [
             'none',
             failClosed,
-            frame?.mediaTime ?? Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
+            frame && !failClosed ? frame.mediaTime : Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
             width,
             height,
             globalThis.devicePixelRatio || 1,
@@ -335,6 +345,7 @@ export class VideoDvrPlayer {
       if (frame && !failClosed) {
         // Cleared session, no verdict for this frame yet: present the buffered
         // frame as-is rather than flashing a blur over content already judged.
+        this.hasPresentedFrame = true;
         baseCanvas.style.filter = '';
         baseCtx.drawImage(
           frame.source,
@@ -357,6 +368,7 @@ export class VideoDvrPlayer {
       return;
     }
 
+    this.hasPresentedFrame = true;
     baseCanvas.style.filter = '';
     baseCtx.drawImage(
       frame.source,

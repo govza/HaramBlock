@@ -29,6 +29,13 @@ interface DvrRuntime {
   registeredCaptureCap: number;
   /** Store's covered-miss counter at the last per-verdict sync; a diff is a decode stall. */
   lastCoveredMisses: number;
+  /**
+   * Set by a D raise, cleared at the next sync: the raise moves the target
+   * backward and forces a decoder re-warm whose misses are self-inflicted, so
+   * the next sync swallows its miss delta instead of raising again (the
+   * ratchet would otherwise climb to the ceiling one step per verdict).
+   */
+  stallHoldoff: boolean;
   /** Consecutive underrun observations this run; dispatches analysisUnderrun at the hysteresis threshold. */
   underrunStreak: number;
 }
