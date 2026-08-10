@@ -40,6 +40,9 @@ export interface VideoSessionState {
   dvr: DvrMode;
   /** A sustained analysis underrun already widened the sampling interval; a second demotes. */
   samplingRelieved: boolean;
+  /** finalizeAllow cleared the cover on purpose (status skipped); no fail-closed
+   *  blur may resurrect it until a fresh verdict lands. */
+  allowed: boolean;
 }
 
 export const THUMBNAIL_TIMEOUT_MS = 10_000;
@@ -135,6 +138,7 @@ export function createVideoSession(): ReduceResult {
       pendingSeekTimestampSec: null,
       dvr: 'off',
       samplingRelieved: false,
+      allowed: false,
     },
     effects: [{ kind: 'applyBlur' }],
   };
@@ -230,7 +234,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       // The verdict describes a frame that is no longer displayed: keep the
       // blur (fail-closed); the pending post-seek sample decides what shows.
       return {
-        state: { ...state, phase: 'standby', lastAppliedIndex: event.frameIndex, masked: event.unsafe },
+        state: { ...state, phase: 'standby', lastAppliedIndex: event.frameIndex, masked: event.unsafe, allowed: false },
         effects: [
           { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
           ...(event.unsafe
@@ -240,7 +244,14 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       };
     }
     return {
-      state: { ...state, phase: 'standby', lastAppliedIndex: event.frameIndex, masked: event.unsafe, blurred: false },
+      state: {
+        ...state,
+        phase: 'standby',
+        lastAppliedIndex: event.frameIndex,
+        masked: event.unsafe,
+        blurred: false,
+        allowed: false,
+      },
       effects: [
         { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
         ...(event.unsafe
@@ -264,7 +275,15 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       // The in-flight sample resolved: its timeout must not fire under a later sample.
       effects.push({ kind: 'cancelTimer', timer: 'sampleTimeout' });
     }
-    const next = { ...state, inflightIndex, lastAppliedIndex: event.frameIndex, blurred: false, errorStreak: 0 };
+    const next = {
+      ...state,
+      inflightIndex,
+      lastAppliedIndex: event.frameIndex,
+      blurred: false,
+      errorStreak: 0,
+      // A fresh verdict ends the allow stance: fail-closed cover applies again.
+      allowed: false,
+    };
 
     if (event.unsafe) {
       // Instant on: an unsafe sample masks immediately and resets the clean streak.
@@ -359,15 +378,20 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     const next = { ...state, phase: 'sampling' as const };
     if (state.dvr === 'off') {
       // Continuous DVR: every playing video presents delayed, so a later
-      // unsafe verdict composites in without a visible mode switch. Cover the
-      // warm-up only when fail-closed demands it: whole-blur for a masked
-      // session (its static DOM overlay would lag the moving content); the
-      // adoption blur is simply retained for a verdict-less one. A
-      // safe-verdicted session warms up unblurred behind its pinned frame.
+      // unsafe verdict composites in without a visible mode switch. The warm-up
+      // is covered even for a safe-verdicted session: the pinned earliest frame
+      // cannot be the cover until the player has captured a frame and injected
+      // its canvas, and the native element renders live for those first ticks
+      // (that showed a video's unsafe opening frames unmasked). bufferReady
+      // lifts it the moment the canvas takes over, and a clean playback verdict
+      // is the escape when capture never succeeds. The one session left
+      // uncovered is the deliberately allowed one (verdict-less and already
+      // unblurred: status skipped) — its finalize cleared the blur on purpose.
+      const coverWarmUp = !state.allowed;
       next.dvr = 'warming';
-      if (state.masked) {
+      if (coverWarmUp) {
         next.blurred = true;
-        effects.push({ kind: 'applyBlur' });
+        if (!state.blurred) effects.push({ kind: 'applyBlur' });
       }
       effects.push({ kind: 'startDvr' });
     } else if (state.dvr === 'presenting') {
@@ -571,6 +595,7 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       pendingSeek: false,
       pendingSeekTimestampSec: null,
       dvr: 'off',
+      allowed: true,
     },
     effects: [
       ...(state.dvr === 'off' ? [] : [{ kind: 'stopDvr' } as const]),
