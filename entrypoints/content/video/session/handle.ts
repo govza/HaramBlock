@@ -61,6 +61,9 @@ export interface SessionHandle {
   readonly timeline: VerdictTimeline;
   /** Presentation delay latched for the current DVR run; null while the DVR is off. */
   dvrDelaySec: number | null;
+  /** Session-lifetime floor under the derived delay, learned from stall raises:
+   *  a store that proved it needs a larger D must not re-limp after every re-warm. */
+  dvrStallFloorSec: number;
   /** A WebCodecs error happened once: this session stays on the raw ring for its lifetime. */
   dvrEncodedIneligible: boolean;
   /** Session-local Frame Samples awaiting verdicts; future caches must not persist routing identity. */

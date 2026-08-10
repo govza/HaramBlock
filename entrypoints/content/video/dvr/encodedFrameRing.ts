@@ -265,11 +265,14 @@ export class EncodedFrameRing implements DvrFrameStore {
 
     const candidate = this.decoded[0];
     if (!candidate || candidate.timestamp > targetMicros) {
-      // A null on a covered time means the decoder is behind the target — a
-      // decode stall, distinct from a before-oldest miss (evicted content).
+      // A null on a covered time means this store is behind the target — a
+      // stall, distinct from a before-oldest miss (evicted content). Covered
+      // reaches to the newest *captured* time: a lagging encode pipeline
+      // starves presentation like a slow decoder and must count too.
       const oldest = this.oldestTime();
       const newest = this.newestTime();
-      if (oldest !== null && newest !== null && mediaTime >= oldest && mediaTime <= newest) {
+      const coveredEnd = Math.max(newest ?? Number.NEGATIVE_INFINITY, this.lastPushedMediaTime);
+      if (oldest !== null && mediaTime >= oldest && mediaTime <= coveredEnd) {
         this.coveredMissCount++;
       }
       return null;

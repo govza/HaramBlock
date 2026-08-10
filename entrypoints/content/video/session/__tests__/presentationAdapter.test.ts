@@ -72,6 +72,7 @@ function makeHandle(store: SessionFrameStore, latchedDelaySec: number): SessionH
     },
     timeline: new VerdictTimeline(),
     dvrDelaySec: latchedDelaySec,
+    dvrStallFloorSec: 0,
     dvrEncodedIneligible: false,
     pendingSamples: new Map(),
     latenciesMs: [],

@@ -26,7 +26,7 @@ import {
 import { encodedBitrate } from '@/entrypoints/content/video/dvr/encodedFrameRing';
 import { createDvrFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import { dvrRingBudget, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
-import { verdictPending, type SessionEvent } from '@/entrypoints/content/video/session/machine';
+import { type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
@@ -100,8 +100,12 @@ export class PresentationAdapter {
     // presentation never jumps mid-run. A range the timeline already covers
     // needs no inference wait and gets a small D: the warm-up pause all but
     // disappears on replays and re-visited seeks.
-    handle.dvrDelaySec =
-      deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000;
+    // Floored by the stall floor: a store that already proved it needs a
+    // larger D must not re-limp through the same raises after every re-warm.
+    handle.dvrDelaySec = Math.max(
+      deriveDvrDelayMs(handle.latenciesMs, handle.timeline.coverageAheadOf(handle.video.currentTime)) / 1000,
+      handle.dvrStallFloorSec,
+    );
     // Claim capacity in the shared budget; every DVR exit funnels through
     // stopDvr, so suspension and disposal both return it.
     const registeredWidth = handle.video.videoWidth;
@@ -133,7 +137,6 @@ export class PresentationAdapter {
       timeline: handle.timeline,
       getDelaySec: () => this.ports.currentDelaySec(handle),
       getMasking: () => handle.hostSettings.masking,
-      failClosedWhenVerdictless: () => handle.state.masked || verdictPending(handle.state),
       onReady: () => {
         this.ports.dispatch(handle, { type: 'bufferReady', at: performance.now() });
         // The canvas now presents D behind the live edge; delay audio to match.
@@ -149,7 +152,9 @@ export class PresentationAdapter {
       registeredHeight,
       registeredCaptureCap: captureWidthCap(handle.video, registeredWidth),
       lastCoveredMisses: 0,
-      stallHoldoff: false,
+      // Warm-up priming misses are not a stall; counting them would ratchet D
+      // on every re-warm.
+      stallHoldoff: true,
       underrunStreak: 0,
     };
   }
@@ -255,15 +260,30 @@ export class PresentationAdapter {
     // ratchet D to the ceiling — so the sync after any raise swallows its miss
     // delta; a genuine sustained stall re-raises on the sync after that.
     const misses = dvr.store.coveredMisses();
-    const stalled = misses > dvr.lastCoveredMisses && !dvr.stallHoldoff;
+    const missDelta = misses > dvr.lastCoveredMisses;
+    const stalled = missDelta && !dvr.stallHoldoff;
     dvr.lastCoveredMisses = misses;
-    dvr.stallHoldoff = false;
+    // Consume the holdoff only when it swallowed a delta, or a sync landing
+    // before the warm-up misses would burn it early.
+    if (missDelta) dvr.stallHoldoff = false;
+    // Raise by the measured capture→presentable lag when it beats the fixed
+    // step: a pipeline running ~a second behind escapes in one raise.
+    const newestSec = dvr.store.newestTime();
+    const pipelineLagSec = newestSec === null ? 0 : handle.video.currentTime - newestSec;
     const stallTargetSec = stalled
-      ? Math.min(MAX_DVR_DELAY_MS / 1000, handle.dvrDelaySec + DECODE_STALL_DELAY_STEP_SEC)
+      ? Math.min(
+          MAX_DVR_DELAY_MS / 1000,
+          Math.max(handle.dvrDelaySec + DECODE_STALL_DELAY_STEP_SEC, pipelineLagSec + DECODE_STALL_DELAY_STEP_SEC),
+        )
       : 0;
     const targetSec = Math.max(derivedSec, stallTargetSec);
     if (targetSec > handle.dvrDelaySec) {
       handle.dvrDelaySec = targetSec;
+      // Only stall-driven growth persists: latency-derived growth re-derives
+      // correctly at the next startDvr.
+      if (stallTargetSec >= targetSec) {
+        handle.dvrStallFloorSec = Math.max(handle.dvrStallFloorSec, stallTargetSec);
+      }
       dvr.stallHoldoff = true;
       this.registerDemand(handle, dvr.registeredWidth, dvr.registeredHeight);
       updateAudioDelay(handle.video, targetSec);

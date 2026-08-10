@@ -64,12 +64,6 @@ export interface VideoDvrPlayerOptions {
   getDelaySec: () => number;
   /** Live view of the host masking settings (quick toggle may change them). */
   getMasking: () => IMaskingSettings;
-  /**
-   * Whether a verdict-less frame must be whole-blurred. False only for a
-   * session the machine has already cleared (a resolved, non-masking verdict),
-   * which is why it deliberately left the element unblurred for the warm-up.
-   */
-  failClosedWhenVerdictless: () => boolean;
   /** Fired once, when the canvas takes over (first buffered frame, pinned until the buffer spans D). */
   onReady: () => void;
 }
@@ -288,25 +282,18 @@ export class VideoDvrPlayer {
       ? timeline.verdictFor(frame.mediaTime, timeline.inertiaWindowSec(), bridgeHorizonSec)
       : ({ kind: 'none' } as const);
 
-    // A verdict-less frame normally fails closed. The exception is the warm-up
-    // of a session the machine already cleared: its timeline is still empty
-    // (the Thumbnail verdict has no media time), and whole-blurring here would
-    // flash a blur over every play and seek of a clean video — exactly the
-    // cover the machine deliberately withheld. Once any playback verdict
-    // exists, holes are genuine coverage gaps and stay blurred.
-    const failClosed = timeline.size() > 0 || this.opts.failClosedWhenVerdictless();
-    // The blurred fallback draws the live element, keyed at the capture
-    // cadence — even when a buffered frame exists (warm-up/re-warm pins it, so
-    // its mediaTime would freeze the key while the live picture moves). Only
-    // the cleared-session branch draws the buffered frame itself and keys on
-    // it. Everything else redraws only when the frame, verdict, or size moved
-    // (syncGeometry moves the overlay itself — position never forces a redraw).
+    // A verdict-less frame always fails closed: a Thumbnail-cleared session
+    // must not fail-open playback frames its poster verdict does not describe
+    // (that showed Shorts' unsafe first frame unmasked for a round-trip). The
+    // buffered frame draws whole-blurred so the verdict unblurs it in place;
+    // the live element is the fallback only when nothing is buffered yet,
+    // keyed at the capture cadence. Everything else redraws only when the
+    // frame, verdict, or size moved (position never forces a redraw).
     const drawKey =
       verdict.kind === 'none'
         ? [
             'none',
-            failClosed,
-            frame && !failClosed ? frame.mediaTime : Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
+            frame ? frame.mediaTime : Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
             width,
             height,
             globalThis.devicePixelRatio || 1,
@@ -340,35 +327,34 @@ export class VideoDvrPlayer {
     baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
 
-    if (!frame || verdict.kind === 'none') {
+    if (!frame) {
       maskCanvas.style.filter = '';
-      if (frame && !failClosed) {
-        // Cleared session, no verdict for this frame yet: present the buffered
-        // frame as-is rather than flashing a blur over content already judged.
-        this.hasPresentedFrame = true;
-        baseCanvas.style.filter = '';
-        baseCtx.drawImage(
-          frame.source,
-          0,
-          0,
-          frame.width,
-          frame.height,
-          content.offsetX,
-          content.offsetY,
-          content.width,
-          content.height,
-        );
-        return;
-      }
-      // Verdict not resolved yet (or the buffer cannot reach back D): present
-      // the live frame, whole-blurred while fail-closed. Never pauses.
-      // Drawing a cross-origin video only taints the canvas — display still works.
+      // Nothing buffered yet: live frame, whole-blurred. Drawing a
+      // cross-origin video only taints the canvas — display still works.
       baseCtx.drawImage(video, content.offsetX, content.offsetY, content.width, content.height);
-      baseCanvas.style.filter = failClosed ? buildMaskingFilter(masking) : '';
+      baseCanvas.style.filter = buildMaskingFilter(masking);
       return;
     }
 
     this.hasPresentedFrame = true;
+    if (verdict.kind === 'none') {
+      // Verdict pending (warm-up pin, coverage hole): buffered frame,
+      // whole-blurred, so the arriving verdict unblurs it in place.
+      maskCanvas.style.filter = '';
+      baseCtx.drawImage(
+        frame.source,
+        0,
+        0,
+        frame.width,
+        frame.height,
+        content.offsetX,
+        content.offsetY,
+        content.width,
+        content.height,
+      );
+      baseCanvas.style.filter = buildMaskingFilter(masking);
+      return;
+    }
     baseCanvas.style.filter = '';
     baseCtx.drawImage(
       frame.source,
