@@ -440,8 +440,20 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // buffered audio is exactly that tail's soundtrack — dropping it would
     // play the ending mute.
     const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
+    const next = { ...state, phase: 'standby' as const };
     if (state.dvr === 'presenting' && !event.atEnd) effects.push({ kind: 'holdAudioDelay' });
-    return { state: { ...state, phase: 'standby' }, effects };
+    if (state.dvr === 'warming') {
+      // Captures stop with the media clock, so bufferReady can never fire while
+      // paused: a kept warm-up blur would latch over the whole paused frame.
+      // Hand back to the DOM overlay; play re-warms from scratch.
+      next.dvr = 'off';
+      if (state.masked) {
+        next.blurred = false;
+        effects.push({ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' });
+      }
+      effects.push({ kind: 'stopDvr' });
+    }
+    return { state: next, effects };
   }
   if (event.type === 'ended' && (state.phase === 'sampling' || state.phase === 'standby')) {
     // Standby too: Chrome fires 'pause' just before 'ended' at the natural
