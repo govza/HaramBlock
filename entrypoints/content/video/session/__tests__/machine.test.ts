@@ -256,8 +256,9 @@ describe('VideoSession machine', () => {
     expect(unsafe.effects).not.toContainEqual({ kind: 'applyBlur' });
     expect(unsafe.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
 
-    // Paused mid-warm-up the canvas is not up yet: the whole-blur covers
-    // instead — still no DOM overlay chasing the DVR's element.
+    // Paused mid-warm-up the canvas never took over and captures stop with the
+    // media clock, so bufferReady can never fire: the DVR is abandoned and the
+    // precise DOM overlay takes the paused frame.
     const pausedWarming = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -268,16 +269,16 @@ describe('VideoSession machine', () => {
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
       { type: 'pause', at: 1050 },
     );
-    expect(pausedWarming.state.dvr).toBe('warming');
+    expect(pausedWarming.state.dvr).toBe('off');
+    expect(pausedWarming.effects).toContainEqual({ kind: 'stopDvr' });
     const unsafeWarming = run(pausedWarming.state, {
       type: 'predictionReceived',
       frameIndex: 0,
       unsafe: true,
       at: 1200,
     });
-    expect(unsafeWarming.state.blurred).toBe(true);
-    expect(unsafeWarming.effects).toContainEqual({ kind: 'applyBlur' });
-    expect(unsafeWarming.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+    expect(unsafeWarming.state.masked).toBe(true);
+    expect(unsafeWarming.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
   });
 
   it('clears a mask only after two consecutive clean samples (instant on, slow off)', () => {
