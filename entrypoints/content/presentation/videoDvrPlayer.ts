@@ -289,6 +289,14 @@ export class VideoDvrPlayer {
     // the live element is the fallback only when nothing is buffered yet,
     // keyed at the capture cadence. Everything else redraws only when the
     // frame, verdict, or size moved (position never forces a redraw).
+    const content = computeRenderedContentRect(video, this.lastSize);
+    // Device-pixel backing stores, CSS-pixel draw coordinates: without the dpr
+    // scale a HiDPI display presents at CSS resolution and every frame looks
+    // soft no matter how large the capture is. But a backing store finer than
+    // the buffered frame only spends fill rate upscaling pixels the ring never
+    // captured — which is exactly what fullscreen does (the layout grows, the
+    // ring frame does not), so cap the ratio at the source's own resolution.
+    const dpr = frameCappedDpr(frame, content.width);
     const drawKey =
       verdict.kind === 'none'
         ? [
@@ -296,7 +304,7 @@ export class VideoDvrPlayer {
             frame ? frame.mediaTime : Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
             width,
             height,
-            globalThis.devicePixelRatio || 1,
+            dpr,
           ].join('|')
         : [
             frame?.mediaTime,
@@ -306,23 +314,17 @@ export class VideoDvrPlayer {
             verdict.kind === 'unsafe' ? verdict.entries.map(entry => entry.timestampSec).join(',') : '',
             width,
             height,
-            globalThis.devicePixelRatio || 1,
+            dpr,
             masking.pixelationScale,
           ].join('|');
     if (drawKey === this.lastDrawKey) return;
     this.lastDrawKey = drawKey;
 
     const { baseCanvas, baseCtx, maskCanvas, maskCtx } = surfaces;
-    // Device-pixel backing stores, CSS-pixel draw coordinates: without the dpr
-    // scale a HiDPI display presents at CSS resolution and every frame looks
-    // soft no matter how large the capture is.
-    const dpr = globalThis.devicePixelRatio || 1;
     resizeCanvas(baseCanvas, width, height, dpr);
     resizeCanvas(maskCanvas, width, height, dpr);
     baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const content = computeRenderedContentRect(video, this.lastSize);
 
     baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
@@ -482,14 +484,29 @@ function clampToOldest(mediaTime: number, oldest: number | null): number {
   return oldest === null ? mediaTime : Math.max(mediaTime, oldest);
 }
 
+/**
+ * Device-pixel ratio to back the presentation canvases with, capped so the
+ * backing store never exceeds the buffered frame's own resolution: past that
+ * point every extra device pixel is interpolation, paid for at fullscreen fill
+ * rates. Never below 1 (a CSS-pixel store stays the floor), and the live
+ * fallback keeps the true ratio — its source is the native element.
+ */
+function frameCappedDpr(frame: PresentableFrame | null, contentWidth: number): number {
+  const dpr = globalThis.devicePixelRatio || 1;
+  if (!frame || contentWidth <= 0) return dpr;
+  return Math.min(dpr, Math.max(1, frame.width / contentWidth));
+}
+
 /** Backing store in device pixels, CSS size in layout pixels. */
 function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number, dpr: number): void {
   const canvasWidth = Math.max(1, Math.round(width * dpr));
   const canvasHeight = Math.max(1, Math.round(height * dpr));
   if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
   if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
+  const cssWidth = `${width}px`;
+  const cssHeight = `${height}px`;
+  if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
+  if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight;
 }
 
 function restoreOpacity(video: HTMLVideoElement, originalOpacity: string | undefined): void {
