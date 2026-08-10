@@ -66,6 +66,7 @@ function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
     dvr: null,
     timeline: new VerdictTimeline(),
     dvrDelaySec: null,
+    dvrStallFloorSec: 0,
     dvrEncodedIneligible: false,
     pendingSamples: new Map(),
     latenciesMs: [],

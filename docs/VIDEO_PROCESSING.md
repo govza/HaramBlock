@@ -264,12 +264,18 @@ switches) so the round-trip itself — and therefore `D` — stays small on HD v
 are composited in the same draw, mirroring the GIF player.
 
 Both lag sources feed the same let-D-grow path, and lag that D cannot absorb becomes a machine
-event. A **decode stall** — the frame store missing `frameAt` on a media time it covers, exposed as
+event. A **store stall** — the frame store missing `frameAt` on a media time it covers, exposed as
 the monotonic `coveredMisses()` counter on the store contract (the raw ring never advances it) — is
-read on the per-verdict sync and raises D by a bounded step, so a slow decoder buys itself headroom
-by sliding further behind the live edge instead of pinning a frozen frame. An **analysis underrun**
-— the derived D clamped at its ceiling while coverage ahead of the playhead still trails the latched
-D (`isAnalysisUnderrun`), sustained over `UNDERRUN_VERDICT_STREAK` consecutive verdicts — dispatches
+read on the per-verdict sync and raises D, so a slow store buys itself headroom by sliding further
+behind the live edge instead of pinning a frozen frame. "Covers" reaches to the newest _captured_
+time, not just the newest encoded chunk: an encode pipeline running behind the live edge starves
+presentation exactly like a slow decoder. The raise is the larger of a fixed step and the measured
+capture→presentable lag, and each DVR run starts with a one-delta holdoff so the decoder's warm-up
+priming misses never count. Stall-driven raises also persist as a session-lifetime floor under the
+derived D (`dvrStallFloorSec`): a store that proved it cannot serve the small covered D must not
+re-limp through the same raises after every seek/loop re-warm. An **analysis underrun** — the
+derived D clamped at its ceiling while coverage ahead of the playhead still trails the latched D
+(`isAnalysisUnderrun`), sustained over `UNDERRUN_VERDICT_STREAK` consecutive verdicts — dispatches
 `analysisUnderrun` to the machine: the first widens the sampling floor to `RELIEVED_SAMPLE_FLOOR_MS`
 (fewer samples relieve inference pressure), and a second sustained underrun after relief demotes the
 session out of the DVR exactly like `audioUndelayable` — this machine cannot analyze fast enough,
@@ -286,18 +292,18 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. Warm-up
   cover follows fail-closed only: a verdict-less session keeps its adoption blur, an already-masked
   session gets a whole-blur (its static DOM overlay would lag the moving content), and a
-  safe-verdicted session warms up **unblurred**. The session's Verdict Timeline (every playback
-  verdict, keyed by `timestampSec`) already exists on the handle and is shared with the player
-  read-only.
+  safe-verdicted session warms up **unblurred** at the DOM level — though once the canvas presents,
+  its verdict-less frames whole-blur anyway (see the per-frame rule below). The session's Verdict
+  Timeline (every playback verdict, keyed by `timestampSec`) already exists on the handle and is
+  shared with the player read-only.
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out. While the buffer is
-  still shorter than `D`, presentation pins on the earliest buffered frame — unblurred when the
-  latest applied verdict is safe, whole-blurred while a verdict is pending — like a rebuffering
-  pause (the audio delay-line fill produces a matching gap), then runs `D` behind the live edge.
-  While presenting, per-verdict `applyVerdict` DOM renders are suppressed — the player composites
-  masks itself. Audio is routed through a WebAudio `DelayNode` at the same `D`
-  (`dvr/audioDelay.ts`), keeping lip-sync; a permanent capture failure withdraws protection entirely
-  (see the audio precondition below).
+  still shorter than `D`, presentation pins on the earliest buffered frame — whole-blurred until a
+  playback verdict covers it — like a rebuffering pause (the audio delay-line fill produces a
+  matching gap), then runs `D` behind the live edge. While presenting, per-verdict `applyVerdict`
+  DOM renders are suppressed — the player composites masks itself. Audio is routed through a
+  WebAudio `DelayNode` at the same `D` (`dvr/audioDelay.ts`), keeping lip-sync; a permanent capture
+  failure withdraws protection entirely (see the audio precondition below).
 - **Unsafe verdict while playing**: no transition — the verdict lands in the Verdict Timeline and
   the already-running presentation composites its masks `D` later. Only a DVR still `warming`
   (canvas not yet presenting) gets an interim whole-blur cover.
@@ -311,13 +317,14 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   bounding masks (RLE-decoded once, pixelated content + destination-in) — inertia over the unknown
   motion in between. Past the last verdict an unsafe mask covers only a short overshoot, and a
   masked span wider than the bridge horizon whole-blurs instead — that far out the stale geometry no
-  longer describes the scene. The one exception to fail-closed is the warm-up of a session the
-  machine already cleared: its timeline is still empty (the Thumbnail verdict carries no media
-  time), and blurring there would flash over every play and seek of a clean video — exactly the
-  cover the machine deliberately withheld. Once any playback verdict exists, holes are genuine gaps
-  and blur. Lookups binary-search the timestamp-ordered timeline and read the bounding neighbors, so
-  per-tick cost stays constant rather than growing with the session. Sampling continues at the live
-  edge throughout.
+  longer describes the scene. There is no fail-open exception for a session the machine already
+  cleared: the clearing verdict there is the Thumbnail, which describes the poster and carries no
+  media time, so it must never present playback frames it does not describe — that let Shorts'
+  unsafe first frame show unmasked for a full round-trip. A verdict-less frame always whole-blurs
+  (the cost is a short blur over the pinned frame on a clean video's first play; re-warms into
+  covered ranges present clean immediately). Lookups binary-search the timestamp-ordered timeline
+  and read the bounding neighbors, so per-tick cost stays constant rather than growing with the
+  session. Sampling continues at the live edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
   permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
