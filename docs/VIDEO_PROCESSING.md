@@ -289,13 +289,15 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   in-place to the WebCodecs-encoded ring when the async hardware probe passes (native-resolution
   `VideoFrame` captures, bitrate-shaped demand, ~50-100x smaller; the upgrade flush re-warms like a
   seek). The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
-  codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. Warm-up
-  cover follows fail-closed only: a verdict-less session keeps its adoption blur, an already-masked
-  session gets a whole-blur (its static DOM overlay would lag the moving content), and a
-  safe-verdicted session warms up **unblurred** at the DOM level — though once the canvas presents,
-  its verdict-less frames whole-blur anyway (see the per-frame rule below). The session's Verdict
-  Timeline (every playback verdict, keyed by `timestampSec`) already exists on the handle and is
-  shared with the player read-only.
+  codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
+  is whole-blurred: the DOM overlay of an already-masked session would lag the moving content, a
+  verdict-less session simply keeps its adoption blur, and a safe-verdicted session is covered too
+  because the pinned earliest frame is no cover until the player has captured a frame and injected
+  its canvas — the native element renders live for those first ticks. `bufferReady` lifts it as soon
+  as the canvas takes over, and a clean playback verdict is the escape when capture never succeeds.
+  The one uncovered case is a deliberately allowed session (status `skipped`), whose finalize
+  cleared the blur on purpose. The session's Verdict Timeline (every playback verdict, keyed by
+  `timestampSec`) already exists on the handle and is shared with the player read-only.
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out. While the buffer is
   still shorter than `D`, presentation pins on the earliest buffered frame — whole-blurred until a
@@ -345,7 +347,7 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
 - **Seek**: ring discontinuity → flush and re-warm (stopDvr/startDvr) with a freshly derived `D` —
   small when the seek lands in a range the timeline already covers, so re-visited content barely
   pauses. The warm-up cover is re-established under the same fail-closed rule: whole-blur while
-  masked or verdict-pending, unblurred pinned frame when safe.
+  masked or verdict-pending; a resumed skipped session stays deliberately uncovered.
 - **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
   hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
   ERROR, source change, and the undelayable-audio demotion. Pause, `ended`, and clean streaks are

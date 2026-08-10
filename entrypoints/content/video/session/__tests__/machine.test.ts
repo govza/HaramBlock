@@ -195,14 +195,14 @@ describe('VideoSession machine', () => {
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
     );
-    // The DVR is already warming (continuous DVR starts on play), unblurred.
+    // The DVR is already warming (continuous DVR starts on play), covered until
+    // the canvas takes over.
     expect(sampling.state.dvr).toBe('warming');
-    expect(sampling.state.blurred).toBe(false);
+    expect(sampling.state.blurred).toBe(true);
 
-    // An unsafe verdict mid-warm-up must cover instantly: the canvas is not
+    // An unsafe verdict mid-warm-up keeps that cover: the canvas is not
     // presenting yet, and a DOM overlay would describe a frame that moved on.
     const unsafe = run(sampling.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 });
-    expect(unsafe.effects).toContainEqual({ kind: 'applyBlur' });
     expect(unsafe.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdict' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'clearBlur' });
@@ -614,7 +614,7 @@ describe('VideoSession machine', () => {
     expect(playing.effects).toContainEqual({ kind: 'startDvr' });
   });
 
-  it('starts the DVR unblurred when a safe-verdicted video begins playing', () => {
+  it('covers the warm-up even for a safe-verdicted video (no pinned frame yet)', () => {
     const safeStandby = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -626,9 +626,16 @@ describe('VideoSession machine', () => {
     const playing = run(safeStandby.state, { type: 'play', at: 1000 });
     expect(playing.state.dvr).toBe('warming');
     expect(playing.effects).toContainEqual({ kind: 'startDvr' });
-    // Safe warm-up is uncovered on purpose: the pinned earliest frame is the cover.
-    expect(playing.effects).not.toContainEqual({ kind: 'applyBlur' });
-    expect(playing.state.blurred).toBe(false);
+    // The pinned earliest frame cannot cover anything until the player captures
+    // one and injects its canvas; until then the native element renders live.
+    expect(playing.effects).toContainEqual({ kind: 'applyBlur' });
+    expect(playing.state.blurred).toBe(true);
+
+    // bufferReady — the canvas took over — is what lifts it.
+    const ready = run(playing.state, { type: 'bufferReady', at: 1100 });
+    expect(ready.state.dvr).toBe('presenting');
+    expect(ready.state.blurred).toBe(false);
+    expect(ready.effects).toContainEqual({ kind: 'clearBlur' });
   });
 
   it('keeps the adoption blur when a verdict-less video begins playing (fail-closed warm-up)', () => {
