@@ -6,17 +6,16 @@ import type { PolicyTarget } from '@/utils/types';
 interface TargetChipProps {
   label: string;
   enabled: boolean;
-  locked: boolean;
   onToggle: () => void;
   testId?: string;
 }
 
-const TargetChip = ({ label, enabled, locked, onToggle, testId }: TargetChipProps) => (
+const TargetChip = ({ label, enabled, onToggle, testId }: TargetChipProps) => (
   <button
     type='button'
-    className={`flex-1 rounded-md px-2.5 py-0.5 text-center text-xs font-medium transition-colors ${
-      locked ? 'cursor-default' : 'cursor-pointer'
-    } ${enabled ? 'bg-success text-white' : 'bg-text-muted text-text-inverse hover:bg-surface-light'}`}
+    className={`flex-1 cursor-pointer rounded-md px-2.5 py-0.5 text-center text-xs font-medium transition-colors ${
+      enabled ? 'bg-success text-white' : 'bg-text-muted text-text-inverse hover:bg-surface-light'
+    }`}
     onClick={onToggle}
     data-testid={testId}
     aria-pressed={enabled}
@@ -34,8 +33,12 @@ export const PolicyTargetSwitcher = () => {
   const enabledCount = Object.values(targets).filter(Boolean).length;
 
   const toggle = (target: PolicyTarget, enabled: boolean) => () => {
-    // Keep at least one target enabled while processing — all-off would filter nothing.
-    if (enabled && enabledCount === 1) return;
+    // Disabling the last enabled target means no processing at all — whitelist the
+    // host instead, keeping targets untouched so they restore on return to process.
+    if (enabled && enabledCount === 1) {
+      void hostSettingsRepository.setBehavior(hostSettings.hostname, 'whitelist').then(markDirty);
+      return;
+    }
     void hostSettingsRepository.setTarget(hostSettings.hostname, target, !enabled).then(markDirty);
   };
 
@@ -48,7 +51,6 @@ export const PolicyTargetSwitcher = () => {
             key={target}
             label={t(`HostSettings.Targets.${target}`)}
             enabled={enabled}
-            locked={enabled && enabledCount === 1}
             onToggle={toggle(target, enabled)}
             testId={`target-${target}`}
           />
