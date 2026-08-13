@@ -167,6 +167,19 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
   }
 
   /**
+   * Set the policy behavior for hostname, leaving targets untouched
+   * @param hostname - The hostname to update
+   * @param behavior - The policy behavior to set
+   * @returns Updated host settings
+   */
+  async setBehavior(hostname: string, behavior: PolicyBehavior): Promise<IHostSettings> {
+    const settings = await this.findByHostname(hostname);
+    settings.policy = { ...settings.policy, behavior };
+    await this.saveSettings(settings);
+    return settings;
+  }
+
+  /**
    * Set strictness level for hostname
    * @param hostname - The hostname to update
    * @param strictness - Strictness level (clamped between 0 and 1)
