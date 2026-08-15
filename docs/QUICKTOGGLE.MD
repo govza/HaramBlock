@@ -42,6 +42,11 @@ view content I deem appropriate while keeping protection active for other images
 - The button's chrome is inline styles (the injected class rules cannot reach shadow trees); the
   `.haramblock-eye-toggle` class remains for hover styling and test selectors
 - Semi-transparent background (`rgba(0, 0, 0, 0.5)`), auto-hides after 2.5s
+- **White (inverted) background** when the pipeline finalized the element without
+  analyzing it (video `skipped` status, e.g. an undelayable cross-origin source) and no override
+  is active — the user can tell "AI-verified safe" from "never checked" and force-block from there.
+  Unprocessed elements use a 2-state cycle (`auto ↔ blocked`): `visible` would just restate the
+  already-unprotected `auto`
 - Icon shows the **next state** (what clicking will do)
 
 ### Toggle States (3-state cycle)

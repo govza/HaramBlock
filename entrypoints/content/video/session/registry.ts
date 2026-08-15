@@ -84,6 +84,7 @@ interface ForcedEntry {
   srcObject: HTMLVideoElement['srcObject'];
   url: string;
   state: Exclude<ForcedVisibility, 'auto'>;
+  unprocessed: boolean;
 }
 
 function matchesForcedSource(entry: ForcedEntry, source: ResolvedVideoSource): boolean {
@@ -153,7 +154,7 @@ class VideoSessionRegistry {
     const forced = this.forcedByVideo.get(video);
     if (forced) {
       if (matchesForcedSource(forced, source)) {
-        this.applyForcedPresentation(video, hostSettings, forced.state);
+        this.applyForcedPresentation(video, hostSettings, forced);
         return;
       }
       this.forcedByVideo.delete(video);
@@ -325,7 +326,8 @@ class VideoSessionRegistry {
 
     const source = resolveVideoSource(video);
     if (!source) return;
-    this.forcedByVideo.set(video, { srcObject: source.srcObject, url: source.url, state: next });
+    const unprocessed = this.forcedByVideo.get(video)?.unprocessed ?? video.hasAttribute(PROCESSED_ATTR_MAP.skipped);
+    this.forcedByVideo.set(video, { srcObject: source.srcObject, url: source.url, state: next, unprocessed });
     this.adopt(video, settings);
   }
 
@@ -335,24 +337,20 @@ class VideoSessionRegistry {
    * is the only machinery left running: the override describes this source
    * only, so a new source re-enters normal adoption.
    */
-  private applyForcedPresentation(
-    video: HTMLVideoElement,
-    hostSettings: IHostSettings,
-    state: Exclude<ForcedVisibility, 'auto'>,
-  ): void {
+  private applyForcedPresentation(video: HTMLVideoElement, hostSettings: IHostSettings, entry: ForcedEntry): void {
     const existing = this.byVideo.get(video);
     if (existing) this.dispatch(existing, { type: 'dispose' });
     this.forcedActive.get(video)?.();
 
     clearWholeBlur(video);
     resetImageStyling(video);
-    if (state === 'blocked') {
+    if (entry.state === 'blocked') {
       applyBlacklistStyling(video, hostSettings);
       video.setAttribute(PROCESSED_ATTR_MAP.unsafe, '');
     } else {
       video.setAttribute(PROCESSED_ATTR_MAP.skipped, '');
     }
-    this.registerToggle(video, hostSettings, state, state === 'blocked');
+    this.registerToggle(video, hostSettings, entry.state, entry.state === 'blocked', entry.unprocessed);
 
     const onSourceChanged = () => {
       const current = resolveVideoSource(video);
@@ -382,11 +380,13 @@ class VideoSessionRegistry {
     hostSettings: IHostSettings,
     forcedVisibility: ForcedVisibility,
     hasDetections: boolean,
+    unprocessed = false,
   ): void {
     registerQuickToggle(video, {
       src: this.byVideo.get(video)?.src ?? resolveVideoSource(video)?.url ?? '',
       forcedVisibility,
       hasDetections,
+      unprocessed,
       hostSettings,
       onToggle: next => this.setForcedVisibility(video, next),
     });
@@ -498,8 +498,15 @@ class VideoSessionRegistry {
         case 'setStatus':
           clearProcessedStatus(video);
           video.setAttribute(PROCESSED_ATTR_MAP[STATUS_TO_PROCESSED[effect.status]], '');
-          // Safe↔unsafe flips move the button between the two host switches.
-          this.registerToggle(video, handle.hostSettings, 'auto', effect.status === 'unsafe');
+          // Safe↔unsafe flips move the button between the two host switches;
+          // 'skipped' (never analyzed) surfaces as the inverted (white) button.
+          this.registerToggle(
+            video,
+            handle.hostSettings,
+            'auto',
+            effect.status === 'unsafe',
+            effect.status === 'skipped',
+          );
           break;
         case 'startTimer': {
           const pending = handle.timers.get(effect.timer);
