@@ -4,6 +4,7 @@ import {
   classifyOverlayMutation,
   ensurePositionContext,
   overlayOffsetInParent,
+  resolveAnchorParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import {
   predictionToggleRegistration,
@@ -68,7 +69,7 @@ class GifMaskPlayer {
       return;
     }
 
-    const parent = image.parentElement;
+    const parent = resolveAnchorParent(image);
     if (!parent) return;
 
     ensurePositionContext(parent);
@@ -144,10 +145,11 @@ class GifMaskPlayer {
           return;
         }
         // moved: the player overlay lives as the image's next sibling
-        if (image.parentElement && (overlay.previousElementSibling !== image || !overlay.isConnected)) {
-          ensurePositionContext(image.parentElement);
+        const anchor = resolveAnchorParent(image);
+        if (anchor && (overlay.previousElementSibling !== image || !overlay.isConnected)) {
+          ensurePositionContext(anchor);
           image.after(overlay);
-          gifStates.get(image)?.resizeObserver.observe(image.parentElement);
+          gifStates.get(image)?.resizeObserver.observe(anchor);
         }
         this.updateLayout(image);
       }),
@@ -226,7 +228,7 @@ class GifMaskPlayer {
 
   private renderCurrentFrame(image: HTMLImageElement, state: GifPlayerState): void {
     const frame = state.frames[state.currentFrame];
-    const parent = image.parentElement;
+    const parent = resolveAnchorParent(image);
     if (!frame || !parent || state.destroyed) return;
 
     ensurePositionContext(parent);

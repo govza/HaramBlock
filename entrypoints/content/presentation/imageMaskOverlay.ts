@@ -5,6 +5,7 @@ import {
   classifyOverlayMutation,
   ensurePositionContext,
   overlayOffsetInParent,
+  resolveAnchorParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import {
   predictionToggleRegistration,
@@ -83,7 +84,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       return;
     }
 
-    const parent = image.parentElement;
+    const parent = resolveAnchorParent(image);
     if (!parent) return;
 
     ensurePositionContext(parent);
@@ -143,7 +144,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       // the next site mutation. Re-masking goes through the create path.
       this.disposeState(image, state);
     } else {
-      const parent = image.parentElement;
+      const parent = resolveAnchorParent(image);
       if (parent) removeExistingImageOverlays(parent);
     }
   }
@@ -179,7 +180,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       this.disposeState(image, state);
     } else {
       // Fallback: remove any stale (orphaned) overlay elements
-      const parent = image.parentElement;
+      const parent = resolveAnchorParent(image);
       if (parent) removeExistingImageOverlays(parent);
     }
     // Unregister from eye toggle
@@ -204,7 +205,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     originalHeight: number,
     masking: IMaskingSettings,
   ): IMediaOverlayState {
-    const parent = image.parentElement;
+    const parent = resolveAnchorParent(image);
     if (!parent) throw new Error('Image has no parent');
 
     // Force layout recalculation to get accurate dimensions
@@ -315,7 +316,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       state.viewportHandler = undefined;
     }
 
-    const parent = image.parentElement;
+    const parent = resolveAnchorParent(image);
     if (!parent) return;
 
     const scheduleUpdate = () => {
@@ -371,8 +372,8 @@ class ImageMaskOverlay implements IMediaOverlay {
         this.disposeState(image, state);
         return;
       }
-      // moved: keep the mask glued to the image's current parent
-      const parent = image.parentElement;
+      // moved: keep the mask glued to the image's current anchor parent
+      const parent = resolveAnchorParent(image);
       if (parent && state.overlay.parentElement !== parent) {
         ensurePositionContext(parent);
         parent.appendChild(state.overlay);
@@ -396,7 +397,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       this.clearMaskOverlay(image);
       return;
     }
-    const parent = image.parentElement;
+    const parent = resolveAnchorParent(image);
     if (!parent || state.destroyed) return;
 
     // Force layout recalculation to get accurate dimensions
