@@ -37,6 +37,7 @@ export interface GalleryParams {
   overlay: boolean;
   naturalized: boolean;
   size: GallerySizeType;
+  absolute: boolean;
 }
 
 export const DEFAULT_GALLERY_PARAMS: GalleryParams = {
@@ -45,6 +46,7 @@ export const DEFAULT_GALLERY_PARAMS: GalleryParams = {
   overlay: true,
   naturalized: false,
   size: GallerySize.MEDIUM,
+  absolute: false,
 };
 
 export const buildGalleryUrl = (params: Partial<GalleryParams> = {}): string => {
@@ -56,6 +58,7 @@ export const buildGalleryUrl = (params: Partial<GalleryParams> = {}): string => 
     overlay: String(mergedParams.overlay),
     naturalized: String(mergedParams.naturalized),
     size: mergedParams.size,
+    absolute: String(mergedParams.absolute),
   });
   return `${GALLERY_BASE_URL}?${searchParams.toString()}`;
 };
