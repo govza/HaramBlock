@@ -117,6 +117,11 @@ This ensures tests run quickly and don't interfere with actual browser storage.
 
 E2E tests use [WebdriverIO](https://webdriver.io/) with [Cucumber](https://cucumber.io/) framework.
 
+### Test Site (System Under Test)
+
+The e2e tests run against the haramblock website, which is controlled by us and may be modified to
+suit testing needs. It lives in `../wildebeest` (relative to the project root).
+
 ### Running E2E Tests
 
 **Important:** If you've modified extension code, rebuild before running tests. `pnpm build` is
