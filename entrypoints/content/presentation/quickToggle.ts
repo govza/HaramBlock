@@ -18,18 +18,23 @@ const BUTTON_SIZE_PX = 32;
 const BUTTON_MARGIN_PX = 8;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
+export type ToggleTarget = HTMLImageElement | HTMLVideoElement;
 type RegisteredElement = {
-  prediction: IImagePrediction;
+  src: string;
+  forcedVisibility: ForcedVisibility;
+  hasDetections: boolean;
   minSize: IHostSettings['minSize'];
+  /** Per-element handler (videos): session-scoped state has no src-keyed store to route through. */
+  onToggle?: (next: ForcedVisibility) => void;
 };
 
 let eyeButton: HTMLButtonElement | null = null;
-let currentElement: HTMLImageElement | null = null;
+let currentElement: ToggleTarget | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let showTimer: ReturnType<typeof setTimeout> | null = null;
 let toggleCallback: ToggleCallback | null = null;
 
-const registeredElements = new WeakMap<HTMLImageElement, RegisteredElement>();
+const registeredElements = new WeakMap<ToggleTarget, RegisteredElement>();
 
 function getNextState(current: ForcedVisibility): ForcedVisibility {
   // Both unsafe and safe: auto → blocked → visible → auto
@@ -57,9 +62,9 @@ function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
   return svg;
 }
 
-function updateButtonIcon(prediction: IImagePrediction): void {
+function updateButtonIcon(forcedVisibility: ForcedVisibility): void {
   if (!eyeButton) return;
-  eyeButton.replaceChildren(createSvgIcon(getNextState(prediction.forcedVisibility)));
+  eyeButton.replaceChildren(createSvgIcon(getNextState(forcedVisibility)));
 }
 
 // Anchors to the rendered content, not the element box: letterbox bars in
@@ -77,7 +82,7 @@ export function eyeButtonOffsetInParent(
   };
 }
 
-function positionEye(element: HTMLImageElement): boolean {
+function positionEye(element: ToggleTarget): boolean {
   if (!eyeButton) return false;
   const parent = element.parentElement;
   if (!parent) return false;
@@ -106,7 +111,7 @@ function positionEye(element: HTMLImageElement): boolean {
   return true;
 }
 
-function showEye(element: HTMLImageElement): void {
+function showEye(element: ToggleTarget): void {
   createGlobalEyeButton();
   if (!eyeButton) return;
 
@@ -121,7 +126,7 @@ function showEye(element: HTMLImageElement): void {
   clearShowTimer();
 
   currentElement = element;
-  updateButtonIcon(registered.prediction);
+  updateButtonIcon(registered.forcedVisibility);
   if (!positionEye(element)) return;
 
   showTimer = setTimeout(() => {
@@ -170,12 +175,14 @@ function handleClick(e: Event): void {
   const registered = registeredElements.get(currentElement);
   if (!registered) return;
 
-  // Save element reference - toggleCallback may unregister/re-register
+  // Save element reference - the toggle handler may unregister/re-register
   const clickedElement = currentElement;
-  const nextForcedVisibility = getNextState(registered.prediction.forcedVisibility);
+  const nextForcedVisibility = getNextState(registered.forcedVisibility);
 
-  if (toggleCallback) {
-    toggleCallback(registered.prediction.src, nextForcedVisibility);
+  if (registered.onToggle) {
+    registered.onToggle(nextForcedVisibility);
+  } else if (toggleCallback) {
+    toggleCallback(registered.src, nextForcedVisibility);
   }
 
   // After toggle, get fresh registered data and keep eye visible
@@ -189,7 +196,7 @@ function handleClick(e: Event): void {
       return;
     }
     currentElement = clickedElement;
-    updateButtonIcon(freshRegistered.prediction);
+    updateButtonIcon(freshRegistered.forcedVisibility);
     if (!positionEye(clickedElement)) {
       hideEye();
       return;
@@ -202,7 +209,7 @@ function handleClick(e: Event): void {
 }
 
 function handlePointerEnter(e: Event): void {
-  const target = e.currentTarget as HTMLImageElement;
+  const target = e.currentTarget as ToggleTarget;
   if (registeredElements.has(target)) {
     showEye(target);
   }
@@ -243,30 +250,75 @@ export function initQuickToggle(onToggle: ToggleCallback): void {
   createGlobalEyeButton();
 }
 
+function upsertRegistration(element: ToggleTarget, entry: RegisteredElement): void {
+  const existing = registeredElements.get(element);
+  if (existing) {
+    Object.assign(existing, entry);
+    return;
+  }
+
+  registeredElements.set(element, entry);
+
+  element.addEventListener('pointerenter', handlePointerEnter);
+  element.addEventListener('pointerleave', handlePointerLeave);
+}
+
+/**
+ * Which host switch governs the button. A forced element must keep its button
+ * (either switch suffices) or the user could never cycle back to 'auto'.
+ */
+export function shouldShowToggle(
+  forcedVisibility: ForcedVisibility,
+  hasDetections: boolean,
+  quickToggle: IHostSettings['quickToggle'],
+): boolean {
+  if (forcedVisibility !== 'auto') return quickToggle.unsafeEnabled || quickToggle.safeEnabled;
+  return hasDetections ? quickToggle.unsafeEnabled : quickToggle.safeEnabled;
+}
+
 export function registerQuickToggle(
   element: HTMLImageElement,
   prediction: IImagePrediction,
   hostSettings: IHostSettings,
 ): void {
   const { quickToggle, minSize } = hostSettings;
-  const hasPredictions = Boolean(prediction.predictions?.length);
-  const shouldRegister = hasPredictions ? quickToggle.unsafeEnabled : quickToggle.safeEnabled;
-  if (!shouldRegister) return;
+  const hasDetections = Boolean(prediction.predictions?.length);
+  if (!shouldShowToggle(prediction.forcedVisibility, hasDetections, quickToggle)) return;
 
-  const existing = registeredElements.get(element);
-  if (existing) {
-    existing.prediction = prediction;
-    existing.minSize = minSize;
+  upsertRegistration(element, {
+    src: prediction.src,
+    forcedVisibility: prediction.forcedVisibility,
+    hasDetections,
+    minSize,
+  });
+}
+
+export function registerVideoQuickToggle(
+  video: HTMLVideoElement,
+  opts: {
+    src: string;
+    forcedVisibility: ForcedVisibility;
+    hasDetections: boolean;
+    hostSettings: IHostSettings;
+    onToggle: (next: ForcedVisibility) => void;
+  },
+): void {
+  const { quickToggle, minSize } = opts.hostSettings;
+  if (!shouldShowToggle(opts.forcedVisibility, opts.hasDetections, quickToggle)) {
+    unregisterQuickToggle(video);
     return;
   }
 
-  registeredElements.set(element, { prediction, minSize });
-
-  element.addEventListener('pointerenter', handlePointerEnter);
-  element.addEventListener('pointerleave', handlePointerLeave);
+  upsertRegistration(video, {
+    src: opts.src,
+    forcedVisibility: opts.forcedVisibility,
+    hasDetections: opts.hasDetections,
+    minSize,
+    onToggle: opts.onToggle,
+  });
 }
 
-export function unregisterQuickToggle(element: HTMLImageElement): void {
+export function unregisterQuickToggle(element: ToggleTarget): void {
   registeredElements.delete(element);
   element.removeEventListener('pointerenter', handlePointerEnter);
   element.removeEventListener('pointerleave', handlePointerLeave);

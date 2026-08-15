@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { clipContentRectToBox } from '@/entrypoints/content/presentation/imageLayout';
-import { eyeButtonOffsetInParent } from '@/entrypoints/content/presentation/quickToggle';
+import { eyeButtonOffsetInParent, shouldShowToggle } from '@/entrypoints/content/presentation/quickToggle';
 
 const BUTTON_SIZE = 32;
 const MARGIN = 8;
@@ -48,5 +48,25 @@ describe('eye button placement', () => {
     );
 
     expect(offset.left).toBe(340);
+  });
+});
+
+describe('toggle visibility gating', () => {
+  it('routes an auto element through the switch matching its detection state', () => {
+    const unsafeOnly = { unsafeEnabled: true, safeEnabled: false };
+    expect(shouldShowToggle('auto', true, unsafeOnly)).toBe(true);
+    expect(shouldShowToggle('auto', false, unsafeOnly)).toBe(false);
+
+    const safeOnly = { unsafeEnabled: false, safeEnabled: true };
+    expect(shouldShowToggle('auto', true, safeOnly)).toBe(false);
+    expect(shouldShowToggle('auto', false, safeOnly)).toBe(true);
+  });
+
+  it('keeps the button on a forced element while either switch is enabled', () => {
+    for (const forced of ['visible', 'blocked'] as const) {
+      expect(shouldShowToggle(forced, false, { unsafeEnabled: true, safeEnabled: false })).toBe(true);
+      expect(shouldShowToggle(forced, true, { unsafeEnabled: false, safeEnabled: true })).toBe(true);
+      expect(shouldShowToggle(forced, true, { unsafeEnabled: false, safeEnabled: false })).toBe(false);
+    }
   });
 });
