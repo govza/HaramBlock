@@ -4,7 +4,11 @@ import {
   computeRenderedContentRect,
   type ContentRect,
 } from '@/entrypoints/content/presentation/imageLayout';
-import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
+import {
+  ensurePositionContext,
+  overlayOffsetInParent,
+  resolveAnchorParent,
+} from '@/entrypoints/content/presentation/overlayPosition';
 
 import type { ForcedVisibility, IHostSettings } from '@/utils/types';
 
@@ -98,7 +102,7 @@ export function eyeButtonOffsetInParent(
 
 function positionEye(element: ToggleTarget): boolean {
   if (!eyeButton) return false;
-  const parent = element.parentElement;
+  const parent = resolveAnchorParent(element);
   if (!parent) return false;
 
   ensurePositionContext(parent);
