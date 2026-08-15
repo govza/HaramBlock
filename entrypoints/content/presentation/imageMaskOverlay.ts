@@ -6,7 +6,11 @@ import {
   ensurePositionContext,
   overlayOffsetInParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
-import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
+import {
+  predictionToggleRegistration,
+  registerQuickToggle,
+  unregisterQuickToggle,
+} from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
@@ -72,7 +76,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       return;
     }
 
-    registerQuickToggle(image, imagePrediction, hostSettings);
+    registerQuickToggle(image, predictionToggleRegistration(imagePrediction, hostSettings));
 
     if (!shouldBlock(imagePrediction)) {
       this.removeMaskOverlayOnly(image);

@@ -5,7 +5,11 @@ import {
   ensurePositionContext,
   overlayOffsetInParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
-import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
+import {
+  predictionToggleRegistration,
+  registerQuickToggle,
+  unregisterQuickToggle,
+} from '@/entrypoints/content/presentation/quickToggle';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
@@ -57,7 +61,7 @@ class GifMaskPlayer {
     hostSettings: IHostSettings,
     maskInertia: number,
   ): void {
-    registerQuickToggle(image, aggregatePrediction, hostSettings);
+    registerQuickToggle(image, predictionToggleRegistration(aggregatePrediction, hostSettings));
 
     if (!frames.length || !shouldBlock(aggregatePrediction)) {
       this.clearPlayer(image, false);

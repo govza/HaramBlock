@@ -15,7 +15,7 @@ import {
   resetImageStyling,
   type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
-import { registerVideoQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
+import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { isAudioDelayable } from '@/entrypoints/content/video/dvr/audioDelay';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
@@ -383,7 +383,7 @@ class VideoSessionRegistry {
     forcedVisibility: ForcedVisibility,
     hasDetections: boolean,
   ): void {
-    registerVideoQuickToggle(video, {
+    registerQuickToggle(video, {
       src: this.byVideo.get(video)?.src ?? resolveVideoSource(video)?.url ?? '',
       forcedVisibility,
       hasDetections,
