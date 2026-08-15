@@ -1,20 +1,25 @@
 # Quick Toggle Feature
 
-Per-image masking toggle that allows users to quickly disable or enable masking on individual
-images.
+Per-media masking toggle that allows users to quickly disable or enable masking on individual
+images and videos.
 
-> **Note:** Quick Toggle currently only works with images. Video support is not yet implemented.
+## Video Support
 
-## TODO: Video Support
+Videos share the same eye button, 3-state cycle, and host switches as images, but their toggle
+state is **session-scoped, never persisted**:
 
-Video toggle applies to the entire video element (not per-frame). Requires video prediction caching
-first:
-
-- [ ] Add video prediction cache with `forcedVisibility` per video URL
-- [ ] Update `quickToggle.ts` types to accept `HTMLImageElement | HTMLVideoElement`
-- [ ] Add `registerQuickToggle()` calls in `videoPredictions.ts`
-- [ ] Create video toggle handler to show/hide all frame overlays
-- [ ] Add cleanup in `handleVideos.ts` via `unregisterQuickToggle()`
+- State lives in the `VideoSessionRegistry` per (element × resolved source). A source change
+  drops the override; two elements playing the same URL toggle independently. This also makes
+  blob:/MSE sources (YouTube) work — no stable URL is needed.
+- `'visible'` is fully hands-off: the VideoSession is disposed (no sampling, no inference, no
+  DVR, no audio delay). Returning to `'auto'` re-adopts the video for a fresh verdict.
+- `'blocked'` disposes the session and applies the blacklist-style whole-video mask.
+- Entry point: `videoSessions.setForcedVisibility(video, next)` — wired as a per-element
+  `onToggle` via `registerVideoQuickToggle()`, since there is no src-keyed store to route
+  through. Forced videos keep a `loadstart`/`emptied` listener so a new source re-enters
+  normal adoption.
+- The button registers at adoption (safe switch), re-registers on each status flip
+  (safe ↔ unsafe switch), and stays available on forced videos while either switch is on.
 
 ## User Story
 
@@ -25,7 +30,7 @@ view content I deem appropriate while keeping protection active for other images
 
 ### Toggle Button
 
-- SVG eye button appears on **hover** (desktop) or **tap** (mobile) over registered images
+- SVG eye button appears on **hover** (desktop) or **tap** (mobile) over registered media
 - Uses pointer events (`pointerenter`/`pointerleave`) so each mobile tap fires fresh — avoids the synthetic-mouse sticky-hover bug where a second tap on the same image would not re-trigger the button
 - A single global button that is inserted into the hovered image's parent (absolute position, like
   the mask overlay), anchored at the top-right of the **rendered content rect** — the visible
