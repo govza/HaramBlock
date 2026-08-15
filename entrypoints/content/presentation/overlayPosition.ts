@@ -49,8 +49,26 @@ export interface IInjectionContext {
   box: HTMLElement;
 }
 
-export function resolveInjectionContext(element: HTMLElement): IInjectionContext | null {
+/**
+ * The parent whose box anchors overlays for this element: the direct parent,
+ * or for an absolutely positioned element its containing block — forcing
+ * `position: relative` onto a static parent would re-anchor the element and
+ * can break its layout.
+ */
+export function resolveAnchorParent(element: HTMLElement): HTMLElement | null {
   const parent = element.parentElement;
+  if (!parent) return null;
+  const { position } = getComputedStyle(element);
+  if (position !== 'absolute' && position !== 'fixed') return parent;
+  let ancestor: HTMLElement | null = parent;
+  while (ancestor && getComputedStyle(ancestor).position === 'static') {
+    ancestor = ancestor.parentElement;
+  }
+  return ancestor ?? parent;
+}
+
+export function resolveInjectionContext(element: HTMLElement): IInjectionContext | null {
+  const parent = resolveAnchorParent(element);
   if (parent) return { container: parent, box: parent };
   const root = element.getRootNode();
   if (root instanceof ShadowRoot && root.host instanceof HTMLElement) {
