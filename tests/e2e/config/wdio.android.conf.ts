@@ -6,10 +6,10 @@ import { pipeline } from 'node:stream/promises';
 
 import { config as baseConfig } from './wdio.conf.js';
 import { ADB_BIN, ADB_DEVICE_SERIAL, ANDROID_HOME, adb, adbOutput, runAdbCleanup } from '../utils/android.js';
-import { getExtensionPath } from '../utils/extension-path.js';
+import { getExtensionPath, getGeckoAddonId } from '../utils/extension-path.js';
 import { dismissFenixOnboarding } from '../utils/fenix-onboarding.js';
 
-const ADDON_ID = 'admin@haramblock.com';
+const ADDON_ID = await getGeckoAddonId();
 const FENIX_PACKAGE = 'org.mozilla.fenix';
 const FENIX_ARCHIVE_BASE = 'https://archive.mozilla.org/pub/fenix/nightly';
 const DEBUG_CI_MODE = process.argv.includes('--debug');

@@ -1,4 +1,19 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
 import { isMobile } from './platform.js';
+
+export const getGeckoAddonId = async (): Promise<string> => {
+  const manifestPath = resolve(import.meta.dirname, '../../../.output/firefox-mv3/manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    browser_specific_settings?: { gecko?: { id?: string } };
+  };
+  const id = manifest.browser_specific_settings?.gecko?.id;
+  if (!id) {
+    throw new Error(`No gecko addon id in ${manifestPath}`);
+  }
+  return id;
+};
 
 let cachedExtensionPath: string | null = null;
 
@@ -44,7 +59,7 @@ const setMozContext = async (browser: WebdriverIO.Browser, context: 'chrome' | '
   }
 };
 
-const getFirefoxExtensionPathAndroid = async (browser: WebdriverIO.Browser, addonId: string) => {
+const getFirefoxExtensionPathViaChromeContext = async (browser: WebdriverIO.Browser, addonId: string) => {
   await setMozContext(browser, 'chrome');
 
   /* eslint-disable no-await-in-loop, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
@@ -87,7 +102,7 @@ const getFirefoxExtensionPathAndroid = async (browser: WebdriverIO.Browser, addo
 
     if (uuid && !uuid.startsWith('__diag:')) break;
     if (uuid?.startsWith('__diag:')) {
-      console.warn(`[android] Chrome context globals available: ${uuid.slice(7) || '(none)'}`);
+      console.warn(`[firefox] Chrome context globals available: ${uuid.slice(7) || '(none)'}`);
       uuid = null;
     }
     await new Promise(r => setTimeout(r, 2000));
@@ -96,7 +111,7 @@ const getFirefoxExtensionPathAndroid = async (browser: WebdriverIO.Browser, addo
   await setMozContext(browser, 'content');
 
   if (!uuid) {
-    throw new Error(`Could not resolve UUID for addon ${addonId} on Android Firefox`);
+    throw new Error(`Could not resolve UUID for addon ${addonId} in Firefox`);
   }
 
   return `moz-extension://${uuid}`;
@@ -112,7 +127,7 @@ export const getExtensionPath = async (browser: WebdriverIO.Browser, addonId?: s
   } else if (browserName === 'firefox') {
     if (isMobile()) {
       if (!addonId) throw new Error('addonId is required for Android Firefox');
-      cachedExtensionPath = await getFirefoxExtensionPathAndroid(browser, addonId);
+      cachedExtensionPath = await getFirefoxExtensionPathViaChromeContext(browser, addonId);
     } else {
       cachedExtensionPath = await getFirefoxExtensionPath(browser);
     }

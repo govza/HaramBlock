@@ -2,7 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { config as baseConfig } from './wdio.conf.js';
-import { getExtensionPath } from '../utils/extension-path.js';
+import { getExtensionPath, getGeckoAddonId } from '../utils/extension-path.js';
 
 const DEBUG_CI_MODE = process.argv.includes('--debug');
 export const IS_CI = Boolean(process.env.CI) || DEBUG_CI_MODE;
@@ -93,6 +93,7 @@ const ciFirefoxPrefs = {
 const firefoxCapabilities = {
   browserName: 'firefox',
   acceptInsecureCerts: true,
+  'wdio:geckodriverOptions': { allowSystemAccess: true },
   'moz:firefoxOptions': {
     args: [...(IS_CI ? ['-headless'] : [])],
     prefs: IS_CI ? ciFirefoxPrefs : {},
@@ -129,6 +130,7 @@ export const config: WebdriverIO.Config = {
       });
     }
 
-    browser.addCommand('getExtensionPath', () => getExtensionPath(browser));
+    const addonId = browserName === 'firefox' ? await getGeckoAddonId() : undefined;
+    browser.addCommand('getExtensionPath', () => getExtensionPath(browser, addonId));
   },
 };
