@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { clipContentRectToBox } from '@/entrypoints/content/presentation/imageLayout';
-import { eyeButtonOffsetInParent, shouldShowToggle } from '@/entrypoints/content/presentation/quickToggle';
+import {
+  eyeButtonOffsetInParent,
+  nextToggleState,
+  shouldShowToggle,
+} from '@/entrypoints/content/presentation/quickToggle';
 
 const BUTTON_SIZE = 32;
 const MARGIN = 8;
@@ -48,6 +52,19 @@ describe('eye button placement', () => {
     );
 
     expect(offset.left).toBe(340);
+  });
+});
+
+describe('toggle state cycle', () => {
+  it('cycles auto -> blocked -> visible -> auto for analyzed elements', () => {
+    expect(nextToggleState('auto', false)).toBe('blocked');
+    expect(nextToggleState('blocked', false)).toBe('visible');
+    expect(nextToggleState('visible', false)).toBe('auto');
+  });
+
+  it('skips visible for unprocessed elements (auto <-> blocked)', () => {
+    expect(nextToggleState('auto', true)).toBe('blocked');
+    expect(nextToggleState('blocked', true)).toBe('auto');
   });
 });
 

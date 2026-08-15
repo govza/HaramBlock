@@ -23,6 +23,8 @@ type RegisteredElement = {
   src: string;
   forcedVisibility: ForcedVisibility;
   hasDetections: boolean;
+  /** The pipeline finalized without analyzing this element (e.g. undelayable video). */
+  unprocessed: boolean;
   minSize: IHostSettings['minSize'];
   /** Per-element handler (videos): session-scoped state has no src-keyed store to route through. */
   onToggle?: (next: ForcedVisibility) => void;
@@ -36,17 +38,18 @@ let toggleCallback: ToggleCallback | null = null;
 
 const registeredElements = new WeakMap<ToggleTarget, RegisteredElement>();
 
-function getNextState(current: ForcedVisibility): ForcedVisibility {
-  // Both unsafe and safe: auto → blocked → visible → auto
+/** Unprocessed elements skip 'visible': they already show unprotected, so only auto ↔ blocked remain meaningful. */
+export function nextToggleState(current: ForcedVisibility, unprocessed: boolean): ForcedVisibility {
+  if (unprocessed) return current === 'auto' ? 'blocked' : 'auto';
   if (current === 'auto') return 'blocked';
   if (current === 'blocked') return 'visible';
   return 'auto';
 }
 
-function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
+function createSvgIcon(nextState: ForcedVisibility, fill = 'white'): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'white');
+  svg.setAttribute('fill', fill);
   svg.style.cssText = 'width: 20px; height: 20px; opacity: 0.5;';
 
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -62,9 +65,20 @@ function createSvgIcon(nextState: ForcedVisibility): SVGSVGElement {
   return svg;
 }
 
-function updateButtonIcon(forcedVisibility: ForcedVisibility): void {
+const DEFAULT_BUTTON_BACKGROUND = 'rgba(0, 0, 0, 0.5)';
+/** Inverted (white) button marks an element the AI never analyzed. */
+const UNPROCESSED_BUTTON_BACKGROUND = 'rgba(255, 255, 255, 0.7)';
+
+function updateButtonAppearance(registered: RegisteredElement): void {
   if (!eyeButton) return;
-  eyeButton.replaceChildren(createSvgIcon(getNextState(forcedVisibility)));
+  const showUnprocessed = registered.unprocessed && registered.forcedVisibility === 'auto';
+  eyeButton.replaceChildren(
+    createSvgIcon(
+      nextToggleState(registered.forcedVisibility, registered.unprocessed),
+      showUnprocessed ? 'black' : 'white',
+    ),
+  );
+  eyeButton.style.background = showUnprocessed ? UNPROCESSED_BUTTON_BACKGROUND : DEFAULT_BUTTON_BACKGROUND;
 }
 
 // Anchors to the rendered content, not the element box: letterbox bars in
@@ -126,7 +140,7 @@ function showEye(element: ToggleTarget): void {
   clearShowTimer();
 
   currentElement = element;
-  updateButtonIcon(registered.forcedVisibility);
+  updateButtonAppearance(registered);
   if (!positionEye(element)) return;
 
   showTimer = setTimeout(() => {
@@ -177,7 +191,7 @@ function handleClick(e: Event): void {
 
   // Save element reference - the toggle handler may unregister/re-register
   const clickedElement = currentElement;
-  const nextForcedVisibility = getNextState(registered.forcedVisibility);
+  const nextForcedVisibility = nextToggleState(registered.forcedVisibility, registered.unprocessed);
 
   if (registered.onToggle) {
     registered.onToggle(nextForcedVisibility);
@@ -196,7 +210,7 @@ function handleClick(e: Event): void {
       return;
     }
     currentElement = clickedElement;
-    updateButtonIcon(freshRegistered.forcedVisibility);
+    updateButtonAppearance(freshRegistered);
     if (!positionEye(clickedElement)) {
       hideEye();
       return;
@@ -280,6 +294,8 @@ export interface QuickToggleRegistration {
   src: string;
   forcedVisibility: ForcedVisibility;
   hasDetections: boolean;
+  /** The pipeline finalized without analyzing this element; the button shows an amber warning. */
+  unprocessed?: boolean;
   hostSettings: IHostSettings;
   /** Per-element handler; omitted = the global src-keyed callback from initQuickToggle. */
   onToggle?: (next: ForcedVisibility) => void;
@@ -309,6 +325,7 @@ export function registerQuickToggle(element: ToggleTarget, opts: QuickToggleRegi
     src: opts.src,
     forcedVisibility: opts.forcedVisibility,
     hasDetections: opts.hasDetections,
+    unprocessed: opts.unprocessed ?? false,
     minSize,
     onToggle: opts.onToggle,
   });
