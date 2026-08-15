@@ -14,10 +14,9 @@ state is **session-scoped, never persisted**:
 - `'visible'` is fully hands-off: the VideoSession is disposed (no sampling, no inference, no
   DVR, no audio delay). Returning to `'auto'` re-adopts the video for a fresh verdict.
 - `'blocked'` disposes the session and applies the blacklist-style whole-video mask.
-- Entry point: `videoSessions.setForcedVisibility(video, next)` — wired as a per-element
-  `onToggle` via `registerVideoQuickToggle()`, since there is no src-keyed store to route
-  through. Forced videos keep a `loadstart`/`emptied` listener so a new source re-enters
-  normal adoption.
+- Entry point: `videoSessions.setForcedVisibility(video, next)` — wired as the registration's
+  per-element `onToggle`, since there is no src-keyed store to route through. Forced videos
+  keep a `loadstart`/`emptied` listener so a new source re-enters normal adoption.
 - The button registers at adoption (safe switch), re-registers on each status flip
   (safe ↔ unsafe switch), and stays available on forced videos while either switch is on.
 
@@ -140,18 +139,22 @@ function shouldBlock(prediction: IImagePrediction): boolean {
 ### Exported API (`quickToggle.ts`)
 
 ```typescript
-// Initialize with callback for state changes
+// Initialize with the global src-keyed callback for state changes
 initQuickToggle(onToggle: (src: string, forcedVisibility: ForcedVisibility) => void): void
 
-// Register image for hover tracking
-registerQuickToggle(
-  element: HTMLImageElement,
-  prediction: IImagePrediction,
-  quickToggle: { unsafeEnabled: boolean; safeEnabled: boolean }
-): void
+// Register an image or video for hover tracking. onToggle (per-element handler,
+// used by videos) bypasses the global callback. predictionToggleRegistration()
+// builds this options object from an IImagePrediction.
+registerQuickToggle(element: HTMLImageElement | HTMLVideoElement, opts: {
+  src: string;
+  forcedVisibility: ForcedVisibility;
+  hasDetections: boolean;
+  hostSettings: IHostSettings;
+  onToggle?: (next: ForcedVisibility) => void;
+}): void
 
-// Remove image from tracking
-unregisterQuickToggle(element: HTMLImageElement): void
+// Remove element from tracking
+unregisterQuickToggle(element: HTMLImageElement | HTMLVideoElement): void
 ```
 
 ### Styling

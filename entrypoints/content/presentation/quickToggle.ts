@@ -6,7 +6,7 @@ import {
 } from '@/entrypoints/content/presentation/imageLayout';
 import { ensurePositionContext, overlayOffsetInParent } from '@/entrypoints/content/presentation/overlayPosition';
 
-import type { ForcedVisibility, IHostSettings, IImagePrediction } from '@/utils/types';
+import type { ForcedVisibility, IHostSettings } from '@/utils/types';
 
 // Delay before showing button after hovering an image
 const SHOW_DELAY_MS = 500;
@@ -276,40 +276,36 @@ export function shouldShowToggle(
   return hasDetections ? quickToggle.unsafeEnabled : quickToggle.safeEnabled;
 }
 
-export function registerQuickToggle(
-  element: HTMLImageElement,
-  prediction: IImagePrediction,
-  hostSettings: IHostSettings,
-): void {
-  const { quickToggle, minSize } = hostSettings;
-  const hasDetections = Boolean(prediction.predictions?.length);
-  if (!shouldShowToggle(prediction.forcedVisibility, hasDetections, quickToggle)) return;
-
-  upsertRegistration(element, {
-    src: prediction.src,
-    forcedVisibility: prediction.forcedVisibility,
-    hasDetections,
-    minSize,
-  });
+export interface QuickToggleRegistration {
+  src: string;
+  forcedVisibility: ForcedVisibility;
+  hasDetections: boolean;
+  hostSettings: IHostSettings;
+  /** Per-element handler; omitted = the global src-keyed callback from initQuickToggle. */
+  onToggle?: (next: ForcedVisibility) => void;
 }
 
-export function registerVideoQuickToggle(
-  video: HTMLVideoElement,
-  opts: {
-    src: string;
-    forcedVisibility: ForcedVisibility;
-    hasDetections: boolean;
-    hostSettings: IHostSettings;
-    onToggle: (next: ForcedVisibility) => void;
-  },
-): void {
+/** Adapter for prediction-driven (src-keyed) elements; structural so this module stays prediction-agnostic. */
+export function predictionToggleRegistration(
+  prediction: { src: string; forcedVisibility: ForcedVisibility; predictions?: readonly unknown[] },
+  hostSettings: IHostSettings,
+): QuickToggleRegistration {
+  return {
+    src: prediction.src,
+    forcedVisibility: prediction.forcedVisibility,
+    hasDetections: Boolean(prediction.predictions?.length),
+    hostSettings,
+  };
+}
+
+export function registerQuickToggle(element: ToggleTarget, opts: QuickToggleRegistration): void {
   const { quickToggle, minSize } = opts.hostSettings;
   if (!shouldShowToggle(opts.forcedVisibility, opts.hasDetections, quickToggle)) {
-    unregisterQuickToggle(video);
+    unregisterQuickToggle(element);
     return;
   }
 
-  upsertRegistration(video, {
+  upsertRegistration(element, {
     src: opts.src,
     forcedVisibility: opts.forcedVisibility,
     hasDetections: opts.hasDetections,

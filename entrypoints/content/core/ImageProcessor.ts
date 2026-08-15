@@ -26,6 +26,7 @@ import { applyPredictionsStyling } from '@/entrypoints/content/presentation/pred
 import {
   destroyQuickToggle,
   initQuickToggle,
+  predictionToggleRegistration,
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
@@ -364,7 +365,7 @@ export class ImageProcessor {
         void applyPredictionsStyling([img], [updated], this.hostSettings);
       }
       // Always register quick toggle for all states
-      registerQuickToggle(img, updated, this.hostSettings);
+      this.registerToggle(img, updated);
       this.badgeCounter.trackDetections(img, src, detectionCount);
     }
   }
@@ -801,10 +802,10 @@ export class ImageProcessor {
       // Blocked but the decoded frames are gone (a safe GIF force-blocked via toggle, or
       // an evicted session). A safe verdict has no per-frame detections to mask precisely,
       // so a whole-frame blur is the correct block visual and needs no re-decode.
-      registerQuickToggle(img, aggregatePrediction, this.hostSettings);
+      this.registerToggle(img, aggregatePrediction);
       applyBlacklistStyling(img, this.hostSettings);
     } else {
-      registerQuickToggle(img, aggregatePrediction, this.hostSettings);
+      this.registerToggle(img, aggregatePrediction);
     }
 
     let detectionCount = aggregatePrediction.predictions.length;
@@ -948,7 +949,7 @@ export class ImageProcessor {
       if (hasDetections && prediction.forcedVisibility !== 'visible') {
         applyInitialImageStyling(img, this.hostSettings);
       }
-      registerQuickToggle(img, prediction, this.hostSettings);
+      this.registerToggle(img, prediction);
 
       // Determine overlay type based on what styling is applied
       let overlayType: string | undefined;
@@ -999,6 +1000,10 @@ export class ImageProcessor {
   // ===========================================================================
   // Helpers
   // ===========================================================================
+
+  private registerToggle(img: HTMLImageElement, prediction: IImagePrediction): void {
+    registerQuickToggle(img, predictionToggleRegistration(prediction, this.hostSettings));
+  }
 
   private clearOverlays(img: HTMLImageElement): void {
     gifMaskPlayer.clearPlayer(img);
