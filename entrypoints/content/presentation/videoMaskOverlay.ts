@@ -3,7 +3,7 @@ import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/conte
 import {
   classifyOverlayMutation,
   ensurePositionContext,
-  overlayOffsetInParent,
+  overlayPlacement,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
@@ -158,7 +158,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     const videoRect = video.getBoundingClientRect();
     const contentRect = computeRenderedContentRectWithDimensions(video, videoRect, sourceWidth, sourceHeight);
     const boxRect = context.box.getBoundingClientRect();
-    const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
+    const placement = overlayPlacement(video, context.box, videoRect, boxRect);
 
     const overlay = document.createElement('div');
     overlay.setAttribute(VIDEO_MASK_OVERLAY_ATTR, 'unified-video-mask-overlay');
@@ -167,9 +167,9 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     const overlayZIndex = Math.max(videoZIndex + 1, 9999);
 
     overlay.style.cssText = `
-    position: absolute;
-    top: ${offset.top}px;
-    left: ${offset.left}px;
+    position: ${placement.position};
+    top: ${placement.top}px;
+    left: ${placement.left}px;
     width: ${videoRect.width}px;
     height: ${videoRect.height}px;
     overflow: hidden;
@@ -310,9 +310,10 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
       const needsResize = state.lastSize.width !== videoRect.width || state.lastSize.height !== videoRect.height;
 
       if (needsResize) {
-        const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
-        overlay.style.top = `${offset.top}px`;
-        overlay.style.left = `${offset.left}px`;
+        const placement = overlayPlacement(video, context.box, videoRect, boxRect);
+        overlay.style.position = placement.position;
+        overlay.style.top = `${placement.top}px`;
+        overlay.style.left = `${placement.left}px`;
         overlay.style.width = `${videoRect.width}px`;
         overlay.style.height = `${videoRect.height}px`;
         state.lastSize = { width: videoRect.width, height: videoRect.height };
