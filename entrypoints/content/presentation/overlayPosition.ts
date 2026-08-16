@@ -115,6 +115,40 @@ function formsFixedContainingBlock(el: HTMLElement): boolean {
   );
 }
 
+/** True when the element's containing block is the viewport itself. */
+export function isViewportFixed(element: HTMLElement): boolean {
+  if (getComputedStyle(element).position !== 'fixed') return false;
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (formsFixedContainingBlock(ancestor)) return false;
+  }
+  return true;
+}
+
+export interface IOverlayPlacement {
+  position: 'absolute' | 'fixed';
+  top: number;
+  left: number;
+}
+
+/**
+ * How to position an overlay so it tracks its element. A viewport-fixed
+ * element does not move on scroll while an abs-pos overlay in its anchor
+ * parent does, so the overlay must itself be `position: fixed` at the
+ * element's viewport coordinates; everything else anchors absolutely in the
+ * parent's content coordinate space.
+ */
+export function overlayPlacement(
+  element: HTMLElement,
+  parent: HTMLElement,
+  rect: DOMRect,
+  parentRect: DOMRect,
+): IOverlayPlacement {
+  if (isViewportFixed(element)) {
+    return { position: 'fixed', top: rect.top, left: rect.left };
+  }
+  return { position: 'absolute', ...overlayOffsetInParent(parent, rect, parentRect) };
+}
+
 export function resolveInjectionContext(element: HTMLElement): IInjectionContext | null {
   const parent = resolveAnchorParent(element);
   if (parent) return { container: parent, box: parent };

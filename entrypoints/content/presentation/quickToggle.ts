@@ -6,7 +6,7 @@ import {
 } from '@/entrypoints/content/presentation/imageLayout';
 import {
   ensurePositionContext,
-  overlayOffsetInParent,
+  overlayPlacement,
   resolveAnchorParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
 
@@ -109,7 +109,7 @@ function positionEye(element: ToggleTarget): boolean {
 
   const imageRect = element.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
-  const imageOffset = overlayOffsetInParent(parent, imageRect, parentRect);
+  const placement = overlayPlacement(element, parent, imageRect, parentRect);
   // Clip cover-fit crop overflow: an overflow-hidden parent would clip a button
   // anchored past the element box into an unclickable sliver
   const contentRect = clipContentRectToBox(
@@ -117,8 +117,9 @@ function positionEye(element: ToggleTarget): boolean {
     imageRect.width,
     imageRect.height,
   );
-  const offset = eyeButtonOffsetInParent(imageOffset, contentRect, BUTTON_SIZE_PX, BUTTON_MARGIN_PX);
+  const offset = eyeButtonOffsetInParent(placement, contentRect, BUTTON_SIZE_PX, BUTTON_MARGIN_PX);
 
+  eyeButton.style.position = placement.position;
   eyeButton.style.top = `${offset.top}px`;
   eyeButton.style.left = `${offset.left}px`;
   // The parent creates no stacking context, so a large z-index would float
