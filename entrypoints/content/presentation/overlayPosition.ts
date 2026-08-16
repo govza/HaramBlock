@@ -8,7 +8,26 @@ const FORCED_POSITION_KEY = 'haramblockForcedPosition';
  * `position: fixed` once its component mounts) must win over our stale inline
  * value, otherwise the site's own layout breaks.
  */
+/**
+ * Top-level image documents ("open image in new tab") lay out the img with UA
+ * rules — Firefox uses `position: absolute; inset: 0; margin: auto` against the
+ * initial containing block. Forcing `position: relative` on the empty body
+ * shrinks that containing block to zero height and shoves the image half
+ * off-screen. Overlays on the static body resolve against the ICB, whose
+ * origin matches the zero-margin body, so no position context is needed.
+ */
+function isImageDocumentBody(parent: HTMLElement): boolean {
+  return parent === parent.ownerDocument.body && parent.ownerDocument.contentType.startsWith('image/');
+}
+
 export function ensurePositionContext(parent: HTMLElement): void {
+  if (isImageDocumentBody(parent)) {
+    if (FORCED_POSITION_KEY in parent.dataset) {
+      parent.style.removeProperty('position');
+      delete parent.dataset[FORCED_POSITION_KEY];
+    }
+    return;
+  }
   if (FORCED_POSITION_KEY in parent.dataset) {
     parent.style.removeProperty('position');
     if (getComputedStyle(parent).position === 'static') {
