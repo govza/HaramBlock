@@ -12,6 +12,7 @@ import {
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
+import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
@@ -336,6 +337,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       const currentSrc = image.currentSrc || image.src;
       if (state.trackedSrc && currentSrc !== state.trackedSrc) {
         this.clearMaskOverlay(image);
+        notifySrcDrift(image);
         return;
       }
 
@@ -389,6 +391,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     const currentSrc = image.currentSrc || image.src;
     if (state.trackedSrc && currentSrc !== state.trackedSrc) {
       this.clearMaskOverlay(image);
+      notifySrcDrift(image);
       return;
     }
 
