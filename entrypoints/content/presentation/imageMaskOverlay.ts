@@ -4,7 +4,7 @@ import { hasInitialStyling } from '@/entrypoints/content/presentation/initialSty
 import {
   classifyOverlayMutation,
   ensurePositionContext,
-  overlayOffsetInParent,
+  overlayPlacement,
   resolveAnchorParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import {
@@ -215,7 +215,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     const imageRect = image.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
     const parentRect = parent.getBoundingClientRect();
-    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
+    const placement = overlayPlacement(image, parent, imageRect, parentRect);
 
     // Create single overlay container for all masks
     const overlay = document.createElement('div');
@@ -226,9 +226,9 @@ class ImageMaskOverlay implements IMediaOverlay {
     const overlayZIndex = imageZIndex + 1;
 
     overlay.style.cssText = `
-    position: absolute;
-    top: ${offset.top}px;
-    left: ${offset.left}px;
+    position: ${placement.position};
+    top: ${placement.top}px;
+    left: ${placement.left}px;
     width: ${imageRect.width}px;
     height: ${imageRect.height}px;
     overflow: hidden;
@@ -411,12 +411,13 @@ class ImageMaskOverlay implements IMediaOverlay {
     const imageRect = image.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
     const parentRect = parent.getBoundingClientRect();
-    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
+    const placement = overlayPlacement(image, parent, imageRect, parentRect);
 
     // Update overlay position and size
     state.overlay.style.display = isObscuredBySite(image) ? 'none' : '';
-    state.overlay.style.top = `${offset.top}px`;
-    state.overlay.style.left = `${offset.left}px`;
+    state.overlay.style.position = placement.position;
+    state.overlay.style.top = `${placement.top}px`;
+    state.overlay.style.left = `${placement.left}px`;
     state.overlay.style.width = `${imageRect.width}px`;
     state.overlay.style.height = `${imageRect.height}px`;
 

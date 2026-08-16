@@ -3,7 +3,7 @@ import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/conte
 import {
   classifyOverlayMutation,
   ensurePositionContext,
-  overlayOffsetInParent,
+  overlayPlacement,
   resolveAnchorParent,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import {
@@ -88,14 +88,14 @@ class GifMaskPlayer {
 
     const imageRect = image.getBoundingClientRect();
     const parentRect = parent.getBoundingClientRect();
-    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
+    const placement = overlayPlacement(image, parent, imageRect, parentRect);
     const overlay = document.createElement('div');
     overlay.setAttribute(GIF_MASK_OVERLAY_ATTR, 'animated-gif-mask-player');
 
     overlay.style.cssText = `
-      position: absolute;
-      top: ${offset.top}px;
-      left: ${offset.left}px;
+      position: ${placement.position};
+      top: ${placement.top}px;
+      left: ${placement.left}px;
       width: ${imageRect.width}px;
       height: ${imageRect.height}px;
       overflow: hidden;
@@ -238,10 +238,11 @@ class GifMaskPlayer {
     const imageRect = image.getBoundingClientRect();
     const parentRect = parent.getBoundingClientRect();
     const contentRect = computeRenderedContentRect(image, imageRect);
-    const offset = overlayOffsetInParent(parent, imageRect, parentRect);
+    const placement = overlayPlacement(image, parent, imageRect, parentRect);
 
-    state.overlay.style.top = `${offset.top}px`;
-    state.overlay.style.left = `${offset.left}px`;
+    state.overlay.style.position = placement.position;
+    state.overlay.style.top = `${placement.top}px`;
+    state.overlay.style.left = `${placement.left}px`;
     state.overlay.style.width = `${imageRect.width}px`;
     state.overlay.style.height = `${imageRect.height}px`;
 
