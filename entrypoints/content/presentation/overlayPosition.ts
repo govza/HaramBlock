@@ -78,12 +78,41 @@ export function resolveAnchorParent(element: HTMLElement): HTMLElement | null {
   const parent = element.parentElement;
   if (!parent) return null;
   const { position } = getComputedStyle(element);
-  if (position !== 'absolute' && position !== 'fixed') return parent;
-  let ancestor: HTMLElement | null = parent;
-  while (ancestor && getComputedStyle(ancestor).position === 'static') {
-    ancestor = ancestor.parentElement;
+  if (position === 'absolute') {
+    let ancestor: HTMLElement | null = parent;
+    while (ancestor && getComputedStyle(ancestor).position === 'static') {
+      ancestor = ancestor.parentElement;
+    }
+    return ancestor ?? parent;
   }
-  return ancestor ?? parent;
+  if (position === 'fixed') {
+    // A fixed element's containing block is the viewport unless an ancestor
+    // forms one (transform/perspective/filter and friends) — positioned
+    // ancestors are irrelevant here. For a truly viewport-fixed element fall
+    // back to <body>: forcing `position: relative` there cannot re-anchor a
+    // fixed element, and the rect-based offset math stays correct.
+    let ancestor: HTMLElement | null = parent;
+    while (ancestor && !formsFixedContainingBlock(ancestor)) {
+      ancestor = ancestor.parentElement;
+    }
+    return ancestor ?? document.body ?? parent;
+  }
+  return parent;
+}
+
+function formsFixedContainingBlock(el: HTMLElement): boolean {
+  const style = getComputedStyle(el);
+  return (
+    style.transform !== 'none' ||
+    style.perspective !== 'none' ||
+    style.filter !== 'none' ||
+    style.backdropFilter !== 'none' ||
+    /transform|perspective|filter/.test(style.willChange) ||
+    style.contain === 'strict' ||
+    style.contain === 'content' ||
+    style.contain.includes('paint') ||
+    style.contain.includes('layout')
+  );
 }
 
 export function resolveInjectionContext(element: HTMLElement): IInjectionContext | null {
