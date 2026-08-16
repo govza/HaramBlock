@@ -17,7 +17,7 @@ import { DVR_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
   ensurePositionContext,
-  overlayOffsetInParent,
+  overlayPlacement,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { drainTargetTime, startDrainClock, type DrainClock } from '@/entrypoints/content/video/dvr/drain';
@@ -232,11 +232,12 @@ export class VideoDvrPlayer {
 
     const videoRect = video.getBoundingClientRect();
     const boxRect = context.box.getBoundingClientRect();
-    const offset = overlayOffsetInParent(context.box, videoRect, boxRect);
-    if (offset.top !== this.lastOffset.top || offset.left !== this.lastOffset.left) {
-      this.lastOffset = offset;
-      surfaces.overlay.style.top = `${offset.top}px`;
-      surfaces.overlay.style.left = `${offset.left}px`;
+    const placement = overlayPlacement(video, context.box, videoRect, boxRect);
+    if (placement.top !== this.lastOffset.top || placement.left !== this.lastOffset.left) {
+      this.lastOffset = { top: placement.top, left: placement.left };
+      surfaces.overlay.style.position = placement.position;
+      surfaces.overlay.style.top = `${placement.top}px`;
+      surfaces.overlay.style.left = `${placement.left}px`;
     }
     if (videoRect.width !== this.lastSize.width || videoRect.height !== this.lastSize.height) {
       this.lastSize = { width: videoRect.width, height: videoRect.height };

@@ -115,10 +115,17 @@ function formsFixedContainingBlock(el: HTMLElement): boolean {
   );
 }
 
+/** Flat-tree parent: crosses shadow boundaries via the host. */
+function flatTreeParent(el: HTMLElement): HTMLElement | null {
+  if (el.parentElement) return el.parentElement;
+  const root = el.getRootNode();
+  return root instanceof ShadowRoot && root.host instanceof HTMLElement ? root.host : null;
+}
+
 /** True when the element's containing block is the viewport itself. */
 export function isViewportFixed(element: HTMLElement): boolean {
   if (getComputedStyle(element).position !== 'fixed') return false;
-  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+  for (let ancestor = flatTreeParent(element); ancestor; ancestor = flatTreeParent(ancestor)) {
     if (formsFixedContainingBlock(ancestor)) return false;
   }
   return true;
@@ -191,11 +198,7 @@ export function classifyOverlayMutation(
   return element.isConnected ? 'moved' : 'detached';
 }
 
-export function overlayOffsetInParent(
-  parent: HTMLElement,
-  rect: DOMRect,
-  parentRect: DOMRect,
-): { top: number; left: number } {
+function overlayOffsetInParent(parent: HTMLElement, rect: DOMRect, parentRect: DOMRect): { top: number; left: number } {
   return {
     top: rect.top - parentRect.top + parent.scrollTop - parent.clientTop,
     left: rect.left - parentRect.left + parent.scrollLeft - parent.clientLeft,
