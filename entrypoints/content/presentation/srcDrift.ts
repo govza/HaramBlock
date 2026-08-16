@@ -6,6 +6,11 @@ export const setSrcDriftHandler = (next: SrcDriftHandler | null): void => {
   handler = next;
 };
 
+/** Clears only if `own` is still registered: a disposed owner must not wipe a successor's handler. */
+export const clearSrcDriftHandler = (own: SrcDriftHandler): void => {
+  if (handler === own) handler = null;
+};
+
 /**
  * Reports that an element's `currentSrc` no longer matches the source its
  * overlay was built for. Responsive images re-select a srcset candidate on

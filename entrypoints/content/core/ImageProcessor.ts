@@ -30,7 +30,7 @@ import {
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
-import { setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
+import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
 import { IS_CHROME } from '@/utils/constants/environment';
 import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
@@ -121,6 +121,7 @@ export class ImageProcessor {
   private readonly deferredUntilLoad = new WeakSet<HTMLImageElement>();
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
+  private readonly srcDriftHandler = (img: HTMLImageElement): void => this.handleSrcChange(img);
 
   // Track shadow roots that contain processed images (for efficient querying)
   private readonly knownShadowRoots = new Set<ShadowRoot>();
@@ -134,7 +135,7 @@ export class ImageProcessor {
     // Fail-closed route for srcset re-selection (lightbox resize): the overlay
     // self-clean is the only place that detects it — no attribute mutates, so
     // DomObserver stays silent. handleSrcChange re-blurs and reprocesses.
-    setSrcDriftHandler(img => this.handleSrcChange(img));
+    setSrcDriftHandler(this.srcDriftHandler);
 
     this.visibilityObserver = new IntersectionObserver(
       entries => {
@@ -323,7 +324,7 @@ export class ImageProcessor {
    * Clean up resources when processor is disposed.
    */
   dispose(): void {
-    setSrcDriftHandler(null);
+    clearSrcDriftHandler(this.srcDriftHandler);
     this.visibilityObserver.disconnect();
     for (const timer of this.pendingInferenceTimers.values()) clearTimeout(timer);
     this.pendingInferenceTimers.clear();
