@@ -11,6 +11,7 @@ import {
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
+import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
 import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
@@ -220,6 +221,7 @@ class GifMaskPlayer {
     const currentSrc = image.currentSrc || image.src;
     if (currentSrc !== state.trackedSrc) {
       this.clearPlayer(image);
+      notifySrcDrift(image);
       return;
     }
 

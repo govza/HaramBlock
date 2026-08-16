@@ -30,6 +30,7 @@ import {
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
+import { setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
 import { IS_CHROME } from '@/utils/constants/environment';
 import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
@@ -129,6 +130,11 @@ export class ImageProcessor {
     private readonly badgeCounter: BadgeCounter,
   ) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
+
+    // Fail-closed route for srcset re-selection (lightbox resize): the overlay
+    // self-clean is the only place that detects it — no attribute mutates, so
+    // DomObserver stays silent. handleSrcChange re-blurs and reprocesses.
+    setSrcDriftHandler(img => this.handleSrcChange(img));
 
     this.visibilityObserver = new IntersectionObserver(
       entries => {
@@ -317,6 +323,7 @@ export class ImageProcessor {
    * Clean up resources when processor is disposed.
    */
   dispose(): void {
+    setSrcDriftHandler(null);
     this.visibilityObserver.disconnect();
     for (const timer of this.pendingInferenceTimers.values()) clearTimeout(timer);
     this.pendingInferenceTimers.clear();
