@@ -53,7 +53,7 @@ export default defineBackground({
     const queueService = new QueueService();
 
     const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
-    const mediaFetchService = new MediaFetchService(modelService);
+    const mediaFetchService = new MediaFetchService();
 
     // Initialize event listeners (event handling layer)
     const contextMenuListener = new ContextMenuListener();
