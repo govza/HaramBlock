@@ -402,13 +402,15 @@ frame. The presenter's base canvas backs at device-pixel resolution and scales b
 smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is the masking
 effect itself).
 
-Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs next to the
-video (see [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)), in the site's stacking context one z-index
-above it, so player chrome that renders above the video — controls, captions, menus — also renders
-above the mask. The mask overlay uses the shared renderer machinery (parent-aware `ResizeObserver`,
-mutation-batch classification, re-homing); the DVR presenter syncs its geometry per tick of its own
-draw loop instead — including re-homing itself when the site re-parents the player (YouTube's
-watch-page boot).
+Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
+the video's next sibling with the video's own z-index (see
+[MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)), so player chrome that renders above the video —
+controls, captions, menus — also renders above the mask. (A `+1` z-index in an ancestor container
+out-stacked `z-index: auto` chrome layers on Facebook Reels; fixed-position videos still use
+container injection.) The mask overlay uses the shared renderer machinery (parent-aware
+`ResizeObserver`, mutation-batch classification, re-homing); the DVR presenter syncs its geometry
+per tick of its own draw loop instead — including re-homing itself when the site re-parents the
+player (YouTube's watch-page boot).
 
 **Shadow-DOM players** (Reddit's `<shreddit-player>`) work end to end: discovery pierces open shadow
 roots — including roots attached long after insertion by async-loaded components (see `DomObserver`

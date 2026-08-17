@@ -7,8 +7,9 @@
  * Pure consumer of a DvrFrameStore + VerdictTimeline (the video analog of
  * gifMaskPlayer's decoded-frames + framePredictions): the session machine and
  * registry decide when it exists; the player only warms up, draws, and reports
- * readiness via onReady. Presentation is an overlay div injected next to the
- * video, one z-index above it, so player chrome stays on top. The rAF draw
+ * readiness via onReady. Presentation is an overlay div injected as the
+ * video's next sibling with the video's own z-index, so player chrome stacked
+ * over the video stays on top of the mask too. The rAF draw
  * loop also syncs geometry per tick — placement, size, and re-homing when the
  * site re-parents the player — instead of using observers.
  */
@@ -17,6 +18,8 @@ import { DVR_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
   ensurePositionContext,
+  homeOverlay,
+  overlayHomed,
   overlayPlacement,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
@@ -222,12 +225,9 @@ export class VideoDvrPlayer {
     const context = resolveInjectionContext(video);
     if (!context) return false;
 
-    if (surfaces.overlay.parentNode !== context.container) {
+    if (!overlayHomed(video, surfaces.overlay, context)) {
       ensurePositionContext(context.box);
-      context.container.appendChild(surfaces.overlay);
-      // One above the video, so player chrome above the video stays above the mask
-      const videoZIndex = parseInt(getComputedStyle(video).zIndex) || 0;
-      surfaces.overlay.style.zIndex = `${videoZIndex + 1}`;
+      homeOverlay(video, surfaces.overlay, context);
     }
 
     const videoRect = video.getBoundingClientRect();

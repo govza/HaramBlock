@@ -156,6 +156,39 @@ export function overlayPlacement(
   return { position: 'absolute', ...overlayOffsetInParent(parent, rect, parentRect) };
 }
 
+/**
+ * Homes an overlay in the stacking order: inserted directly after its element
+ * with the element's own z-index, so it paints above the element (later
+ * sibling) but below any player chrome stacked over it. Appending into the
+ * anchor container with `z-index: element + 1` out-stacks `z-index: auto`
+ * chrome layers sharing that container (Facebook Reels' Unmute button).
+ * Fixed-position elements keep container injection: sibling insertion could
+ * let an intermediate positioned ancestor capture the overlay away from the
+ * anchor box the offset math resolves against.
+ */
+export function homeOverlay(element: HTMLElement, overlay: HTMLElement, context: IInjectionContext): void {
+  if (isSiblingHomed(element)) {
+    element.after(overlay);
+    const { zIndex } = getComputedStyle(element);
+    overlay.style.zIndex = zIndex === 'auto' ? '' : zIndex;
+    return;
+  }
+  context.container.appendChild(overlay);
+  const elementZIndex = parseInt(getComputedStyle(element).zIndex) || 0;
+  overlay.style.zIndex = `${elementZIndex + 1}`;
+}
+
+/** Whether the overlay is still where homeOverlay put it. */
+export function overlayHomed(element: HTMLElement, overlay: HTMLElement, context: IInjectionContext): boolean {
+  return isSiblingHomed(element)
+    ? overlay.previousElementSibling === element
+    : overlay.parentNode === context.container;
+}
+
+function isSiblingHomed(element: HTMLElement): boolean {
+  return element.parentNode !== null && getComputedStyle(element).position !== 'fixed';
+}
+
 export function resolveInjectionContext(element: HTMLElement): IInjectionContext | null {
   const parent = resolveAnchorParent(element);
   if (parent) return { container: parent, box: parent };

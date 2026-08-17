@@ -3,6 +3,8 @@ import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/conte
 import {
   classifyOverlayMutation,
   ensurePositionContext,
+  homeOverlay,
+  overlayHomed,
   overlayPlacement,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
@@ -163,9 +165,6 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     const overlay = document.createElement('div');
     overlay.setAttribute(VIDEO_MASK_OVERLAY_ATTR, 'unified-video-mask-overlay');
 
-    const videoZIndex = parseInt(getComputedStyle(video).zIndex) || 0;
-    const overlayZIndex = Math.max(videoZIndex + 1, 9999);
-
     overlay.style.cssText = `
     position: ${placement.position};
     top: ${placement.top}px;
@@ -174,7 +173,6 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
     height: ${videoRect.height}px;
     overflow: hidden;
     pointer-events: none;
-    z-index: ${overlayZIndex};
   `;
 
     const canvas = document.createElement('canvas');
@@ -196,7 +194,7 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
 
     overlay.appendChild(canvas);
     liveVideoOverlays.add(overlay);
-    context.container.appendChild(overlay);
+    homeOverlay(video, overlay, context);
 
     // Get CORS-safe video source for cross-origin videos
     let corsVideo: HTMLVideoElement | undefined;
@@ -267,9 +265,9 @@ class VideoMaskOverlay implements IMediaOverlay<HTMLVideoElement> {
         return;
       }
       const context = resolveInjectionContext(video);
-      if (context && state.overlay.parentNode !== context.container) {
+      if (context && !overlayHomed(video, state.overlay, context)) {
         ensurePositionContext(context.box);
-        context.container.appendChild(state.overlay);
+        homeOverlay(video, state.overlay, context);
         state.resizeObserver.observe(context.box);
       }
       this.updateVideoOverlay(video, state);
