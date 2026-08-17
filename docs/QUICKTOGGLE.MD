@@ -44,8 +44,10 @@ view content I deem appropriate while keeping protection active for other images
   that occluder's stacking chain. When z-index cannot win — the occluder lives in a sibling
   stacking context above the button's (e.g. a sticky banner over a transformed scroll container) —
   the z is restored and the button slides below the occluder instead, as long as it stays on the
-  media. Backdrops still cover a hidden button: the check only runs off a pointerenter on the media
-  itself, and never applies a blanket large z-index
+  media. Lightbox backdrops still cover the button: an occluder over the media's center that
+  extends well beyond the media (2x its area) marks the media as covered and skips the lift —
+  while a same-size cover (stretched link or caption overlay) still gets it. Never a blanket
+  large z-index
 - The button's chrome is inline styles (the injected class rules cannot reach shadow trees); the
   `.haramblock-eye-toggle` class remains for hover styling and test selectors
 - Semi-transparent background (`rgba(0, 0, 0, 0.5)`), auto-hides after 2.5s

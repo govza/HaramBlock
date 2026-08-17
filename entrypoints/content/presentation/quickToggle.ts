@@ -139,10 +139,14 @@ const OCCLUSION_LIFT_ATTEMPTS = 4;
  * sibling stacking context that z can never beat, restore z and slide the
  * button below it instead, as long as it stays on the media. Our overlays are
  * pointer-events: none, so any hit that is not the button is a real occluder.
+ * A center-covering occluder that extends well beyond the media is a lightbox
+ * backdrop - the button must stay beneath it; a same-size cover (stretched
+ * link or caption overlay) still gets the lift.
  */
 function ensureClickable(element: ToggleTarget): void {
   if (!eyeButton || eyeButton.style.display === 'none') return;
   const root = eyeButton.getRootNode() as Document | ShadowRoot;
+  if (isCoveredByBackdrop(root, element)) return;
   const originalZ = eyeButton.style.zIndex;
   for (let attempt = 0; attempt < OCCLUSION_LIFT_ATTEMPTS; attempt++) {
     const hit = occluderAt(root);
@@ -158,6 +162,16 @@ function ensureClickable(element: ToggleTarget): void {
   const elementRect = element.getBoundingClientRect();
   if (delta <= 0 || rect.bottom + delta > elementRect.bottom) return;
   eyeButton.style.top = `${parseFloat(eyeButton.style.top) + delta}px`;
+}
+
+const BACKDROP_AREA_RATIO = 2;
+
+function isCoveredByBackdrop(root: Document | ShadowRoot, element: ToggleTarget): boolean {
+  const rect = element.getBoundingClientRect();
+  const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  if (!hit || hit === element || element.contains(hit) || hit === eyeButton) return false;
+  const hitRect = hit.getBoundingClientRect();
+  return hitRect.width * hitRect.height >= rect.width * rect.height * BACKDROP_AREA_RATIO;
 }
 
 function occluderAt(root: Document | ShadowRoot): Element | null {
