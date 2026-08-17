@@ -1,4 +1,3 @@
-import { releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import { onModelSettingsChange } from '@/utils/modelSettings';
@@ -9,6 +8,8 @@ import { onModelSettingsChange } from '@/utils/modelSettings';
 type CorsVideoEntry =
   { corsVideo: HTMLVideoElement; src: string; blobUrl?: string } | { corsVideo: null; src: string; blobUrl?: never };
 const corsVideoCache = new WeakMap<HTMLVideoElement, CorsVideoEntry>();
+/** Concurrent callers (sampler + mask overlay) share one clone/download per video. */
+const inflightClones = new WeakMap<HTMLVideoElement, Promise<HTMLVideoElement>>();
 
 const POSTER_LOAD_TIMEOUT_MS = 2_500;
 const CORS_VIDEO_LOAD_TIMEOUT_MS = 4_000;
@@ -178,7 +179,7 @@ export async function ensureCorsSafeSource(
     // Invalidate cache if source changed
     if (cached.src !== actualSrc) {
       logger.withTag('frameCapture').debug('CORS video cache invalidated (src changed)');
-      disposeCloneEntry(video, cached);
+      disposeCloneEntry(cached);
       corsVideoCache.delete(video);
     } else if (cached.corsVideo === null) {
       // CORS previously failed for this source - don't retry
@@ -197,13 +198,29 @@ export async function ensureCorsSafeSource(
         // Reddit reuses/reparents players; Firefox can leave the old paused
         // clone without a terminal seeked/error event. Never let that stale
         // decoder poison every later Frame Sample.
-        disposeCloneEntry(video, cached);
+        disposeCloneEntry(cached);
         corsVideoCache.delete(video);
         throw error;
       }
     }
   }
 
+  const pending = inflightClones.get(video);
+  if (pending) {
+    await pending;
+    return ensureCorsSafeSource(video, timestampSec);
+  }
+  const creation = createTieredClone(video, actualSrc, timestampSec).finally(() => inflightClones.delete(video));
+  inflightClones.set(video, creation);
+  return creation;
+}
+
+/** Tier 2 then Tier 3; caches the outcome (including permanent failure) per video. */
+async function createTieredClone(
+  video: HTMLVideoElement,
+  actualSrc: string,
+  timestampSec: number,
+): Promise<HTMLVideoElement> {
   // Tier 2: CORS clone (rare path - server supports CORS but page forgot crossOrigin attr)
   logger.withTag('frameCapture').debug('Attempting CORS video workaround for:', actualSrc);
   try {
@@ -274,21 +291,14 @@ function mediaMimeType(src: string): string {
   }
 }
 
-function disposeCloneEntry(video: HTMLVideoElement, entry: CorsVideoEntry): void {
+function disposeCloneEntry(entry: CorsVideoEntry): void {
   if (entry.corsVideo) {
     entry.corsVideo.removeAttribute('src');
     entry.corsVideo.load(); // Force unload
   }
   if (entry.blobUrl) {
-    // Relay Audio may still be playing this blob URL; detach before revoking.
-    releaseRelayAudio(video);
     URL.revokeObjectURL(entry.blobUrl);
   }
-}
-
-/** The Relay Fetch blob URL backing this video's clone, if that tier engaged (feeds Relay Audio). */
-export function getRelayBlobUrl(video: HTMLVideoElement): string | null {
-  return corsVideoCache.get(video)?.blobUrl ?? null;
 }
 
 /**
@@ -297,7 +307,7 @@ export function getRelayBlobUrl(video: HTMLVideoElement): string | null {
  */
 export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   const cached = corsVideoCache.get(video);
-  if (cached) disposeCloneEntry(video, cached);
+  if (cached) disposeCloneEntry(cached);
   corsVideoCache.delete(video);
 }
 

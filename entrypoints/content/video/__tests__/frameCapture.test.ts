@@ -90,4 +90,32 @@ describe('waitForVideoFrameAt', () => {
     expect(clone.playbackRate).toBe(1.5);
     expect(clone.play).toHaveBeenCalledOnce();
   });
+
+  it('concurrent callers share one clone instead of racing duplicate creations', async () => {
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    const clone = new FakeCorsVideo();
+    const createElement = vi.fn(() => clone);
+    vi.stubGlobal('document', { createElement });
+    const source = {
+      currentSrc: 'https://media.example/shared.mp4',
+      src: '',
+      srcObject: null,
+      crossOrigin: null,
+      currentTime: 4.25,
+      paused: true,
+      ended: false,
+      loop: false,
+      playbackRate: 1,
+    } as unknown as HTMLVideoElement;
+
+    const first = ensureCorsSafeSource(source, 4.25);
+    const second = ensureCorsSafeSource(source, 4.25);
+    clone.readyState = 2;
+    clone.videoHeight = 360;
+    clone.onloadeddata?.();
+
+    await expect(first).resolves.toBe(clone);
+    await expect(second).resolves.toBe(clone);
+    expect(createElement).toHaveBeenCalledOnce();
+  });
 });
