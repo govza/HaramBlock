@@ -6,6 +6,8 @@ export class PermanentFrameTransferError extends Error {
 export function isWriteOnlyCanvasError(error: unknown): boolean {
   return (
     error instanceof DOMException &&
-    (error.name === 'SecurityError' || /write-only canvas|cannot get blob|taint/i.test(error.message))
+    (error.name === 'SecurityError' ||
+      // 'origin-clean': Chrome's DataCloneError for a tainted bitmap at the port.
+      /write-only canvas|cannot get blob|taint|origin-clean/i.test(error.message))
   );
 }

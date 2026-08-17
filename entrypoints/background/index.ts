@@ -4,6 +4,7 @@ import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from
 import {
   HostSettingsService,
   ImageCacheService,
+  MediaFetchService,
   ModelService,
   QueueService,
   InferenceOrchestrationService,
@@ -52,6 +53,7 @@ export default defineBackground({
     const queueService = new QueueService();
 
     const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
+    const mediaFetchService = new MediaFetchService(modelService);
 
     // Initialize event listeners (event handling layer)
     const contextMenuListener = new ContextMenuListener();
@@ -67,6 +69,7 @@ export default defineBackground({
       inferenceService,
       iconService,
       modelService,
+      mediaFetchService,
     );
     logger.withTag('background').log('BackgroundRpc initialized successfully');
 

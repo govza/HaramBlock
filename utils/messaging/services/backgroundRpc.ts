@@ -7,6 +7,7 @@ import type { HostSettingsService } from '@/entrypoints/background/services/host
 import type { IconService } from '@/entrypoints/background/services/iconService';
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
+import type { MediaFetchService } from '@/entrypoints/background/services/mediaFetchService';
 import type { ModelService } from '@/entrypoints/background/services/modelService';
 import type { LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import type { WideEvent } from '@/utils/logging/types';
@@ -22,6 +23,16 @@ import type {
   GifFrameInferenceResult,
   ImageInferenceResult,
 } from '@/utils/types';
+
+const BASE64_CHUNK_BYTES = 0x8000;
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK_BYTES));
+  }
+  return btoa(binary);
+}
 
 type ImagePredictionsCallback = (data: { results: ImageInferenceResult[]; hostname: string }) => void;
 type FramePredictionsCallback = (data: { results: FrameInferenceResult[]; hostname: string }) => void;
@@ -97,6 +108,7 @@ export class BackgroundRpc {
     private inferenceService: InferenceOrchestrationService,
     private iconService: IconService,
     private modelService: ModelService,
+    private mediaFetchService: MediaFetchService,
   ) {}
 
   // ============ Request-Response Methods (replaces controllers) ============
@@ -364,6 +376,16 @@ export class BackgroundRpc {
 
   getInferenceLatency(): Promise<LatencySnapshot | null> {
     return Promise.resolve(this.modelService.getInferenceLatency());
+  }
+
+  /**
+   * Relay Fetch a non-CORS media URL (background is CORS-exempt); null on any
+   * failure. Base64 because browser.runtime JSON-serializes ArrayBuffers away.
+   */
+  async fetchMediaBytes(url: string): Promise<string | null> {
+    const bytes = await this.mediaFetchService.fetchMediaBytes(url);
+    if (!bytes) return null;
+    return encodeBase64(new Uint8Array(bytes));
   }
 
   /** Sizes the content-side DVR ring budget; 'unknown' until the model loads. */

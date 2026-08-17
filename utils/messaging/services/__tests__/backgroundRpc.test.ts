@@ -7,7 +7,14 @@ import type { FrameInferenceResult, ImageInferenceResult } from '@/utils/types';
 
 const makeRpc = (): BackgroundRpc =>
   // Subscription paths never touch the injected services
-  new BackgroundRpc(undefined as never, undefined as never, undefined as never, undefined as never, undefined as never);
+  new BackgroundRpc(
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    undefined as never,
+  );
 
 const frameResults = [] as FrameInferenceResult[];
 const imageResults = [] as ImageInferenceResult[];

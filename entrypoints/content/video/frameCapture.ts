@@ -1,10 +1,13 @@
+import { releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import { onModelSettingsChange } from '@/utils/modelSettings';
 
 // Cache CORS videos per original video element to avoid re-creating on every frame
-// Stores either the cached CORS video or null if CORS failed (to avoid retrying)
-type CorsVideoEntry = { corsVideo: HTMLVideoElement; src: string } | { corsVideo: null; src: string };
+// Stores either the cached CORS video or null if CORS failed (to avoid retrying).
+// blobUrl is set when the clone plays Relay-Fetched bytes and must be revoked on release.
+type CorsVideoEntry =
+  { corsVideo: HTMLVideoElement; src: string; blobUrl?: string } | { corsVideo: null; src: string; blobUrl?: never };
 const corsVideoCache = new WeakMap<HTMLVideoElement, CorsVideoEntry>();
 
 const POSTER_LOAD_TIMEOUT_MS = 2_500;
@@ -129,6 +132,18 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
   const sourceVideo = await ensureCorsSafeSource(video, timestampSec);
   ctx.drawImage(sourceVideo, 0, 0, width, height);
 
+  // Chrome only rejects a tainted-canvas bitmap later at the transfer port
+  // (DataCloneError → timeout); a 1-pixel readback surfaces the taint here.
+  try {
+    ctx.getImageData(0, 0, 1, 1);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'SecurityError') {
+      logger.withTag('frameCapture').warn('Canvas tainted by cross-origin video, cannot capture');
+      return { failure: 'permanent' };
+    }
+    throw error;
+  }
+
   try {
     return {
       bitmap: await withStageTimeout(
@@ -163,10 +178,7 @@ export async function ensureCorsSafeSource(
     // Invalidate cache if source changed
     if (cached.src !== actualSrc) {
       logger.withTag('frameCapture').debug('CORS video cache invalidated (src changed)');
-      if (cached.corsVideo) {
-        cached.corsVideo.removeAttribute('src');
-        cached.corsVideo.load(); // Force unload
-      }
+      disposeCloneEntry(video, cached);
       corsVideoCache.delete(video);
     } else if (cached.corsVideo === null) {
       // CORS previously failed for this source - don't retry
@@ -185,18 +197,17 @@ export async function ensureCorsSafeSource(
         // Reddit reuses/reparents players; Firefox can leave the old paused
         // clone without a terminal seeked/error event. Never let that stale
         // decoder poison every later Frame Sample.
-        cached.corsVideo.removeAttribute('src');
-        cached.corsVideo.load();
+        disposeCloneEntry(video, cached);
         corsVideoCache.delete(video);
         throw error;
       }
     }
   }
 
-  // Create and cache new CORS video (rare path - server supports CORS but page forgot crossOrigin attr)
+  // Tier 2: CORS clone (rare path - server supports CORS but page forgot crossOrigin attr)
   logger.withTag('frameCapture').debug('Attempting CORS video workaround for:', actualSrc);
   try {
-    const corsVideo = await createCORSVideo(video, timestampSec);
+    const corsVideo = await createCloneVideo(video, actualSrc, timestampSec, { crossOrigin: true });
     logger.withTag('frameCapture').info('CORS video workaround succeeded');
     corsVideoCache.set(video, { corsVideo, src: actualSrc });
     return corsVideo;
@@ -206,11 +217,78 @@ export async function ensureCorsSafeSource(
       // permanently unsupported. Leave the cache empty so a later sample can retry.
       throw error;
     }
-    // Cache the failure to avoid retrying - this is the common case (server doesn't support CORS)
     logger.withTag('frameCapture').debug('CORS video workaround failed (expected for most videos):', error);
+  }
+
+  // Tier 3: Relay Fetch - the background fetches the bytes CORS-exempt and the
+  // clone plays them from a page-origin blob: URL, so the canvas stays clean.
+  const blobUrl = await relayFetchBlobUrl(actualSrc);
+  if (!blobUrl) {
     corsVideoCache.set(video, { corsVideo: null, src: actualSrc });
     return video;
   }
+  try {
+    const relayVideo = await createCloneVideo(video, blobUrl, timestampSec, { crossOrigin: false });
+    logger.withTag('frameCapture').info('Relay Fetch workaround succeeded');
+    corsVideoCache.set(video, { corsVideo: relayVideo, src: actualSrc, blobUrl });
+    return relayVideo;
+  } catch (error) {
+    URL.revokeObjectURL(blobUrl);
+    if (error instanceof CaptureStageTimeoutError) {
+      throw error;
+    }
+    logger.withTag('frameCapture').debug('Relay Fetch clone failed:', error);
+    corsVideoCache.set(video, { corsVideo: null, src: actualSrc });
+    return video;
+  }
+}
+
+/**
+ * Relay Fetch the bytes via background and mint a page-origin blob: URL, or
+ * null on failure. Base64 because browser.runtime JSON-serializes ArrayBuffers away.
+ */
+async function relayFetchBlobUrl(src: string): Promise<string | null> {
+  try {
+    const base64 = await backgroundRpc.fetchMediaBytes(src);
+    if (!base64) return null;
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mediaMimeType(src) }));
+  } catch (error) {
+    logger.withTag('frameCapture').debug('Relay Fetch failed:', error);
+    return null;
+  }
+}
+
+/** Some servers mislabel media (e.g. `Content-Type: webm` without the `video/` prefix), so type from the URL extension. */
+function mediaMimeType(src: string): string {
+  const extension = /\.(\w+)(?:$|[?#])/.exec(src)?.[1]?.toLowerCase();
+  switch (extension) {
+    case 'webm':
+      return 'video/webm';
+    case 'ogv':
+      return 'video/ogg';
+    default:
+      return 'video/mp4';
+  }
+}
+
+function disposeCloneEntry(video: HTMLVideoElement, entry: CorsVideoEntry): void {
+  if (entry.corsVideo) {
+    entry.corsVideo.removeAttribute('src');
+    entry.corsVideo.load(); // Force unload
+  }
+  if (entry.blobUrl) {
+    // Relay Audio may still be playing this blob URL; detach before revoking.
+    releaseRelayAudio(video);
+    URL.revokeObjectURL(entry.blobUrl);
+  }
+}
+
+/** The Relay Fetch blob URL backing this video's clone, if that tier engaged (feeds Relay Audio). */
+export function getRelayBlobUrl(video: HTMLVideoElement): string | null {
+  return corsVideoCache.get(video)?.blobUrl ?? null;
 }
 
 /**
@@ -219,10 +297,7 @@ export async function ensureCorsSafeSource(
  */
 export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   const cached = corsVideoCache.get(video);
-  if (cached?.corsVideo) {
-    cached.corsVideo.removeAttribute('src');
-    cached.corsVideo.load(); // Force unload
-  }
+  if (cached) disposeCloneEntry(video, cached);
   corsVideoCache.delete(video);
 }
 
@@ -281,13 +356,18 @@ async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null
   }
 }
 
-async function createCORSVideo(originalVideo: HTMLVideoElement, timestampSec: number): Promise<HTMLVideoElement> {
+async function createCloneVideo(
+  originalVideo: HTMLVideoElement,
+  srcUrl: string,
+  timestampSec: number,
+  { crossOrigin }: { crossOrigin: boolean },
+): Promise<HTMLVideoElement> {
   const corsVideo = document.createElement('video');
-  corsVideo.setAttribute('crossorigin', 'anonymous');
+  if (crossOrigin) corsVideo.setAttribute('crossorigin', 'anonymous');
   corsVideo.preload = 'auto';
   corsVideo.muted = true;
   corsVideo.playsInline = true;
-  corsVideo.src = originalVideo.currentSrc || originalVideo.src;
+  corsVideo.src = srcUrl;
   corsVideo.currentTime = timestampSec;
 
   const loaded = new Promise<HTMLVideoElement>((resolve, reject) => {
