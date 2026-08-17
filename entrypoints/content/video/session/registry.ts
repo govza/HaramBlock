@@ -18,6 +18,7 @@ import {
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { isAudioDelayable } from '@/entrypoints/content/video/dvr/audioDelay';
+import { isRelayAudioEngaged, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/frameCapture';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
@@ -210,15 +211,10 @@ class VideoSessionRegistry {
     handle.state = born.state;
     this.execute(handle, born.effects);
 
-    // Audio delayability is a precondition (ADR 0001): an origin-tainted
-    // source finalizes `skipped` before the Thumbnail or sampler spend
-    // anything. Media events still bind so a source change can re-adopt.
-    const delayable = isAudioDelayable(video);
-    if (!delayable) {
-      this.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
-    }
+    // Undelayable audio is not an adoption gate (ADR 0001): protection
+    // withdraws only when audible audio has no route — decided at
+    // audio-engage time and on unmute (bindMediaEvents).
     this.bindMediaEvents(handle);
-    if (!delayable) return;
     this.suspension.observe(handle);
     if (!handle.suspended) this.sampler.startTicker(handle);
     this.sampler.queueThumbnailSourceReady(handle);
@@ -572,6 +568,7 @@ class VideoSessionRegistry {
     videoMaskOverlays.clearMaskOverlay(video);
     clearWholeBlur(video);
     clearProcessedStatus(video);
+    releaseRelayAudio(video);
     releaseCorsVideoCache(video);
     unregisterQuickToggle(video);
     video.removeAttribute(SESSION_SRC_ATTR);
@@ -593,6 +590,14 @@ class VideoSessionRegistry {
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
     const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
+    // ADR 0001: on unmute, if neither the delay line nor Relay Audio can
+    // route the now-audible audio while the DVR presents, protection withdraws.
+    const onVolumeChange = () => {
+      if (video.muted || video.volume === 0) return;
+      if (handle.state.dvr === 'off') return;
+      if (isAudioDelayable(video) || isRelayAudioEngaged(video)) return;
+      this.dispatch(handle, { type: 'audioUndelayable', at: now() });
+    };
     const onSourceChanged = () => {
       const current = resolveVideoSource(video);
       if (current && isSameVideoSource(handle, current)) return;
@@ -609,6 +614,7 @@ class VideoSessionRegistry {
     video.addEventListener('pause', onPause);
     video.addEventListener('ended', onEnded);
     video.addEventListener('seeked', onSeeked);
+    video.addEventListener('volumechange', onVolumeChange);
     video.addEventListener('loadstart', onSourceChanged);
     video.addEventListener('emptied', onSourceChanged);
 
@@ -617,6 +623,7 @@ class VideoSessionRegistry {
       video.removeEventListener('pause', onPause);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('volumechange', onVolumeChange);
       video.removeEventListener('loadstart', onSourceChanged);
       video.removeEventListener('emptied', onSourceChanged);
     };

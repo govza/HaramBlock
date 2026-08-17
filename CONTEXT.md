@@ -15,5 +15,13 @@ without changing site-wide settings. _Avoid_: eye toggle, quick switch
 **Mask Overlay**: The absolutely-positioned canvas inserted next to an image in its parent that
 pixelates the predicted regions and tracks the image's geometry. _Avoid_: mask layer, blur overlay
 
+**Relay Fetch**: The background fetching a media URL on behalf of the content script (host
+permissions exempt background fetch from CORS), so the content script can decode it origin-clean.
+_Avoid_: proxy fetch, CORS bypass
+
+**Relay Audio**: Delayed audio for an origin-tainted video: a hidden audio element playing the Relay
+Fetch bytes one Presentation Delay behind the live edge, while the page element stays muted.
+_Avoid_: audio proxy, blob audio
+
 **Safe / Unsafe image**: An image without / with predictions. Unsafe images are masked when Forced
 Visibility is `'auto'`. _Avoid_: clean image, flagged image

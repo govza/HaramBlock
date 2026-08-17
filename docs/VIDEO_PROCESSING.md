@@ -25,7 +25,7 @@ an older Frame Sample than one already applied. _Avoid_: late result, outdated f
 **DVR**: The delayed presentation for all processed playback: from `play` onward the video element
 keeps decoding while a canvas presents buffered frames one Presentation Delay behind the live edge,
 compositing frame and mask in the same draw. Not a mode entered on unsafe verdicts — every playing
-processed video presents through it (ADR [0001](adr/0001-continuous-dvr-and-audio-precondition.md)).
+processed video presents through it (ADR [0001](adr/0001-continuous-dvr-and-relay-audio.md)).
 _Avoid_: canvas player (that is the GIF mechanism), delay overlay, masked mode
 
 **Presentation Delay (D)**: How far behind the live edge the DVR presents, sized so a frame's
@@ -61,7 +61,7 @@ ADOPTED ──capture thumbnail──► THUMBNAILING
              ERROR (ALLOW: blur cleared, status skipped, loop stopped;
               transient streaks retry after a cooldown, canvas taint is terminal)
 
-any live state ──audio undelayable──► ERROR (terminal: status skipped, no DVR, no masking)
+any live state ──audible audio with no delayed route──► ERROR (terminal: status skipped, no DVR, no masking)
 any state ──source change / element removed──► DISPOSED (terminal)
 ```
 
@@ -94,10 +94,12 @@ Key invariants:
   rest of the tab's lifetime.
 - **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
   `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
-- **Audio delayability is a precondition.** A video whose audio can never ride the DVR's delay line
-  is not processed at all — finalized `skipped`, native playback, no inference spent (ADR
-  [0001](adr/0001-continuous-dvr-and-audio-precondition.md)). Permanently desynced audio was judged
-  worse than absent protection.
+- **Audible audio must have a delayed route** (ADR
+  [0001](adr/0001-continuous-dvr-and-relay-audio.md)): every video is adopted, and when the WebAudio
+  delay line is unavailable, **Relay Audio** plays the Relay Fetch blob at `currentTime − D`
+  instead. Protection withdraws (finalized `skipped`) only when the delay line is unavailable, no
+  relay blob exists, and the video is audibly unmuted — checked at audio-engage time and on unmute.
+  Permanently desynced audible audio is still judged worse than absent protection.
 
 ## Components
 
@@ -118,7 +120,8 @@ Key invariants:
 | DVR buffers          | `entrypoints/content/video/dvr/{frameStore,rawFrameRing,encodedFrameRing,verdictTimeline}.ts` | Media-time-keyed frame store (raw ImageBitmap ring or WebCodecs-encoded ring behind one `DvrFrameStore` interface) + session-lifetime verdict history |
 | DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                          | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                   |
 | DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                                                 | Global backend-tiered byte budget with a shared quality-degradation ladder                                                                            |
-| DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                 | WebAudio DelayNode routing + the delayability precondition check                                                                                      |
+| DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                 | WebAudio DelayNode routing + the delayability check                                                                                                   |
+| DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                 | Delayed audio for origin-tainted sources: hidden `<audio>` on the Relay Fetch blob at `currentTime − D` (ADR 0001)                                    |
 | DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                                                      | Plays out the buffered tail at 1x after `ended`, then pins the final frame                                                                            |
 | Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts`                            | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                                                              |
 
@@ -193,7 +196,12 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   cannot occupy the in-flight slot forever. Capture stages have shorter internal deadlines as well:
   poster load/bitmap creation, CORS clone load/seek, and frame bitmap creation fail independently. A
   CORS clone mirrors active playback after its first exact seek, avoiding a network-backed random
-  seek for every sample; every draw still verifies the selected media time. Firefox clone seeks
+  seek for every sample; every draw still verifies the selected media time. When the CORS clone
+  fails (server sends no CORS headers), a **Relay Fetch** tier engages before giving up: the
+  background fetches the media bytes CORS-exempt (`mediaFetchService.ts`, capped at the DVR
+  per-session budget tier), and the clone plays them from a page-origin `blob:` URL so the canvas
+  stays origin-clean. Only when Relay Fetch also fails (opaque error, over budget) does the source
+  stay tainted and the permanent-failure path finalize the session as allow. Firefox clone seeks
   resolve from either media events or observable ready-state/time convergence, and initial success
   is reported only after that convergence. A stalled cached clone is evicted so later samples can
   recreate it instead of timing out forever. Video thumbnails use queue priority 20 and playback
@@ -240,10 +248,10 @@ DOM overlays cannot mask moving content: a verdict describes a frame displayed o
 round-trip ago. So processed playback presents **delayed**: the `<video>` element keeps decoding
 while a canvas presents buffered frames a Presentation Delay `D` behind the live edge — far enough
 back that every presented frame's verdict is already resolved. The DVR is **continuous** (ADR
-[0001](adr/0001-continuous-dvr-and-audio-precondition.md)): it starts on `play`, before any verdict
-exists, and runs for the rest of playback. Because the delayed canvas and delayed audio are already
-in place when an unsafe verdict lands, the verdict composites into the running presentation with no
-visible or audible mode switch, and a clean streak clears masks without ever leaving the DVR — the
+[0001](adr/0001-continuous-dvr-and-relay-audio.md)): it starts on `play`, before any verdict exists,
+and runs for the rest of playback. Because the delayed canvas and delayed audio are already in place
+when an unsafe verdict lands, the verdict composites into the running presentation with no visible
+or audible mode switch, and a clean streak clears masks without ever leaving the DVR — the
 engage-gap and release-jump glitches of the old enter-on-unsafe design cannot occur.
 
 `D` is **derived per DVR run and latched** (`dvr/delay.ts`, `deriveDvrDelayMs`): at every DVR
@@ -362,21 +370,26 @@ The precise mask overlay (`videoMaskOverlay.ts`) still renders static-frame verd
 DVR is off: before first play, and after a viewport suspension hands the element back. While the DVR
 is warming or presenting, it owns masking even for a paused frame.
 
-### Audio as a precondition
+### Audio routing
 
 Delayed picture with live audio means permanent lip-sync desync, and switching audio routes
-mid-playback is audible — so audio delayability gates processing entirely (ADR
-[0001](adr/0001-continuous-dvr-and-audio-precondition.md)):
+mid-playback is audible — so audible audio must ride a delayed route while the DVR presents (ADR
+[0001](adr/0001-continuous-dvr-and-relay-audio.md)). Engage tries, in order:
 
-- **Origin-tainted source** (WebAudio would zero its samples): detected synchronously at adoption
-  (`isAudioDelayable`) → finalized `skipped` immediately. No DVR, no masking, no inference spent.
-- **Element already captured by the site's own audio graph**: discoverable only when the first
-  engage's `createMediaElementSource` throws → `audioUndelayable` tears down the DVR and masking and
-  finalizes `skipped` (one final visible switch, unavoidable).
+- **WebAudio delay line** (`dvr/audioDelay.ts`): `createMediaElementSource` → `DelayNode` at `D`.
+  Only for delayable sources (`isAudioDelayable`) — WebAudio zeroes origin-tainted samples.
+- **Relay Audio** (`dvr/relayAudio.ts`): for origin-tainted sources with a Relay Fetch blob, a
+  hidden `<audio>` plays the blob at `currentTime − D` (delay by time offset); the page element is
+  muted while engaged, the site's muted/volume intent mirrored onto the relay element and restored
+  on release. Drift syncs every 500 ms: hard seek beyond 0.25 s, rate nudge inside it.
+- **Neither available and audibly unmuted** → `audioUndelayable` tears down the DVR and masking and
+  finalizes `skipped` (one final visible switch, unavoidable). A muted video has no audio to desync:
+  it stays protected, and the engage is retried on every verdict so a late-arriving blob lands; the
+  unmute moment re-checks (`volumechange` in the registry) and withdraws only then.
 - **Suspended `AudioContext`** (no user gesture yet): transient — the engage defers, and every
   subsequent verdict retries it (`syncAudioDelay`) until it lands; never a demotion. The retry is
   not optional: a deferred engage left alone would present delayed picture against live audio, the
-  same permanent desync the precondition exists to prevent.
+  same permanent desync this routing exists to prevent.
 
 ### Memory: the global ring budget
 
@@ -478,7 +491,7 @@ Considered and rejected:
   hence ERROR = allow.
 - **Buffer every playing video pre-emptively** — rejected here for its per-video memory cost in the
   common safe case, then **adopted after all** by ADR
-  [0001](adr/0001-continuous-dvr-and-audio-precondition.md): the engage/release switches of
+  [0001](adr/0001-continuous-dvr-and-relay-audio.md): the engage/release switches of
   DVR-only-while-masked proved worse than the cost, which the global backend-tiered ring budget now
   bounds. This bullet is kept as history; the ADR supersedes it.
 

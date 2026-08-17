@@ -25,7 +25,9 @@ import {
 } from '@/entrypoints/content/video/dvr/delay';
 import { encodedBitrate } from '@/entrypoints/content/video/dvr/encodedFrameRing';
 import { createDvrFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
+import { engageRelayAudio, isRelayAudioEngaged, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { dvrRingBudget, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
+import { getRelayBlobUrl } from '@/entrypoints/content/video/frameCapture';
 import { type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
@@ -160,20 +162,24 @@ export class PresentationAdapter {
   }
 
   /**
-   * Route audio through the delay line while the canvas presents behind the
-   * live edge. A permanent failure (the site captured the element) withdraws
-   * protection entirely (ADR 0001). A deferred one — typically an AudioContext
-   * still awaiting a user gesture — leaves delayed video against live audio,
-   * the same permanent desync, so it must be retried rather than dropped:
-   * syncAudioDelay re-attempts on every verdict until it lands.
+   * Route audio through the delay line; when unavailable (origin-tainted
+   * source or captured element) Relay Audio takes over from the Relay Fetch
+   * blob (ADR 0001). Protection withdraws only when audible audio has no
+   * route. Deferred or failed engages retry via syncAudioDelay on every
+   * verdict, so a later blob, gesture, or unmute still resolves correctly.
    */
   private engageAudioDelay(handle: SessionHandle): void {
     const { player } = handle.dvr ?? {};
     void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player)
       .then(result => {
-        if (result === 'unavailable') {
-          this.ports.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
-        }
+        if (result !== 'unavailable') return;
+        if (handle.dvr?.player !== player) return;
+        const engaged = engageRelayAudio(handle.video, getRelayBlobUrl(handle.video), () =>
+          this.ports.currentDelaySec(handle),
+        );
+        if (engaged) return;
+        if (handle.video.muted || handle.video.volume === 0) return;
+        this.ports.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
       })
       .catch((error: unknown) => log.debug('Audio delay engage failed:', error));
   }
@@ -211,6 +217,7 @@ export class PresentationAdapter {
     handle.dvrDelaySec = null;
     dvrRingBudget.release(handle.sessionId);
     releaseAudioDelay(handle.video);
+    releaseRelayAudio(handle.video);
     dvr.player.destroy();
     dvr.store.release();
     delete handle.video.dataset.hbDvrStore;
@@ -230,10 +237,16 @@ export class PresentationAdapter {
   /** Keep the audio delay tracking the presentation delay, retrying a deferred engage. */
   syncAudioDelay(handle: SessionHandle): void {
     if (!handle.dvr) return;
-    if (handle.state.dvr === 'presenting' && !handle.video.paused && !isAudioDelayEngaged(handle.video)) {
+    if (
+      handle.state.dvr === 'presenting' &&
+      !handle.video.paused &&
+      !isAudioDelayEngaged(handle.video) &&
+      !isRelayAudioEngaged(handle.video)
+    ) {
       this.engageAudioDelay(handle);
       return;
     }
+    // Relay Audio reads the delay via callback; only the WebAudio line needs a ramp.
     updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
   }
 
