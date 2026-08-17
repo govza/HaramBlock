@@ -1,8 +1,16 @@
 /**
- * Relay Audio (ADR 0001): delayed audio for origin-tainted sources the WebAudio
- * delay line cannot serve. The Relay Fetch blob is page-origin, so a hidden
- * <audio> plays it at `video.currentTime - D`. The page element is muted while
- * engaged; the site's muted/volume intent is mirrored and restored on release.
+ * Relay Audio (ADR 0001/0002): delayed audio for sources the WebAudio delay
+ * line cannot serve. A hidden <audio> plays the video's original URL at
+ * `video.currentTime - D` — media playback needs no CORS, only sample readback
+ * does. The page element is silenced via `volume = 0` (NOT `muted`: a site
+ * mute writes `muted = true`, which on an already-forced-true flag changes
+ * nothing and fires no volumechange — the site's mute button would go blind);
+ * the site's muted/volume intent is tracked through a shared intent record and
+ * restored on release.
+ *
+ * The intent record also backs the machine's holdPageMute effect (bounded
+ * silence while a route is pending), so hold → relay handoff keeps one owner
+ * of the page element's audio output.
  */
 
 import { logger } from '@/utils/logger';
@@ -14,97 +22,239 @@ const HARD_RESYNC_DRIFT_SEC = 0.25;
 const RATE_NUDGE_DRIFT_SEC = 0.05;
 const RATE_NUDGE_FACTOR = 0.02;
 const SYNC_INTERVAL_MS = 500;
+/** Element buffering bound: past this the attempt reports transient and retries later. */
+const ENGAGE_TIMEOUT_MS = 8_000;
+
+export type SiteAudibleListener = (audible: boolean) => void;
+
+/**
+ * Site mute/volume intent for a page element whose volume the extension owns
+ * (mute hold or engaged relay). The pending-writes counter attributes
+ * async-delivered volumechange events: our own writes must never be misread
+ * as site intent (the old synchronous flag was, confirming ADR 0002's bug).
+ */
+interface MuteIntent {
+  siteMuted: boolean;
+  siteVolume: number;
+  siteAudible: boolean;
+  pendingWrites: number;
+  onSiteChange: SiteAudibleListener | null;
+  release: () => void;
+}
+
+const intents = new WeakMap<HTMLVideoElement, MuteIntent>();
 
 interface RelayAudioEntry {
   audio: HTMLAudioElement;
   getDelaySec: () => number;
-  /** The page element's muted state as the site last intended it, restored on release. */
-  siteMuted: boolean;
-  /** Guards the mirror listener against reacting to this module's own mute writes. */
-  ourMuteWrite: boolean;
   /** Last observed page time; a backwards jump marks a loop wrap. */
   lastVideoTime: number;
   /** True once the looping page video wrapped at least once, so a negative
    * target means "tail of the previous pass", not "before playback began". */
   looped: boolean;
+  /** DVR drain: the element free-runs the D-second tail on the wall clock. */
+  draining: boolean;
+  drainTimer: ReturnType<typeof setTimeout> | null;
   teardown: () => void;
 }
 
 const entries = new WeakMap<HTMLVideoElement, RelayAudioEntry>();
+const inflight = new WeakMap<HTMLVideoElement, Promise<RelayAudioEngageResult>>();
+/** Sources whose relay element terminally failed (unsupported/undecodable); never retried. */
+const terminalSrcs = new WeakMap<HTMLVideoElement, string>();
 
 export function isRelayAudioEngaged(video: HTMLVideoElement): boolean {
   return entries.has(video);
 }
 
+/** The extension currently owns the page element's audio output (hold or relay). */
+export function hasMuteIntent(video: HTMLVideoElement): boolean {
+  return intents.has(video);
+}
+
+function acquireIntent(video: HTMLVideoElement, onSiteChange: SiteAudibleListener | null): MuteIntent {
+  const existing = intents.get(video);
+  if (existing) {
+    if (onSiteChange) existing.onSiteChange = onSiteChange;
+    return existing;
+  }
+  const intent: MuteIntent = {
+    siteMuted: video.muted,
+    siteVolume: video.volume,
+    siteAudible: !video.muted && video.volume > 0,
+    pendingWrites: 0,
+    onSiteChange,
+    release: () => {},
+  };
+  const onVolumeChange = () => {
+    if (intent.pendingWrites > 0) {
+      intent.pendingWrites--;
+      return;
+    }
+    intent.siteMuted = video.muted;
+    if (video.volume > 0) {
+      // A site volume write while we hold zero: record it and re-silence.
+      intent.siteVolume = video.volume;
+      forceSilence(video, intent);
+    }
+    const audible = !intent.siteMuted && intent.siteVolume > 0;
+    if (audible !== intent.siteAudible) {
+      intent.siteAudible = audible;
+      intent.onSiteChange?.(audible);
+    }
+  };
+  video.addEventListener('volumechange', onVolumeChange);
+  intent.release = () => {
+    video.removeEventListener('volumechange', onVolumeChange);
+    intents.delete(video);
+    video.volume = intent.siteVolume;
+  };
+  intents.set(video, intent);
+  return intent;
+}
+
+function forceSilence(video: HTMLVideoElement, intent: MuteIntent): void {
+  if (video.volume === 0) return;
+  intent.pendingWrites++;
+  video.volume = 0;
+}
+
 /**
- * Engage delayed audio from the Relay Fetch blob. Idempotent; returns false
- * when no blob URL exists yet (the caller retries on later verdicts).
+ * Silence the page element while a delayed route is pending, preserving the
+ * site's intent. No-op while relay is engaged (it owns the output already).
  */
-export function engageRelayAudio(video: HTMLVideoElement, blobUrl: string | null, getDelaySec: () => number): boolean {
+export function holdPageMute(video: HTMLVideoElement, onSiteChange?: SiteAudibleListener): void {
+  if (entries.has(video)) return;
+  const intent = acquireIntent(video, onSiteChange ?? null);
+  forceSilence(video, intent);
+}
+
+/** Restore site intent unless relay took the intent over. */
+export function releaseMuteHold(video: HTMLVideoElement): void {
+  if (entries.has(video)) return;
+  intents.get(video)?.release();
+}
+
+export type RelayAudioEngageResult = 'engaged' | 'transient' | 'terminal';
+
+/**
+ * Engage delayed audio straight from the video's resolved original URL.
+ * Resolves once the hidden element can play ('engaged'), or with why it
+ * cannot: 'transient' (buffering timeout, recoverable media error — retry on
+ * a later engage) or 'terminal' (no URL, or unsupported/undecodable source).
+ */
+export function engageRelayAudio(
+  video: HTMLVideoElement,
+  getDelaySec: () => number,
+  onSiteChange?: SiteAudibleListener,
+): Promise<RelayAudioEngageResult> {
   const existing = entries.get(video);
   if (existing) {
     existing.getDelaySec = getDelaySec;
-    return true;
+    // A replay after a drained natural end re-engages: leave drain mode.
+    existing.draining = false;
+    if (existing.drainTimer) clearTimeout(existing.drainTimer);
+    existing.drainTimer = null;
+    return Promise.resolve('engaged');
   }
-  if (!blobUrl) return false;
+  const pending = inflight.get(video);
+  if (pending) return pending;
+  const engage = doEngage(video, getDelaySec, onSiteChange ?? null).finally(() => inflight.delete(video));
+  inflight.set(video, engage);
+  return engage;
+}
 
-  const audio = new Audio(blobUrl);
+async function doEngage(
+  video: HTMLVideoElement,
+  getDelaySec: () => number,
+  onSiteChange: SiteAudibleListener | null,
+): Promise<RelayAudioEngageResult> {
+  const src = video.currentSrc || video.src;
+  if (!src) return 'terminal';
+  if (terminalSrcs.get(video) === src) return 'terminal';
+
+  const audio = new Audio(src);
   audio.preload = 'auto';
   audio.loop = video.loop;
+  const outcome = await waitForPlayable(audio);
+  if (outcome !== 'engaged') {
+    audio.removeAttribute('src');
+    audio.load();
+    if (outcome === 'terminal') terminalSrcs.set(video, src);
+    return outcome;
+  }
+  if (entries.has(video)) return 'engaged';
+
+  const intent = acquireIntent(video, onSiteChange);
   const entry: RelayAudioEntry = {
     audio,
     getDelaySec,
-    siteMuted: video.muted,
-    ourMuteWrite: false,
     lastVideoTime: video.currentTime,
     looped: false,
+    draining: false,
+    drainTimer: null,
     teardown: () => {},
   };
-  audio.muted = entry.siteMuted;
-  audio.volume = video.volume;
-  setPageMuted(video, entry, true);
+  audio.muted = intent.siteMuted;
+  audio.volume = intent.siteVolume;
+  forceSilence(video, intent);
 
-  let lastObservedMuted = video.muted;
+  // Runs after the intent listener (registered earlier), so the site intent
+  // is already settled for this event.
   const onVolumeChange = () => {
-    if (entry.ourMuteWrite) {
-      lastObservedMuted = video.muted;
-      return;
-    }
-    // The page element is force-muted by us; only a real muted flip is site intent.
-    if (video.muted !== lastObservedMuted) {
-      lastObservedMuted = video.muted;
-      entry.siteMuted = video.muted;
-      audio.muted = video.muted;
-    }
-    audio.volume = video.volume;
-    // After a site unmute the audible timeline is ours; keep the live edge silent.
-    if (!video.muted) setPageMuted(video, entry, true);
+    audio.muted = intent.siteMuted;
+    audio.volume = intent.siteVolume;
   };
   const onPlay = () => sync(video, entry);
-  const onPause = () => audio.pause();
+  const onPause = () => {
+    if (!entry.draining) audio.pause();
+  };
   video.addEventListener('volumechange', onVolumeChange);
   video.addEventListener('play', onPlay);
   video.addEventListener('pause', onPause);
   const timer = setInterval(() => sync(video, entry), SYNC_INTERVAL_MS);
-
   entry.teardown = () => {
     clearInterval(timer);
+    if (entry.drainTimer) clearTimeout(entry.drainTimer);
     video.removeEventListener('volumechange', onVolumeChange);
     video.removeEventListener('play', onPlay);
     video.removeEventListener('pause', onPause);
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
-    setPageMuted(video, entry, entry.siteMuted);
+    intents.get(video)?.release();
   };
 
   entries.set(video, entry);
   sync(video, entry);
-  log.debug('Relay Audio engaged');
-  return true;
+  log.debug('Relay Audio engaged (direct URL)');
+  return 'engaged';
 }
 
-/** Back to native element audio: restore the site's muted intent and drop the relay element. */
+function waitForPlayable(audio: HTMLAudioElement): Promise<RelayAudioEngageResult> {
+  const HAVE_FUTURE_DATA = 3;
+  if (audio.readyState >= HAVE_FUTURE_DATA) return Promise.resolve('engaged');
+  return new Promise(resolve => {
+    const settle = (result: RelayAudioEngageResult) => {
+      audio.removeEventListener('canplay', onCanPlay);
+      audio.removeEventListener('error', onError);
+      clearTimeout(timeout);
+      resolve(result);
+    };
+    const onCanPlay = () => settle('engaged');
+    const onError = () => {
+      const MEDIA_ERR_DECODE = 3;
+      const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
+      const code = audio.error?.code;
+      settle(code === MEDIA_ERR_DECODE || code === MEDIA_ERR_SRC_NOT_SUPPORTED ? 'terminal' : 'transient');
+    };
+    audio.addEventListener('canplay', onCanPlay);
+    audio.addEventListener('error', onError);
+    const timeout = setTimeout(() => settle('transient'), ENGAGE_TIMEOUT_MS);
+  });
+}
+
+/** Back to native element audio: restore the site's intent and drop the relay element. */
 export function releaseRelayAudio(video: HTMLVideoElement): void {
   const entry = entries.get(video);
   if (!entry) return;
@@ -112,10 +262,21 @@ export function releaseRelayAudio(video: HTMLVideoElement): void {
   entries.delete(video);
 }
 
-function setPageMuted(video: HTMLVideoElement, entry: RelayAudioEntry, muted: boolean): void {
-  entry.ourMuteWrite = true;
-  video.muted = muted;
-  entry.ourMuteWrite = false;
+/**
+ * DVR drain: the page video just ended (and paused), but the delayed tail is
+ * still playing out on the canvas. Free-run the element for D more wall-clock
+ * seconds so the ending has its sound, then stop.
+ */
+export function drainRelayAudio(video: HTMLVideoElement): void {
+  const entry = entries.get(video);
+  if (!entry || entry.draining) return;
+  entry.draining = true;
+  const { audio } = entry;
+  audio.playbackRate = video.playbackRate;
+  if (audio.paused) {
+    audio.play().catch((error: unknown) => log.debug('Relay Audio drain play rejected:', error));
+  }
+  entry.drainTimer = setTimeout(() => audio.pause(), entry.getDelaySec() * 1000);
 }
 
 /**
@@ -125,6 +286,7 @@ function setPageMuted(video: HTMLVideoElement, entry: RelayAudioEntry, muted: bo
  */
 function sync(video: HTMLVideoElement, entry: RelayAudioEntry): void {
   const { audio } = entry;
+  if (entry.draining) return;
   if (video.paused || video.ended) {
     audio.pause();
     return;

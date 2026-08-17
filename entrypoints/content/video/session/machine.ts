@@ -11,6 +11,19 @@ export type SessionPhase = 'adopted' | 'thumbnailing' | 'standby' | 'sampling' |
  */
 export type DvrMode = 'off' | 'warming' | 'presenting';
 
+/**
+ * Delayed-audio route while the DVR presents: 'pending' = a route is being
+ * engaged (audible sessions ride a bounded-silence mute hold meanwhile);
+ * 'delayLine' = WebAudio DelayNode; 'relay' = hidden direct-URL audio element.
+ */
+export type AudioRoute = 'none' | 'pending' | 'delayLine' | 'relay';
+
+/** Adapter-reported outcome of one engageAudioRoute attempt. 'deferred' is
+ *  transient (context awaiting its gesture, relay element still buffering or a
+ *  transient media error) and retried; 'unavailable' means the delay line is
+ *  permanently impossible AND the relay element terminally failed. */
+export type AudioEngageOutcome = 'delayLine' | 'relay' | 'deferred' | 'unavailable';
+
 export interface VideoSessionState {
   phase: SessionPhase;
   /** Whether the Thumbnail send was already retried after a fail-closed timeout. */
@@ -43,6 +56,10 @@ export interface VideoSessionState {
   /** finalizeAllow cleared the cover on purpose (status skipped); no fail-closed
    *  blur may resurrect it until a fresh verdict lands. */
   allowed: boolean;
+  /** Delayed-audio route for the current presentation (reducer-owned policy). */
+  audioRoute: AudioRoute;
+  /** Site-intended audibility (muted/volume-0 = false), fed by raw events. */
+  audible: boolean;
 }
 
 export const THUMBNAIL_TIMEOUT_MS = 10_000;
@@ -85,10 +102,13 @@ export type SessionEvent =
   /** Analysis persistently cannot keep up with playback (hysteresis applied by
    *  the adapter). First occurrence widens the sampling interval; a second demotes. */
   | { type: 'analysisUnderrun'; at: number }
-  /** This element's audio can never ride the delay line (origin-tainted source
-   *  at adoption, or the site captured the element — discovered at engage).
-   *  Delayability is a precondition (ADR 0001): protection is withdrawn. */
-  | { type: 'audioUndelayable'; at: number }
+  /** Adapter finished one engageAudioRoute attempt; the reducer decides
+   *  engaged/retry/withdraw (ADR 0002). */
+  | { type: 'audioEngageResult'; result: AudioEngageOutcome; at: number }
+  /** Raw site intent (registry or the mute-intent tracker forwards the fact):
+   *  the video became audibly unmuted / muted-or-volume-0. */
+  | { type: 'unmuted'; at: number }
+  | { type: 'muted'; at: number }
   | { type: 'dispose' };
 
 export type SessionEffect =
@@ -110,10 +130,14 @@ export type SessionEffect =
   | { kind: 'stopDvr' }
   /** Playback ended: keep consuming the ring in real time to the final frame, then hold it. */
   | { kind: 'drainDvr' }
-  /** Pause under a presenting DVR: drop the delay line so its tail cannot drain over the frozen canvas. */
-  | { kind: 'holdAudioDelay' }
-  /** Resume under a presenting DVR: rebuild the delay line the pause discarded. */
-  | { kind: 'resumeAudioDelay' }
+  /** Attempt to engage a delayed audio route (delay line, then relay element);
+   *  the adapter reports the outcome via audioEngageResult. */
+  | { kind: 'engageAudioRoute' }
+  /** Drop whatever delayed route is up (delay line tail, relay element, mute hold). */
+  | { kind: 'releaseAudioRoute' }
+  /** Bounded silence while a route is pending: force-mute the page element, preserving site intent. */
+  | { kind: 'holdPageMute' }
+  | { kind: 'releaseMuteHold' }
   | { kind: 'cleanup' };
 
 export interface ReduceResult {
@@ -139,6 +163,8 @@ export function createVideoSession(): ReduceResult {
       dvr: 'off',
       samplingRelieved: false,
       allowed: false,
+      audioRoute: 'none',
+      audible: false,
     },
     effects: [{ kind: 'applyBlur' }],
   };
@@ -188,15 +214,40 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         pendingSeek: false,
         pendingSeekTimestampSec: null,
         dvr: 'off',
+        audioRoute: 'none',
       },
       effects: state.dvr === 'off' ? [{ kind: 'cleanup' }] : [{ kind: 'stopDvr' }, { kind: 'cleanup' }],
     };
   }
-  if (event.type === 'audioUndelayable') {
-    // Undelayable audio finalizes `skipped` from any live phase — permanently
-    // desynced audio was judged worse than absent protection. ERROR is already
-    // terminal; re-finalizing there would re-run teardown effects.
-    return state.phase === 'error' ? { state, effects: [] } : finalizeAllow(state, { terminal: true });
+  if (event.type === 'unmuted') {
+    const next = { ...state, audible: true };
+    if (state.dvr === 'presenting' && state.audioRoute === 'pending' && state.phase !== 'error') {
+      // Bounded silence while a fresh engage runs; also covers "terminally
+      // unavailable while muted" — the retry re-reports and only then withdraws.
+      return { state: next, effects: [{ kind: 'holdPageMute' }, { kind: 'engageAudioRoute' }] };
+    }
+    return { state: next, effects: [] };
+  }
+  if (event.type === 'muted') {
+    // A muted video has no audio to desync (ADR 0001): never withdraw.
+    const next = { ...state, audible: false };
+    return { state: next, effects: state.audioRoute === 'pending' ? [{ kind: 'releaseMuteHold' }] : [] };
+  }
+  if (event.type === 'audioEngageResult') {
+    if (state.audioRoute !== 'pending' || state.dvr !== 'presenting' || state.phase === 'error') {
+      // Stale report from a released or re-warmed run.
+      return { state, effects: [] };
+    }
+    if (event.result === 'delayLine' || event.result === 'relay') {
+      return { state: { ...state, audioRoute: event.result }, effects: [{ kind: 'releaseMuteHold' }] };
+    }
+    if (event.result === 'unavailable' && state.audible) {
+      // No obtainable route for audible audio: native playback beats permanent
+      // silence or desync (ADR 0001 value ordering).
+      return finalizeAllow(state, { terminal: true });
+    }
+    // deferred, or unavailable while muted: stay pending and retry later.
+    return { state, effects: [] };
   }
   if (event.type === 'thumbnailSourceReady' && state.phase === 'adopted') {
     return { state: { ...state, phase: 'thumbnailing' }, effects: [{ kind: 'captureThumbnail' }] };
@@ -271,6 +322,11 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // Verdicts are flowing: rewind the watchdog (sampling only) and lift any active blur.
     const effects: SessionEffect[] =
       state.phase === 'sampling' ? [{ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS }] : [];
+    if (state.dvr === 'presenting' && state.audioRoute === 'pending') {
+      // Verdict-driven retry: a deferred engage (gesture pending, relay
+      // buffering, transient media error) resolves on a later attempt.
+      effects.push({ kind: 'engageAudioRoute' });
+    }
     if (inflightIndex === null && state.inflightIndex !== null) {
       // The in-flight sample resolved: its timeout must not fire under a later sample.
       effects.push({ kind: 'cancelTimer', timer: 'sampleTimeout' });
@@ -364,10 +420,16 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   }
   if (event.type === 'bufferReady' && state.dvr === 'warming') {
     // The delayed canvas is drawing (masked, synced): swap out the whole-blur
-    // and any leftover DOM overlay from a pre-playback verdict.
+    // and any leftover DOM overlay from a pre-playback verdict. Audio must now
+    // follow the delayed timeline: engage a route, muted-held while it comes up.
     return {
-      state: { ...state, dvr: 'presenting', blurred: false },
-      effects: [{ kind: 'clearVerdict' }, { kind: 'clearBlur' }],
+      state: { ...state, dvr: 'presenting', blurred: false, audioRoute: 'pending' },
+      effects: [
+        { kind: 'clearVerdict' },
+        { kind: 'clearBlur' },
+        ...(state.audible ? [{ kind: 'holdPageMute' } as const] : []),
+        { kind: 'engageAudioRoute' },
+      ],
     };
   }
   if (
@@ -395,9 +457,11 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       }
       effects.push({ kind: 'startDvr' });
     } else if (state.dvr === 'presenting') {
-      // Resume without a re-warm: the canvas keeps presenting, so the delay
-      // line the pause discarded has to come back with it.
-      effects.push({ kind: 'resumeAudioDelay' });
+      // Resume without a re-warm: the canvas keeps presenting, so the route
+      // the pause released has to come back with it.
+      next.audioRoute = 'pending';
+      if (state.audible) effects.push({ kind: 'holdPageMute' });
+      effects.push({ kind: 'engageAudioRoute' });
     }
     return { state: next, effects };
   }
@@ -444,6 +508,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     const next = { ...state, phase: 'standby' as const };
     if (state.dvr !== 'off') {
       next.dvr = 'off';
+      next.audioRoute = 'none';
       if (state.masked) {
         next.blurred = false;
         // The native element becomes visible when the DVR stops. Blur it first,
@@ -465,7 +530,10 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // play the ending mute.
     const effects: SessionEffect[] = [{ kind: 'cancelTimer', timer: 'watchdog' }];
     const next = { ...state, phase: 'standby' as const };
-    if (state.dvr === 'presenting' && !event.atEnd) effects.push({ kind: 'holdAudioDelay' });
+    if (state.dvr === 'presenting' && !event.atEnd) {
+      next.audioRoute = 'none';
+      effects.push({ kind: 'releaseAudioRoute' });
+    }
     if (state.dvr === 'warming') {
       // Captures stop with the media clock, so bufferReady can never fire while
       // paused: a kept warm-up blur would latch over the whole paused frame.
@@ -532,7 +600,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // deliberately unblurred, an adoption-blurred one stays covered).
     const coverWarmUp = state.masked || (verdictPending(state) && state.dvr === 'presenting');
     return {
-      state: { ...sampled.state, dvr: 'warming', blurred: coverWarmUp || sampled.state.blurred },
+      state: { ...sampled.state, dvr: 'warming', audioRoute: 'none', blurred: coverWarmUp || sampled.state.blurred },
       effects: [
         ...(coverWarmUp ? [{ kind: 'applyBlur' } as const] : []),
         { kind: 'stopDvr' },
@@ -596,8 +664,12 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       pendingSeekTimestampSec: null,
       dvr: 'off',
       allowed: true,
+      audioRoute: 'none',
     },
     effects: [
+      // Route release before stopDvr: the site's mute/volume intent must be
+      // restored on the element the viewer is handed back.
+      ...(state.audioRoute === 'none' ? [] : [{ kind: 'releaseAudioRoute' } as const]),
       ...(state.dvr === 'off' ? [] : [{ kind: 'stopDvr' } as const]),
       { kind: 'clearVerdict' },
       { kind: 'clearBlur' },

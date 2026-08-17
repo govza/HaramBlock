@@ -351,16 +351,18 @@ describe('VideoSession machine', () => {
     const paused = run(nextUnsafe.state, { type: 'pause', at: 4000 });
     expect(paused.state.phase).toBe('standby');
     expect(paused.state.dvr).toBe('presenting');
-    expect(paused.effects).toEqual([{ kind: 'cancelTimer', timer: 'watchdog' }, { kind: 'holdAudioDelay' }]);
+    expect(paused.effects).toEqual([{ kind: 'cancelTimer', timer: 'watchdog' }, { kind: 'releaseAudioRoute' }]);
+    expect(paused.state.audioRoute).toBe('none');
 
     // Resume from the frozen frame: presentation continues, no re-warm, no
-    // blur — but the delay line the pause discarded comes back.
+    // blur — but the audio route the pause released comes back.
     const resumed = run(paused.state, { type: 'play', at: 4500 });
     expect(resumed.state.phase).toBe('sampling');
     expect(resumed.state.dvr).toBe('presenting');
+    expect(resumed.state.audioRoute).toBe('pending');
     expect(resumed.effects).not.toContainEqual({ kind: 'startDvr' });
     expect(resumed.effects).not.toContainEqual({ kind: 'applyBlur' });
-    expect(resumed.effects).toContainEqual({ kind: 'resumeAudioDelay' });
+    expect(resumed.effects).toContainEqual({ kind: 'engageAudioRoute' });
 
     // Dispose mid-presentation: stopDvr and cleanup exactly once.
     const disposed = run(nextUnsafe.state, { type: 'dispose' });
@@ -436,13 +438,13 @@ describe('VideoSession machine', () => {
     expect(ended.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
 
     // Chrome fires 'pause' just before 'ended' at the natural end: the pause
-    // freeze must not swallow the drain, and must not drop the delay line —
+    // freeze must not swallow the drain, and must not drop the audio route —
     // its buffered audio is the soundtrack of the tail the drain replays.
     const pausedFirst = run(presenting.state, { type: 'pause', at: 9000, atEnd: true }, { type: 'ended', at: 9001 });
     expect(pausedFirst.state.dvr).toBe('presenting');
     expect(pausedFirst.effects).toContainEqual({ kind: 'drainDvr' });
     expect(pausedFirst.effects).not.toContainEqual({ kind: 'stopDvr' });
-    expect(pausedFirst.effects).not.toContainEqual({ kind: 'holdAudioDelay' });
+    expect(pausedFirst.effects).not.toContainEqual({ kind: 'releaseAudioRoute' });
   });
 
   it('hands a still-warming DVR back to the DOM on ended: there is no tail to drain', () => {
@@ -550,7 +552,11 @@ describe('VideoSession machine', () => {
     // Presenting again after the re-warm: swap effects only, no timers armed.
     const rePresenting = run(seeked.state, { type: 'bufferReady', at: 5000 });
     expect(rePresenting.state.dvr).toBe('presenting');
-    expect(rePresenting.effects).toEqual([{ kind: 'clearVerdict' }, { kind: 'clearBlur' }]);
+    expect(rePresenting.effects).toEqual([
+      { kind: 'clearVerdict' },
+      { kind: 'clearBlur' },
+      { kind: 'engageAudioRoute' },
+    ]);
   });
 
   it('restores the fail-closed cover when a seek tears down a verdict-less presentation', () => {
@@ -1044,49 +1050,158 @@ describe('VideoSession machine', () => {
     const played = run(failed.state, { type: 'play', at: 2000 }, { type: 'frameAvailable', at: 2010 });
     expect(played.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
   });
+});
 
-  it('finalizes skipped at adoption when audio is undelayable: nothing is ever spent', () => {
-    const { state, effects } = run(createVideoSession().state, { type: 'audioUndelayable', at: 0 });
-    expect(state.phase).toBe('error');
-    expect(effects).toContainEqual({ kind: 'clearBlur' });
-    expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
-    // Terminal, not an outage: no cooldown may ever resurrect this session.
-    expect(effects).not.toContainEqual(expect.objectContaining({ kind: 'startTimer', timer: 'errorCooldown' }));
-
-    // No Thumbnail, no samples — the pipeline never spends anything on it.
-    const later = run(
-      state,
-      { type: 'thumbnailSourceReady' },
-      { type: 'play', at: 100 },
-      { type: 'frameAvailable', at: 200 },
-    );
-    expect(later.effects).toHaveLength(0);
-  });
-
-  it('tears down a presenting DVR when audio capture fails permanently at engage', () => {
-    const presenting = run(
+describe('audio route policy', () => {
+  const present = (opts: { audible?: boolean } = {}) =>
+    run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
       { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      ...(opts.audible ? [{ type: 'unmuted', at: 150 } as const] : []),
       { type: 'play', at: 1000 },
       { type: 'bufferReady', at: 2800 },
     );
-    expect(presenting.state.dvr).toBe('presenting');
 
-    const { state, effects } = run(presenting.state, { type: 'audioUndelayable', at: 3000 });
+  it('bufferReady on a muted session: pending route, engage attempt, no mute hold', () => {
+    const { state, effects } = present();
+    expect(state.audioRoute).toBe('pending');
+    expect(effects).toContainEqual({ kind: 'engageAudioRoute' });
+    expect(effects).not.toContainEqual({ kind: 'holdPageMute' });
+  });
+
+  it('bufferReady on an audible session holds the page mute while pending', () => {
+    const { state, effects } = present({ audible: true });
+    expect(state.audioRoute).toBe('pending');
+    expect(effects).toContainEqual({ kind: 'holdPageMute' });
+    expect(effects).toContainEqual({ kind: 'engageAudioRoute' });
+  });
+
+  it('an engaged route (either kind) releases the mute hold', () => {
+    for (const result of ['delayLine', 'relay'] as const) {
+      const { state, effects } = run(present({ audible: true }).state, { type: 'audioEngageResult', result, at: 3000 });
+      expect(state.audioRoute).toBe(result);
+      expect(effects).toEqual([{ kind: 'releaseMuteHold' }]);
+    }
+  });
+
+  it('a deferred engage stays pending and retries on the next verdict', () => {
+    const deferred = run(present({ audible: true }).state, {
+      type: 'audioEngageResult',
+      result: 'deferred',
+      at: 3000,
+    });
+    expect(deferred.state.audioRoute).toBe('pending');
+    expect(deferred.effects).toHaveLength(0);
+
+    const verdict = run(deferred.state, { type: 'predictionReceived', frameIndex: 5, unsafe: false, at: 3500 });
+    expect(verdict.effects).toContainEqual({ kind: 'engageAudioRoute' });
+  });
+
+  it('verdicts stop retrying once a route is engaged', () => {
+    const engaged = run(present().state, { type: 'audioEngageResult', result: 'delayLine', at: 3000 }).state;
+    const verdict = run(engaged, { type: 'predictionReceived', frameIndex: 5, unsafe: false, at: 3500 });
+    expect(verdict.effects).not.toContainEqual({ kind: 'engageAudioRoute' });
+  });
+
+  it('unavailable while audible withdraws protection terminally, releasing the route first', () => {
+    const { state, effects } = run(present({ audible: true }).state, {
+      type: 'audioEngageResult',
+      result: 'unavailable',
+      at: 3000,
+    });
     expect(state.phase).toBe('error');
     expect(state.dvr).toBe('off');
+    expect(state.audioRoute).toBe('none');
+    expect(effects).toContainEqual({ kind: 'releaseAudioRoute' });
     expect(effects).toContainEqual({ kind: 'stopDvr' });
-    expect(effects).toContainEqual({ kind: 'clearVerdict' });
-    expect(effects).toContainEqual({ kind: 'clearBlur' });
     expect(effects).toContainEqual({ kind: 'setStatus', status: 'skipped' });
-    expect(effects).toContainEqual({ kind: 'stopTicker' });
     expect(effects).not.toContainEqual(expect.objectContaining({ kind: 'startTimer', timer: 'errorCooldown' }));
 
-    // Terminal: playback never resurrects sampling or the DVR.
     const played = run(state, { type: 'play', at: 4000 }, { type: 'frameAvailable', at: 4010 });
     expect(played.effects).toHaveLength(0);
+  });
+
+  it('unavailable while muted never withdraws; a later unmute holds and retries', () => {
+    const unavailable = run(present().state, { type: 'audioEngageResult', result: 'unavailable', at: 3000 });
+    expect(unavailable.state.phase).not.toBe('error');
+    expect(unavailable.state.audioRoute).toBe('pending');
+    expect(unavailable.effects).toHaveLength(0);
+
+    const unmuted = run(unavailable.state, { type: 'unmuted', at: 4000 });
+    expect(unmuted.state.audible).toBe(true);
+    expect(unmuted.effects).toEqual([{ kind: 'holdPageMute' }, { kind: 'engageAudioRoute' }]);
+  });
+
+  it('muting while pending drops the hold; unmute with an engaged route needs no effects', () => {
+    const muted = run(present({ audible: true }).state, { type: 'muted', at: 3000 });
+    expect(muted.state.audible).toBe(false);
+    expect(muted.effects).toEqual([{ kind: 'releaseMuteHold' }]);
+
+    const engaged = run(present().state, { type: 'audioEngageResult', result: 'relay', at: 3000 }).state;
+    const unmuted = run(engaged, { type: 'unmuted', at: 4000 });
+    expect(unmuted.state.audible).toBe(true);
+    expect(unmuted.effects).toHaveLength(0);
+  });
+
+  it('pause releases the route; resume re-engages pending with a hold when audible', () => {
+    const engaged = run(present({ audible: true }).state, {
+      type: 'audioEngageResult',
+      result: 'relay',
+      at: 3000,
+    }).state;
+    const paused = run(engaged, { type: 'pause', at: 4000 });
+    expect(paused.state.audioRoute).toBe('none');
+    expect(paused.effects).toContainEqual({ kind: 'releaseAudioRoute' });
+
+    const resumed = run(paused.state, { type: 'play', at: 4500 });
+    expect(resumed.state.audioRoute).toBe('pending');
+    expect(resumed.effects).toContainEqual({ kind: 'holdPageMute' });
+    expect(resumed.effects).toContainEqual({ kind: 'engageAudioRoute' });
+  });
+
+  it('seek re-warm drops the route back to none; the next bufferReady re-engages', () => {
+    const engaged = run(present().state, { type: 'audioEngageResult', result: 'delayLine', at: 3000 }).state;
+    const seeked = run(engaged, { type: 'seeked', at: 4000, timestampSec: 40 });
+    expect(seeked.state.dvr).toBe('warming');
+    expect(seeked.state.audioRoute).toBe('none');
+
+    const rePresenting = run(seeked.state, { type: 'bufferReady', at: 5000 });
+    expect(rePresenting.state.audioRoute).toBe('pending');
+    expect(rePresenting.effects).toContainEqual({ kind: 'engageAudioRoute' });
+  });
+
+  it('ended keeps the route so the drain tail plays with sound', () => {
+    const engaged = run(present({ audible: true }).state, {
+      type: 'audioEngageResult',
+      result: 'relay',
+      at: 3000,
+    }).state;
+    const ended = run(engaged, { type: 'pause', at: 9000, atEnd: true }, { type: 'ended', at: 9001 });
+    expect(ended.state.audioRoute).toBe('relay');
+    expect(ended.effects).toContainEqual({ kind: 'drainDvr' });
+    expect(ended.effects).not.toContainEqual({ kind: 'releaseAudioRoute' });
+  });
+
+  it('an engage result landing after release or re-warm is ignored', () => {
+    const paused = run(present().state, { type: 'pause', at: 4000 }).state;
+    const stale = run(paused, { type: 'audioEngageResult', result: 'delayLine', at: 4100 });
+    expect(stale.state.audioRoute).toBe('none');
+    expect(stale.effects).toHaveLength(0);
+
+    const seeked = run(present().state, { type: 'seeked', at: 4000, timestampSec: 40 }).state;
+    const staleWarm = run(seeked, { type: 'audioEngageResult', result: 'unavailable', at: 4100 });
+    expect(staleWarm.state.phase).not.toBe('error');
+    expect(staleWarm.effects).toHaveLength(0);
+  });
+
+  it('suspend releases the DVR and the route together', () => {
+    const engaged = run(present().state, { type: 'audioEngageResult', result: 'relay', at: 3000 }).state;
+    const suspended = run(engaged, { type: 'suspend', at: 4000 });
+    expect(suspended.state.dvr).toBe('off');
+    expect(suspended.state.audioRoute).toBe('none');
+    expect(suspended.effects).toContainEqual({ kind: 'stopDvr' });
   });
 });
 
@@ -1121,7 +1236,7 @@ describe('analysis underrun', () => {
     expect(late.effects).toContainEqual(expect.objectContaining({ kind: 'sendSample' }));
   });
 
-  it('a second sustained underrun after relief demotes out of the DVR like audioUndelayable', () => {
+  it('a second sustained underrun after relief demotes out of the DVR terminally', () => {
     const relieved = run(presenting(), { type: 'analysisUnderrun', at: 3000 }).state;
     const { state, effects } = run(relieved, { type: 'analysisUnderrun', at: 9000 });
     expect(state.phase).toBe('error');

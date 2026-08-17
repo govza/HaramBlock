@@ -17,8 +17,7 @@ import {
 } from '@/entrypoints/content/presentation/initialStyling';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import { isAudioDelayable } from '@/entrypoints/content/video/dvr/audioDelay';
-import { isRelayAudioEngaged, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
+import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/frameCapture';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
@@ -211,9 +210,9 @@ class VideoSessionRegistry {
     handle.state = born.state;
     this.execute(handle, born.effects);
 
-    // Undelayable audio is not an adoption gate (ADR 0001): protection
-    // withdraws only when audible audio has no route — decided at
-    // audio-engage time and on unmute (bindMediaEvents).
+    // Undelayable audio is not an adoption gate (ADR 0001): the machine's
+    // audioRoute policy decides engage/retry/withdraw from engage results
+    // and raw mute intent (ADR 0002).
     this.bindMediaEvents(handle);
     this.suspension.observe(handle);
     if (!handle.suspended) this.sampler.startTicker(handle);
@@ -543,11 +542,17 @@ class VideoSessionRegistry {
         case 'drainDvr':
           this.presentation.drainDvr(handle);
           break;
-        case 'holdAudioDelay':
-          this.presentation.holdAudioDelay(handle);
+        case 'engageAudioRoute':
+          this.presentation.engageAudioRoute(handle);
           break;
-        case 'resumeAudioDelay':
-          this.presentation.resumeAudioDelay(handle);
+        case 'releaseAudioRoute':
+          this.presentation.releaseAudioRoute(handle);
+          break;
+        case 'holdPageMute':
+          this.presentation.holdPageMute(handle);
+          break;
+        case 'releaseMuteHold':
+          this.presentation.releaseMuteHold(handle);
           break;
         case 'cleanup':
           this.teardown(handle);
@@ -569,6 +574,7 @@ class VideoSessionRegistry {
     clearWholeBlur(video);
     clearProcessedStatus(video);
     releaseRelayAudio(video);
+    releaseMuteHold(video);
     releaseCorsVideoCache(video);
     unregisterQuickToggle(video);
     video.removeAttribute(SESSION_SRC_ATTR);
@@ -590,13 +596,14 @@ class VideoSessionRegistry {
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
     const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
-    // ADR 0001: on unmute, if neither the delay line nor Relay Audio can
-    // route the now-audible audio while the DVR presents, protection withdraws.
+    // Raw site intent for the machine's audio-route policy (ADR 0002). While
+    // the relay module owns the element's audio output (hold or engaged
+    // relay), its intent tracker forwards site changes instead — the module's
+    // own writes must not read as intent.
     const onVolumeChange = () => {
-      if (video.muted || video.volume === 0) return;
-      if (handle.state.dvr === 'off') return;
-      if (isAudioDelayable(video) || isRelayAudioEngaged(video)) return;
-      this.dispatch(handle, { type: 'audioUndelayable', at: now() });
+      if (hasMuteIntent(video)) return;
+      const audible = !video.muted && video.volume > 0;
+      this.dispatch(handle, { type: audible ? 'unmuted' : 'muted', at: now() });
     };
     const onSourceChanged = () => {
       const current = resolveVideoSource(video);
@@ -628,6 +635,9 @@ class VideoSessionRegistry {
       video.removeEventListener('emptied', onSourceChanged);
     };
 
+    if (!video.muted && video.volume > 0) {
+      this.dispatch(handle, { type: 'unmuted', at: now() });
+    }
     // A video already playing at adoption goes straight to sampling.
     if (!video.paused && !video.ended) {
       onPlay();

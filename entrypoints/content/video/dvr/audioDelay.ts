@@ -35,9 +35,8 @@ let sharedContext: AudioContext | null = null;
 
 /**
  * WebAudio outputs zeros for origin-tainted media — routing such audio through
- * the graph would MUTE it. Only sources whose samples are readable qualify.
- * The delayability precondition (ADR 0001): an undelayable source is not
- * processed at all, so this check is exported for the adoption-time gate.
+ * the graph would MUTE it. Only sources whose samples are readable qualify;
+ * undelayable sources fall through to Relay Audio (ADR 0002).
  */
 export function isAudioDelayable(video: HTMLVideoElement): boolean {
   if (video.srcObject) return true;

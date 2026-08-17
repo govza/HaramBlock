@@ -10,12 +10,7 @@
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import {
-  engageAudioDelay,
-  isAudioDelayEngaged,
-  releaseAudioDelay,
-  updateAudioDelay,
-} from '@/entrypoints/content/video/dvr/audioDelay';
+import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypoints/content/video/dvr/audioDelay';
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
 import {
   deriveDvrDelayMs,
@@ -25,10 +20,15 @@ import {
 } from '@/entrypoints/content/video/dvr/delay';
 import { encodedBitrate } from '@/entrypoints/content/video/dvr/encodedFrameRing';
 import { createDvrFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
-import { engageRelayAudio, isRelayAudioEngaged, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
+import {
+  drainRelayAudio,
+  engageRelayAudio,
+  holdPageMute,
+  releaseMuteHold,
+  releaseRelayAudio,
+} from '@/entrypoints/content/video/dvr/relayAudio';
 import { dvrRingBudget, type RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
-import { getRelayBlobUrl } from '@/entrypoints/content/video/frameCapture';
-import { type SessionEvent } from '@/entrypoints/content/video/session/machine';
+import { type AudioEngageOutcome, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
 
@@ -141,8 +141,6 @@ export class PresentationAdapter {
       getMasking: () => handle.hostSettings.masking,
       onReady: () => {
         this.ports.dispatch(handle, { type: 'bufferReady', at: performance.now() });
-        // The canvas now presents D behind the live edge; delay audio to match.
-        this.engageAudioDelay(handle);
       },
     });
     handle.dvr = {
@@ -162,36 +160,60 @@ export class PresentationAdapter {
   }
 
   /**
-   * Route audio through the delay line; when unavailable (origin-tainted
-   * source or captured element) Relay Audio takes over from the Relay Fetch
-   * blob (ADR 0001). Protection withdraws only when audible audio has no
-   * route. Deferred or failed engages retry via syncAudioDelay on every
-   * verdict, so a later blob, gesture, or unmute still resolves correctly.
+   * One engage attempt: delay line first, relay element when the line is
+   * permanently unavailable. The outcome goes back to the machine as an
+   * audioEngageResult event; the reducer alone decides engaged/retry/withdraw.
    */
-  private engageAudioDelay(handle: SessionHandle): void {
+  engageAudioRoute(handle: SessionHandle): void {
     const { player } = handle.dvr ?? {};
-    void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), () => handle.dvr?.player === player)
-      .then(result => {
-        if (result !== 'unavailable') return;
-        if (handle.dvr?.player !== player) return;
-        const engaged = engageRelayAudio(handle.video, getRelayBlobUrl(handle.video), () =>
-          this.ports.currentDelaySec(handle),
+    if (!player) return;
+    // Route state, not just player identity: a pause released the route but
+    // kept the player — a late engage must not land audio over a frozen canvas.
+    const stillWanted = () => handle.dvr?.player === player && handle.state.audioRoute === 'pending';
+    const report = (result: AudioEngageOutcome) =>
+      this.ports.dispatch(handle, { type: 'audioEngageResult', result, at: performance.now() });
+    void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), stillWanted)
+      .then(async result => {
+        if (!stillWanted()) return;
+        if (result === 'engaged') return report('delayLine');
+        if (result === 'deferred') return report('deferred');
+        const relay = await engageRelayAudio(
+          handle.video,
+          () => this.ports.currentDelaySec(handle),
+          audible => this.reportSiteAudible(handle, audible),
         );
-        if (engaged) return;
-        if (handle.video.muted || handle.video.volume === 0) return;
-        this.ports.dispatch(handle, { type: 'audioUndelayable', at: performance.now() });
+        if (!stillWanted()) {
+          releaseRelayAudio(handle.video);
+          return;
+        }
+        const outcomeByRelay: Record<typeof relay, AudioEngageOutcome> = {
+          engaged: 'relay',
+          transient: 'deferred',
+          terminal: 'unavailable',
+        };
+        report(outcomeByRelay[relay]);
       })
-      .catch((error: unknown) => log.debug('Audio delay engage failed:', error));
+      .catch((error: unknown) => log.debug('Audio route engage failed:', error));
   }
 
-  /** Pause: drop the delay line before its tail drains over the frozen canvas. */
-  holdAudioDelay(handle: SessionHandle): void {
+  /** Drop whatever delayed route is up; the site's audio intent is restored. */
+  releaseAudioRoute(handle: SessionHandle): void {
     releaseAudioDelay(handle.video);
+    releaseRelayAudio(handle.video);
+    releaseMuteHold(handle.video);
   }
 
-  /** Resume under a still-presenting DVR: rebuild what the pause discarded. */
-  resumeAudioDelay(handle: SessionHandle): void {
-    if (handle.dvr) this.engageAudioDelay(handle);
+  /** Bounded silence while a route is pending. */
+  holdPageMute(handle: SessionHandle): void {
+    holdPageMute(handle.video, audible => this.reportSiteAudible(handle, audible));
+  }
+
+  releaseMuteHold(handle: SessionHandle): void {
+    releaseMuteHold(handle.video);
+  }
+
+  private reportSiteAudible(handle: SessionHandle, audible: boolean): void {
+    this.ports.dispatch(handle, { type: audible ? 'unmuted' : 'muted', at: performance.now() });
   }
 
   private registerDemand(handle: SessionHandle, nativeWidth: number, nativeHeight: number): void {
@@ -216,8 +238,7 @@ export class PresentationAdapter {
     handle.dvr = null;
     handle.dvrDelaySec = null;
     dvrRingBudget.release(handle.sessionId);
-    releaseAudioDelay(handle.video);
-    releaseRelayAudio(handle.video);
+    this.releaseAudioRoute(handle);
     dvr.player.destroy();
     dvr.store.release();
     delete handle.video.dataset.hbDvrStore;
@@ -232,20 +253,12 @@ export class PresentationAdapter {
   /** Playback ended: the presenter consumes the ring tail in real time, then holds the final frame. */
   drainDvr(handle: SessionHandle): void {
     handle.dvr?.player.startDrain();
+    drainRelayAudio(handle.video);
   }
 
-  /** Keep the audio delay tracking the presentation delay, retrying a deferred engage. */
+  /** Keep the audio delay tracking the presentation delay (engage retries are machine-driven). */
   syncAudioDelay(handle: SessionHandle): void {
     if (!handle.dvr) return;
-    if (
-      handle.state.dvr === 'presenting' &&
-      !handle.video.paused &&
-      !isAudioDelayEngaged(handle.video) &&
-      !isRelayAudioEngaged(handle.video)
-    ) {
-      this.engageAudioDelay(handle);
-      return;
-    }
     // Relay Audio reads the delay via callback; only the WebAudio line needs a ramp.
     updateAudioDelay(handle.video, this.ports.currentDelaySec(handle));
   }
