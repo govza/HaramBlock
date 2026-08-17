@@ -39,6 +39,13 @@ view content I deem appropriate while keeping protection active for other images
 - Stacked just above its image (image z-index + 2, one step above the mask overlay's + 1) — never
   a large fixed z-index, so a lightbox backdrop that covers the image also covers the button, and
   scrolling moves both together (no hide-on-scroll)
+- After showing, the button center is hit-tested (`elementFromPoint`); if site chrome wins the hit
+  (e.g. a transparent sticky banner with a high z-index), the button's z-index is raised just above
+  that occluder's stacking chain. When z-index cannot win — the occluder lives in a sibling
+  stacking context above the button's (e.g. a sticky banner over a transformed scroll container) —
+  the z is restored and the button slides below the occluder instead, as long as it stays on the
+  media. Backdrops still cover a hidden button: the check only runs off a pointerenter on the media
+  itself, and never applies a blanket large z-index
 - The button's chrome is inline styles (the injected class rules cannot reach shadow trees); the
   `.haramblock-eye-toggle` class remains for hover styling and test selectors
 - Semi-transparent background (`rgba(0, 0, 0, 0.5)`), auto-hides after 2.5s

@@ -130,6 +130,52 @@ function positionEye(element: ToggleTarget): boolean {
   return true;
 }
 
+const OCCLUSION_LIFT_ATTEMPTS = 4;
+
+/**
+ * Site chrome can paint over the button while the media stays hoverable
+ * (sticky headers, transparent click-catchers). Hit-test the button center
+ * and raise its z-index just above the occluder; when the occluder sits in a
+ * sibling stacking context that z can never beat, restore z and slide the
+ * button below it instead, as long as it stays on the media. Our overlays are
+ * pointer-events: none, so any hit that is not the button is a real occluder.
+ */
+function ensureClickable(element: ToggleTarget): void {
+  if (!eyeButton || eyeButton.style.display === 'none') return;
+  const root = eyeButton.getRootNode() as Document | ShadowRoot;
+  const originalZ = eyeButton.style.zIndex;
+  for (let attempt = 0; attempt < OCCLUSION_LIFT_ATTEMPTS; attempt++) {
+    const hit = occluderAt(root);
+    if (!hit) return;
+    const currentZ = parseInt(eyeButton.style.zIndex) || 0;
+    eyeButton.style.zIndex = String(Math.max(currentZ, occluderZIndex(hit)) + 1);
+  }
+  eyeButton.style.zIndex = originalZ;
+  const hit = occluderAt(root);
+  if (!hit) return;
+  const rect = eyeButton.getBoundingClientRect();
+  const delta = hit.getBoundingClientRect().bottom - rect.top + BUTTON_MARGIN_PX;
+  const elementRect = element.getBoundingClientRect();
+  if (delta <= 0 || rect.bottom + delta > elementRect.bottom) return;
+  eyeButton.style.top = `${parseFloat(eyeButton.style.top) + delta}px`;
+}
+
+function occluderAt(root: Document | ShadowRoot): Element | null {
+  if (!eyeButton) return null;
+  const rect = eyeButton.getBoundingClientRect();
+  const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return !hit || hit === eyeButton || eyeButton.contains(hit) ? null : hit;
+}
+
+/** Nearest numeric z-index up the occluder's ancestor chain. */
+function occluderZIndex(hit: Element): number {
+  for (let el: Element | null = hit; el; el = el.parentElement) {
+    const z = parseInt(getComputedStyle(el).zIndex);
+    if (!Number.isNaN(z)) return z;
+  }
+  return 0;
+}
+
 function showEye(element: ToggleTarget): void {
   createGlobalEyeButton();
   if (!eyeButton) return;
@@ -154,6 +200,7 @@ function showEye(element: ToggleTarget): void {
     // Re-anchor: a lightbox may still be zooming/centering during the show delay
     if (!positionEye(element)) return;
     eyeButton.style.display = 'flex';
+    ensureClickable(element);
     resetHideTimer();
   }, SHOW_DELAY_MS);
 }
@@ -222,6 +269,7 @@ function handleClick(e: Event): void {
     }
     if (eyeButton) {
       eyeButton.style.display = 'flex';
+      ensureClickable(clickedElement);
     }
   }
   resetHideTimer();
@@ -253,6 +301,7 @@ function createGlobalEyeButton(): void {
     border: none;
     border-radius: 50%;
     background: rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
     cursor: pointer;
     align-items: center;
     justify-content: center;
