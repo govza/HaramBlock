@@ -10,14 +10,15 @@ so no crossing ever happens.
 Audio follows the delayed timeline through whichever route is available:
 
 - **WebAudio delay line** when the source is untainted.
-- **Relay Audio** when it is not: the background Relay Fetches the media bytes (CONTEXT.md), and a
-  hidden `<audio>` element plays the resulting page-origin blob at `currentTime - D` (delay by time
-  offset, no DelayNode), with the page element muted while engaged and the site's muted/volume
-  intent mirrored and restored.
+- **Relay Audio** when it is not: a hidden `<audio>` element plays the video's original URL at
+  `currentTime - D` (delay by time offset, no DelayNode; media playback needs no CORS — revised from
+  blob-fed to direct-URL in ADR 0002), with the page element silenced while engaged and the site's
+  muted/volume intent mirrored and restored.
 - **Protection withdraws only when audible audio truly has no route**: delay line unavailable, Relay
-  Audio impossible (no blob), and the video audibly unmuted - checked at audio-engage time and on
-  unmute, not at adoption. Permanently desynced audio was judged a worse everyday experience than
-  absent protection; a muted video has no audio to desync and stays protected.
+  Audio impossible (relay element terminally cannot play), and the video audibly unmuted - decided
+  by the session machine's audio-route policy (ADR 0002), not at adoption. Permanently desynced
+  audio was judged a worse everyday experience than absent protection; a muted video has no audio to
+  desync and stays protected.
 
 ## Considered Options
 
@@ -38,8 +39,9 @@ Audio follows the delayed timeline through whichever route is available:
 Every processed video pays ~D of pinned start, is watched D behind the live edge (including live
 streams), and costs capture/canvas CPU plus ring memory while playing - bounded by a global budget
 auto-tiered by inference backend (WebGPU high, WASM low) with graceful per-session degradation.
-Non-CORS cross-origin videos double-download the media file (bounded by the DVR per-session budget
-tier) and carry a hidden audio element plus ~500 ms drift-sync ticks while engaged; sites that fight
-the forced page-element mute may audibly double audio briefly until the mirror re-mutes. A video
-that is unmuted before any audio route exists withdraws protection - a deliberate protection
+Non-CORS cross-origin videos carry a hidden audio element plus ~500 ms drift-sync ticks while
+engaged (the Tier-3 capture download, when it happens, is bounded by its own dedicated cap — ADR
+0002); sites that fight the forced page-element silencing may audibly double audio briefly until the
+mirror re-silences. A video unmuted while its route is pending rides a bounded silence, and
+protection withdraws only when no route is obtainable at all (ADR 0002) - a deliberate protection
 downgrade, chosen knowingly.

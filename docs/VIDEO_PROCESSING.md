@@ -61,7 +61,7 @@ ADOPTED ──capture thumbnail──► THUMBNAILING
              ERROR (ALLOW: blur cleared, status skipped, loop stopped;
               transient streaks retry after a cooldown, canvas taint is terminal)
 
-any live state ──audible audio with no delayed route──► ERROR (terminal: status skipped, no DVR, no masking)
+DVR presenting ──audible audio with no obtainable route──► ERROR (terminal: status skipped, no DVR, no masking)
 any state ──source change / element removed──► DISPOSED (terminal)
 ```
 
@@ -94,12 +94,15 @@ Key invariants:
   rest of the tab's lifetime.
 - **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
   `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
-- **Audible audio must have a delayed route** (ADR
-  [0001](adr/0001-continuous-dvr-and-relay-audio.md)): every video is adopted, and when the WebAudio
-  delay line is unavailable, **Relay Audio** plays the Relay Fetch blob at `currentTime − D`
-  instead. Protection withdraws (finalized `skipped`) only when the delay line is unavailable, no
-  relay blob exists, and the video is audibly unmuted — checked at audio-engage time and on unmute.
-  Permanently desynced audible audio is still judged worse than absent protection.
+- **Audible audio must have a delayed route** (ADRs
+  [0001](adr/0001-continuous-dvr-and-relay-audio.md),
+  [0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)): every video is adopted,
+  and when the WebAudio delay line is unavailable, **Relay Audio** plays the video's original URL at
+  `currentTime − D` instead. The policy is a reducer-owned `audioRoute` axis: while a route is
+  `pending`, an audible session rides a bounded-silence mute hold; protection withdraws (finalized
+  `skipped`) only when the delay line is permanently unavailable, the relay element terminally
+  failed to play, and the video is audibly unmuted. Permanently desynced audible audio is still
+  judged worse than absent protection.
 
 ## Components
 
@@ -121,7 +124,7 @@ Key invariants:
 | DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                          | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                   |
 | DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                                                 | Global backend-tiered byte budget with a shared quality-degradation ladder                                                                            |
 | DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                 | WebAudio DelayNode routing + the delayability check                                                                                                   |
-| DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                 | Delayed audio for origin-tainted sources: hidden `<audio>` on the Relay Fetch blob at `currentTime − D` (ADR 0001)                                    |
+| DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                 | Delayed audio for origin-tainted sources: hidden `<audio>` on the original URL at `currentTime − D`; also owns the pending-route mute hold (ADR 0002) |
 | DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                                                      | Plays out the buffered tail at 1x after `ended`, then pins the final frame                                                                            |
 | Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts`                            | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                                                              |
 
@@ -198,24 +201,24 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   CORS clone mirrors active playback after its first exact seek, avoiding a network-backed random
   seek for every sample; every draw still verifies the selected media time. When the CORS clone
   fails (server sends no CORS headers), a **Relay Fetch** tier engages before giving up: the
-  background fetches the media bytes CORS-exempt (`mediaFetchService.ts`, capped at the DVR
-  per-session budget tier), and the clone plays them from a page-origin `blob:` URL so the canvas
-  stays origin-clean. Only when Relay Fetch also fails (opaque error, over budget) does the source
-  stay tainted and the permanent-failure path finalize the session as allow. Firefox clone seeks
-  resolve from either media events or observable ready-state/time convergence, and initial success
-  is reported only after that convergence. A stalled cached clone is evicted so later samples can
-  recreate it instead of timing out forever. Video thumbnails use queue priority 20 and playback
-  samples priority 10, below visible images (30), so autoplay cannot indefinitely hold newly
-  discovered page images behind its frame backlog. The background retains at most one
-  not-yet-started playback frame per `sessionId`: a newer frame aborts and releases the older queued
-  bitmap, while a frame arriving out of order (the cancel RPC and frame payloads ride different
-  transports) is dropped rather than replacing a fresher queued one. Suspending or disposing a
-  session cancels that queued frame explicitly (skipped when the session never sent a playback frame
-  — the cancel would be a guaranteed no-op RPC); inference already running is allowed to finish and
-  its session-routed result is harmless if the session has gone away. Firefox discovers some canvas
-  taint only when its WebP transfer calls `OffscreenCanvas.convertToBlob()` (`createImageBitmap()`
-  may still succeed); that write-only-canvas exception is also permanent, so the session stops
-  retrying immediately.
+  background fetches the media bytes CORS-exempt (`mediaFetchService.ts`, dedicated
+  `MEDIA_DOWNLOAD_MAX_BYTES` cap and an abort-based whole-download timeout), and the clone plays
+  them from a page-origin `blob:` URL so the canvas stays origin-clean. Only when Relay Fetch also
+  fails (opaque error, over budget) does the source stay tainted and the permanent-failure path
+  finalize the session as allow. Firefox clone seeks resolve from either media events or observable
+  ready-state/time convergence, and initial success is reported only after that convergence. A
+  stalled cached clone is evicted so later samples can recreate it instead of timing out forever.
+  Video thumbnails use queue priority 20 and playback samples priority 10, below visible images
+  (30), so autoplay cannot indefinitely hold newly discovered page images behind its frame backlog.
+  The background retains at most one not-yet-started playback frame per `sessionId`: a newer frame
+  aborts and releases the older queued bitmap, while a frame arriving out of order (the cancel RPC
+  and frame payloads ride different transports) is dropped rather than replacing a fresher queued
+  one. Suspending or disposing a session cancels that queued frame explicitly (skipped when the
+  session never sent a playback frame — the cancel would be a guaranteed no-op RPC); inference
+  already running is allowed to finish and its session-routed result is harmless if the session has
+  gone away. Firefox discovers some canvas taint only when its WebP transfer calls
+  `OffscreenCanvas.convertToBlob()` (`createImageBitmap()` may still succeed); that
+  write-only-canvas exception is also permanent, so the session stops retrying immediately.
 
 Each Frame Sample has two deliberately separate identities:
 
@@ -286,8 +289,8 @@ derived D clamped at its ceiling while coverage ahead of the playhead still trai
 (`isAnalysisUnderrun`), sustained over `UNDERRUN_VERDICT_STREAK` consecutive verdicts — dispatches
 `analysisUnderrun` to the machine: the first widens the sampling floor to `RELIEVED_SAMPLE_FLOOR_MS`
 (fewer samples relieve inference pressure), and a second sustained underrun after relief demotes the
-session out of the DVR exactly like `audioUndelayable` — this machine cannot analyze fast enough,
-and inference-impossible is allow, not block.
+session out of the DVR terminally — this machine cannot analyze fast enough, and
+inference-impossible is allow, not block.
 
 Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the presentation adapter):
 
@@ -340,13 +343,14 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
 - **Pause**: never exits the DVR. The media clock freezes, so the canvas holds the delayed frame the
   viewer was actually seeing; `play` resumes presentation without a re-warm. The sampling
-  bookkeeping winds down, and the audio delay line is dropped (`holdAudioDelay`) and rebuilt on
-  resume (`resumeAudioDelay`): a `DelayNode` runs on the audio clock, not the media clock, so a line
-  left attached would drain its buffered `D` seconds of speech over the frozen frame. Resume
-  therefore costs `D` seconds of silence while the fresh line refills — the buffered tail is gone
-  either way. The exception is the pause Chrome fires just before `ended` (`atEnd` on the event):
-  there the line is kept, because its buffered audio is the soundtrack of the picture tail the drain
-  is about to replay — dropping it would play every natural ending mute.
+  bookkeeping winds down, and the audio route is dropped (`releaseAudioRoute`) and re-engaged on
+  resume (`audioRoute` back to `pending` + `engageAudioRoute`): a `DelayNode` runs on the audio
+  clock, not the media clock, so a line left attached would drain its buffered `D` seconds of speech
+  over the frozen frame. Resume therefore costs `D` seconds of silence while the fresh line refills
+  — the buffered tail is gone either way. The exception is the pause Chrome fires just before
+  `ended` (`atEnd` on the event): there the route is kept, because its buffered audio is the
+  soundtrack of the picture tail the drain is about to replay — dropping it would play every natural
+  ending mute.
 - **`ended`** → `drainDvr`: the presenter switches to a drain clock (`dvr/drain.ts`) that advances
   the presented media time at 1x wall rate from where presentation froze to the newest buffered
   frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A
@@ -373,23 +377,32 @@ is warming or presenting, it owns masking even for a paused frame.
 ### Audio routing
 
 Delayed picture with live audio means permanent lip-sync desync, and switching audio routes
-mid-playback is audible — so audible audio must ride a delayed route while the DVR presents (ADR
-[0001](adr/0001-continuous-dvr-and-relay-audio.md)). Engage tries, in order:
+mid-playback is audible — so audible audio must ride a delayed route while the DVR presents (ADRs
+[0001](adr/0001-continuous-dvr-and-relay-audio.md),
+[0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)). The policy lives in the
+reducer as the `audioRoute` axis (`none | pending | delayLine | relay`): `bufferReady`, resume, and
+every verdict while `pending` emit `engageAudioRoute`; the adapter reports one `audioEngageResult`
+per attempt, and the reducer alone decides engaged/retry/withdraw. An engage tries, in order:
 
 - **WebAudio delay line** (`dvr/audioDelay.ts`): `createMediaElementSource` → `DelayNode` at `D`.
   Only for delayable sources (`isAudioDelayable`) — WebAudio zeroes origin-tainted samples.
-- **Relay Audio** (`dvr/relayAudio.ts`): for origin-tainted sources with a Relay Fetch blob, a
-  hidden `<audio>` plays the blob at `currentTime − D` (delay by time offset); the page element is
-  muted while engaged, the site's muted/volume intent mirrored onto the relay element and restored
-  on release. Drift syncs every 500 ms: hard seek beyond 0.25 s, rate nudge inside it.
-- **Neither available and audibly unmuted** → `audioUndelayable` tears down the DVR and masking and
-  finalizes `skipped` (one final visible switch, unavoidable). A muted video has no audio to desync:
-  it stays protected, and the engage is retried on every verdict so a late-arriving blob lands; the
-  unmute moment re-checks (`volumechange` in the registry) and withdraws only then.
-- **Suspended `AudioContext`** (no user gesture yet): transient — the engage defers, and every
-  subsequent verdict retries it (`syncAudioDelay`) until it lands; never a demotion. The retry is
-  not optional: a deferred engage left alone would present delayed picture against live audio, the
-  same permanent desync this routing exists to prevent.
+- **Relay Audio** (`dvr/relayAudio.ts`): for undelayable sources, a hidden `<audio>` plays the
+  video's **original URL** at `currentTime − D` (media playback needs no CORS — no blob, no
+  download); the page element is silenced (`volume = 0`, so site mute writes stay observable) while
+  engaged, the site's muted/volume intent mirrored onto the relay element (async-safe pending-writes
+  counter) and restored on release. Drift syncs every 500 ms: hard seek beyond 0.25 s, rate nudge
+  inside it; the DVR drain keeps the tail playing `D` more wall-clock seconds.
+- **Pending and audible** → `holdPageMute`: bounded silence (not desynced live audio, not lost
+  protection) while the route comes up — covering both the relay element's buffering window and the
+  deferred-`AudioContext` pre-gesture window.
+- **No route obtainable and audibly unmuted** (delay line permanently unavailable AND the relay
+  element terminally failed) → finalize `skipped`: DVR and masking torn down, native playback
+  restored with the site's audio intent. A muted video has no audio to desync: it stays protected
+  and `pending`; the unmute moment (raw `unmuted`/`muted` intent events) re-holds and retries.
+- **Transient outcomes** (suspended `AudioContext` awaiting its gesture, relay element buffering
+  timeout or recoverable media error) report `deferred`: the route stays `pending` and the next
+  verdict retries. The retry is not optional: a deferred engage left alone would present delayed
+  picture against live audio, the same permanent desync this routing exists to prevent.
 
 ### Memory: the global ring budget
 

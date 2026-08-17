@@ -19,9 +19,9 @@ pixelates the predicted regions and tracks the image's geometry. _Avoid_: mask l
 permissions exempt background fetch from CORS), so the content script can decode it origin-clean.
 _Avoid_: proxy fetch, CORS bypass
 
-**Relay Audio**: Delayed audio for an origin-tainted video: a hidden audio element playing the Relay
-Fetch bytes one Presentation Delay behind the live edge, while the page element stays muted.
-_Avoid_: audio proxy, blob audio
+**Relay Audio**: Delayed audio for an origin-tainted video: a hidden audio element playing the
+video's original URL one Presentation Delay behind the live edge, while the page element is kept
+silent. _Avoid_: audio proxy, blob audio
 
 **Safe / Unsafe image**: An image without / with predictions. Unsafe images are masked when Forced
 Visibility is `'auto'`. _Avoid_: clean image, flagged image
