@@ -130,46 +130,45 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
     return { failure: 'transient' };
   }
 
-  // Resolve the source before touching the shared surface: another in-flight
-  // capture may draw to it while this one awaits. From here to the
-  // createImageBitmap call (which snapshots the canvas synchronously) there is
-  // no await, so the surface cannot be repainted mid-capture.
+  // Resolve the source before leasing the shared surface, so slow CORS-clone
+  // work never serializes behind (or blocks) other captures.
   const sourceVideo = await ensureCorsSafeSource(video, timestampSec);
-  const { ctx, canvas } = acquireDrawingSurface(width, height);
-  if (!ctx) {
-    logger.withTag('frameCapture').warn('Could not get 2D context for frame capture');
-    return { failure: 'transient' };
-  }
-  ctx.drawImage(sourceVideo, 0, 0, width, height);
-
-  // Chrome only rejects a tainted-canvas bitmap later at the transfer port
-  // (DataCloneError → timeout); a 1-pixel readback surfaces the taint here.
-  try {
-    ctx.getImageData(0, 0, 1, 1);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'SecurityError') {
-      logger.withTag('frameCapture').warn('Canvas tainted by cross-origin video, cannot capture');
-      return { failure: 'permanent' };
+  return leaseDrawingSurface(width, height, async ({ ctx, canvas }) => {
+    if (!ctx) {
+      logger.withTag('frameCapture').warn('Could not get 2D context for frame capture');
+      return { failure: 'transient' };
     }
-    throw error;
-  }
+    ctx.drawImage(sourceVideo, 0, 0, width, height);
 
-  try {
-    return {
-      bitmap: await withStageTimeout(
-        createImageBitmap(canvas),
-        'Frame Sample bitmap creation',
-        BITMAP_CREATE_TIMEOUT_MS,
-        late => late.close(),
-      ),
-    };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'SecurityError') {
-      logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
-      return { failure: 'permanent' };
+    // Chrome only rejects a tainted-canvas bitmap later at the transfer port
+    // (DataCloneError → timeout); a 1-pixel readback surfaces the taint here.
+    try {
+      ctx.getImageData(0, 0, 1, 1);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        logger.withTag('frameCapture').warn('Canvas tainted by cross-origin video, cannot capture');
+        return { failure: 'permanent' };
+      }
+      throw error;
     }
-    throw error;
-  }
+
+    try {
+      return {
+        bitmap: await withStageTimeout(
+          createImageBitmap(canvas),
+          'Frame Sample bitmap creation',
+          BITMAP_CREATE_TIMEOUT_MS,
+          late => late.close(),
+        ),
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
+        return { failure: 'permanent' };
+      }
+      throw error;
+    }
+  });
 }
 
 export async function ensureCorsSafeSource(
@@ -320,7 +319,7 @@ export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   corsVideoCache.delete(video);
 }
 
-export function captureDimensions(
+function captureDimensions(
   video: HTMLVideoElement,
   maxDimension = Number.POSITIVE_INFINITY,
 ): { width: number; height: number } {
@@ -331,26 +330,41 @@ export function captureDimensions(
   return { width: Math.round(nativeWidth * scale), height: Math.round(nativeHeight * scale) };
 }
 
-let drawingSurface: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null } | null = null;
+export interface DrawingSurface {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D | null;
+}
+
+let drawingSurface: DrawingSurface | null = null;
+let drawingSurfaceLease: Promise<unknown> = Promise.resolve();
 
 /**
- * Shared capture surface, reused across samples (~4/s per video) to avoid
- * per-capture canvas allocation churn; resized only when dimensions change.
+ * Run `task` with exclusive use of the shared capture surface, sized to
+ * `width`×`height` (reused across samples — ~4/s per video — to avoid
+ * per-capture canvas allocation churn; resized only when dimensions change).
+ * Tasks are serialized: `createImageBitmap` copies its canvas source in
+ * parallel per spec, so the next capture must not repaint the surface until
+ * the previous task settles.
  */
-export function acquireDrawingSurface(
+export function leaseDrawingSurface<T>(
   width: number,
   height: number,
-): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null } {
-  if (!drawingSurface) {
-    const canvas = document.createElement('canvas');
-    drawingSurface = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
-  }
-  const { canvas } = drawingSurface;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
-  return drawingSurface;
+  task: (surface: DrawingSurface) => Promise<T>,
+): Promise<T> {
+  const result = drawingSurfaceLease.then(() => {
+    if (!drawingSurface?.ctx) {
+      const canvas = document.createElement('canvas');
+      drawingSurface = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
+    }
+    const { canvas } = drawingSurface;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    return task(drawingSurface);
+  });
+  drawingSurfaceLease = result.catch(() => undefined);
+  return result;
 }
 
 async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null> {

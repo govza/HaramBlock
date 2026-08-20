@@ -33,12 +33,12 @@ class FakeCorsVideo extends EventTarget {
   load(): void {}
 }
 
-describe('acquireDrawingSurface', () => {
+describe('leaseDrawingSurface', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('reuses one canvas across captures and resizes only on dimension change', async () => {
+  const importWithFakeCanvas = async () => {
     vi.resetModules();
     const canvases: { width: number; height: number; getContext: () => object }[] = [];
     const createElement = vi.fn(() => {
@@ -47,16 +47,51 @@ describe('acquireDrawingSurface', () => {
       return canvas;
     });
     vi.stubGlobal('document', { createElement });
-    const { acquireDrawingSurface } = await import('@/entrypoints/content/video/frameCapture');
+    const { leaseDrawingSurface } = await import('@/entrypoints/content/video/frameCapture');
+    return { leaseDrawingSurface, createElement, canvases };
+  };
 
-    const first = acquireDrawingSurface(640, 360);
-    const second = acquireDrawingSurface(640, 360);
-    const resized = acquireDrawingSurface(320, 180);
+  it('reuses one canvas across captures and resizes only on dimension change', async () => {
+    const { leaseDrawingSurface, createElement, canvases } = await importWithFakeCanvas();
+
+    const first = await leaseDrawingSurface(640, 360, surface => Promise.resolve(surface.canvas));
+    const second = await leaseDrawingSurface(640, 360, surface => Promise.resolve(surface.canvas));
+    const resized = await leaseDrawingSurface(320, 180, surface => Promise.resolve(surface.canvas));
 
     expect(createElement).toHaveBeenCalledOnce();
-    expect(second.canvas).toBe(first.canvas);
-    expect(resized.canvas).toBe(first.canvas);
+    expect(second).toBe(first);
+    expect(resized).toBe(first);
     expect(canvases[0]).toMatchObject({ width: 320, height: 180 });
+  });
+
+  it('serializes concurrent captures: the next task waits for the previous to settle', async () => {
+    const { leaseDrawingSurface } = await importWithFakeCanvas();
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>(resolve => (releaseFirst = resolve));
+    const order: string[] = [];
+
+    const first = leaseDrawingSurface(640, 360, async () => {
+      order.push('first-start');
+      await gate;
+      order.push('first-end');
+    });
+    const second = leaseDrawingSurface(320, 180, () => {
+      order.push('second-start');
+      return Promise.resolve();
+    });
+    await Promise.resolve();
+    expect(order).toEqual(['first-start']);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first-start', 'first-end', 'second-start']);
+  });
+
+  it('a rejected capture does not wedge the lease for later captures', async () => {
+    const { leaseDrawingSurface } = await importWithFakeCanvas();
+
+    await expect(leaseDrawingSurface(640, 360, () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
+    await expect(leaseDrawingSurface(640, 360, () => Promise.resolve('ok'))).resolves.toBe('ok');
   });
 });
 

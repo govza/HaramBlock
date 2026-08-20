@@ -1,15 +1,22 @@
 import { PermanentFrameTransferError, isWriteOnlyCanvasError } from '@/entrypoints/content/video/frameTransfer';
 
 let compressionCanvas: OffscreenCanvas | null = null;
+let compressionLease: Promise<unknown> = Promise.resolve();
 
 /**
  * Shared compression surface for the Firefox blob transport, reused across
  * samples (~4/s per video) to avoid per-sample OffscreenCanvas allocation
- * churn; resized only when dimensions change. Safe under concurrent callers:
- * `convertToBlob` snapshots the canvas synchronously at call time and there is
- * no await between draw and snapshot.
+ * churn; resized only when dimensions change. Concurrent callers are
+ * serialized on a lease so no caller can repaint the surface before the
+ * previous one's blob conversion settles.
  */
-export async function bitmapToCompressedBlob(bitmap: ImageBitmap): Promise<Blob> {
+export function bitmapToCompressedBlob(bitmap: ImageBitmap): Promise<Blob> {
+  const result = compressionLease.then(() => compressToBlob(bitmap));
+  compressionLease = result.catch(() => undefined);
+  return result;
+}
+
+async function compressToBlob(bitmap: ImageBitmap): Promise<Blob> {
   if (!compressionCanvas) {
     compressionCanvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   } else if (compressionCanvas.width !== bitmap.width || compressionCanvas.height !== bitmap.height) {
