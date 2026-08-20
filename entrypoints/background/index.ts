@@ -17,6 +17,7 @@ import {
   isBackendCapableOf,
 } from '@/entrypoints/background/services/autoModelDecision';
 import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
+import { resolveVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
 import { initializeInference } from '@/utils/inference';
 import { logger } from '@/utils/logger';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
@@ -45,6 +46,10 @@ function getStartupModelId(settings: ModelSettings): string | undefined {
 export default defineBackground({
   type: 'module',
   main() {
+    void resolveVideoProcessingAvailable().catch(error => {
+      logger.withTag('background').error('Failed to resolve video processing capability:', error);
+    });
+
     // Initialize core services (business logic layer)
     const hostSettingsService = new HostSettingsService();
     const imageCacheService = new ImageCacheService();

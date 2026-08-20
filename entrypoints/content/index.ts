@@ -1,5 +1,6 @@
 import { resetBadgeCount } from '@/entrypoints/content/communication/sender';
 import { MediaPipeline } from '@/entrypoints/content/core/MediaPipeline';
+import { routesVideos } from '@/entrypoints/content/core/mediaRouting';
 import { useHostData } from '@/entrypoints/content/hooks/useHostData';
 import { InstanceLifecycle } from '@/entrypoints/content/lifecycle/instanceLifecycle';
 import { claimInstanceSentinel } from '@/entrypoints/content/lifecycle/instanceSentinel';
@@ -10,6 +11,7 @@ import {
   injectPredictionDomStyles,
   injectVideoDiscoveryHidingStyles,
 } from '@/entrypoints/content/presentation/styleInjecting';
+import { getVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
 import { isExtensionContextValid } from '@/utils/extensionContext';
 import { logger } from '@/utils/logger';
 import { onMessageChannelPermanentDeath, warmupMessageChannel } from '@/utils/messaging/content';
@@ -40,6 +42,13 @@ export default defineContentScript({
     // hiding the host closes Reddit's pre-discovery first-frame gap.
     const hideInitStyle = injectGlobalHidingDomStyles();
     injectPredictionDomStyles();
+
+    // Withdrawn platforms (ADR 0003) must not hold videos hidden even during
+    // bootstrap; the cached flag resolves in a few ms, before first paint.
+    const videoProcessingAvailablePromise = getVideoProcessingAvailable().then(available => {
+      if (!available) hideInitStyle.stopHidingVideos();
+      return available;
+    });
 
     const lifecycle = new InstanceLifecycle({
       isContextValid: isExtensionContextValid,
@@ -74,6 +83,8 @@ export default defineContentScript({
       // (e.g. Bing's detail overlay) must not wipe the top document's count.
       if (globalThis.self === globalThis.top) void resetBadgeCount();
 
+      const videoProcessingAvailable = await videoProcessingAvailablePromise;
+
       await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
         // Orphaned while the settings request was in flight: creating the
         // pipeline now would resurrect an instance that already failed open.
@@ -86,15 +97,14 @@ export default defineContentScript({
         }
 
         if (hostSettings.policy.behavior !== 'whitelist') {
-          const protectsVideos =
-            hostSettings.policy.behavior === 'blacklist' ||
-            (hostSettings.policy.behavior === 'process' && hostSettings.policy.targets.video);
+          const protectsVideos = routesVideos(hostSettings.policy, videoProcessingAvailable);
           // Install before removing the broad startup hide. This narrower rule
           // remains for late Reddit/custom-player construction and is removed
           // with the pipeline when settings change.
           const videoDiscoveryStyle = protectsVideos ? injectVideoDiscoveryHidingStyles() : null;
           const pipeline = new MediaPipeline({
             hostSettings,
+            videoProcessingAvailable,
           });
           pipeline.seedCachedPredictions(cachedPredictions);
 
