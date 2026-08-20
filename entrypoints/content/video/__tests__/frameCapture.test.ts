@@ -33,6 +33,33 @@ class FakeCorsVideo extends EventTarget {
   load(): void {}
 }
 
+describe('acquireDrawingSurface', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reuses one canvas across captures and resizes only on dimension change', async () => {
+    vi.resetModules();
+    const canvases: { width: number; height: number; getContext: () => object }[] = [];
+    const createElement = vi.fn(() => {
+      const canvas = { width: 0, height: 0, getContext: () => ({}) };
+      canvases.push(canvas);
+      return canvas;
+    });
+    vi.stubGlobal('document', { createElement });
+    const { acquireDrawingSurface } = await import('@/entrypoints/content/video/frameCapture');
+
+    const first = acquireDrawingSurface(640, 360);
+    const second = acquireDrawingSurface(640, 360);
+    const resized = acquireDrawingSurface(320, 180);
+
+    expect(createElement).toHaveBeenCalledOnce();
+    expect(second.canvas).toBe(first.canvas);
+    expect(resized.canvas).toBe(first.canvas);
+    expect(canvases[0]).toMatchObject({ width: 320, height: 180 });
+  });
+});
+
 describe('waitForVideoFrameAt', () => {
   afterEach(() => {
     vi.useRealTimers();

@@ -1,5 +1,5 @@
 import { dvrRingBudget } from '@/entrypoints/content/video/dvr/ringBudget';
-import { isWriteOnlyCanvasError, PermanentFrameTransferError } from '@/entrypoints/content/video/frameTransfer';
+import { bitmapToCompressedBlob } from '@/entrypoints/content/video/frameCompression';
 import {
   IS_CHROME,
   IMAGE_TRANSFER_KIND,
@@ -306,28 +306,6 @@ async function resolveVideoFrameTransferKind(): Promise<VideoFrameTransferKind> 
     throw new Error('MessageChannel not available for video frame transfer (Chrome requires bitmap)');
   }
   return 'bitmap';
-}
-
-/**
- * Convert ImageBitmap to compressed WebP blob for Firefox transfer
- */
-async function bitmapToCompressedBlob(bitmap: ImageBitmap): Promise<Blob> {
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Failed to get 2D context for video frame compression');
-  }
-  ctx.drawImage(bitmap, 0, 0);
-  try {
-    return await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 });
-  } catch (error) {
-    if (isWriteOnlyCanvasError(error)) {
-      throw new PermanentFrameTransferError('Video frame canvas is cross-origin and cannot be serialized', {
-        cause: error,
-      });
-    }
-    throw error;
-  }
 }
 
 export interface VideoFrameParams {

@@ -124,13 +124,22 @@ function trackInferenceCaptureSize(): void {
 
 async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Promise<CaptureResult> {
   trackInferenceCaptureSize();
-  const { canvas, ctx, width, height } = createDrawingSurface(video, inferenceCaptureSize);
-  if (!ctx || width === 0 || height === 0) {
+  const { width, height } = captureDimensions(video, inferenceCaptureSize);
+  if (width === 0 || height === 0) {
     logger.withTag('frameCapture').warn('Video has zero dimensions, cannot capture frame');
     return { failure: 'transient' };
   }
 
+  // Resolve the source before touching the shared surface: another in-flight
+  // capture may draw to it while this one awaits. From here to the
+  // createImageBitmap call (which snapshots the canvas synchronously) there is
+  // no await, so the surface cannot be repainted mid-capture.
   const sourceVideo = await ensureCorsSafeSource(video, timestampSec);
+  const { ctx, canvas } = acquireDrawingSurface(width, height);
+  if (!ctx) {
+    logger.withTag('frameCapture').warn('Could not get 2D context for frame capture');
+    return { failure: 'transient' };
+  }
   ctx.drawImage(sourceVideo, 0, 0, width, height);
 
   // Chrome only rejects a tainted-canvas bitmap later at the transfer port
@@ -311,26 +320,37 @@ export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   corsVideoCache.delete(video);
 }
 
-export function createDrawingSurface(
+export function captureDimensions(
   video: HTMLVideoElement,
   maxDimension = Number.POSITIVE_INFINITY,
-): {
-  canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D | null;
-  width: number;
-  height: number;
-} {
-  const canvas = document.createElement('canvas');
+): { width: number; height: number } {
   const nativeWidth = video.videoWidth || video.clientWidth || 0;
   const nativeHeight = video.videoHeight || video.clientHeight || 0;
   const longestSide = Math.max(nativeWidth, nativeHeight);
   const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
-  const width = Math.round(nativeWidth * scale);
-  const height = Math.round(nativeHeight * scale);
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  return { canvas, ctx, width, height };
+  return { width: Math.round(nativeWidth * scale), height: Math.round(nativeHeight * scale) };
+}
+
+let drawingSurface: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null } | null = null;
+
+/**
+ * Shared capture surface, reused across samples (~4/s per video) to avoid
+ * per-capture canvas allocation churn; resized only when dimensions change.
+ */
+export function acquireDrawingSurface(
+  width: number,
+  height: number,
+): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null } {
+  if (!drawingSurface) {
+    const canvas = document.createElement('canvas');
+    drawingSurface = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
+  }
+  const { canvas } = drawingSurface;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return drawingSurface;
 }
 
 async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null> {
