@@ -103,6 +103,11 @@ Key invariants:
   `skipped`) only when the delay line is permanently unavailable, the relay element terminally
   failed to play, and the video is audibly unmuted. Permanently desynced audible audio is still
   judged worse than absent protection.
+- **Withdrawn on Firefox for Android** (ADR
+  [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)): Gecko's opaque-surface readback
+  returns empty pixels for every capture API on Android, so the `videoProcessingAvailable`
+  capability flag gates discovery (`entrypoints/content/core/mediaRouting.ts`) and videos are never
+  adopted, hidden, or styled there. Images and GIFs are unaffected.
 
 ## Components
 

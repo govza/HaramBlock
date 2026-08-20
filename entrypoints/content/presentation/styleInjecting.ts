@@ -1,18 +1,22 @@
-export const injectGlobalHidingDomStyles = () => {
-  const styleElement = document.createElement('style');
-  styleElement.textContent = `
-    img,
-    video,
-    shreddit-player {
+const hideRule = (selectors: string[]) => `
+    ${selectors.join(',\n    ')} {
       opacity: 0 !important;
     }
   `;
+
+export const injectGlobalHidingDomStyles = () => {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = hideRule(['img', 'video', 'shreddit-player']);
 
   (document.head || document.documentElement).appendChild(styleElement);
 
   return {
     remove: () => {
       styleElement.remove();
+    },
+    /** Platforms where video processing is withdrawn (ADR 0003) must never hold videos hidden. */
+    stopHidingVideos: () => {
+      styleElement.textContent = hideRule(['img']);
     },
   };
 };

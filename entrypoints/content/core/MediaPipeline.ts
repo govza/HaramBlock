@@ -7,6 +7,7 @@ import {
 import { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { ImageProcessor } from '@/entrypoints/content/core/ImageProcessor';
+import { routesVideos, runsVideoInference } from '@/entrypoints/content/core/mediaRouting';
 import {
   handleVideos,
   handleVideoAttributeChange,
@@ -22,7 +23,7 @@ export class MediaPipeline {
   private readonly badgeCounter: BadgeCounter;
   private unsubscribeFns: Array<() => void> = [];
 
-  constructor(private readonly opts: { hostSettings: IHostSettings }) {
+  constructor(private readonly opts: { hostSettings: IHostSettings; videoProcessingAvailable: boolean }) {
     this.badgeCounter = new BadgeCounter();
     this.imageProcessor = new ImageProcessor(opts.hostSettings, this.badgeCounter);
 
@@ -46,11 +47,11 @@ export class MediaPipeline {
   }
 
   private get shouldProcessVideo(): boolean {
-    return this.policy.behavior === 'blacklist' || (this.policy.behavior === 'process' && this.policy.targets.video);
+    return routesVideos(this.policy, this.opts.videoProcessingAvailable);
   }
 
   private get shouldRunVideoInference(): boolean {
-    return this.policy.behavior === 'process' && this.policy.targets.video;
+    return runsVideoInference(this.policy, this.opts.videoProcessingAvailable);
   }
 
   seedCachedPredictions(preds: IImagePrediction[]): void {

@@ -1,4 +1,5 @@
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
+import { useVideoProcessingAvailable } from '@/entrypoints/popup/hooks/useVideoProcessingAvailable';
 import { t } from '@/utils/i18n';
 
 import type { PolicyTarget } from '@/utils/types';
@@ -26,6 +27,7 @@ const TargetChip = ({ label, enabled, onToggle, testId }: TargetChipProps) => (
 
 export const PolicyTargetSwitcher = () => {
   const { hostSettings, hostSettingsRepository, markDirty } = useHostDataContext();
+  const videoProcessingAvailable = useVideoProcessingAvailable();
 
   if (hostSettings.policy.behavior !== 'process') return null;
 
@@ -44,18 +46,20 @@ export const PolicyTargetSwitcher = () => {
 
   return (
     <div className='my-2 flex gap-2'>
-      {(Object.keys(targets) as PolicyTarget[]).map(target => {
-        const enabled = targets[target];
-        return (
-          <TargetChip
-            key={target}
-            label={t(`HostSettings.Targets.${target}`)}
-            enabled={enabled}
-            onToggle={toggle(target, enabled)}
-            testId={`target-${target}`}
-          />
-        );
-      })}
+      {(Object.keys(targets) as PolicyTarget[])
+        .filter(target => target !== 'video' || videoProcessingAvailable)
+        .map(target => {
+          const enabled = targets[target];
+          return (
+            <TargetChip
+              key={target}
+              label={t(`HostSettings.Targets.${target}`)}
+              enabled={enabled}
+              onToggle={toggle(target, enabled)}
+              testId={`target-${target}`}
+            />
+          );
+        })}
     </div>
   );
 };
