@@ -1,4 +1,5 @@
-import { EMAIL_PATH, GITHUB_PATH, GLOBE_PATH } from '@/components/ui/icons';
+import { GITHUB_PATH, GLOBE_PATH } from '@/components/ui/icons';
+import { ContactButton } from '@/entrypoints/popup/components/ContactButton';
 import { PerformanceStats } from '@/entrypoints/popup/components/PerformanceStats';
 import { t } from '@/utils/i18n';
 
@@ -8,7 +9,6 @@ interface HelpPanelProps {
 
 const LINKS = {
   github: 'https://github.com/govza/HaramBlock',
-  email: 'mailto:admin@haramblock.com',
   website: 'https://haramblock.com',
 };
 
@@ -22,22 +22,23 @@ export const HelpPanel = ({ isOpen }: HelpPanelProps) => {
           <div className='border-t border-gray-600 bg-gray-800 text-gray-300 px-3 py-2 text-xs'>
             <PerformanceStats isActive={isOpen} />
 
-            <div className='mt-3 pt-2 border-t border-gray-700'>{t('HelpPanel.tooltip')}</div>
-            <div className='flex items-center gap-2 mt-2'>
-              <span>{t('HelpPanel.contact')}</span>
+            <div className='flex items-center gap-2 mt-3 pt-2 border-t border-gray-700'>
+              <span className='flex-1'>{t('HelpPanel.contact')}</span>
+              <ContactButton />
+              <a
+                href={LINKS.website}
+                target='_blank'
+                rel='noopener noreferrer'
+                title={t('HelpPanel.website')}
+                aria-label={t('HelpPanel.website')}
+              >
+                <svg className='size-5 hover:text-white' viewBox='0 0 24 24'>
+                  <path fill='currentColor' d={GLOBE_PATH} />
+                </svg>
+              </a>
               <a href={LINKS.github} target='_blank' rel='noopener noreferrer' title='GitHub' aria-label='GitHub'>
                 <svg className='size-5 hover:text-white' viewBox='0 0 24 24'>
                   <path fill='currentColor' d={GITHUB_PATH} />
-                </svg>
-              </a>
-              <a href={LINKS.email} title='Email' aria-label='Email'>
-                <svg className='size-5 hover:text-white' viewBox='0 0 24 24'>
-                  <path fill='currentColor' d={EMAIL_PATH} />
-                </svg>
-              </a>
-              <a href={LINKS.website} target='_blank' rel='noopener noreferrer' title='Website' aria-label='Website'>
-                <svg className='size-5 hover:text-white' viewBox='0 0 24 24'>
-                  <path fill='currentColor' d={GLOBE_PATH} />
                 </svg>
               </a>
             </div>

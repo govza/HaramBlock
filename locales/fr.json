@@ -4,7 +4,6 @@
     "name": "Haram Block"
   },
   "OptionsPage": {
-    "title": "Options",
     "extensionOptions": "Options de l'extension",
     "Tabs": {
       "overview": "Aperçu",
@@ -13,18 +12,12 @@
       "about": "À propos"
     }
   },
-  "PopupPage": {
-    "globalSettings": "Paramètres globaux",
-    "description": "Configurez vos préférences d'extension",
-    "defaultSettings": "Paramètres par défaut"
-  },
   "HostSettings": {
     "global": "Paramètres globaux",
     "description": "Configurez vos préférences d'extension",
     "customSettings": "Paramètres personnalisés",
     "HostList": {
       "blacklist": "Liste noire",
-      "process": "Liste de traitement",
       "whitelist": "Liste blanche",
       "title": "Listes d'hôtes",
       "description": "Gérez les listes blanches et noires de vos sites",
@@ -45,15 +38,8 @@
         "title": "Pixelisation"
       }
     },
-    "Masks": {
-      "title": "Masques",
-      "blur": "Flou",
-      "pixelate": "Pixelisation",
-      "none": "Aucun"
-    },
     "Policy": {
       "title": "Politique",
-      "description": "Contrôlez comment l'IA traite le contenu",
       "blacklist": "Tout bloquer",
       "process": "Traiter",
       "whitelist": "Tout autoriser"
@@ -64,9 +50,7 @@
       "gif": "GIFs"
     },
     "Strictness": {
-      "title": "Rigueur",
-      "permissive": "Permissif",
-      "strict": "Strict"
+      "title": "Rigueur"
     },
     "QuickToggle": {
       "unsafeEnabled": "Afficher le bouton de basculement rapide sur les médias bloqués",
@@ -79,19 +63,13 @@
     "noData": "Aucune donnée",
     "hostname": "Nom d'hôte",
     "actions": "Actions",
-    "enabled": "Activé",
-    "disabled": "Désactivé"
+    "openOptions": "Ouvrir les options"
   },
   "global": "Paramètres par défaut",
-  "Permissions": {
-    "askPermission": "Haram Block nécessite l'autorisation d'accéder à tous les sites web",
-    "grantPermission": "Accorder l'autorisation"
-  },
   "About": {
     "title": "À propos",
     "extensionInformation": "Informations sur l'extension",
     "version": "Version :",
-    "author": "Auteur :",
     "description": "Description",
     "supportLinks": "Support et liens",
     "reportBug": "Signaler un bug",
@@ -103,8 +81,13 @@
     "switchToSiteSettings": "Basculer vers les paramètres du site"
   },
   "HelpPanel": {
-    "tooltip": "Survolez les icônes pour voir les info-bulles avec descriptions",
-    "contact": "Des questions ? Je suis là pour aider :"
+    "contact": "Des questions ? Je suis là pour aider :",
+    "contactUs": "Contactez-nous",
+    "mailSubject": "[HaramBlock] Rapport de bug (v$1)",
+    "mailBody": "Ce qui s'est passé :\n\nÉtapes pour reproduire :\n\nComportement attendu :\n\n$1\n",
+    "logsCopiedHint": "--- Les journaux de diagnostic ont été copiés dans le presse-papiers - collez-les ci-dessous. Ils peuvent contenir des adresses de pages visitées ; vérifiez avant l'envoi. ---",
+    "logsFailedHint": "--- La copie des journaux de diagnostic a échoué. Utilisez le bouton [logs] du popup de l'extension et collez-les ci-dessous. ---",
+    "website": "Site web"
   },
   "ModelToggle": {
     "autoTooltip": "Mode automatique - utilise actuellement $1. Cliquez pour changer.",
@@ -124,5 +107,23 @@
     "blockImage": "Bloquer",
     "showImage": "Afficher",
     "autoImage": "Auto"
+  },
+  "PerformanceStats": {
+    "title": "Statistiques de performance",
+    "loading": "Chargement des statistiques...",
+    "detections": "Détections",
+    "on": "sur",
+    "inference": "Inférence",
+    "throughput": "Débit",
+    "e2e": "E2E",
+    "batch": "Lot",
+    "avg": "moy",
+    "latency": "Latence"
+  },
+  "BlockedCount": {
+    "label": "Bloqués sur cette page :"
+  },
+  "CopyLogs": {
+    "tooltip": "Copier les journaux dans le presse-papiers"
   }
 }
