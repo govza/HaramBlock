@@ -11,9 +11,13 @@
  * deterministic mock encoder/decoder pair — no real WebCodecs in vitest.
  */
 
+import {
+  BACKWARDS_JITTER_TOLERANCE_SEC,
+  type DvrCaptureFrame,
+  type DvrFrameStore,
+  type PresentableFrame,
+} from '@/entrypoints/content/video/dvr/frameStore';
 import { logger } from '@/utils/logger';
-
-import type { DvrCaptureFrame, DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
 
 const log = logger.withTag('encodedFrameRing');
 
@@ -217,7 +221,12 @@ export class EncodedFrameRing implements DvrFrameStore {
       // A backwards jump (seek/loop restart) or a mid-run resolution change
       // (MSE rendition switch) is a discontinuity: buffered chunks no longer
       // precede the live edge / match the codec config, so everything flushes.
-      if (mediaTime <= this.lastPushedMediaTime) this.discontinuity();
+      // A sub-tolerance backwards step or duplicate timestamp is playback
+      // jitter, not a seek: drop the tick, keep the buffer and codec state.
+      if (mediaTime <= this.lastPushedMediaTime) {
+        if (this.lastPushedMediaTime - mediaTime <= BACKWARDS_JITTER_TOLERANCE_SEC) return;
+        this.discontinuity();
+      }
       const config = this.encoderConfig;
       if (config && (config.width !== frame.displayWidth || config.height !== frame.displayHeight)) {
         this.discontinuity();

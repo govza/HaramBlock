@@ -8,7 +8,12 @@
  * close their bitmaps.
  */
 
-import type { DvrCaptureFrame, DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
+import {
+  BACKWARDS_JITTER_TOLERANCE_SEC,
+  type DvrCaptureFrame,
+  type DvrFrameStore,
+  type PresentableFrame,
+} from '@/entrypoints/content/video/dvr/frameStore';
 
 /** Structural subset of ImageBitmap, so the ring is unit-testable without a DOM. */
 export interface RingBitmap {
@@ -44,11 +49,17 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
   /**
    * Append a frame. A backwards jump in media time (seek without a `seeked`
    * event, e.g. a native loop restart) is a discontinuity: the buffered
-   * content no longer precedes the live edge, so the ring flushes.
+   * content no longer precedes the live edge, so the ring flushes. A
+   * sub-tolerance backwards step or duplicate timestamp is playback jitter,
+   * not a seek: the frame is dropped and the buffer retained.
    */
   push(frame: RingFrame<B>): void {
     const newest = this.frames.at(-1);
     if (newest && frame.mediaTime <= newest.mediaTime) {
+      if (newest.mediaTime - frame.mediaTime <= BACKWARDS_JITTER_TOLERANCE_SEC) {
+        frame.bitmap.close();
+        return;
+      }
       this.flush();
     }
     this.frames.push(frame);

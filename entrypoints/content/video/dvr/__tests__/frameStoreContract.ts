@@ -100,6 +100,31 @@ export function runDvrFrameStoreContract(label: string, harness: FrameStoreHarne
       store.release();
     });
 
+    it('retains the buffer on a sub-tolerance backwards jitter (Firefox currentTime)', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 2);
+      const newest = store.newestTime()!;
+
+      store.push(harness.frame(newest - 0.0005), newest - 0.0005);
+      store.push(harness.frame(newest), newest);
+
+      expect(store.oldestTime()).toBeCloseTo(0, 5);
+      expect(store.spanSec()).toBeGreaterThan(1.5);
+      store.release();
+    });
+
+    it('still flushes on a backwards step beyond the jitter tolerance', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 2);
+      const newest = store.newestTime()!;
+
+      store.push(harness.frame(newest - 0.05), newest - 0.05);
+
+      expect(store.oldestTime()).toBeCloseTo(newest - 0.05, 5);
+      expect(store.spanSec()).toBeCloseTo(0, 5);
+      store.release();
+    });
+
     it('never counts a before-oldest miss as a covered miss', () => {
       const store = harness.create(10, BIG);
       fill(harness, store, 2, 3);

@@ -81,6 +81,23 @@ describe('FrameRing', () => {
     expect(ring.spanSec()).toBe(0);
   });
 
+  it('drops (and closes) a sub-tolerance backwards or duplicate frame without flushing', () => {
+    const ring = new FrameRing<FakeBitmap>(10, BIG);
+    const kept = new FakeBitmap();
+    ring.push({ bitmap: kept, mediaTime: 5 });
+
+    const jittered = new FakeBitmap();
+    ring.push({ bitmap: jittered, mediaTime: 5 - 0.0005 });
+    const duplicate = new FakeBitmap();
+    ring.push({ bitmap: duplicate, mediaTime: 5 });
+
+    expect(kept.closed).toBe(false);
+    expect(jittered.closed).toBe(true);
+    expect(duplicate.closed).toBe(true);
+    expect(ring.frameAt(5)?.bitmap).toBe(kept);
+    expect(ring.bytes()).toBe(40_000);
+  });
+
   it('exposes the earliest buffered time for warm-up pinning', () => {
     const ring = new FrameRing<FakeBitmap>(10, BIG);
     expect(ring.oldestTime()).toBeNull();

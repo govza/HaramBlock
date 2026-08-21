@@ -124,43 +124,51 @@ function trackInferenceCaptureSize(): void {
 
 async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Promise<CaptureResult> {
   trackInferenceCaptureSize();
-  const { canvas, ctx, width, height } = createDrawingSurface(video, inferenceCaptureSize);
-  if (!ctx || width === 0 || height === 0) {
+  const { width, height } = captureDimensions(video, inferenceCaptureSize);
+  if (width === 0 || height === 0) {
     logger.withTag('frameCapture').warn('Video has zero dimensions, cannot capture frame');
     return { failure: 'transient' };
   }
 
+  // Resolve the source before leasing the shared surface, so slow CORS-clone
+  // work never serializes behind (or blocks) other captures.
   const sourceVideo = await ensureCorsSafeSource(video, timestampSec);
-  ctx.drawImage(sourceVideo, 0, 0, width, height);
-
-  // Chrome only rejects a tainted-canvas bitmap later at the transfer port
-  // (DataCloneError → timeout); a 1-pixel readback surfaces the taint here.
-  try {
-    ctx.getImageData(0, 0, 1, 1);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'SecurityError') {
-      logger.withTag('frameCapture').warn('Canvas tainted by cross-origin video, cannot capture');
-      return { failure: 'permanent' };
+  return leaseDrawingSurface(width, height, async ({ ctx, canvas }) => {
+    if (!ctx) {
+      logger.withTag('frameCapture').warn('Could not get 2D context for frame capture');
+      return { failure: 'transient' };
     }
-    throw error;
-  }
+    ctx.drawImage(sourceVideo, 0, 0, width, height);
 
-  try {
-    return {
-      bitmap: await withStageTimeout(
-        createImageBitmap(canvas),
-        'Frame Sample bitmap creation',
-        BITMAP_CREATE_TIMEOUT_MS,
-        late => late.close(),
-      ),
-    };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'SecurityError') {
-      logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
-      return { failure: 'permanent' };
+    // Chrome only rejects a tainted-canvas bitmap later at the transfer port
+    // (DataCloneError → timeout); a 1-pixel readback surfaces the taint here.
+    try {
+      ctx.getImageData(0, 0, 1, 1);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        logger.withTag('frameCapture').warn('Canvas tainted by cross-origin video, cannot capture');
+        return { failure: 'permanent' };
+      }
+      throw error;
     }
-    throw error;
-  }
+
+    try {
+      return {
+        bitmap: await withStageTimeout(
+          createImageBitmap(canvas),
+          'Frame Sample bitmap creation',
+          BITMAP_CREATE_TIMEOUT_MS,
+          late => late.close(),
+        ),
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        logger.withTag('frameCapture').warn('Cannot create bitmap from cross-origin video canvas');
+        return { failure: 'permanent' };
+      }
+      throw error;
+    }
+  });
 }
 
 export async function ensureCorsSafeSource(
@@ -311,26 +319,52 @@ export function releaseCorsVideoCache(video: HTMLVideoElement): void {
   corsVideoCache.delete(video);
 }
 
-export function createDrawingSurface(
+function captureDimensions(
   video: HTMLVideoElement,
   maxDimension = Number.POSITIVE_INFINITY,
-): {
-  canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D | null;
-  width: number;
-  height: number;
-} {
-  const canvas = document.createElement('canvas');
+): { width: number; height: number } {
   const nativeWidth = video.videoWidth || video.clientWidth || 0;
   const nativeHeight = video.videoHeight || video.clientHeight || 0;
   const longestSide = Math.max(nativeWidth, nativeHeight);
   const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
-  const width = Math.round(nativeWidth * scale);
-  const height = Math.round(nativeHeight * scale);
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  return { canvas, ctx, width, height };
+  return { width: Math.round(nativeWidth * scale), height: Math.round(nativeHeight * scale) };
+}
+
+export interface DrawingSurface {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D | null;
+}
+
+let drawingSurface: DrawingSurface | null = null;
+let drawingSurfaceLease: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run `task` with exclusive use of the shared capture surface, sized to
+ * `width`×`height` (reused across samples — ~4/s per video — to avoid
+ * per-capture canvas allocation churn; resized only when dimensions change).
+ * Tasks are serialized: `createImageBitmap` copies its canvas source in
+ * parallel per spec, so the next capture must not repaint the surface until
+ * the previous task settles.
+ */
+export function leaseDrawingSurface<T>(
+  width: number,
+  height: number,
+  task: (surface: DrawingSurface) => Promise<T>,
+): Promise<T> {
+  const result = drawingSurfaceLease.then(() => {
+    if (!drawingSurface?.ctx) {
+      const canvas = document.createElement('canvas');
+      drawingSurface = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
+    }
+    const { canvas } = drawingSurface;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    return task(drawingSurface);
+  });
+  drawingSurfaceLease = result.catch(() => undefined);
+  return result;
 }
 
 async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null> {

@@ -10,6 +10,16 @@
  * sequentially and use each `frameAt` call as its cursor signal.
  */
 
+/**
+ * Firefox's `currentTime` jitters backwards by microseconds during normal
+ * playback; treating that as a discontinuity would flush the whole buffer
+ * several times a second. A backwards step within this tolerance drops the
+ * frame but retains the buffer; a genuine seek is orders of magnitude larger.
+ * Deliberately far above the read path's 1 µs quantization slack and far below
+ * a capture tick (~33 ms).
+ */
+export const BACKWARDS_JITTER_TOLERANCE_SEC = 0.001;
+
 /** How the capture tick must hand frames to this store. */
 export type DvrCaptureMode = 'bitmap' | 'video-frame';
 
@@ -39,8 +49,9 @@ export interface DvrFrameStore {
   /**
    * Ingest one live frame at the capture tick. Takes ownership of the frame:
    * the store closes it on eviction, flush, or rejection (backpressure). A
-   * backwards jump in media time is a discontinuity — the store flushes its
-   * buffer and any codec state, exactly like today's raw-ring flush.
+   * backwards jump in media time beyond BACKWARDS_JITTER_TOLERANCE_SEC is a
+   * discontinuity — the store flushes its buffer and any codec state; a
+   * sub-tolerance backwards or duplicate frame is dropped, buffer retained.
    */
   push(frame: DvrCaptureFrame, mediaTime: number): void;
   /**
