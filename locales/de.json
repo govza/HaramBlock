@@ -103,8 +103,12 @@
     "switchToSiteSettings": "Zu Website-Einstellungen wechseln"
   },
   "HelpPanel": {
-    "tooltip": "Fahren Sie mit der Maus über Symbole, um Tooltips mit Beschreibungen anzuzeigen",
-    "contact": "Fragen? Ich bin hier, um zu helfen:"
+    "contact": "Fragen? Ich bin hier, um zu helfen:",
+    "contactUs": "Kontaktieren Sie uns",
+    "mailSubject": "[HaramBlock] Fehlerbericht (v$1)",
+    "mailBody": "Was ist passiert:\n\nSchritte zur Reproduktion:\n\nErwartetes Verhalten:\n\n$1\n",
+    "logsCopiedHint": "--- Diagnoseprotokolle wurden in die Zwischenablage kopiert - bitte unten einfügen. Sie können Adressen besuchter Seiten enthalten; vor dem Senden prüfen. ---",
+    "logsFailedHint": "--- Kopieren der Diagnoseprotokolle fehlgeschlagen. Bitte den [logs]-Button im Popup verwenden und unten einfügen. ---"
   },
   "ModelToggle": {
     "autoTooltip": "Automatischer Modus - verwendet derzeit $1. Klicken zum Wechseln.",

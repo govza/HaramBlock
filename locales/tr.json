@@ -103,8 +103,12 @@
     "switchToSiteSettings": "Site ayarlarına geç"
   },
   "HelpPanel": {
-    "tooltip": "Açıklamalı ipuçlarını görmek için simgelerin üzerine gelin",
-    "contact": "Sorularınız mı var? Yardımcı olmak için buradayım:"
+    "contact": "Sorularınız mı var? Yardımcı olmak için buradayım:",
+    "contactUs": "Bize ulaşın",
+    "mailSubject": "[HaramBlock] Hata raporu (v$1)",
+    "mailBody": "Ne oldu:\n\nYeniden üretme adımları:\n\nBeklenen davranış:\n\n$1\n",
+    "logsCopiedHint": "--- Tanılama günlükleri panoya kopyalandı - aşağıya yapıştırın. Ziyaret ettiğiniz sayfa adreslerini içerebilir; göndermeden önce gözden geçirin. ---",
+    "logsFailedHint": "--- Tanılama günlükleri kopyalanamadı. Lütfen uzantı penceresindeki [logs] düğmesini kullanıp aşağıya yapıştırın. ---"
   },
   "ModelToggle": {
     "autoTooltip": "Otomatik mod - şu anda $1 kullanılıyor. Değiştirmek için tıklayın.",

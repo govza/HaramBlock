@@ -103,8 +103,12 @@
     "switchToSiteSettings": "Basculer vers les paramètres du site"
   },
   "HelpPanel": {
-    "tooltip": "Survolez les icônes pour voir les info-bulles avec descriptions",
-    "contact": "Des questions ? Je suis là pour aider :"
+    "contact": "Des questions ? Je suis là pour aider :",
+    "contactUs": "Contactez-nous",
+    "mailSubject": "[HaramBlock] Rapport de bug (v$1)",
+    "mailBody": "Ce qui s'est passé :\n\nÉtapes pour reproduire :\n\nComportement attendu :\n\n$1\n",
+    "logsCopiedHint": "--- Les journaux de diagnostic ont été copiés dans le presse-papiers - collez-les ci-dessous. Ils peuvent contenir des adresses de pages visitées ; vérifiez avant l'envoi. ---",
+    "logsFailedHint": "--- La copie des journaux de diagnostic a échoué. Utilisez le bouton [logs] du popup de l'extension et collez-les ci-dessous. ---"
   },
   "ModelToggle": {
     "autoTooltip": "Mode automatique - utilise actuellement $1. Cliquez pour changer.",

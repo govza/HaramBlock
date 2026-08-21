@@ -103,8 +103,12 @@
     "switchToSiteSettings": "Switch to site settings"
   },
   "HelpPanel": {
-    "tooltip": "Hover over icons to see tooltips with descriptions",
-    "contact": "Any questions? I'm here to help:"
+    "contact": "Any questions? I'm here to help:",
+    "contactUs": "Contact us",
+    "mailSubject": "[HaramBlock] Bug report (v$1)",
+    "mailBody": "What happened:\n\nSteps to reproduce:\n\nExpected behavior:\n\n$1\n",
+    "logsCopiedHint": "--- Diagnostic logs were copied to your clipboard - paste them below. They may contain addresses of pages you visited; review before sending. ---",
+    "logsFailedHint": "--- Copying diagnostic logs failed. Please use the [logs] button in the extension popup and paste them below. ---"
   },
   "ModelToggle": {
     "autoTooltip": "Auto mode - currently using $1. Click to switch.",
