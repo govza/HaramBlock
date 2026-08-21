@@ -20,6 +20,7 @@ import {
   finalizeImageProcessing,
   hasBlacklistStyling,
   hasInitialStyling,
+  PROCESSED_ATTR_MAP,
   resetImageStyling,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
@@ -30,7 +31,6 @@ import {
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
-import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
 import { IS_CHROME } from '@/utils/constants/environment';
 import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
@@ -110,18 +110,15 @@ interface GifSession {
 export class ImageProcessor {
   private readonly cache = new PredictionCache(MAX_CACHE_SIZE);
   private readonly gifSessions = new Map<string, GifSession>();
-  // src → the element whose load listeners drive the request (see queueInference)
+  // src → the element that owns the in-flight request (see queueInference)
   private readonly pendingInference = new Map<string, HTMLImageElement>();
   private readonly pendingInferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly inferenceAttempts = new Map<string, number>();
   /** Last resolved source seen for an element; filters Reddit's no-op attribute churn. */
   private readonly resolvedSrcByImage = new WeakMap<HTMLImageElement, string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
-  /** Unloaded copies that deferred to a pending owner and await their own load (see queueInference). */
-  private readonly deferredUntilLoad = new WeakSet<HTMLImageElement>();
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
-  private readonly srcDriftHandler = (img: HTMLImageElement): void => this.handleSrcChange(img);
 
   // Track shadow roots that contain processed images (for efficient querying)
   private readonly knownShadowRoots = new Set<ShadowRoot>();
@@ -131,11 +128,6 @@ export class ImageProcessor {
     private readonly badgeCounter: BadgeCounter,
   ) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
-
-    // Fail-closed route for srcset re-selection (lightbox resize): the overlay
-    // self-clean is the only place that detects it — no attribute mutates, so
-    // DomObserver stays silent. handleSrcChange re-blurs and reprocesses.
-    setSrcDriftHandler(this.srcDriftHandler);
 
     this.visibilityObserver = new IntersectionObserver(
       entries => {
@@ -158,6 +150,17 @@ export class ImageProcessor {
   process(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
     if (!src) return;
+    if (this.isConverged(img, src)) return;
+    const previousSrc = this.resolvedSrcByImage.get(img);
+    if (previousSrc !== undefined && previousSrc !== src) {
+      // A genuine source replacement discovered by the reconcile pass (srcset
+      // re-selection, reused feed element): converging here would run over
+      // state stamped for the old source — a stale processed attribute or a
+      // mask built for the old content. Take the fail-closed invalidation
+      // route instead.
+      this.handleSrcChange(img);
+      return;
+    }
     this.resolvedSrcByImage.set(img, src);
 
     this.visibilityObserver.observe(img);
@@ -192,7 +195,7 @@ export class ImageProcessor {
 
     // Skip if already has overlay for current src, but re-stamp the processed
     // attribute (mobile srcset changes can clear it while the overlay persists).
-    if (this.hasOverlayForSrc(img, src)) {
+    if (this.hasAnyOverlay(img)) {
       const cached = this.cache.get(src);
       if (cached) {
         finalizeImageProcessing(img, cached.predictions.length > 0 ? 'unsafe' : 'safe');
@@ -324,7 +327,6 @@ export class ImageProcessor {
    * Clean up resources when processor is disposed.
    */
   dispose(): void {
-    clearSrcDriftHandler(this.srcDriftHandler);
     this.visibilityObserver.disconnect();
     for (const timer of this.pendingInferenceTimers.values()) clearTimeout(timer);
     this.pendingInferenceTimers.clear();
@@ -382,8 +384,21 @@ export class ImageProcessor {
   // State Queries (DOM-derived)
   // ===========================================================================
 
-  private hasOverlayForSrc(img: HTMLImageElement, _src: string): boolean {
-    // Check if any overlay exists - they self-clean if src doesn't match
+  /**
+   * The reconciliation pass re-enters process() for every dirty element, so a
+   * settled element must be a cheap no-op: same resolved src as last time, a
+   * final processed status, and (for unsafe) its protective visual in place.
+   */
+  private isConverged(img: HTMLImageElement, src: string): boolean {
+    if (this.resolvedSrcByImage.get(img) !== src) return false;
+    if (img.hasAttribute(PROCESSED_ATTR_MAP.safe) || img.hasAttribute(PROCESSED_ATTR_MAP.skipped)) return true;
+    if (!img.hasAttribute(PROCESSED_ATTR_MAP.unsafe)) return false;
+    // An unsafe element is settled once its protective visual is in place — or
+    // when the user forced it visible, in which case no visual is expected.
+    return this.hasAnyOverlay(img) || hasBlacklistStyling(img) || this.cache.get(src)?.forcedVisibility === 'visible';
+  }
+
+  private hasAnyOverlay(img: HTMLImageElement): boolean {
     return Boolean(imageMaskOverlay.hasMaskOverlay(img) || gifMaskPlayer.hasPlayer(img));
   }
 
@@ -392,11 +407,11 @@ export class ImageProcessor {
   // ===========================================================================
 
   private queueInference(img: HTMLImageElement, src: string): void {
-    // Dedupe by src - only one request per unique src. But the pending entry
-    // is only alive as long as the element carrying its load listeners is:
-    // frameworks (Reddit's lightbox) replace nodes before lazy images load,
-    // and a dedupe against a dead owner would leave the src pending forever —
-    // every later copy of it dropped here, stuck behind the initial blur.
+    // The pending entry dedupes requests but is only honored while its owner
+    // element is alive: frameworks (Reddit's lightbox) replace nodes before
+    // lazy images load, and a dedupe against a dead owner would leave the src
+    // pending forever — every later copy of it dropped here, stuck behind the
+    // initial blur.
     const owner = this.pendingInference.get(src);
     if (owner && owner.isConnected) {
       const ownerReady = owner.complete && owner.naturalWidth > 0;
@@ -405,42 +420,31 @@ export class ImageProcessor {
       // copy in a hidden subtree that may never start loading) while this
       // copy already has pixels; then take over so visible copies aren't
       // held hostage. A later duplicate send from the old owner is harmless.
-      if (ownerReady || !imgReady) {
-        // An unloaded deferrer may resolve a different currentSrc than the
-        // verdict's src (lazy load + srcset picks a larger candidate), so the
-        // broadcast can miss it and nothing else revisits it — a lazy load
-        // fires no attribute mutation. Re-enter process() once it has pixels;
-        // by then the verdict for its resolved src is usually already cached.
-        if (!imgReady && !this.deferredUntilLoad.has(img)) {
-          this.deferredUntilLoad.add(img);
-          img.addEventListener(
-            'load',
-            () => {
-              this.deferredUntilLoad.delete(img);
-              this.process(img);
-            },
-            { once: true },
-          );
-        }
-        return;
-      }
+      // A deferrer needs no listener: its load fires DomObserver's delegated
+      // capture listener, and the reconcile pass re-enters process().
+      if (ownerReady || !imgReady) return;
     }
 
-    // Mark pending immediately (with this element as owner) to prevent
-    // duplicate load handlers
+    if (!(img.complete && img.naturalWidth > 0)) {
+      // The browser gave up on this image (complete with no pixels): nothing
+      // will ever render, so fail open. A still-loading image just returns —
+      // the delegated load/error listener dirties it and the reconcile pass retries.
+      if (img.complete) {
+        // Any pending owner is dead here (a live owner was deferred to above),
+        // so drop it and its watchdog rather than letting the watchdog fire
+        // against an already-finalized src.
+        this.clearPendingInference(src, undefined, true);
+        completeContentTiming(src, { status: 'error', error: new Error(`Load error: ${src.substring(0, 80)}`) });
+        // Only this copy is known broken; siblings sharing the src may still
+        // be loading and keep their protection until their own verdict.
+        finalizeImageProcessing(img, 'skipped');
+      }
+      return;
+    }
+
     this.pendingInference.set(src, img);
 
     const sendRequest = async () => {
-      // If src changed before load (common with srcset), reprocess with new src
-      const currentSrc = img.currentSrc || img.src;
-      if (currentSrc !== src) {
-        this.clearPendingInference(src, img);
-        // Re-process with the actual loaded URL instead of just aborting
-        this.process(img);
-        cancelContentTiming(src);
-        return;
-      }
-
       // Skip only if all currently pending elements for this src are below threshold.
       if (this.isBelowMinSizeForSrc(src, img)) {
         this.clearPendingInference(src, img, true);
@@ -463,54 +467,7 @@ export class ImageProcessor {
       }
     };
 
-    const handleError = (reason?: unknown) => {
-      if (this.pendingInference.get(src) !== img) return;
-      this.clearPendingInference(src, img, true);
-      let error: Error;
-      if (reason instanceof Error) {
-        error = reason;
-      } else if (reason !== undefined) {
-        error = new Error(typeof reason === 'string' ? reason : JSON.stringify(reason));
-      } else {
-        error = new Error('Image failed to load');
-      }
-      completeContentTiming(src, { status: 'error', error });
-      this.finalizeAllImagesForSrc(src, 'skipped');
-    };
-
-    if (img.complete && img.naturalWidth > 0) {
-      // Image already loaded with dimensions - send immediately
-      void sendRequest();
-    } else {
-      // Use both decode() and load event - whichever fires first wins
-      // This handles edge cases where one mechanism fails
-      let handled = false;
-      const onReady = () => {
-        if (handled) return;
-        handled = true;
-        void sendRequest();
-      };
-      const onFail = (reason?: unknown) => {
-        if (handled) return;
-        handled = true;
-        handleError(reason);
-      };
-
-      // decode() rejection is only fatal when the browser has given up on the
-      // image (complete with no dimensions). Firefox rejects decode() for
-      // loading="lazy" images that haven't started loading and for src swaps
-      // mid-decode — treating those as errors revealed images unmasked and the
-      // later load event was ignored. Keep the blur and let load/error decide.
-      img.decode().then(onReady, (reason: unknown) => {
-        if (img.complete && img.naturalWidth === 0) {
-          onFail(reason ?? new Error(`Decode failed: ${img.src.substring(0, 80)}`));
-        }
-      });
-      img.addEventListener('load', onReady, { once: true });
-      img.addEventListener('error', () => onFail(new Error(`Load error: ${img.src.substring(0, 80)}`)), {
-        once: true,
-      });
-    }
+    void sendRequest();
   }
 
   private armInferenceWatchdog(src: string, owner: HTMLImageElement): void {
@@ -976,6 +933,14 @@ export class ImageProcessor {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
         finalizeImageProcessing(img, 'unsafe');
         overlayType = 'segment';
+        if (!this.hasAnyOverlay(img) && !hasBlacklistStyling(img)) {
+          // The mask overlay could not be anchored (e.g. an <img> that is a
+          // direct ShadowRoot child has no parent element to insert into):
+          // fall back to a whole-frame blur so the element keeps a protective
+          // visual and converges instead of re-applying on every safety tick.
+          applyBlacklistStyling(img, this.hostSettings);
+          overlayType = 'blur';
+        }
       } else {
         finalizeImageProcessing(img, 'safe');
         overlayType = undefined; // No detections, no overlay
@@ -989,19 +954,22 @@ export class ImageProcessor {
       });
     };
 
-    // Wait for load if needed — use decode() as fallback for cached images
-    // where the load event may have already fired before the listener was attached
-    if (img.complete && img.naturalWidth > 0) {
-      void apply();
-    } else {
-      let handled = false;
-      const onReady = () => {
-        if (handled) return;
-        handled = true;
+    // A not-yet-loaded image keeps its protective styling and waits for the
+    // reconciliation pass: its load fires DomObserver's delegated listener,
+    // and the next process() call re-applies the cached verdict.
+    if (img.complete) {
+      if (img.naturalWidth > 0) {
         void apply();
-      };
-      img.decode().then(onReady).catch(onReady);
-      img.addEventListener('load', onReady, { once: true });
+      } else {
+        // The browser gave up on this copy (complete with no pixels), so the
+        // cached verdict can never paint. Fail open and converge instead of
+        // re-entering on every safety tick forever.
+        completeContentTiming(prediction.src, {
+          status: 'error',
+          error: new Error(`Load error: ${prediction.src.substring(0, 80)}`),
+        });
+        finalizeImageProcessing(img, 'skipped');
+      }
     }
   }
 

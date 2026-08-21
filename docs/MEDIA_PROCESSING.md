@@ -320,7 +320,7 @@ function getState(img: HTMLImageElement): 'unprocessed' | 'pending' | 'complete'
 ### MutationObserver Callback (Must be fast!)
 
 ```
-onMediaAdded/onAttributesChanged(img)
+onMediaObserved/onAttributesChanged(img)
        │
        ├── Has overlay for CURRENT src? → Done (already complete)
        │
@@ -554,41 +554,29 @@ t=8: Debounce fires, process(img) with src=C
 t=9: Inference sent for C, prediction applied ✓
 ```
 
-### Robust Image Load Detection
+### Reconciliation Loop (Image Load Detection)
 
-For images that aren't yet loaded, we use **both** `decode()` and `load` event - whichever fires
-first wins:
+There are no per-element `decode()`/`load` listeners. Instead, image state converges through the
+**Reconciliation Loop** (see CONTEXT.md vocabulary), owned by `Reconciler` and fed by `DomObserver`:
 
-```typescript
-if (img.complete && img.naturalWidth > 0) {
-  void sendRequest();
-} else {
-  let handled = false;
-  const onReady = () => {
-    if (handled) return;
-    handled = true;
-    void sendRequest();
-  };
-
-  // decode() rejection is only fatal when the browser has given up on the
-  // image (complete with no dimensions); otherwise the load/error events decide.
-  img.decode().then(onReady, reason => {
-    if (img.complete && img.naturalWidth === 0) handleError(reason);
-  });
-  img.addEventListener('load', onReady, { once: true });
-  img.addEventListener('error', handleError, { once: true });
-}
-```
-
-This handles edge cases where:
-
-- `decode()` resolves but `load` never fires (cached images)
-- `load` fires but `decode()` rejects (CORS issues)
-- Image fails to load (network error)
-- `decode()` rejects spuriously — Firefox rejects for `loading="lazy"` images that haven't started
-  loading (Reddit's feed) and for `src` swaps mid-decode. Treating those rejections as fatal would
-  remove the blur and reveal the image unmasked, with the later `load` event ignored. Instead the
-  blur stays on (fail-closed) until `load`/`error` fires.
+- `Reconciler` is the sole owner of the live image index: `DomObserver` reports discoveries via
+  `observed(images, videos)` (which indexes and forwards to `onMediaObserved`) and removals via
+  `removed(img)`.
+- One delegated **capture-phase** `load`/`error` listener per tree root (light DOM and each shadow
+  root) marks images **dirty**; `load`/`error` don't bubble but do run the capture phase. The
+  listener also self-adds the target to the index, because a fast image's `load` can fire before the
+  async mutation batch that would report it.
+- Dirty images are swept in a coalesced microtask: each is re-entered through
+  `ImageProcessor.process()`, which is idempotent and treats every DOM signal as a hint —
+  `isConverged()` makes a settled element a cheap no-op.
+- A **Safety Tick** (default 2s, `safetyTickInterval`) marks all indexed images dirty, bounding how
+  long any missed signal can leave an image unreconciled, and prunes disconnected images.
+- A `load` that never fires (cached-complete image) is covered by the initial report; an image the
+  browser gave up on (`complete` with `naturalWidth === 0`) fails open as `skipped` — only that
+  copy, so still-loading siblings sharing the src keep their protection.
+- A source replacement discovered by the reconcile pass (srcset re-selection, reused feed element)
+  is routed to `handleSrcChange` — the fail-closed invalidation path — instead of converging over
+  state stamped for the old source.
 
 ### Finding Images by Resolved URL
 
@@ -673,14 +661,14 @@ Utilities in `imageLayout.ts`:
 ### Inference Requests
 
 In-flight requests are deduplicated by src via `pendingInference: Map<string, HTMLImageElement>`,
-where the value is the element that **owns** the request — the load listeners that eventually fire
-it live on that specific `<img>`. Tracking the owner matters because frameworks can replace the
-element before a lazy image loads: its listeners then never fire, and with a plain src set the entry
-would stay "pending" forever, dropping every later copy (including visible ones) into a permanent
-initial blur. Instead, a new copy **adopts** the request when the owner is disconnected, or when the
-owner is stalled (not loaded, e.g. a lazy copy in a hidden subtree) while the new copy already has
-pixels. A duplicate send from a superseded owner is harmless — predictions are keyed by src and the
-second result is idempotent. The entry is deleted when a prediction for that src arrives.
+where the value is the element that **owns** the request. Tracking the owner matters because
+frameworks can replace the element before a lazy image loads: it then never produces the load signal
+that would re-enter processing via the Reconciliation Loop, and with a plain src set the entry would
+stay "pending" forever, dropping every later copy (including visible ones) into a permanent initial
+blur. Instead, a new copy **adopts** the request when the owner is disconnected, or when the owner
+is stalled (not loaded, e.g. a lazy copy in a hidden subtree) while the new copy already has pixels.
+A duplicate send from a superseded owner is harmless — predictions are keyed by src and the second
+result is idempotent. The entry is deleted when a prediction for that src arrives.
 
 Once a request is actually sent, a 20-second watchdog prevents that entry from living forever if the
 background worker loses the task or inference fails without a prediction broadcast. It retries once
@@ -690,17 +678,10 @@ leaving Reddit images permanently under the initial blur.
 
 ### DOM Processing
 
-Blur class acts as marker - if image has blur class, don't re-apply:
-
-```typescript
-function process(img) {
-  if (img.classList.contains('haramblock-initial-blur')) {
-    return; // Already pending
-  }
-  img.classList.add('haramblock-initial-blur');
-  queueInference(img, img.src);
-}
-```
+`process()` is re-entered by the Reconciliation Loop, so it is gated by `isConverged()`: a settled
+element (same resolved src as last time, a final `PROCESSED_*` status, and — for unsafe — its
+protective visual in place) is a cheap no-op. Blur application itself is also idempotent
+(`hasInitialStyling` guard).
 
 ## Class Relationships
 

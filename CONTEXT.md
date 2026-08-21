@@ -25,3 +25,14 @@ silent. _Avoid_: audio proxy, blob audio
 
 **Safe / Unsafe image**: An image without / with predictions. Unsafe images are masked when Forced
 Visibility is `'auto'`. _Avoid_: clean image, flagged image
+
+**Reconciliation Loop**: The content script's convergence loop for images: change signals mark
+images dirty, and a coalesced reconcile pass re-converges each dirty image's presentation
+idempotently. Distinct from the predecessor sweep (crashed-instance overlay cleanup) and the
+stale-overlay sweep. _Avoid_: rescan, re-check
+
+**Dirty image**: A tracked image with a pending change hint (load/error, mutation, Verdict arrival)
+awaiting the next Reconciliation Loop. _Avoid_: invalidated image, pending image
+
+**Safety Tick**: The periodic timer that marks every tracked image dirty, bounding how long any
+missed signal can leave an image unreconciled. _Avoid_: rescan interval, polling

@@ -1,8 +1,16 @@
+import { Reconciler } from '@/entrypoints/content/core/Reconciler';
+
 export interface DomObserverConfig {
-  onMediaAdded: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
+  /**
+   * Media the observer saw: at start, on mutation, and on reconciliation
+   * reconciles of dirty (or, on the safety tick, all tracked) images — reconciles
+   * pass an empty videos array. Must be idempotent — DOM signals are treated
+   * as hints, and the reconcile pass converges state regardless of which signal fired.
+   */
+  onMediaObserved: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
   onMediaRemoved: (elements: HTMLElement[]) => void;
   onAttributesChanged: (elements: HTMLElement[]) => void;
-  rescanInterval?: number; // ms - periodic rescan for missed elements
+  safetyTickInterval?: number; // ms
 }
 
 /**
@@ -12,8 +20,11 @@ export interface DomObserverConfig {
  */
 const SHADOW_RECHECK_INTERVAL_MS = 250;
 
+const DEFAULT_SAFETY_TICK_INTERVAL_MS = 2000;
+
 export class DomObserver {
   private observer: MutationObserver | null = null;
+  private rootNode: Node | null = null;
   private shadowObservers = new Map<ShadowRoot, MutationObserver>();
   private pendingAttributeChanges = new Set<HTMLElement>();
   // Custom elements seen before attachShadow ran (async-loaded components);
@@ -21,16 +32,28 @@ export class DomObserver {
   private pendingShadowHosts = new Set<Element>();
   private shadowRecheckTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private config: DomObserverConfig) {}
+  private readonly reconciler: Reconciler;
+
+  constructor(private config: DomObserverConfig) {
+    this.reconciler = new Reconciler(
+      (images, videos) => this.config.onMediaObserved(images, videos),
+      images => this.config.onMediaRemoved(images),
+      config.safetyTickInterval ?? DEFAULT_SAFETY_TICK_INTERVAL_MS,
+    );
+  }
 
   public start(root: Node = document): void {
     if (this.observer) return;
+    this.rootNode = root;
+    this.reconciler.attachRoot(root);
 
     // Scan existing DOM for images/videos (including shadow roots)
     this.scanExistingElements(root);
 
     this.observer = this.createObserver();
     this.observer.observe(root, this.getObserverOptions());
+
+    this.reconciler.start();
   }
 
   public stop(): void {
@@ -38,9 +61,14 @@ export class DomObserver {
       this.observer.disconnect();
       this.observer = null;
     }
+    if (this.rootNode) {
+      this.reconciler.detachRoot(this.rootNode);
+      this.rootNode = null;
+    }
     // Disconnect all shadow observers
-    for (const observer of this.shadowObservers.values()) {
+    for (const [shadowRoot, observer] of this.shadowObservers) {
       observer.disconnect();
+      this.reconciler.detachRoot(shadowRoot);
     }
     this.shadowObservers.clear();
     this.pendingAttributeChanges.clear();
@@ -49,7 +77,17 @@ export class DomObserver {
       clearInterval(this.shadowRecheckTimer);
       this.shadowRecheckTimer = null;
     }
+    this.reconciler.stop();
   }
+
+  /** Broad invalidation for signals with no element mapping, e.g. verdict arrival. */
+  public markAllDirty(): void {
+    this.reconciler.markAllDirty();
+  }
+
+  // ===========================================================================
+  // Root lifecycle
+  // ===========================================================================
 
   /** Track a custom element that may attach a shadow root later. */
   private trackPossibleShadowHost(element: Element): void {
@@ -129,15 +167,16 @@ export class DomObserver {
       }
     }
 
-    if (addedImages.length > 0 || addedVideos.length > 0) {
-      this.config.onMediaAdded(addedImages, addedVideos);
-    }
+    this.reconciler.observed(addedImages, addedVideos);
 
     // An element that is connected again by the end of the batch was reparented, not
     // removed (lightboxes, React portals moving live subtrees): reporting it as removed
     // would tear down its overlay state while it is still on screen.
     const trulyRemoved = removedElements.filter(el => !el.isConnected);
     if (trulyRemoved.length > 0) {
+      for (const el of trulyRemoved) {
+        if (el.tagName === 'IMG') this.reconciler.removed(el as HTMLImageElement);
+      }
       this.config.onMediaRemoved(trulyRemoved);
     }
 
@@ -220,15 +259,13 @@ export class DomObserver {
     const images: HTMLImageElement[] = [];
     const videos: HTMLVideoElement[] = [];
     this.collectMediaFromShadowRoot(shadowRoot, images, videos);
-
-    if (images.length > 0 || videos.length > 0) {
-      this.config.onMediaAdded(images, videos);
-    }
+    this.reconciler.observed(images, videos);
 
     // Create observer for this shadow root
     const observer = this.createObserver();
     observer.observe(shadowRoot, this.getObserverOptions());
     this.shadowObservers.set(shadowRoot, observer);
+    this.reconciler.attachRoot(shadowRoot);
 
     // Also observe any nested shadow roots that already exist (and track
     // nested custom elements whose roots may attach later)
@@ -266,6 +303,7 @@ export class DomObserver {
     if (observer) {
       observer.disconnect();
       this.shadowObservers.delete(shadowRoot);
+      this.reconciler.detachRoot(shadowRoot);
     }
 
     // Recursively clean up nested shadow roots inside this shadow root
@@ -295,18 +333,12 @@ export class DomObserver {
     container.querySelectorAll('*').forEach(el => {
       const htmlEl = el as HTMLElement;
       if (htmlEl.shadowRoot && !this.shadowObservers.has(htmlEl.shadowRoot)) {
-        this.collectMediaFromShadowRoot(htmlEl.shadowRoot, existingImages, existingVideos);
-        const observer = this.createObserver();
-        observer.observe(htmlEl.shadowRoot, this.getObserverOptions());
-        this.shadowObservers.set(htmlEl.shadowRoot, observer);
+        this.observeShadowRoot(htmlEl.shadowRoot);
       } else {
         this.trackPossibleShadowHost(htmlEl);
       }
     });
 
-    // Process existing elements if any found
-    if (existingImages.length > 0 || existingVideos.length > 0) {
-      this.config.onMediaAdded(existingImages, existingVideos);
-    }
+    this.reconciler.observed(existingImages, existingVideos);
   }
 }

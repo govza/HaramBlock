@@ -12,6 +12,9 @@ export interface ContentTimingContext {
 const activeTimings = new Map<string, ContentTimingContext>();
 
 export const startContentTiming = (src: string, hostname: string): void => {
+  // The reconciliation pass re-enters the processing path while a verdict is
+  // pending; restarting would destroy the baseline and the sent/received marks.
+  if (activeTimings.has(src)) return;
   activeTimings.set(src, {
     src,
     hostname,

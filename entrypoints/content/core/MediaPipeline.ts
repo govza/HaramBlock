@@ -5,7 +5,7 @@ import {
   onContextMenuToggle,
 } from '@/entrypoints/content/communication/listener';
 import { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
-import { DomObserver } from '@/entrypoints/content/core/DomObserver';
+import { DomObserver, type DomObserverConfig } from '@/entrypoints/content/core/DomObserver';
 import { ImageProcessor } from '@/entrypoints/content/core/ImageProcessor';
 import { routesVideos, runsVideoInference } from '@/entrypoints/content/core/mediaRouting';
 import {
@@ -17,18 +17,52 @@ import { videoSessions } from '@/entrypoints/content/video/session/registry';
 
 import type { FrameInferenceResult, IHostSettings, IImagePrediction } from '@/utils/types';
 
+export interface MediaPipelineOptions {
+  hostSettings: IHostSettings;
+  videoProcessingAvailable: boolean;
+}
+
+export interface MediaPipelineDeps {
+  badgeCounter: BadgeCounter;
+  imageProcessor: ImageProcessor;
+  createDomObserver: (config: DomObserverConfig) => DomObserver;
+  video: {
+    handleVideos: typeof handleVideos;
+    handleAttributeChange: typeof handleVideoAttributeChange;
+    disposeSession: typeof disposeVideoSession;
+    sessions: Pick<typeof videoSessions, 'disposeAll' | 'handleResults'>;
+  };
+}
+
+const productionDeps = (opts: MediaPipelineOptions): MediaPipelineDeps => {
+  const badgeCounter = new BadgeCounter();
+  return {
+    badgeCounter,
+    imageProcessor: new ImageProcessor(opts.hostSettings, badgeCounter),
+    createDomObserver: config => new DomObserver(config),
+    video: {
+      handleVideos,
+      handleAttributeChange: handleVideoAttributeChange,
+      disposeSession: disposeVideoSession,
+      sessions: videoSessions,
+    },
+  };
+};
+
+/** Verdict batches stream densely; coalescing whole-index reconciliation keeps each burst to one reconcile pass. */
+const VERDICT_RECONCILE_DELAY_MS = 100;
+
 export class MediaPipeline {
   private readonly dom: DomObserver;
-  private readonly imageProcessor: ImageProcessor;
-  private readonly badgeCounter: BadgeCounter;
   private unsubscribeFns: Array<() => void> = [];
+  private reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly opts: { hostSettings: IHostSettings; videoProcessingAvailable: boolean }) {
-    this.badgeCounter = new BadgeCounter();
-    this.imageProcessor = new ImageProcessor(opts.hostSettings, this.badgeCounter);
-
-    this.dom = new DomObserver({
-      onMediaAdded: (images, videos) => this.onMediaAdded(images, videos),
+  constructor(
+    private readonly opts: MediaPipelineOptions,
+    private readonly deps: MediaPipelineDeps = productionDeps(opts),
+  ) {
+    this.dom = deps.createDomObserver({
+      onMediaObserved: (images, videos) => this.onMediaObserved(images, videos),
       onMediaRemoved: elements => this.onMediaRemoved(elements),
       onAttributesChanged: elements => this.onAttributesChanged(elements),
     });
@@ -55,13 +89,16 @@ export class MediaPipeline {
   }
 
   seedCachedPredictions(preds: IImagePrediction[]): void {
-    this.imageProcessor.seedCache(preds);
+    this.deps.imageProcessor.seedCache(preds);
   }
 
   start(root: Node = document.body): () => void {
     const unsubImagePreds = onImagePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
-        this.imageProcessor.handleInferenceResults(data.results);
+        this.deps.imageProcessor.handleInferenceResults(data.results);
+        // A verdict may belong to an element whose resolved src differs from
+        // the broadcast src (lazy load + srcset); the reconcile pass reconciles those.
+        this.scheduleReconciliation();
       }
     });
 
@@ -70,7 +107,8 @@ export class MediaPipeline {
     // GIF frame verdicts arrive whenever images are being processed.
     const unsubGifPreds = onGifFramePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
-        this.imageProcessor.handleGifFrameResults(data.results);
+        this.deps.imageProcessor.handleGifFrameResults(data.results);
+        this.scheduleReconciliation();
       }
     });
     this.unsubscribeFns.push(unsubGifPreds);
@@ -85,7 +123,7 @@ export class MediaPipeline {
     }
 
     const unsubToggle = onContextMenuToggle(({ src, forcedVisibility }) => {
-      this.imageProcessor.toggleImage(src, forcedVisibility);
+      this.deps.imageProcessor.toggleImage(src, forcedVisibility);
     });
     this.unsubscribeFns.push(unsubToggle);
 
@@ -94,23 +132,34 @@ export class MediaPipeline {
     return () => this.stop();
   }
 
+  private scheduleReconciliation(): void {
+    this.reconcileTimer ??= setTimeout(() => {
+      this.reconcileTimer = null;
+      this.dom.markAllDirty();
+    }, VERDICT_RECONCILE_DELAY_MS);
+  }
+
   stop(): void {
+    if (this.reconcileTimer !== null) {
+      clearTimeout(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
     this.dom.stop();
-    this.imageProcessor.dispose();
-    this.badgeCounter.dispose();
-    videoSessions.disposeAll();
+    this.deps.imageProcessor.dispose();
+    this.deps.badgeCounter.dispose();
+    this.deps.video.sessions.disposeAll();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
   }
 
-  private onMediaAdded(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
+  private onMediaObserved(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
     // GIFs are <img> elements too, so the image processor runs whenever either
     // static images or GIFs are targeted; it routes each element to the right path.
     if (this.shouldProcessImages || this.shouldProcessGif) {
-      this.imageProcessor.processAll(images);
+      this.deps.imageProcessor.processAll(images);
     }
     if (videos.length && this.shouldProcessVideo) {
-      handleVideos(videos, this.opts.hostSettings);
+      this.deps.video.handleVideos(videos, this.opts.hostSettings);
     }
   }
 
@@ -123,9 +172,9 @@ export class MediaPipeline {
       // session with nothing left to rediscover it.
       if (el.isConnected) continue;
       if (el.tagName === 'VIDEO') {
-        disposeVideoSession(el as HTMLVideoElement);
+        this.deps.video.disposeSession(el as HTMLVideoElement);
       } else if (el.tagName === 'IMG') {
-        this.imageProcessor.handleRemoved(el as HTMLImageElement);
+        this.deps.imageProcessor.handleRemoved(el as HTMLImageElement);
       }
     }
   }
@@ -134,16 +183,16 @@ export class MediaPipeline {
     for (const el of elements) {
       if (el.tagName === 'IMG') {
         if (this.shouldProcessImages || this.shouldProcessGif) {
-          this.imageProcessor.handleSrcChange(el as HTMLImageElement);
+          this.deps.imageProcessor.handleSrcChange(el as HTMLImageElement);
         }
       } else if (el.tagName === 'VIDEO' && this.shouldProcessVideo) {
-        handleVideoAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
+        this.deps.video.handleAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
       }
     }
   }
 
   private handleFrameResults(results: FrameInferenceResult[]): void {
     if (!results || results.length === 0) return;
-    videoSessions.handleResults(results);
+    this.deps.video.sessions.handleResults(results);
   }
 }
