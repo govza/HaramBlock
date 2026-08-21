@@ -4,7 +4,6 @@
     "name": "Haram Block"
   },
   "OptionsPage": {
-    "title": "Seçenekler",
     "extensionOptions": "Eklenti seçenekleri",
     "Tabs": {
       "overview": "Genel bakış",
@@ -13,18 +12,12 @@
       "about": "Hakkında"
     }
   },
-  "PopupPage": {
-    "globalSettings": "Genel ayarlar",
-    "description": "Eklenti tercihlerinizi yapılandırın",
-    "defaultSettings": "Varsayılan ayarlar"
-  },
   "HostSettings": {
     "global": "Genel ayarlar",
     "description": "Eklenti tercihlerinizi yapılandırın",
     "customSettings": "Özel Ayarlar",
     "HostList": {
       "blacklist": "Kara Liste",
-      "process": "İşlem Listesi",
       "whitelist": "Beyaz Liste",
       "title": "Host Listeleri",
       "description": "Siteleriniz için beyaz ve kara listeleri yönetin",
@@ -45,15 +38,8 @@
         "title": "Pikselleştirme"
       }
     },
-    "Masks": {
-      "title": "Maskeler",
-      "blur": "Bulanıklaştırma",
-      "pixelate": "Pikselleştirme",
-      "none": "Yok"
-    },
     "Policy": {
       "title": "Politika",
-      "description": "Yapay zekanın içeriği nasıl işleyeceğini kontrol edin",
       "blacklist": "Tümünü engelle",
       "process": "İşle",
       "whitelist": "Tümüne izin ver"
@@ -64,9 +50,7 @@
       "gif": "GIF'ler"
     },
     "Strictness": {
-      "title": "Katılık",
-      "permissive": "Hoşgörülü",
-      "strict": "Katı"
+      "title": "Katılık"
     },
     "QuickToggle": {
       "unsafeEnabled": "Engellenen medyada hızlı geçiş düğmesini göster",
@@ -79,19 +63,13 @@
     "noData": "Veri yok",
     "hostname": "Host adı",
     "actions": "Eylemler",
-    "enabled": "Etkin",
-    "disabled": "Devre dışı"
+    "openOptions": "Seçenekleri aç"
   },
   "global": "Varsayılan ayarlar",
-  "Permissions": {
-    "askPermission": "Haram Block tüm web sitelerine erişim izni gerektirir",
-    "grantPermission": "İzin ver"
-  },
   "About": {
     "title": "Hakkında",
     "extensionInformation": "Eklenti Bilgileri",
     "version": "Sürüm:",
-    "author": "Yazar:",
     "description": "Açıklama",
     "supportLinks": "Destek & Bağlantılar",
     "reportBug": "Hata bildir",
@@ -108,7 +86,8 @@
     "mailSubject": "[HaramBlock] Hata raporu (v$1)",
     "mailBody": "Ne oldu:\n\nYeniden üretme adımları:\n\nBeklenen davranış:\n\n$1\n",
     "logsCopiedHint": "--- Tanılama günlükleri panoya kopyalandı - aşağıya yapıştırın. Ziyaret ettiğiniz sayfa adreslerini içerebilir; göndermeden önce gözden geçirin. ---",
-    "logsFailedHint": "--- Tanılama günlükleri kopyalanamadı. Lütfen uzantı penceresindeki [logs] düğmesini kullanıp aşağıya yapıştırın. ---"
+    "logsFailedHint": "--- Tanılama günlükleri kopyalanamadı. Lütfen uzantı penceresindeki [logs] düğmesini kullanıp aşağıya yapıştırın. ---",
+    "website": "Web sitesi"
   },
   "ModelToggle": {
     "autoTooltip": "Otomatik mod - şu anda $1 kullanılıyor. Değiştirmek için tıklayın.",
@@ -128,5 +107,23 @@
     "blockImage": "Engelle",
     "showImage": "Göster",
     "autoImage": "Oto"
+  },
+  "PerformanceStats": {
+    "title": "Performans İstatistikleri",
+    "loading": "İstatistikler yükleniyor...",
+    "detections": "Tespitler",
+    "on": "üzerinden",
+    "inference": "Çıkarım",
+    "throughput": "Verim",
+    "e2e": "E2E",
+    "batch": "Toplu",
+    "avg": "ort",
+    "latency": "Gecikme"
+  },
+  "BlockedCount": {
+    "label": "Bu sayfada engellenen:"
+  },
+  "CopyLogs": {
+    "tooltip": "Günlükleri panoya kopyala"
   }
 }

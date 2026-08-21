@@ -4,7 +4,6 @@
     "name": "Haram Block"
   },
   "OptionsPage": {
-    "title": "الخيارات",
     "extensionOptions": "خيارات الإضافة",
     "Tabs": {
       "overview": "نظرة عامة",
@@ -13,18 +12,12 @@
       "about": "حول"
     }
   },
-  "PopupPage": {
-    "globalSettings": "الإعدادات العامة",
-    "description": "قم بتكوين تفضيلات الإضافة الخاصة بك",
-    "defaultSettings": "الإعدادات الافتراضية"
-  },
   "HostSettings": {
     "global": "الإعدادات العامة",
     "description": "قم بتكوين تفضيلات الإضافة الخاصة بك",
     "customSettings": "إعدادات مخصصة",
     "HostList": {
       "blacklist": "القائمة السوداء",
-      "process": "قائمة المعالجة",
       "whitelist": "القائمة البيضاء",
       "title": "قوائم المواقع",
       "description": "إدارة القوائم البيضاء والسوداء لمواقعك",
@@ -45,15 +38,8 @@
         "title": "البكسلة"
       }
     },
-    "Masks": {
-      "title": "الأقنعة",
-      "blur": "ضبابية",
-      "pixelate": "بكسلة",
-      "none": "لا شيء"
-    },
     "Policy": {
       "title": "السياسة",
-      "description": "تحكم في كيفية معالجة الذكاء الاصطناعي للمحتوى",
       "blacklist": "حظر الكل",
       "process": "معالجة",
       "whitelist": "السماح للكل"
@@ -64,9 +50,7 @@
       "gif": "الصور المتحركة"
     },
     "Strictness": {
-      "title": "الصرامة",
-      "permissive": "متساهل",
-      "strict": "صارم"
+      "title": "الصرامة"
     },
     "QuickToggle": {
       "unsafeEnabled": "إظهار زر التبديل السريع على الوسائط المحظورة",
@@ -79,19 +63,13 @@
     "noData": "لا توجد بيانات",
     "hostname": "اسم المضيف",
     "actions": "الإجراءات",
-    "enabled": "مفعّل",
-    "disabled": "معطّل"
+    "openOptions": "فتح الخيارات"
   },
   "global": "الإعدادات الافتراضية",
-  "Permissions": {
-    "askPermission": "يتطلب Haram Block إذنًا للوصول إلى جميع المواقع",
-    "grantPermission": "منح الإذن"
-  },
   "About": {
     "title": "حول",
     "extensionInformation": "معلومات الإضافة",
     "version": "الإصدار:",
-    "author": "المؤلف:",
     "description": "الوصف",
     "supportLinks": "الدعم والروابط",
     "reportBug": "الإبلاغ عن خطأ",
@@ -108,7 +86,8 @@
     "mailSubject": "[HaramBlock] بلاغ عن خطأ (الإصدار $1)",
     "mailBody": "ماذا حدث:\n\nخطوات إعادة الإنتاج:\n\nالسلوك المتوقع:\n\n$1\n",
     "logsCopiedHint": "--- تم نسخ سجلات التشخيص إلى الحافظة - الصقها أدناه. قد تحتوي على عناوين الصفحات التي زرتها؛ راجعها قبل الإرسال. ---",
-    "logsFailedHint": "--- فشل نسخ سجلات التشخيص. يرجى استخدام زر [logs] في نافذة الإضافة ولصقها أدناه. ---"
+    "logsFailedHint": "--- فشل نسخ سجلات التشخيص. يرجى استخدام زر [logs] في نافذة الإضافة ولصقها أدناه. ---",
+    "website": "الموقع الإلكتروني"
   },
   "ModelToggle": {
     "autoTooltip": "الوضع التلقائي - يستخدم حاليًا $1. انقر للتبديل.",
@@ -128,5 +107,23 @@
     "blockImage": "حظر",
     "showImage": "إظهار",
     "autoImage": "تلقائي"
+  },
+  "PerformanceStats": {
+    "title": "إحصائيات الأداء",
+    "loading": "جارٍ تحميل الإحصائيات...",
+    "detections": "الاكتشافات",
+    "on": "من",
+    "inference": "الاستدلال",
+    "throughput": "الإنتاجية",
+    "e2e": "E2E",
+    "batch": "الدفعة",
+    "avg": "متوسط",
+    "latency": "زمن الاستجابة"
+  },
+  "BlockedCount": {
+    "label": "المحظور في هذه الصفحة:"
+  },
+  "CopyLogs": {
+    "tooltip": "نسخ السجلات إلى الحافظة"
   }
 }

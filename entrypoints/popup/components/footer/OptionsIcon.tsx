@@ -1,3 +1,4 @@
+import { t } from '@/utils/i18n';
 import { logger } from '@/utils/logger';
 
 export const OptionsIcon = () => {
@@ -7,7 +8,12 @@ export const OptionsIcon = () => {
     });
   };
   return (
-    <button className='cursor-pointer' onClick={handleClick}>
+    <button
+      className='cursor-pointer'
+      onClick={handleClick}
+      title={t('Common.openOptions')}
+      aria-label={t('Common.openOptions')}
+    >
       <svg
         xmlns='http://www.w3.org/2000/svg'
         fill='none'

@@ -4,7 +4,6 @@
     "name": "Haram Block"
   },
   "OptionsPage": {
-    "title": "Options",
     "extensionOptions": "Extension Options",
     "Tabs": {
       "overview": "Overview",
@@ -13,18 +12,12 @@
       "about": "About"
     }
   },
-  "PopupPage": {
-    "globalSettings": "Global settings",
-    "description": "Configure your extension preferences",
-    "defaultSettings": "Default settings"
-  },
   "HostSettings": {
     "global": "Global settings",
     "description": "Configure your extension preferences",
     "customSettings": "Custom Settings",
     "HostList": {
       "blacklist": "Blacklist",
-      "process": "Process list",
       "whitelist": "Whitelist",
       "title": "Host Lists",
       "description": "Manage whitelist and blacklist for your sites",
@@ -45,15 +38,8 @@
         "title": "Pixelation"
       }
     },
-    "Masks": {
-      "title": "Masks",
-      "blur": "Blur",
-      "pixelate": "Pixelate",
-      "none": "None"
-    },
     "Policy": {
       "title": "Policy",
-      "description": "Control how AI processes content",
       "blacklist": "Block all",
       "process": "Process",
       "whitelist": "Allow all"
@@ -64,9 +50,7 @@
       "gif": "GIFs"
     },
     "Strictness": {
-      "title": "Strictness",
-      "permissive": "Permissive",
-      "strict": "Strict"
+      "title": "Strictness"
     },
     "QuickToggle": {
       "unsafeEnabled": "Show quick toggle on blocked media",
@@ -79,19 +63,13 @@
     "noData": "No data",
     "hostname": "Hostname",
     "actions": "Actions",
-    "enabled": "Enabled",
-    "disabled": "Disabled"
+    "openOptions": "Open options"
   },
   "global": "Default Settings",
-  "Permissions": {
-    "askPermission": "Haram Block requires permission to access all websites",
-    "grantPermission": "Grant permission"
-  },
   "About": {
     "title": "About",
     "extensionInformation": "Extension Information",
     "version": "Version:",
-    "author": "Author:",
     "description": "Description",
     "supportLinks": "Support & Links",
     "reportBug": "Report a Bug",
@@ -108,7 +86,8 @@
     "mailSubject": "[HaramBlock] Bug report (v$1)",
     "mailBody": "What happened:\n\nSteps to reproduce:\n\nExpected behavior:\n\n$1\n",
     "logsCopiedHint": "--- Diagnostic logs were copied to your clipboard - paste them below. They may contain addresses of pages you visited; review before sending. ---",
-    "logsFailedHint": "--- Copying diagnostic logs failed. Please use the [logs] button in the extension popup and paste them below. ---"
+    "logsFailedHint": "--- Copying diagnostic logs failed. Please use the [logs] button in the extension popup and paste them below. ---",
+    "website": "Website"
   },
   "ModelToggle": {
     "autoTooltip": "Auto mode - currently using $1. Click to switch.",
@@ -128,5 +107,23 @@
     "blockImage": "Block",
     "showImage": "Show",
     "autoImage": "Auto"
+  },
+  "PerformanceStats": {
+    "title": "Performance Statistics",
+    "loading": "Loading stats...",
+    "detections": "Detections",
+    "on": "on",
+    "inference": "Inference",
+    "throughput": "Throughput",
+    "e2e": "E2E",
+    "batch": "Batch",
+    "avg": "avg",
+    "latency": "Latency"
+  },
+  "BlockedCount": {
+    "label": "Blocked on this page:"
+  },
+  "CopyLogs": {
+    "tooltip": "Copy logs to clipboard"
   }
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { t } from '@/utils/i18n';
 import { exportEventsAsJson } from '@/utils/logging';
 
 export const CopyLogsButton = () => {
@@ -29,7 +30,7 @@ export const CopyLogsButton = () => {
     <button
       className={`cursor-pointer font-mono text-xs ${getColorClass()}`}
       onClick={handleClick}
-      title='Copy logs to clipboard'
+      title={t('CopyLogs.tooltip')}
     >
       {getLabel()}
     </button>

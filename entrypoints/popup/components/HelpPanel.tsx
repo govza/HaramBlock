@@ -25,7 +25,13 @@ export const HelpPanel = ({ isOpen }: HelpPanelProps) => {
             <div className='flex items-center gap-2 mt-3 pt-2 border-t border-gray-700'>
               <span className='flex-1'>{t('HelpPanel.contact')}</span>
               <ContactButton />
-              <a href={LINKS.website} target='_blank' rel='noopener noreferrer' title='Website' aria-label='Website'>
+              <a
+                href={LINKS.website}
+                target='_blank'
+                rel='noopener noreferrer'
+                title={t('HelpPanel.website')}
+                aria-label={t('HelpPanel.website')}
+              >
                 <svg className='size-5 hover:text-white' viewBox='0 0 24 24'>
                   <path fill='currentColor' d={GLOBE_PATH} />
                 </svg>

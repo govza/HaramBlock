@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { t } from '@/utils/i18n';
+
 export const BlockedCount = () => {
   const [count, setCount] = useState<number | null>(null);
 
@@ -20,7 +22,7 @@ export const BlockedCount = () => {
 
   return (
     <p className='mb-2 text-center text-xs text-muted'>
-      Blocked on this page: <span className='font-semibold text-white'>{count}</span>
+      {t('BlockedCount.label')} <span className='font-semibold text-white'>{count}</span>
     </p>
   );
 };

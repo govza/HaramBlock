@@ -134,7 +134,7 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
   return (
     <div>
       <div className='flex items-center justify-between mb-2'>
-        <div className='text-sm font-mono'>📊 Performance Statistics</div>
+        <div className='text-sm font-mono'>📊 {t('PerformanceStats.title')}</div>
         <div className='flex items-center gap-1'>
           <button
             className='cursor-pointer p-1'
@@ -159,49 +159,68 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
       </div>
 
       <div className='font-mono'>
-        {isInitialLoading && <div className='text-gray-400'>Loading stats...</div>}
+        {isInitialLoading && <div className='text-gray-400'>{t('PerformanceStats.loading')}</div>}
         {!isInitialLoading && stats && (
           <div className='grid grid-cols-[auto_auto_auto_auto] gap-x-3 gap-y-1'>
-            <span className='text-gray-400'>Detections{'\t'}</span>
-            <span className='text-white'>
-              {stats.totalDetections} <span className='text-gray-400'>on</span> {stats.totalImages}
+            <span className='text-gray-400'>
+              {t('PerformanceStats.detections')}
               {'\t'}
             </span>
-            <span className='text-gray-400'>Inference{'\t'}</span>
+            <span className='text-white'>
+              {stats.totalDetections} <span className='text-gray-400'>{t('PerformanceStats.on')}</span>{' '}
+              {stats.totalImages}
+              {'\t'}
+            </span>
+            <span className='text-gray-400'>
+              {t('PerformanceStats.inference')}
+              {'\t'}
+            </span>
             <span className='text-white'>
               {Math.round(stats.medianInference)}
               <span className='text-gray-400'>ms</span>
               {'\n'}
             </span>
 
-            <span className='text-gray-400'>Throughput{'\t'}</span>
+            <span className='text-gray-400'>
+              {t('PerformanceStats.throughput')}
+              {'\t'}
+            </span>
             <span className='text-white'>
               {stats.throughput.toFixed(1)}
               <span className='text-gray-400'>/s</span>
               {'\t'}
             </span>
-            <span className='text-gray-400'>E2E{'\t'}</span>
+            <span className='text-gray-400'>
+              {t('PerformanceStats.e2e')}
+              {'\t'}
+            </span>
             <span className='text-white'>
               {Math.round(stats.medianDelay)}
               <span className='text-gray-400'>ms</span>
               {'\n'}
             </span>
 
-            <span className='text-gray-400'>Batch{'\t'}</span>
+            <span className='text-gray-400'>
+              {t('PerformanceStats.batch')}
+              {'\t'}
+            </span>
             <span className='text-white'>
               {stats.avgBatchSize.toFixed(1)}
-              <span className='text-gray-400'>avg</span>
+              <span className='text-gray-400'>{t('PerformanceStats.avg')}</span>
               {'\t'}
             </span>
 
-            <span className='text-gray-400'>Latency{'\t'}</span>
+            <span className='text-gray-400'>
+              {t('PerformanceStats.latency')}
+              {'\t'}
+            </span>
             <span className='text-white'>
               {liveLatency ? Math.round(liveLatency.p75Ms) : 0}
               <span className='text-gray-400'>ms</span>
             </span>
           </div>
         )}
-        {!isInitialLoading && !stats && <div className='text-gray-400'>No data</div>}
+        {!isInitialLoading && !stats && <div className='text-gray-400'>{t('Common.noData')}</div>}
       </div>
     </div>
   );
