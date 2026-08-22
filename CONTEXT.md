@@ -35,8 +35,20 @@ stale-overlay sweep. _Avoid_: rescan, re-check
 root (recursively), returning media, shadow roots, and possible future shadow hosts. The add,
 remove, and initial-scan paths of the DomObserver all share it. _Avoid_: DOM scan, deep query
 
+**Tracked image**: An image the Reconciliation Loop currently knows about: observed at least once
+and not yet pruned or reported removed. _Avoid_: known image, registered image
+
 **Dirty image**: A tracked image with a pending change hint (load/error, mutation, Verdict arrival)
 awaiting the next Reconciliation Loop. _Avoid_: invalidated image, pending image
 
-**Safety Tick**: The periodic timer that marks every tracked image dirty, bounding how long any
-missed signal can leave an image unreconciled. _Avoid_: rescan interval, polling
+**Prune**: Dropping a tracked image the Reconciliation Loop itself found disconnected (during a
+reconcile pass or Safety Tick), as opposed to a removal reported by the mutation observer. _Avoid_:
+cleanup, garbage collect
+
+**Safety Tick**: The periodic timer that prunes disconnected tracked images and marks the rest
+dirty, bounding how long any missed signal can leave an image unreconciled. _Avoid_: rescan
+interval, polling
+
+**Possible Shadow Host**: An element the Composed Tree Walk flags as able to attach a shadow root
+later (e.g. a custom element seen before upgrade). The DomObserver rechecks these on a short timer
+until a shadow root appears or the element disconnects. _Avoid_: pending host, shadow candidate
