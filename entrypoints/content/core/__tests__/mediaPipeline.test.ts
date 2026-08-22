@@ -174,23 +174,12 @@ describe('MediaPipeline', () => {
   });
 
   describe('media removed', () => {
-    it('treats a still-connected element as a re-parent, not a removal', () => {
-      makePipeline(processPolicy({ image: true }));
-      const el = document.createElement('img');
-      document.body.appendChild(el);
-
-      domConfig.onMediaRemoved([el]);
-
-      expect(imageProcessor.handleRemoved).not.toHaveBeenCalled();
-      el.remove();
-    });
-
-    it('disposes disconnected images and video sessions', () => {
+    it('disposes removed images and video sessions', () => {
       makePipeline(processPolicy({ image: true, video: true }));
       const imgEl = document.createElement('img');
       const videoEl = document.createElement('video');
 
-      domConfig.onMediaRemoved([imgEl, videoEl]);
+      domConfig.onMediaRemoved([imgEl], [videoEl]);
 
       expect(imageProcessor.handleRemoved).toHaveBeenCalledWith(imgEl);
       expect(deps.video.disposeSession).toHaveBeenCalledWith(videoEl);
@@ -202,7 +191,7 @@ describe('MediaPipeline', () => {
       makePipeline(processPolicy({ image: true }));
       const el = document.createElement('img');
 
-      domConfig.onAttributesChanged([el]);
+      domConfig.onAttributesChanged([el], []);
 
       expect(imageProcessor.handleSrcChange).toHaveBeenCalledWith(el);
     });
@@ -211,7 +200,7 @@ describe('MediaPipeline', () => {
       makePipeline(processPolicy({ video: true }));
       const el = document.createElement('video');
 
-      domConfig.onAttributesChanged([el]);
+      domConfig.onAttributesChanged([], [el]);
 
       expect(deps.video.handleAttributeChange).toHaveBeenCalledWith(
         el,

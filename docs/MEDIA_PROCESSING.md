@@ -64,8 +64,11 @@ The main content script entry point that orchestrates the entire media filtering
 
 #### `core/DomObserver.ts`
 
-Clean MutationObserver wrapper that directly processes DOM changes and emits structured callbacks
-for media element lifecycle events.
+The content script's Reconciliation Loop module: MutationObserver plumbing plus the loop's own state
+(Tracked/Dirty image sets, Prune, Safety Tick) behind one small interface — `start(root)`, `stop()`,
+`markAllDirty()`, and three typed callbacks (`onMediaObserved`, `onMediaRemoved`,
+`onAttributesChanged`), each delivering images and videos pre-sorted. Elements on `onMediaRemoved`
+are guaranteed disconnected, whether they left via a removal mutation or a Prune.
 
 **Key Features:**
 
@@ -557,11 +560,12 @@ t=9: Inference sent for C, prediction applied ✓
 ### Reconciliation Loop (Image Load Detection)
 
 There are no per-element `decode()`/`load` listeners. Instead, image state converges through the
-**Reconciliation Loop** (see CONTEXT.md vocabulary), owned by `Reconciler` and fed by `DomObserver`:
+**Reconciliation Loop** (see CONTEXT.md vocabulary), owned entirely by `DomObserver`:
 
-- `Reconciler` is the sole owner of the live image index: `DomObserver` reports discoveries via
-  `observed(images, videos)` (which indexes and forwards to `onMediaObserved`) and removals via
-  `removed(img)`.
+- `DomObserver` is the sole owner of the live image index: discoveries (initial scan, added
+  mutations, late shadow roots) are tracked and forwarded to `onMediaObserved`; every departure
+  (removal mutations and both Prune flavors) exits once through `onMediaRemoved` with elements
+  already verified disconnected.
 - One delegated **capture-phase** `load`/`error` listener per tree root (light DOM and each shadow
   root) marks images **dirty**; `load`/`error` don't bubble but do run the capture phase. The
   listener also self-adds the target to the index, because a fast image's `load` can fire before the
@@ -710,8 +714,11 @@ classDiagram
 
   class DomObserver {
     -observer: MutationObserver
+    -trackedImages: Set~HTMLImageElement~
+    -dirtyImages: Set~HTMLImageElement~
     +start(root: Node): void
     +stop(): void
+    +markAllDirty(): void
   }
 
   class imageMaskOverlay {

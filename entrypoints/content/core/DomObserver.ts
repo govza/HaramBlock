@@ -1,10 +1,10 @@
 import { type ComposedTreeRoot, walkComposedTree } from '@/entrypoints/content/core/composedTreeWalk';
-import { Reconciler } from '@/entrypoints/content/core/Reconciler';
+import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
 
 export interface DomObserverConfig {
   onMediaObserved: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
-  onMediaRemoved: (elements: HTMLElement[]) => void;
-  onAttributesChanged: (elements: HTMLElement[]) => void;
+  onMediaRemoved: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
+  onAttributesChanged: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
   safetyTickIntervalMs?: number;
 }
 
@@ -20,30 +20,43 @@ export class DomObserver {
   private pendingShadowHosts = new Set<Element>();
   private shadowRecheckTimer: ReturnType<typeof setInterval> | null = null;
 
-  private readonly reconciler: Reconciler;
+  private readonly trackedImages = new Set<HTMLImageElement>();
+  private readonly dirtyImages = new Set<HTMLImageElement>();
+  private reconcileScheduled = false;
+  private safetyTickTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly safetyTickInterval: number;
+
+  private readonly srcDriftHandler = (img: HTMLImageElement): void => {
+    this.markDirty([img]);
+  };
+
+  private readonly delegatedListener = (event: Event): void => {
+    const { target } = event;
+    if (target instanceof HTMLImageElement) {
+      this.trackedImages.add(target);
+      this.markDirty([target]);
+    }
+  };
 
   constructor(private config: DomObserverConfig) {
-    this.reconciler = new Reconciler(
-      (images, videos) => this.config.onMediaObserved(images, videos),
-      images => this.config.onMediaRemoved(images),
-      config.safetyTickIntervalMs ?? DEFAULT_SAFETY_TICK_INTERVAL_MS,
-    );
+    this.safetyTickInterval = config.safetyTickIntervalMs ?? DEFAULT_SAFETY_TICK_INTERVAL_MS;
   }
 
   public start(root: Node = document): void {
     if (this.observer) return;
     this.rootNode = root;
-    this.reconciler.attachRoot(root);
+    this.addCaptureListeners(root);
 
     if (isComposedTreeRoot(root)) {
       const { images, videos } = this.observeSubtree(root);
-      this.reconciler.observed(images, videos);
+      this.trackAndReport(images, videos);
     }
 
     this.observer = this.createObserver();
     this.observer.observe(root, this.getObserverOptions());
 
-    this.reconciler.start();
+    setSrcDriftHandler(this.srcDriftHandler);
+    this.safetyTickTimer ??= setInterval(() => this.safetyTick(), this.safetyTickInterval);
   }
 
   public stop(): void {
@@ -52,12 +65,12 @@ export class DomObserver {
       this.observer = null;
     }
     if (this.rootNode) {
-      this.reconciler.detachRoot(this.rootNode);
+      this.removeCaptureListeners(this.rootNode);
       this.rootNode = null;
     }
     for (const [shadowRoot, observer] of this.shadowObservers) {
       observer.disconnect();
-      this.reconciler.detachRoot(shadowRoot);
+      this.removeCaptureListeners(shadowRoot);
     }
     this.shadowObservers.clear();
     this.pendingAttributeChanges.clear();
@@ -66,11 +79,92 @@ export class DomObserver {
       clearInterval(this.shadowRecheckTimer);
       this.shadowRecheckTimer = null;
     }
-    this.reconciler.stop();
+    clearSrcDriftHandler(this.srcDriftHandler);
+    if (this.safetyTickTimer !== null) {
+      clearInterval(this.safetyTickTimer);
+      this.safetyTickTimer = null;
+    }
+    this.trackedImages.clear();
+    this.dirtyImages.clear();
+    this.reconcileScheduled = false;
   }
 
   public markAllDirty(): void {
-    this.reconciler.markAllDirty();
+    this.markDirty(this.trackedImages);
+  }
+
+  private trackAndReport(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
+    if (images.length === 0 && videos.length === 0) return;
+    for (const img of images) {
+      this.trackedImages.add(img);
+    }
+    this.config.onMediaObserved(images, videos);
+  }
+
+  private untrack(img: HTMLImageElement): void {
+    this.trackedImages.delete(img);
+    this.dirtyImages.delete(img);
+  }
+
+  private markDirty(images: Iterable<HTMLImageElement>): void {
+    for (const img of images) {
+      this.dirtyImages.add(img);
+    }
+    this.scheduleReconcile();
+  }
+
+  private scheduleReconcile(): void {
+    if (this.reconcileScheduled || this.dirtyImages.size === 0) return;
+    this.reconcileScheduled = true;
+    queueMicrotask(() => {
+      this.reconcileScheduled = false;
+      this.reconcile();
+    });
+  }
+
+  private reconcile(): void {
+    if (this.dirtyImages.size === 0) return;
+    const images: HTMLImageElement[] = [];
+    const pruned: HTMLImageElement[] = [];
+    for (const img of this.dirtyImages) {
+      if (img.isConnected) {
+        images.push(img);
+      } else {
+        this.untrack(img);
+        pruned.push(img);
+      }
+    }
+    this.dirtyImages.clear();
+    if (pruned.length > 0) {
+      this.config.onMediaRemoved(pruned, []);
+    }
+    if (images.length > 0) {
+      this.config.onMediaObserved(images, []);
+    }
+  }
+
+  private safetyTick(): void {
+    const pruned: HTMLImageElement[] = [];
+    for (const img of this.trackedImages) {
+      if (!img.isConnected) {
+        this.untrack(img);
+        pruned.push(img);
+      }
+    }
+    if (pruned.length > 0) {
+      this.config.onMediaRemoved(pruned, []);
+    }
+    this.markDirty(this.trackedImages);
+  }
+
+  private addCaptureListeners(root: Node): void {
+    root.addEventListener('load', this.delegatedListener, true);
+    root.addEventListener('error', this.delegatedListener, true);
+  }
+
+  private removeCaptureListeners(root: Node): void {
+    root.removeEventListener('load', this.delegatedListener, true);
+    root.removeEventListener('error', this.delegatedListener, true);
   }
 
   private observeSubtree(root: ComposedTreeRoot): { images: HTMLImageElement[]; videos: HTMLVideoElement[] } {
@@ -80,7 +174,7 @@ export class DomObserver {
       const observer = this.createObserver();
       observer.observe(shadowRoot, this.getObserverOptions());
       this.shadowObservers.set(shadowRoot, observer);
-      this.reconciler.attachRoot(shadowRoot);
+      this.addCaptureListeners(shadowRoot);
     }
     for (const host of possibleHosts) {
       this.trackPossibleShadowHost(host);
@@ -104,7 +198,7 @@ export class DomObserver {
       if (root) {
         this.pendingShadowHosts.delete(element);
         const { images, videos } = this.observeSubtree(root);
-        this.reconciler.observed(images, videos);
+        this.trackAndReport(images, videos);
       }
     }
     if (this.pendingShadowHosts.size === 0 && this.shadowRecheckTimer !== null) {
@@ -157,20 +251,32 @@ export class DomObserver {
       }
     }
 
-    this.reconciler.observed(addedImages, addedVideos);
+    this.trackAndReport(addedImages, addedVideos);
 
-    const trulyRemoved = removedElements.filter(el => !el.isConnected);
-    if (trulyRemoved.length > 0) {
-      for (const el of trulyRemoved) {
-        if (el.tagName === 'IMG') this.reconciler.removed(el as HTMLImageElement);
+    const removedImages: HTMLImageElement[] = [];
+    const removedVideos: HTMLVideoElement[] = [];
+    for (const el of removedElements) {
+      if (el.isConnected) continue;
+      if (el.tagName === 'IMG') {
+        this.untrack(el as HTMLImageElement);
+        removedImages.push(el as HTMLImageElement);
+      } else if (el.tagName === 'VIDEO') {
+        removedVideos.push(el as HTMLVideoElement);
       }
-      this.config.onMediaRemoved(trulyRemoved);
+    }
+    if (removedImages.length > 0 || removedVideos.length > 0) {
+      this.config.onMediaRemoved(removedImages, removedVideos);
     }
 
     if (this.pendingAttributeChanges.size > 0) {
-      const elements = Array.from(this.pendingAttributeChanges);
+      const changedImages: HTMLImageElement[] = [];
+      const changedVideos: HTMLVideoElement[] = [];
+      for (const el of this.pendingAttributeChanges) {
+        if (el.tagName === 'IMG') changedImages.push(el as HTMLImageElement);
+        else if (el.tagName === 'VIDEO') changedVideos.push(el as HTMLVideoElement);
+      }
       this.pendingAttributeChanges.clear();
-      this.config.onAttributesChanged(elements);
+      this.config.onAttributesChanged(changedImages, changedVideos);
     }
   }
 
@@ -179,7 +285,7 @@ export class DomObserver {
     if (!observer) return;
     observer.disconnect();
     this.shadowObservers.delete(shadowRoot);
-    this.reconciler.detachRoot(shadowRoot);
+    this.removeCaptureListeners(shadowRoot);
   }
 }
 

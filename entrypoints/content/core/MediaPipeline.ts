@@ -62,8 +62,8 @@ export class MediaPipeline {
   ) {
     this.dom = deps.createDomObserver({
       onMediaObserved: (images, videos) => this.onMediaObserved(images, videos),
-      onMediaRemoved: elements => this.onMediaRemoved(elements),
-      onAttributesChanged: elements => this.onAttributesChanged(elements),
+      onMediaRemoved: (images, videos) => this.onMediaRemoved(images, videos),
+      onAttributesChanged: (images, videos) => this.onAttributesChanged(images, videos),
     });
   }
 
@@ -158,25 +158,24 @@ export class MediaPipeline {
     }
   }
 
-  private onMediaRemoved(elements: HTMLElement[]): void {
-    for (const el of elements) {
-      if (el.isConnected) continue;
-      if (el.tagName === 'VIDEO') {
-        this.deps.video.disposeSession(el as HTMLVideoElement);
-      } else if (el.tagName === 'IMG') {
-        this.deps.imageProcessor.handleRemoved(el as HTMLImageElement);
-      }
+  private onMediaRemoved(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
+    for (const img of images) {
+      this.deps.imageProcessor.handleRemoved(img);
+    }
+    for (const video of videos) {
+      this.deps.video.disposeSession(video);
     }
   }
 
-  private onAttributesChanged(elements: HTMLElement[]): void {
-    for (const el of elements) {
-      if (el.tagName === 'IMG') {
-        if (this.shouldProcessImages || this.shouldProcessGif) {
-          this.deps.imageProcessor.handleSrcChange(el as HTMLImageElement);
-        }
-      } else if (el.tagName === 'VIDEO' && this.shouldProcessVideo) {
-        this.deps.video.handleAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
+  private onAttributesChanged(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
+    if (this.shouldProcessImages || this.shouldProcessGif) {
+      for (const img of images) {
+        this.deps.imageProcessor.handleSrcChange(img);
+      }
+    }
+    if (this.shouldProcessVideo) {
+      for (const video of videos) {
+        this.deps.video.handleAttributeChange(video, this.opts.hostSettings);
       }
     }
   }
