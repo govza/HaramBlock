@@ -49,7 +49,6 @@ const productionDeps = (opts: MediaPipelineOptions): MediaPipelineDeps => {
   };
 };
 
-/** Verdict batches stream densely; coalescing whole-index reconciliation keeps each burst to one reconcile pass. */
 const VERDICT_RECONCILE_DELAY_MS = 100;
 
 export class MediaPipeline {
@@ -96,15 +95,13 @@ export class MediaPipeline {
     const unsubImagePreds = onImagePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
         this.deps.imageProcessor.handleInferenceResults(data.results);
-        // A verdict may belong to an element whose resolved src differs from
-        // the broadcast src (lazy load + srcset); the reconcile pass reconciles those.
+
         this.scheduleReconciliation();
       }
     });
 
     this.unsubscribeFns.push(unsubImagePreds);
 
-    // GIF frame verdicts arrive whenever images are being processed.
     const unsubGifPreds = onGifFramePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
         this.deps.imageProcessor.handleGifFrameResults(data.results);
@@ -153,8 +150,6 @@ export class MediaPipeline {
   }
 
   private onMediaObserved(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
-    // GIFs are <img> elements too, so the image processor runs whenever either
-    // static images or GIFs are targeted; it routes each element to the right path.
     if (this.shouldProcessImages || this.shouldProcessGif) {
       this.deps.imageProcessor.processAll(images);
     }
@@ -165,11 +160,6 @@ export class MediaPipeline {
 
   private onMediaRemoved(elements: HTMLElement[]): void {
     for (const el of elements) {
-      // A removal notification for a still-connected element is a re-parent
-      // (mutation callbacks are async — a moved node is already re-attached by
-      // the time we look), not a removal: YouTube moves its player container
-      // during watch-page boot, and disposing here would kill the just-adopted
-      // session with nothing left to rediscover it.
       if (el.isConnected) continue;
       if (el.tagName === 'VIDEO') {
         this.deps.video.disposeSession(el as HTMLVideoElement);

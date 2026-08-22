@@ -54,73 +54,42 @@ import {
 
 import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
 const IMAGE_INFERENCE_TIMEOUT_MS = 20_000;
 const MAX_IMAGE_INFERENCE_ATTEMPTS = 2;
 
-// Animated GIFs: cap tracked decode sessions and fail closed if frame verdicts
-// never arrive. Native <img> does not expose current-frame masking, so finalized
-// unsafe GIFs are replayed through a canvas player.
 const MAX_GIF_SESSIONS = 500;
 const GIF_VERDICT_TIMEOUT_MS = 20000;
 
-/**
- * Aggregation state for one animated GIF (keyed by src). Every frame is decoded for
- * playback, but inference runs on a sampled subset; the verdict finalizes once that
- * subset has returned (or the fail-closed timeout fires).
- */
 interface GifSession {
   sessionId: string;
-  frameCount: number; // Expected inference verdicts = sampled frame count (0 until decode completes)
-  received: number; // Frame verdicts received so far
+  frameCount: number;
+  received: number;
   failedFrames: number;
-  frames?: DecodedGifFrame[]; // All decoded frames; released once a GIF is judged safe
-  framePredictions: Map<number, IGifFramePrediction>; // Keyed by decoded frame index (sampled only)
-  maskInertia: number; // Frames a detection persists for playback; tracks the sampling stride
+  frames?: DecodedGifFrame[];
+  framePredictions: Map<number, IGifFramePrediction>;
+  maskInertia: number;
   aggregatePrediction?: IImagePrediction;
   finalized: boolean;
   disposed: boolean;
   timeoutId?: ReturnType<typeof setTimeout>;
 }
 
-// =============================================================================
-// ImageProcessor
-// =============================================================================
-
-/**
- * Processes images with minimal blocking and DOM-derived state.
- *
- * State is derived from DOM, not tracked separately:
- * - No blur class, no overlay → Unprocessed
- * - Has blur class, no overlay → Pending inference
- * - Has overlay → Complete
- *
- * Key design:
- * - Idempotent operations (safe to call multiple times)
- * - Fire and forget async work
- * - Predictions matched by src (stale ones find no matches)
- * - Self-cleaning overlays (via src tracking in overlay modules)
- */
 export class ImageProcessor {
   private readonly cache = new PredictionCache(MAX_CACHE_SIZE);
   private readonly gifSessions = new Map<string, GifSession>();
-  // src → the element that owns the in-flight request (see queueInference)
+
   private readonly pendingInference = new Map<string, HTMLImageElement>();
   private readonly pendingInferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly inferenceAttempts = new Map<string, number>();
-  /** Last resolved source seen for an element; filters Reddit's no-op attribute churn. */
+
   private readonly resolvedSrcByImage = new WeakMap<HTMLImageElement, string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
 
-  // Track shadow roots that contain processed images (for efficient querying)
   private readonly knownShadowRoots = new Set<ShadowRoot>();
 
   constructor(
@@ -139,25 +108,12 @@ export class ImageProcessor {
     );
   }
 
-  // ===========================================================================
-  // Public API
-  // ===========================================================================
-
-  /**
-   * Process an image. Idempotent - safe to call multiple times.
-   * This is the main entry point for both new images and attribute changes.
-   */
   process(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
     if (!src) return;
     if (this.isConverged(img, src)) return;
     const previousSrc = this.resolvedSrcByImage.get(img);
     if (previousSrc !== undefined && previousSrc !== src) {
-      // A genuine source replacement discovered by the reconcile pass (srcset
-      // re-selection, reused feed element): converging here would run over
-      // state stamped for the old source — a stale processed attribute or a
-      // mask built for the old content. Take the fail-closed invalidation
-      // route instead.
       this.handleSrcChange(img);
       return;
     }
@@ -166,25 +122,22 @@ export class ImageProcessor {
     this.visibilityObserver.observe(img);
     this.trackShadowRoot(img);
 
-    // Skip non-processable formats
     if (SVG_PATTERN.test(src)) {
       finalizeImageProcessing(img, 'skipped');
       return;
     }
 
-    // Blacklist policy: apply blacklist styling if not already applied
     if (this.hostSettings.policy.behavior === 'blacklist') {
       if (hasBlacklistStyling(img)) {
-        return; // Already blacklisted
+        return;
       }
-      // Clear any overlays from previous state and apply blacklist styling
+
       this.clearOverlays(img);
       applyBlacklistStyling(img, this.hostSettings);
       this.badgeCounter.trackDetections(img, src, 1);
       return;
     }
 
-    // GIFs and static images are independent targets; each <img> belongs to one.
     const { targets } = this.hostSettings.policy;
     if (isGifCandidate(src, img.dataset.contentType)) {
       if (!targets.gif) return;
@@ -193,8 +146,6 @@ export class ImageProcessor {
     }
     if (!targets.image) return;
 
-    // Skip if already has overlay for current src, but re-stamp the processed
-    // attribute (mobile srcset changes can clear it while the overlay persists).
     if (this.hasAnyOverlay(img)) {
       const cached = this.cache.get(src);
       if (cached) {
@@ -203,65 +154,47 @@ export class ImageProcessor {
       return;
     }
 
-    // Check cache first - apply immediately if available
     const cached = this.cache.get(src);
     if (cached) {
       this.applyPrediction(img, cached);
       return;
     }
 
-    // Start timing for this image (new processing path)
     startContentTiming(src, this.hostSettings.hostname);
 
-    // Apply blur if not already present (idempotent)
     if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
 
-    // Queue for inference (deduped by src)
     this.queueInference(img, src);
   }
 
-  /**
-   * Process multiple images.
-   */
   processAll(images: HTMLImageElement[]): void {
     for (const img of images) {
       this.process(img);
     }
   }
 
-  /**
-   * Handle src attribute change - debounce to let src stabilize before reprocessing.
-   * Google Images rapidly changes src (quality upgrades), so we wait for it to settle.
-   */
   handleSrcChange(img: HTMLImageElement): void {
     const resolvedSrc = img.currentSrc || img.src;
     const previousSrc = this.resolvedSrcByImage.get(img);
     if (resolvedSrc === previousSrc) {
-      // Lit/React frequently re-stamp an unchanged src/srcset. Treating that
-      // as a source replacement clears a valid verdict and can reset the
-      // debounce forever under continuous Reddit feed churn.
       return;
     }
     if (resolvedSrc) this.resolvedSrcByImage.set(img, resolvedSrc);
     else this.resolvedSrcByImage.delete(img);
 
-    // Clear any existing overlays (they may be for old src)
     this.clearOverlays(img);
 
-    // Ensure blur is applied while waiting for stabilization
     if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
 
-    // Cancel any pending debounce for this image
     const existingTimeout = this.srcChangeDebounce.get(img);
     if (existingTimeout) {
       clearTimeout(existingTimeout);
     }
 
-    // Debounce: wait for src to stabilize before processing
     const timeout = setTimeout(() => {
       this.srcChangeDebounce.delete(img);
       const src = img.currentSrc || img.src;
@@ -273,20 +206,12 @@ export class ImageProcessor {
     this.srcChangeDebounce.set(img, timeout);
   }
 
-  /**
-   * Seed cache with predictions (e.g., from background on init).
-   */
   seedCache(predictions: IImagePrediction[]): void {
     for (const pred of predictions) {
       this.cache.set(pred.src, pred);
     }
   }
 
-  /**
-   * Handle inference results from background. Successful predictions are cached
-   * and applied to matching images; errored results feed the retry counter
-   * (transient failures deserve the retry) and fail open once exhausted.
-   */
   handleInferenceResults(results: ImageInferenceResult[]): void {
     for (const result of results) {
       if (result.status === 'error') {
@@ -297,7 +222,6 @@ export class ImageProcessor {
       this.cache.set(pred.src, pred);
       this.clearPendingInference(pred.src, undefined, true);
 
-      // Find and update all matching images
       const images = this.findImagesBySrc(pred.src);
       for (const img of images) {
         this.applyPrediction(img, pred);
@@ -305,9 +229,6 @@ export class ImageProcessor {
     }
   }
 
-  /**
-   * Clean up when image removed from DOM.
-   */
   handleRemoved(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
     if (src) {
@@ -323,9 +244,6 @@ export class ImageProcessor {
     unregisterQuickToggle(img);
   }
 
-  /**
-   * Clean up resources when processor is disposed.
-   */
   dispose(): void {
     this.visibilityObserver.disconnect();
     for (const timer of this.pendingInferenceTimers.values()) clearTimeout(timer);
@@ -374,27 +292,17 @@ export class ImageProcessor {
       } else if (forcedVisibility === 'auto' && updated.predictions.length > 0) {
         void applyPredictionsStyling([img], [updated], this.hostSettings);
       }
-      // Always register quick toggle for all states
+
       this.registerToggle(img, updated);
       this.badgeCounter.trackDetections(img, src, detectionCount);
     }
   }
 
-  // ===========================================================================
-  // State Queries (DOM-derived)
-  // ===========================================================================
-
-  /**
-   * The reconciliation pass re-enters process() for every dirty element, so a
-   * settled element must be a cheap no-op: same resolved src as last time, a
-   * final processed status, and (for unsafe) its protective visual in place.
-   */
   private isConverged(img: HTMLImageElement, src: string): boolean {
     if (this.resolvedSrcByImage.get(img) !== src) return false;
     if (img.hasAttribute(PROCESSED_ATTR_MAP.safe) || img.hasAttribute(PROCESSED_ATTR_MAP.skipped)) return true;
     if (!img.hasAttribute(PROCESSED_ATTR_MAP.unsafe)) return false;
-    // An unsafe element is settled once its protective visual is in place — or
-    // when the user forced it visible, in which case no visual is expected.
+
     return this.hasAnyOverlay(img) || hasBlacklistStyling(img) || this.cache.get(src)?.forcedVisibility === 'visible';
   }
 
@@ -402,41 +310,20 @@ export class ImageProcessor {
     return Boolean(imageMaskOverlay.hasMaskOverlay(img) || gifMaskPlayer.hasPlayer(img));
   }
 
-  // ===========================================================================
-  // Inference Queue
-  // ===========================================================================
-
   private queueInference(img: HTMLImageElement, src: string): void {
-    // The pending entry dedupes requests but is only honored while its owner
-    // element is alive: frameworks (Reddit's lightbox) replace nodes before
-    // lazy images load, and a dedupe against a dead owner would leave the src
-    // pending forever — every later copy of it dropped here, stuck behind the
-    // initial blur.
     const owner = this.pendingInference.get(src);
     if (owner && owner.isConnected) {
       const ownerReady = owner.complete && owner.naturalWidth > 0;
       const imgReady = img.complete && img.naturalWidth > 0;
-      // Defer to the owner unless it is stalled (not loaded — e.g. a lazy
-      // copy in a hidden subtree that may never start loading) while this
-      // copy already has pixels; then take over so visible copies aren't
-      // held hostage. A later duplicate send from the old owner is harmless.
-      // A deferrer needs no listener: its load fires DomObserver's delegated
-      // capture listener, and the reconcile pass re-enters process().
+
       if (ownerReady || !imgReady) return;
     }
 
     if (!(img.complete && img.naturalWidth > 0)) {
-      // The browser gave up on this image (complete with no pixels): nothing
-      // will ever render, so fail open. A still-loading image just returns —
-      // the delegated load/error listener dirties it and the reconcile pass retries.
       if (img.complete) {
-        // Any pending owner is dead here (a live owner was deferred to above),
-        // so drop it and its watchdog rather than letting the watchdog fire
-        // against an already-finalized src.
         this.clearPendingInference(src, undefined, true);
         completeContentTiming(src, { status: 'error', error: new Error(`Load error: ${src.substring(0, 80)}`) });
-        // Only this copy is known broken; siblings sharing the src may still
-        // be loading and keep their protection until their own verdict.
+
         finalizeImageProcessing(img, 'skipped');
       }
       return;
@@ -445,7 +332,6 @@ export class ImageProcessor {
     this.pendingInference.set(src, img);
 
     const sendRequest = async () => {
-      // Skip only if all currently pending elements for this src are below threshold.
       if (this.isBelowMinSizeForSrc(src, img)) {
         this.clearPendingInference(src, img, true);
         completeContentTiming(src, { status: 'skipped' });
@@ -483,11 +369,6 @@ export class ImageProcessor {
     );
   }
 
-  /**
-   * A pending inference failed (errored result from background, or the
-   * watchdog fired with no reply). Retry with the best candidate element,
-   * failing open once attempts are exhausted.
-   */
   private handleInferenceFailure(src: string, reason?: string): void {
     if (!this.pendingInference.has(src)) return;
     this.clearPendingInference(src);
@@ -537,10 +418,6 @@ export class ImageProcessor {
     return candidates.every(candidate => this.isBelowMinSize(candidate));
   }
 
-  /**
-   * Finalize all images with the given src. Used when one image is skipped/errors
-   * to ensure other deduplicated images with the same src are also finalized.
-   */
   private finalizeAllImagesForSrc(src: string, status: 'safe' | 'unsafe' | 'skipped'): void {
     const images = this.findImagesBySrc(src);
     for (const img of images) {
@@ -548,22 +425,12 @@ export class ImageProcessor {
     }
   }
 
-  // ===========================================================================
-  // Animated GIF Processing
-  // ===========================================================================
-
-  /**
-   * Inspect a sampled subset of an animated GIF's frames. Idempotent per src:
-   * re-running for the same GIF re-applies the known verdict instead of re-decoding.
-   */
   private processGif(img: HTMLImageElement, src: string): void {
     const existing = this.gifSessions.get(src);
     if (existing) {
       if (existing.finalized && existing.aggregatePrediction) {
         this.applyGifVerdict(img, src, existing.aggregatePrediction);
       } else if (!hasInitialStyling(img)) {
-        // Another element shares this GIF and is still being inspected. Blur this one
-        // too so it stays hidden and is found when the verdict lands.
         applyInitialImageStyling(img, this.hostSettings);
       }
       return;
@@ -591,8 +458,6 @@ export class ImageProcessor {
   }
 
   private async decodeAndSendGif(img: HTMLImageElement, src: string, session: GifSession): Promise<void> {
-    // GIF frames are transferred like video frames (no URL fallback). On Chrome that
-    // needs the MessageChannel; if it is unavailable, fall back to single-frame.
     if (IS_CHROME && !(await waitForMessageChannel())) {
       this.fallbackToSingleFrame(img, src, session);
       return;
@@ -622,15 +487,11 @@ export class ImageProcessor {
       return;
     }
 
-    // Not an animated GIF (single frame / undecodable) -> normal single-frame path.
     if (!decoded) {
       this.fallbackToSingleFrame(img, src, session);
       return;
     }
 
-    // Decode every frame for playback, but only inspect an evenly-spread subset so long
-    // GIFs don't flood the inference queue. Masks persist across the gap between sampled
-    // frames (see maskInertia) so coverage stays fail-safe.
     session.frames = decoded.frames;
     const totalFrames = decoded.frames.length;
     const inferenceIndices = sampleFrameIndices(totalFrames, gifInferenceFrameCap(totalFrames));
@@ -641,7 +502,6 @@ export class ImageProcessor {
     const isVisible = this.visibilityMap.get(img) ?? false;
     const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
 
-    // Safety net: if verdicts never arrive, fail closed instead of revealing the GIF.
     session.timeoutId = setTimeout(() => this.finalizeGif(src, true), GIF_VERDICT_TIMEOUT_MS);
 
     await Promise.all(
@@ -669,12 +529,6 @@ export class ImageProcessor {
     );
   }
 
-  /**
-   * Aggregate per-frame inference results. Errored frames count as failed so the
-   * session can finalize (fail closed) without waiting out the verdict timeout.
-   * Finalization waits until every sampled frame has returned (or failed); the
-   * fail-closed timeout covers verdicts that never arrive.
-   */
   handleGifFrameResults(results: GifFrameInferenceResult[]): void {
     for (const result of results) {
       if (result.status === 'error') {
@@ -727,9 +581,6 @@ export class ImageProcessor {
       this.applyGifVerdict(img, src, aggregatePrediction);
     }
 
-    // Safe GIFs play natively (no canvas player), so their decoded bitmaps are dead
-    // weight. Release them; a later force-block toggle uses a whole-frame blur that
-    // needs no frames (see applyGifVerdict).
     if (!shouldBlock(aggregatePrediction)) {
       this.releaseGifFrames(session.frames);
       session.frames = undefined;
@@ -742,10 +593,6 @@ export class ImageProcessor {
     });
   }
 
-  /**
-   * Apply a GIF's verdict to one element. Unsafe GIFs are replayed through a
-   * canvas player so the displayed frame can use that frame's mask.
-   */
   private applyGifVerdict(img: HTMLImageElement, src: string, aggregatePrediction: IImagePrediction): void {
     const session = this.gifSessions.get(src);
     this.clearOverlays(img);
@@ -764,9 +611,6 @@ export class ImageProcessor {
         session.maskInertia,
       );
     } else if (blocked) {
-      // Blocked but the decoded frames are gone (a safe GIF force-blocked via toggle, or
-      // an evicted session). A safe verdict has no per-frame detections to mask precisely,
-      // so a whole-frame blur is the correct block visual and needs no re-decode.
       this.registerToggle(img, aggregatePrediction);
       applyBlacklistStyling(img, this.hostSettings);
     } else {
@@ -786,9 +630,6 @@ export class ImageProcessor {
     const width = firstPrediction?.width ?? firstFrame?.bitmap.width ?? 0;
     const height = firstPrediction?.height ?? firstFrame?.bitmap.height ?? 0;
 
-    // Represent the GIF by its single busiest frame rather than summing detections across
-    // every frame, so the badge/timing count reflects one frame's worth (not N copies of
-    // the same recurring subject). shouldBlock still trips whenever any frame had a hit.
     const peakPrediction = framePredictions.reduce<IGifFramePrediction | undefined>(
       (best, prediction) => (prediction.predictions.length > (best?.predictions.length ?? 0) ? prediction : best),
       undefined,
@@ -823,9 +664,6 @@ export class ImageProcessor {
     let overflow = this.gifSessions.size - MAX_GIF_SESSIONS;
     if (overflow <= 0) return;
 
-    // Reclaim oldest-first, but skip sessions whose frames are still in use: a session that
-    // hasn't finalized is mid decode/inference, and a blocked session's frames are being
-    // drawn live by gifMaskPlayer. Closing either out from under its owner breaks playback.
     for (const [src, session] of this.gifSessions) {
       if (overflow <= 0) break;
       if (!session.finalized) continue;
@@ -834,12 +672,6 @@ export class ImageProcessor {
     }
   }
 
-  /**
-   * Drop a finalized GIF session and free its decoded frames. A blocked GIF is still on
-   * screen via gifMaskPlayer, so degrade it to a frame-free whole-frame blur first: the GIF
-   * stays hidden (fail-safe) while the player tears down and stops drawing the frames we're
-   * about to close.
-   */
   private retireGifSession(src: string, session: GifSession): void {
     const { frames } = session;
     if (session.aggregatePrediction && shouldBlock(session.aggregatePrediction)) {
@@ -865,49 +697,31 @@ export class ImageProcessor {
     frames?.forEach(frame => frame.bitmap.close());
   }
 
-  // ===========================================================================
-  // Prediction Application
-  // ===========================================================================
-
   private applyPrediction(img: HTMLImageElement, prediction: IImagePrediction): void {
     const currentSrc = img.currentSrc || img.src;
 
-    // Verify src still matches (handles race where src changed)
     if (currentSrc !== prediction.src) {
       return;
     }
 
-    // Mark that we received the prediction
     markReceived(prediction.src);
 
-    // Track detections synchronously for badge (before async apply)
     let detectionCount = prediction.predictions.length;
     if (prediction.forcedVisibility === 'visible') detectionCount = 0;
     else if (prediction.forcedVisibility === 'blocked') detectionCount = 1;
     this.badgeCounter.trackDetections(img, prediction.src, detectionCount);
 
-    // Fail closed until the overlay paints: apply() waits for the image to
-    // load and creates the overlay asynchronously, so a cached-unsafe image
-    // would otherwise render raw the whole time (including while streaming in).
     if (detectionCount > 0 && !hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
 
     const apply = async () => {
-      // Double-check src after any async wait
       const srcNow = img.currentSrc || img.src;
       if (srcNow !== prediction.src) {
-        // Responsive images can select a different srcset candidate while
-        // decode() is pending without producing another observable attribute
-        // mutation. Hand the newly selected resource back to the normal
-        // pipeline; otherwise the old verdict is discarded and the element
-        // remains under its protective blur forever (notably in Reddit's
-        // foreground/background image pair).
         this.process(img);
         return;
       }
 
-      // Clear any existing overlays first (also resets protective styling)
       this.clearOverlays(img);
 
       const hasDetections = prediction.predictions.length > 0;
@@ -916,37 +730,28 @@ export class ImageProcessor {
       }
       this.registerToggle(img, prediction);
 
-      // Determine overlay type based on what styling is applied
       let overlayType: string | undefined;
 
-      // Finalize (which strips protective styling) only once the branch's own
-      // protection is in place — for masked images that means after the
-      // overlay painted, or the unprotected window would reopen
       if (prediction.forcedVisibility === 'blocked') {
         finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
         applyBlacklistStyling(img, this.hostSettings);
         overlayType = 'blur';
       } else if (prediction.forcedVisibility === 'visible') {
         finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
-        overlayType = undefined; // Whitelisted, no overlay
+        overlayType = undefined;
       } else if (hasDetections) {
         await applyPredictionsStyling([img], [prediction], this.hostSettings);
         finalizeImageProcessing(img, 'unsafe');
         overlayType = 'segment';
         if (!this.hasAnyOverlay(img) && !hasBlacklistStyling(img)) {
-          // The mask overlay could not be anchored (e.g. an <img> that is a
-          // direct ShadowRoot child has no parent element to insert into):
-          // fall back to a whole-frame blur so the element keeps a protective
-          // visual and converges instead of re-applying on every safety tick.
           applyBlacklistStyling(img, this.hostSettings);
           overlayType = 'blur';
         }
       } else {
         finalizeImageProcessing(img, 'safe');
-        overlayType = undefined; // No detections, no overlay
+        overlayType = undefined;
       }
 
-      // Log the completion with overlay type
       completeContentTiming(prediction.src, {
         status: 'success',
         detectionsCount: prediction.predictions.length,
@@ -954,16 +759,10 @@ export class ImageProcessor {
       });
     };
 
-    // A not-yet-loaded image keeps its protective styling and waits for the
-    // reconciliation pass: its load fires DomObserver's delegated listener,
-    // and the next process() call re-applies the cached verdict.
     if (img.complete) {
       if (img.naturalWidth > 0) {
         void apply();
       } else {
-        // The browser gave up on this copy (complete with no pixels), so the
-        // cached verdict can never paint. Fail open and converge instead of
-        // re-entering on every safety tick forever.
         completeContentTiming(prediction.src, {
           status: 'error',
           error: new Error(`Load error: ${prediction.src.substring(0, 80)}`),
@@ -972,10 +771,6 @@ export class ImageProcessor {
       }
     }
   }
-
-  // ===========================================================================
-  // Helpers
-  // ===========================================================================
 
   private registerToggle(img: HTMLImageElement, prediction: IImagePrediction): void {
     registerQuickToggle(img, predictionToggleRegistration(prediction, this.hostSettings));
@@ -992,7 +787,6 @@ export class ImageProcessor {
     const results: HTMLImageElement[] = [];
     const selector = `img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`;
 
-    // Query light DOM
     for (const img of document.querySelectorAll<HTMLImageElement>(selector)) {
       const imgSrc = img.currentSrc || img.src;
       if (imgSrc === src) {
@@ -1000,9 +794,7 @@ export class ImageProcessor {
       }
     }
 
-    // Query only tracked shadow roots (O(shadowRoots) instead of O(allElements))
     for (const shadowRoot of this.knownShadowRoots) {
-      // Skip disconnected shadow roots
       if (!shadowRoot.host.isConnected) {
         this.knownShadowRoots.delete(shadowRoot);
         continue;
@@ -1018,12 +810,9 @@ export class ImageProcessor {
     return results;
   }
 
-  // Queries all images on each call. Acceptable for user-initiated toggles (infrequent).
-  // Maintaining a src→elements index would require complex cleanup for removed elements.
   private findAllImagesBySrc(src: string): HTMLImageElement[] {
     const results: HTMLImageElement[] = [];
 
-    // Query light DOM
     for (const img of document.querySelectorAll<HTMLImageElement>('img')) {
       const imgSrc = img.currentSrc || img.src;
       if (imgSrc === src) {
@@ -1031,7 +820,6 @@ export class ImageProcessor {
       }
     }
 
-    // Query only tracked shadow roots
     for (const shadowRoot of this.knownShadowRoots) {
       if (!shadowRoot.host.isConnected) {
         this.knownShadowRoots.delete(shadowRoot);
@@ -1048,17 +836,13 @@ export class ImageProcessor {
     return results;
   }
 
-  /**
-   * Track the shadow root containing this image (if any) for efficient querying.
-   * Walks up the DOM tree to find enclosing shadow roots.
-   */
   private trackShadowRoot(img: HTMLImageElement): void {
     let node: Node | null = img;
     while (node) {
       const root = node.getRootNode();
       if (root instanceof ShadowRoot) {
         this.knownShadowRoots.add(root);
-        // Continue up to find nested shadow roots
+
         node = root.host;
       } else {
         break;

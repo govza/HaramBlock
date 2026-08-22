@@ -134,10 +134,46 @@ describe('DomObserver reconciliation pass', () => {
     expect(onMediaObserved).not.toHaveBeenCalled();
   });
 
+  it('observes mutations inside a shadow root attached after the host was seen', async () => {
+    vi.useFakeTimers();
+    const lazyHost = document.createElement('lazy-widget');
+    document.body.appendChild(lazyHost);
+    startObserver();
+    onMediaObserved.mockClear();
+
+    const shadow = lazyHost.attachShadow({ mode: 'open' });
+    await vi.advanceTimersByTimeAsync(250);
+    const img = document.createElement('img');
+    img.src = 'https://example.com/lazy-added.jpg';
+    shadow.appendChild(img);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onMediaObserved).toHaveBeenCalledWith([img], []);
+  });
+
+  it('reports media inside nested shadow roots when their host is removed', async () => {
+    const onMediaRemoved = vi.fn<DomObserverConfig['onMediaRemoved']>();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const innerHost = document.createElement('div');
+    shadow.appendChild(innerHost);
+    const innerShadow = innerHost.attachShadow({ mode: 'open' });
+    const img = document.createElement('img');
+    img.src = 'https://example.com/nested-removed.jpg';
+    innerShadow.appendChild(img);
+    startObserver({ onMediaRemoved });
+
+    host.remove();
+    await flushMutationsAndReconcile();
+
+    expect(onMediaRemoved).toHaveBeenCalledWith([img]);
+  });
+
   it('safety tick reconciles all tracked images even with no signal at all', async () => {
     vi.useFakeTimers();
     const img = addImage();
-    startObserver({ safetyTickInterval: 2000 });
+    startObserver({ safetyTickIntervalMs: 2000 });
     onMediaObserved.mockClear();
 
     await vi.advanceTimersByTimeAsync(2000);
@@ -149,7 +185,7 @@ describe('DomObserver reconciliation pass', () => {
     vi.useFakeTimers();
     const img = addImage();
     const survivor = addImage();
-    startObserver({ safetyTickInterval: 2000 });
+    startObserver({ safetyTickIntervalMs: 2000 });
     img.remove();
     onMediaObserved.mockClear();
 

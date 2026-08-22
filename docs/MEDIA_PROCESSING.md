@@ -569,8 +569,8 @@ There are no per-element `decode()`/`load` listeners. Instead, image state conve
 - Dirty images are swept in a coalesced microtask: each is re-entered through
   `ImageProcessor.process()`, which is idempotent and treats every DOM signal as a hint —
   `isConverged()` makes a settled element a cheap no-op.
-- A **Safety Tick** (default 2s, `safetyTickInterval`) marks all indexed images dirty, bounding how
-  long any missed signal can leave an image unreconciled, and prunes disconnected images.
+- A **Safety Tick** (default 2s, `safetyTickIntervalMs`) marks all indexed images dirty, bounding
+  how long any missed signal can leave an image unreconciled, and prunes disconnected images.
 - A `load` that never fires (cached-complete image) is covered by the initial report; an image the
   browser gave up on (`complete` with `naturalWidth === 0`) fails open as `skipped` — only that
   copy, so still-loading siblings sharing the src keep their protection.

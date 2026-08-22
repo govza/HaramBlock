@@ -124,26 +124,18 @@ describe('ImageProcessor reconcile convergence', () => {
   it('converges an orphaned deferrer to the cached verdict on the next reconcile pass', async () => {
     const processor = new ImageProcessor(hostSettings, badgeCounter);
 
-    // Owner loads the small candidate and goes out for inference.
     const owner = makeImage({ currentSrc: SRC_SMALL, complete: true, naturalWidth: 640 });
     processor.process(owner.img);
     await flushAsync();
     expect(requestImageInference).toHaveBeenCalledTimes(1);
 
-    // A lazy copy defers to the pending owner; no listener is attached to it.
     const deferrer = makeImage({ currentSrc: SRC_SMALL, complete: false, naturalWidth: 0 });
     processor.process(deferrer.img);
     expect(deferrer.img.classList.contains(BLUR_CLASS)).toBe(true);
 
-    // The owner's srcset upgrades before the verdict lands: the verdict is
-    // cached and broadcast under the large URL only.
     owner.state.currentSrc = SRC_LARGE;
     processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_LARGE) }]);
 
-    // The deferrer's lazy load resolves the large candidate too; the reconcile pass
-    // re-enters process() (no attribute mutation, no per-element listener).
-    // The source replacement takes the fail-closed invalidation route, so the
-    // cached verdict lands after the stabilization debounce.
     vi.useFakeTimers();
     deferrer.state.currentSrc = SRC_LARGE;
     deferrer.state.complete = true;

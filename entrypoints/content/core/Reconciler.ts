@@ -1,18 +1,6 @@
 import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
 
-/**
- * Sole owner of the image index and of converge dispatch: discovery
- * (`observed`) and reconciliation passes both exit through the one callback.
- * Keeps a dirty-set with a coalesced (microtask) reconcile pass, a safety tick that
- * reconciles everything, and per-root delegated capture load/error listeners
- * feeding the dirty-set. DomObserver owns root lifecycle and reports
- * discoveries/removals here.
- */
 export class Reconciler {
-  // Responsive images re-select a srcset candidate on resize without any
-  // attribute mutation or load event on this root — the overlay's self-clean
-  // is the only detector. It is just another change hint feeding the
-  // dirty-set; the reconcile pass's processing path handles the invalidation.
   private readonly srcDriftHandler = (img: HTMLImageElement): void => {
     this.markDirty([img]);
   };
@@ -21,11 +9,7 @@ export class Reconciler {
   private readonly dirtyImages = new Set<HTMLImageElement>();
   private reconcileScheduled = false;
   private safetyTickTimer: ReturnType<typeof setInterval> | null = null;
-  // load/error don't bubble but do run the capture phase, so one listener per
-  // tree root sees every image load in that tree. Non-composed events stay
-  // inside their shadow tree, hence per-root installation. The self-add is
-  // load-bearing: a fast image's load can fire before the async mutation
-  // batch that would report it via observed().
+
   private readonly delegatedListener = (event: Event): void => {
     const { target } = event;
     if (target instanceof HTMLImageElement) {
@@ -36,11 +20,7 @@ export class Reconciler {
 
   constructor(
     private readonly onMediaObserved: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void,
-    /**
-     * Disconnected images dropped by a reconcile pass or the safety tick. MutationObserver
-     * never reports these (e.g. a removed shadow host takes its subtree silently),
-     * so consumers must get their removal cleanup from here.
-     */
+
     private readonly onPruned: (images: HTMLImageElement[]) => void,
     private readonly safetyTickInterval: number,
   ) {}
@@ -71,7 +51,6 @@ export class Reconciler {
     root.removeEventListener('error', this.delegatedListener, true);
   }
 
-  /** Discovery entry point: indexes the images and forwards both arrays to the callback synchronously. */
   public observed(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
     if (images.length === 0 && videos.length === 0) return;
     for (const img of images) {
@@ -92,7 +71,6 @@ export class Reconciler {
     this.scheduleReconcile();
   }
 
-  /** Broad invalidation for signals with no element mapping, e.g. verdict arrival. */
   public markAllDirty(): void {
     this.markDirty(this.trackedImages);
   }

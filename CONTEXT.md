@@ -31,6 +31,10 @@ images dirty, and a coalesced reconcile pass re-converges each dirty image's pre
 idempotently. Distinct from the predecessor sweep (crashed-instance overlay cleanup) and the
 stale-overlay sweep. _Avoid_: rescan, re-check
 
+**Composed Tree Walk**: The single traversal over an element's light DOM plus every attached shadow
+root (recursively), returning media, shadow roots, and possible future shadow hosts. The add,
+remove, and initial-scan paths of the DomObserver all share it. _Avoid_: DOM scan, deep query
+
 **Dirty image**: A tracked image with a pending change hint (load/error, mutation, Verdict arrival)
 awaiting the next Reconciliation Loop. _Avoid_: invalidated image, pending image
 
