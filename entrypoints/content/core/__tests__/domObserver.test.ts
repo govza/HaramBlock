@@ -14,7 +14,7 @@ describe('DomObserver reconciliation pass', () => {
     observer = new DomObserver({
       onMediaObserved,
       onMediaRemoved: vi.fn(),
-      onAttributesChanged: vi.fn(),
+      onVideoAttributesChanged: vi.fn(),
       ...config,
     });
     observer.start(document);
@@ -236,6 +236,58 @@ describe('DomObserver reconciliation pass', () => {
     expect(onMediaObserved).not.toHaveBeenCalled();
   });
 
+  it('an image attribute change enters as a dirty hint and reconciles', async () => {
+    const img = addImage();
+    startObserver();
+    onMediaObserved.mockClear();
+
+    img.setAttribute('src', 'https://example.com/b.jpg');
+    await flushMutationsAndReconcile();
+
+    expect(onMediaObserved).toHaveBeenCalledWith([img], []);
+  });
+
+  it('a video attribute change is reported through onVideoAttributesChanged', async () => {
+    const onVideoAttributesChanged = vi.fn<DomObserverConfig['onVideoAttributesChanged']>();
+    const video = document.createElement('video');
+    video.src = 'https://example.com/a.mp4';
+    document.body.appendChild(video);
+    startObserver({ onVideoAttributesChanged });
+    onVideoAttributesChanged.mockClear();
+
+    video.setAttribute('src', 'https://example.com/b.mp4');
+    await flushMutationsAndReconcile();
+
+    expect(onVideoAttributesChanged).toHaveBeenCalledWith([video]);
+  });
+
+  describe('findTrackedImagesBySrc', () => {
+    it('finds tracked images sharing a resolved src, including inside shadow roots', () => {
+      const light = addImage();
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const shadow = host.attachShadow({ mode: 'open' });
+      const shadowImg = document.createElement('img');
+      shadowImg.src = 'https://example.com/a.jpg';
+      shadow.appendChild(shadowImg);
+      const other = document.createElement('img');
+      other.src = 'https://example.com/other.jpg';
+      document.body.appendChild(other);
+      startObserver();
+
+      expect(observer.findTrackedImagesBySrc('https://example.com/a.jpg')).toEqual([light, shadowImg]);
+    });
+
+    it('omits disconnected images', () => {
+      const img = addImage();
+      startObserver();
+
+      img.remove();
+
+      expect(observer.findTrackedImagesBySrc('https://example.com/a.jpg')).toEqual([]);
+    });
+  });
+
   it('does not track videos: markAllDirty never re-reports them', async () => {
     const video = document.createElement('video');
     video.src = 'https://example.com/a.mp4';
@@ -249,15 +301,30 @@ describe('DomObserver reconciliation pass', () => {
     expect(onMediaObserved).not.toHaveBeenCalled();
   });
 
-  it('markAllDirty marks all tracked images dirty', async () => {
+  it('markAllDirty marks all tracked images dirty after the coalescing window', async () => {
+    vi.useFakeTimers();
     const img = addImage();
     startObserver();
     onMediaObserved.mockClear();
 
     observer.markAllDirty();
-    await flushMutationsAndReconcile();
+    await vi.advanceTimersByTimeAsync(100);
 
     expect(onMediaObserved).toHaveBeenCalledWith([img], []);
+  });
+
+  it('coalesces a burst of markAllDirty calls into one reconcile pass', async () => {
+    vi.useFakeTimers();
+    addImage();
+    startObserver();
+    onMediaObserved.mockClear();
+
+    for (let i = 0; i < 5; i++) {
+      observer.markAllDirty();
+    }
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(onMediaObserved).toHaveBeenCalledTimes(1);
   });
 
   it('stops reconciling after stop()', async () => {

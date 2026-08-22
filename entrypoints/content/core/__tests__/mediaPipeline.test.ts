@@ -56,7 +56,6 @@ describe('MediaPipeline', () => {
     dom = { start: vi.fn(), stop: vi.fn(), markAllDirty: vi.fn() };
     imageProcessor = {
       processAll: vi.fn(),
-      handleSrcChange: vi.fn(),
       handleRemoved: vi.fn(),
       handleInferenceResults: vi.fn(),
       handleGifFrameResults: vi.fn(),
@@ -86,8 +85,7 @@ describe('MediaPipeline', () => {
   });
 
   describe('verdict arrival', () => {
-    it('routes matching-hostname image verdicts to the processor and schedules reconciliation', async () => {
-      vi.useFakeTimers();
+    it('routes matching-hostname image verdicts to the processor and marks all dirty', () => {
       makePipeline(processPolicy({ image: true })).start(document.body);
 
       const results = [{ src: 'https://example.com/a.jpg' }];
@@ -95,20 +93,6 @@ describe('MediaPipeline', () => {
 
       expect(imageProcessor.processAll).not.toHaveBeenCalled();
       expect(imageProcessor.handleInferenceResults).toHaveBeenCalledWith(results);
-      expect(dom.markAllDirty).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(100);
-      expect(dom.markAllDirty).toHaveBeenCalledTimes(1);
-    });
-
-    it('coalesces reconciliation across a burst of verdict batches', async () => {
-      vi.useFakeTimers();
-      makePipeline(processPolicy({ image: true })).start(document.body);
-
-      for (let i = 0; i < 5; i++) {
-        listeners.imagePredictions?.({ hostname: 'example.com', results: [] });
-      }
-      await vi.advanceTimersByTimeAsync(100);
-
       expect(dom.markAllDirty).toHaveBeenCalledTimes(1);
     });
 
@@ -121,15 +105,13 @@ describe('MediaPipeline', () => {
       expect(dom.markAllDirty).not.toHaveBeenCalled();
     });
 
-    it('routes GIF frame verdicts the same way', async () => {
-      vi.useFakeTimers();
+    it('routes GIF frame verdicts the same way', () => {
       makePipeline(processPolicy({ gif: true })).start(document.body);
 
       const results = [{ src: 'https://example.com/a.gif' }];
       listeners.gifFramePredictions?.({ hostname: 'example.com', results });
 
       expect(imageProcessor.handleGifFrameResults).toHaveBeenCalledWith(results);
-      await vi.advanceTimersByTimeAsync(100);
       expect(dom.markAllDirty).toHaveBeenCalledTimes(1);
     });
   });
@@ -186,26 +168,25 @@ describe('MediaPipeline', () => {
     });
   });
 
-  describe('attributes changed', () => {
-    it('routes image src changes through the invalidation path when targeted', () => {
-      makePipeline(processPolicy({ image: true }));
-      const el = document.createElement('img');
-
-      domConfig.onAttributesChanged([el], []);
-
-      expect(imageProcessor.handleSrcChange).toHaveBeenCalledWith(el);
-    });
-
+  describe('video attributes changed', () => {
     it('routes video attribute changes when videos are routed', () => {
       makePipeline(processPolicy({ video: true }));
       const el = document.createElement('video');
 
-      domConfig.onAttributesChanged([], [el]);
+      domConfig.onVideoAttributesChanged([el]);
 
       expect(deps.video.handleAttributeChange).toHaveBeenCalledWith(
         el,
         expect.objectContaining({ hostname: 'example.com' }),
       );
+    });
+
+    it('leaves video attribute changes alone when videos are not routed', () => {
+      makePipeline(processPolicy({ image: true }));
+
+      domConfig.onVideoAttributesChanged([document.createElement('video')]);
+
+      expect(deps.video.handleAttributeChange).not.toHaveBeenCalled();
     });
   });
 

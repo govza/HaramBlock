@@ -1,6 +1,6 @@
 # Convergence architecture for image presentation
 
-Status: proposed (2026-08-22)
+Status: accepted (2026-08-22)
 
 The content script's image handling grew signal by signal: mutations got one path (`processAll`),
 attribute changes another (`handleSrcChange`), verdict arrivals a third (debounce + `markAllDirty`),
@@ -80,9 +80,11 @@ reconciliation — converge reacts to the current state, never to the edge (whic
 - A new presentation (outline type, future effects) extends the desired-state function and the apply
   step; the loop and the signal wiring are untouched.
 - Known violations at the time of writing, in order of weight:
-  - `onAttributesChanged` (images) enters through `handleSrcChange` directly instead of a Dirty mark
-    (violates I1).
-  - The 100 ms verdict debounce lives in `MediaPipeline` instead of the loop (violates I4).
+  - ~~`onAttributesChanged` (images) enters through `handleSrcChange` directly instead of a Dirty
+    mark (violates I1).~~ Resolved: image attribute changes are Dirty hints inside the loop;
+    `handleSrcChange` is private to the converge path.
+  - ~~The 100 ms verdict debounce lives in `MediaPipeline` instead of the loop (violates I4).~~
+    Resolved: `markAllDirty` carries the coalescing window inside the Reconciliation Loop.
   - `process()` interleaves converge with effector concerns (inference queueing, GIF session
     routing), blurring the I2 seam — resolved by the Controller/Scheduler split above.
   - `MediaPipeline` reshapes image signals in flight (policy gating, tag routing) instead of being a

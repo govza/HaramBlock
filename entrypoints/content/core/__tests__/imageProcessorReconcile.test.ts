@@ -30,8 +30,10 @@ vi.mock('@/entrypoints/content/presentation/quickToggle', () => ({
 vi.mock('@/entrypoints/content/presentation/gifMaskPlayer', () => ({
   gifMaskPlayer: { hasPlayer: vi.fn(() => false), clearPlayer: vi.fn(), createOrUpdatePlayer: vi.fn() },
 }));
+const clearMaskOverlay = vi.hoisted(() => vi.fn());
+
 vi.mock('@/entrypoints/content/presentation/imageMaskOverlay', () => ({
-  imageMaskOverlay: { hasMaskOverlay: vi.fn(() => false), clearMaskOverlay: vi.fn() },
+  imageMaskOverlay: { hasMaskOverlay: vi.fn(() => false), clearMaskOverlay },
 }));
 vi.mock('@/entrypoints/content/presentation/predictionStyling', () => ({
   applyPredictionsStyling: vi.fn(() => Promise.resolve()),
@@ -96,6 +98,11 @@ const makeImage = (state: ImageState): { img: HTMLImageElement; state: ImageStat
 
 const flushAsync = () => new Promise<void>(resolve => setTimeout(resolve));
 
+const findImagesInDocument = (src: string): HTMLImageElement[] =>
+  Array.from(document.querySelectorAll<HTMLImageElement>('img')).filter(
+    img => img.isConnected && (img.currentSrc || img.src) === src,
+  );
+
 describe('ImageProcessor reconcile convergence', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -110,7 +117,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('keeps an unloaded image blurred without sending inference or attaching listeners', () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     const { img } = makeImage({ currentSrc: SRC_SMALL, complete: false, naturalWidth: 0 });
     const addEventListener = vi.spyOn(img, 'addEventListener');
 
@@ -122,7 +129,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('converges an orphaned deferrer to the cached verdict on the next reconcile pass', async () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
 
     const owner = makeImage({ currentSrc: SRC_SMALL, complete: true, naturalWidth: 640 });
     processor.process(owner.img);
@@ -150,7 +157,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('applies an unsafe cached verdict to a swept image and keeps it protected', async () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_LARGE, 1) }]);
 
     const { img } = makeImage({ currentSrc: SRC_LARGE, complete: true, naturalWidth: 1080 });
@@ -162,7 +169,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('fails open on an image the browser gave up on (complete with no pixels)', () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     const { img } = makeImage({ currentSrc: SRC_SMALL, complete: true, naturalWidth: 0 });
 
     processor.process(img);
@@ -171,8 +178,25 @@ describe('ImageProcessor reconcile convergence', () => {
     expect(requestImageInference).not.toHaveBeenCalled();
   });
 
+  it('clearing an image src invalidates its stale presentation', async () => {
+    vi.useFakeTimers();
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
+    processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_LARGE, 1) }]);
+    const { img, state } = makeImage({ currentSrc: SRC_LARGE, complete: true, naturalWidth: 1080 });
+    processor.process(img);
+    await vi.advanceTimersByTimeAsync(0);
+    clearMaskOverlay.mockClear();
+
+    state.currentSrc = '';
+    img.removeAttribute('src');
+    processor.process(img);
+
+    expect(clearMaskOverlay).toHaveBeenCalledWith(img);
+    vi.useRealTimers();
+  });
+
   it('re-reconciling an unsafe image the user forced visible is a no-op', async () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     const prediction = { ...makePrediction(SRC_LARGE, 1), forcedVisibility: 'visible' as const };
     processor.handleInferenceResults([{ status: 'ok', prediction }]);
     const { img } = makeImage({ currentSrc: SRC_LARGE, complete: true, naturalWidth: 1080 });
@@ -189,7 +213,7 @@ describe('ImageProcessor reconcile convergence', () => {
 
   it('routes a source replacement through invalidation instead of trusting the old processed status', async () => {
     vi.useFakeTimers();
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_SMALL) }]);
     const { img, state } = makeImage({ currentSrc: SRC_SMALL, complete: true, naturalWidth: 640 });
     processor.process(img);
@@ -208,7 +232,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('falls back to a whole-frame blur when the mask overlay cannot be anchored, then converges', async () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_LARGE, 1) }]);
     const { img } = makeImage({ currentSrc: SRC_LARGE, complete: true, naturalWidth: 1080 });
 
@@ -225,7 +249,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('failing open on a broken copy leaves a still-loading sibling protected', () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     const sibling = makeImage({ currentSrc: SRC_SMALL, complete: false, naturalWidth: 0 });
     processor.process(sibling.img);
     expect(sibling.img.classList.contains(BLUR_CLASS)).toBe(true);
@@ -239,7 +263,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('converges a broken copy that has a cached verdict instead of re-entering forever', async () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_SMALL) }]);
     const { img } = makeImage({ currentSrc: SRC_SMALL, complete: true, naturalWidth: 0 });
 
@@ -255,7 +279,7 @@ describe('ImageProcessor reconcile convergence', () => {
   });
 
   it('re-reconciling a finalized image is a no-op (no overlay churn)', async () => {
-    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const processor = new ImageProcessor(hostSettings, badgeCounter, findImagesInDocument);
     processor.handleInferenceResults([{ status: 'ok', prediction: makePrediction(SRC_LARGE) }]);
     const { img } = makeImage({ currentSrc: SRC_LARGE, complete: true, naturalWidth: 1080 });
     processor.process(img);

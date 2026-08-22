@@ -4,7 +4,7 @@ import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/
 export interface DomObserverConfig {
   onMediaObserved: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
   onMediaRemoved: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
-  onAttributesChanged: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
+  onVideoAttributesChanged: (videos: HTMLVideoElement[]) => void;
   safetyTickIntervalMs?: number;
 }
 
@@ -12,11 +12,13 @@ const SHADOW_RECHECK_INTERVAL_MS = 250;
 
 const DEFAULT_SAFETY_TICK_INTERVAL_MS = 2000;
 
+const MARK_ALL_DIRTY_COALESCE_MS = 100;
+
 export class DomObserver {
   private observer: MutationObserver | null = null;
   private rootNode: Node | null = null;
   private shadowObservers = new Map<ShadowRoot, MutationObserver>();
-  private pendingAttributeChanges = new Set<HTMLElement>();
+  private pendingVideoAttributeChanges = new Set<HTMLVideoElement>();
   private pendingShadowHosts = new Set<Element>();
   private shadowRecheckTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -24,6 +26,7 @@ export class DomObserver {
   private readonly dirtyImages = new Set<HTMLImageElement>();
   private reconcileScheduled = false;
   private safetyTickTimer: ReturnType<typeof setInterval> | null = null;
+  private markAllDirtyTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly safetyTickInterval: number;
 
   private readonly srcDriftHandler = (img: HTMLImageElement): void => {
@@ -73,7 +76,7 @@ export class DomObserver {
       this.removeCaptureListeners(shadowRoot);
     }
     this.shadowObservers.clear();
-    this.pendingAttributeChanges.clear();
+    this.pendingVideoAttributeChanges.clear();
     this.pendingShadowHosts.clear();
     if (this.shadowRecheckTimer !== null) {
       clearInterval(this.shadowRecheckTimer);
@@ -84,13 +87,29 @@ export class DomObserver {
       clearInterval(this.safetyTickTimer);
       this.safetyTickTimer = null;
     }
+    if (this.markAllDirtyTimer !== null) {
+      clearTimeout(this.markAllDirtyTimer);
+      this.markAllDirtyTimer = null;
+    }
     this.trackedImages.clear();
     this.dirtyImages.clear();
     this.reconcileScheduled = false;
   }
 
   public markAllDirty(): void {
-    this.markDirty(this.trackedImages);
+    this.markAllDirtyTimer ??= setTimeout(() => {
+      this.markAllDirtyTimer = null;
+      this.markDirty(this.trackedImages);
+    }, MARK_ALL_DIRTY_COALESCE_MS);
+  }
+
+  public findTrackedImagesBySrc(src: string): HTMLImageElement[] {
+    const results: HTMLImageElement[] = [];
+    for (const img of this.trackedImages) {
+      if (!img.isConnected) continue;
+      if ((img.currentSrc || img.src) === src) results.push(img);
+    }
+    return results;
   }
 
   private trackAndReport(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
@@ -245,8 +264,11 @@ export class DomObserver {
         }
       } else if (mutation.type === 'attributes') {
         const target = mutation.target as HTMLElement;
-        if (target.tagName === 'IMG' || target.tagName === 'VIDEO') {
-          this.pendingAttributeChanges.add(target);
+        if (target.tagName === 'IMG') {
+          this.trackedImages.add(target as HTMLImageElement);
+          this.markDirty([target as HTMLImageElement]);
+        } else if (target.tagName === 'VIDEO') {
+          this.pendingVideoAttributeChanges.add(target as HTMLVideoElement);
         }
       }
     }
@@ -268,15 +290,10 @@ export class DomObserver {
       this.config.onMediaRemoved(removedImages, removedVideos);
     }
 
-    if (this.pendingAttributeChanges.size > 0) {
-      const changedImages: HTMLImageElement[] = [];
-      const changedVideos: HTMLVideoElement[] = [];
-      for (const el of this.pendingAttributeChanges) {
-        if (el.tagName === 'IMG') changedImages.push(el as HTMLImageElement);
-        else if (el.tagName === 'VIDEO') changedVideos.push(el as HTMLVideoElement);
-      }
-      this.pendingAttributeChanges.clear();
-      this.config.onAttributesChanged(changedImages, changedVideos);
+    if (this.pendingVideoAttributeChanges.size > 0) {
+      const videos = Array.from(this.pendingVideoAttributeChanges);
+      this.pendingVideoAttributeChanges.clear();
+      this.config.onVideoAttributesChanged(videos);
     }
   }
 

@@ -36,10 +36,18 @@ export interface MediaPipelineDeps {
 
 const productionDeps = (opts: MediaPipelineOptions): MediaPipelineDeps => {
   const badgeCounter = new BadgeCounter();
+  let findTrackedImagesBySrc: ((src: string) => HTMLImageElement[]) | null = null;
   return {
     badgeCounter,
-    imageProcessor: new ImageProcessor(opts.hostSettings, badgeCounter),
-    createDomObserver: config => new DomObserver(config),
+    imageProcessor: new ImageProcessor(opts.hostSettings, badgeCounter, src => {
+      if (!findTrackedImagesBySrc) throw new Error('DomObserver must be created before the image index is queried');
+      return findTrackedImagesBySrc(src);
+    }),
+    createDomObserver: config => {
+      const dom = new DomObserver(config);
+      findTrackedImagesBySrc ??= src => dom.findTrackedImagesBySrc(src);
+      return dom;
+    },
     video: {
       handleVideos,
       handleAttributeChange: handleVideoAttributeChange,
@@ -49,12 +57,9 @@ const productionDeps = (opts: MediaPipelineOptions): MediaPipelineDeps => {
   };
 };
 
-const VERDICT_RECONCILE_DELAY_MS = 100;
-
 export class MediaPipeline {
   private readonly dom: DomObserver;
   private unsubscribeFns: Array<() => void> = [];
-  private reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly opts: MediaPipelineOptions,
@@ -63,7 +68,7 @@ export class MediaPipeline {
     this.dom = deps.createDomObserver({
       onMediaObserved: (images, videos) => this.onMediaObserved(images, videos),
       onMediaRemoved: (images, videos) => this.onMediaRemoved(images, videos),
-      onAttributesChanged: (images, videos) => this.onAttributesChanged(images, videos),
+      onVideoAttributesChanged: videos => this.onVideoAttributesChanged(videos),
     });
   }
 
@@ -95,8 +100,7 @@ export class MediaPipeline {
     const unsubImagePreds = onImagePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
         this.deps.imageProcessor.handleInferenceResults(data.results);
-
-        this.scheduleReconciliation();
+        this.dom.markAllDirty();
       }
     });
 
@@ -105,7 +109,7 @@ export class MediaPipeline {
     const unsubGifPreds = onGifFramePredictions(data => {
       if (data.hostname === this.opts.hostSettings.hostname) {
         this.deps.imageProcessor.handleGifFrameResults(data.results);
-        this.scheduleReconciliation();
+        this.dom.markAllDirty();
       }
     });
     this.unsubscribeFns.push(unsubGifPreds);
@@ -129,18 +133,7 @@ export class MediaPipeline {
     return () => this.stop();
   }
 
-  private scheduleReconciliation(): void {
-    this.reconcileTimer ??= setTimeout(() => {
-      this.reconcileTimer = null;
-      this.dom.markAllDirty();
-    }, VERDICT_RECONCILE_DELAY_MS);
-  }
-
   stop(): void {
-    if (this.reconcileTimer !== null) {
-      clearTimeout(this.reconcileTimer);
-      this.reconcileTimer = null;
-    }
     this.dom.stop();
     this.deps.imageProcessor.dispose();
     this.deps.badgeCounter.dispose();
@@ -167,16 +160,10 @@ export class MediaPipeline {
     }
   }
 
-  private onAttributesChanged(images: HTMLImageElement[], videos: HTMLVideoElement[]): void {
-    if (this.shouldProcessImages || this.shouldProcessGif) {
-      for (const img of images) {
-        this.deps.imageProcessor.handleSrcChange(img);
-      }
-    }
-    if (this.shouldProcessVideo) {
-      for (const video of videos) {
-        this.deps.video.handleAttributeChange(video, this.opts.hostSettings);
-      }
+  private onVideoAttributesChanged(videos: HTMLVideoElement[]): void {
+    if (!this.shouldProcessVideo) return;
+    for (const video of videos) {
+      this.deps.video.handleAttributeChange(video, this.opts.hostSettings);
     }
   }
 

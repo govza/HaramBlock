@@ -11,7 +11,6 @@ import {
   type DecodedGifFrame,
 } from '@/entrypoints/content/gif/gifDecoder';
 import { isGifCandidate } from '@/entrypoints/content/gif/gifSupport';
-import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { gifMaskPlayer } from '@/entrypoints/content/presentation/gifMaskPlayer';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import {
@@ -90,11 +89,10 @@ export class ImageProcessor {
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();
   private readonly visibilityObserver: IntersectionObserver;
 
-  private readonly knownShadowRoots = new Set<ShadowRoot>();
-
   constructor(
     private readonly hostSettings: IHostSettings,
     private readonly badgeCounter: BadgeCounter,
+    private readonly findTrackedImagesBySrc: (src: string) => HTMLImageElement[],
   ) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
 
@@ -110,17 +108,17 @@ export class ImageProcessor {
 
   process(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
-    if (!src) return;
-    if (this.isConverged(img, src)) return;
+    if (this.srcChangeDebounce.has(img)) return;
     const previousSrc = this.resolvedSrcByImage.get(img);
     if (previousSrc !== undefined && previousSrc !== src) {
       this.handleSrcChange(img);
       return;
     }
+    if (!src) return;
+    if (this.isConverged(img, src)) return;
     this.resolvedSrcByImage.set(img, src);
 
     this.visibilityObserver.observe(img);
-    this.trackShadowRoot(img);
 
     if (SVG_PATTERN.test(src)) {
       finalizeImageProcessing(img, 'skipped');
@@ -175,7 +173,7 @@ export class ImageProcessor {
     }
   }
 
-  handleSrcChange(img: HTMLImageElement): void {
+  private handleSrcChange(img: HTMLImageElement): void {
     const resolvedSrc = img.currentSrc || img.src;
     const previousSrc = this.resolvedSrcByImage.get(img);
     if (resolvedSrc === previousSrc) {
@@ -273,7 +271,7 @@ export class ImageProcessor {
     const gifSession = this.gifSessions.get(src);
     if (gifSession?.finalized && gifSession.aggregatePrediction) {
       gifSession.aggregatePrediction = updated;
-      const images = this.findAllImagesBySrc(src);
+      const images = this.findTrackedImagesBySrc(src);
       for (const img of images) {
         this.applyGifVerdict(img, src, updated);
       }
@@ -284,7 +282,7 @@ export class ImageProcessor {
     if (forcedVisibility === 'visible') detectionCount = 0;
     else if (forcedVisibility === 'blocked') detectionCount = 1;
 
-    const images = this.findAllImagesBySrc(src);
+    const images = this.findTrackedImagesBySrc(src);
     for (const img of images) {
       this.clearOverlays(img);
       if (forcedVisibility === 'blocked') {
@@ -784,69 +782,6 @@ export class ImageProcessor {
   }
 
   private findImagesBySrc(src: string): HTMLImageElement[] {
-    const results: HTMLImageElement[] = [];
-    const selector = `img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`;
-
-    for (const img of document.querySelectorAll<HTMLImageElement>(selector)) {
-      const imgSrc = img.currentSrc || img.src;
-      if (imgSrc === src) {
-        results.push(img);
-      }
-    }
-
-    for (const shadowRoot of this.knownShadowRoots) {
-      if (!shadowRoot.host.isConnected) {
-        this.knownShadowRoots.delete(shadowRoot);
-        continue;
-      }
-      for (const img of shadowRoot.querySelectorAll<HTMLImageElement>(selector)) {
-        const imgSrc = img.currentSrc || img.src;
-        if (imgSrc === src) {
-          results.push(img);
-        }
-      }
-    }
-
-    return results;
-  }
-
-  private findAllImagesBySrc(src: string): HTMLImageElement[] {
-    const results: HTMLImageElement[] = [];
-
-    for (const img of document.querySelectorAll<HTMLImageElement>('img')) {
-      const imgSrc = img.currentSrc || img.src;
-      if (imgSrc === src) {
-        results.push(img);
-      }
-    }
-
-    for (const shadowRoot of this.knownShadowRoots) {
-      if (!shadowRoot.host.isConnected) {
-        this.knownShadowRoots.delete(shadowRoot);
-        continue;
-      }
-      for (const img of shadowRoot.querySelectorAll<HTMLImageElement>('img')) {
-        const imgSrc = img.currentSrc || img.src;
-        if (imgSrc === src) {
-          results.push(img);
-        }
-      }
-    }
-
-    return results;
-  }
-
-  private trackShadowRoot(img: HTMLImageElement): void {
-    let node: Node | null = img;
-    while (node) {
-      const root = node.getRootNode();
-      if (root instanceof ShadowRoot) {
-        this.knownShadowRoots.add(root);
-
-        node = root.host;
-      } else {
-        break;
-      }
-    }
+    return this.findTrackedImagesBySrc(src).filter(hasInitialStyling);
   }
 }

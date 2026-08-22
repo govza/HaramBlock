@@ -67,8 +67,10 @@ The main content script entry point that orchestrates the entire media filtering
 The content script's Reconciliation Loop module: MutationObserver plumbing plus the loop's own state
 (Tracked/Dirty image sets, Prune, Safety Tick) behind one small interface — `start(root)`, `stop()`,
 `markAllDirty()`, and three typed callbacks (`onMediaObserved`, `onMediaRemoved`,
-`onAttributesChanged`), each delivering images and videos pre-sorted. Elements on `onMediaRemoved`
-are guaranteed disconnected, whether they left via a removal mutation or a Prune.
+`onVideoAttributesChanged`). Elements on `onMediaRemoved` are guaranteed disconnected, whether they
+left via a removal mutation or a Prune. Image attribute changes never leave the module: they enter
+the Reconciliation Loop as Dirty hints (ADR 0004 I1), and only video attribute changes are reported
+out.
 
 **Key Features:**
 
@@ -106,7 +108,6 @@ elements too, so this processor also routes GIF candidates to a multi-frame infe
 class ImageProcessor {
   process(img: HTMLImageElement): void;
   processAll(images: HTMLImageElement[]): void;
-  handleSrcChange(img: HTMLImageElement): void;
   seedCache(predictions: IImagePrediction[]): void;
   handleInferenceResults(results: ImageInferenceResult[]): void;
 }
@@ -323,7 +324,7 @@ function getState(img: HTMLImageElement): 'unprocessed' | 'pending' | 'complete'
 ### MutationObserver Callback (Must be fast!)
 
 ```
-onMediaObserved/onAttributesChanged(img)
+onMediaObserved(img)  (attribute changes arrive here too, as Dirty hints)
        │
        ├── Has overlay for CURRENT src? → Done (already complete)
        │
@@ -424,7 +425,10 @@ Instead of complex version tracking, use **idempotent re-detection**:
 src changes (MutationObserver fires)
        │
        ▼
-handleSrcChange(img)
+Dirty hint → reconcile pass → process(img) detects drift
+       │
+       ▼
+handleSrcChange(img)   (private, converge-path only)
        │
        ├── Clear existing overlays
        │
@@ -593,25 +597,11 @@ When predictions come back, we need to find matching images. CSS attribute selec
 <!-- but img[src="https://..."] won't match! -->
 ```
 
-**Solution:** Query pending images and compare resolved `src` property:
-
-```typescript
-private findImagesBySrc(src: string): HTMLImageElement[] {
-  const results: HTMLImageElement[] = [];
-  const pendingImages = document.querySelectorAll<HTMLImageElement>(
-    `img.${BLUR_CLASS}, img.${BLACKLIST_CLASS}`
-  );
-
-  for (const img of pendingImages) {
-    const imgSrc = img.currentSrc || img.src;
-    if (imgSrc === src) {
-      results.push(img);
-    }
-  }
-
-  return results;
-}
-```
+**Solution:** The Reconciliation Loop owns the src→elements index:
+`DomObserver.findTrackedImagesBySrc(src)` iterates the Tracked image set (which spans light DOM and
+every observed shadow root) and compares the resolved `currentSrc || src`. `ImageProcessor` receives
+this lookup as an injected dependency and filters to pending images (blur class / blacklist
+attribute) where needed — it keeps no shadow-root registry of its own.
 
 ## Image Scaling and Letterboxing
 
@@ -707,7 +697,7 @@ classDiagram
     -visibilityObserver: IntersectionObserver
     +process(img): void
     +processAll(images): void
-    +handleSrcChange(img): void
+    -handleSrcChange(img): void
     +seedCache(predictions): void
     +handleInferenceResults(results): void
   }
