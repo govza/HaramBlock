@@ -35,6 +35,20 @@ stale-overlay sweep. _Avoid_: rescan, re-check
 root (recursively), returning media, shadow roots, and possible future shadow hosts. The add,
 remove, and initial-scan paths of the DomObserver all share it. _Avoid_: DOM scan, deep query
 
+**Desired State**: The presentation an image ought to have, as a pure function of host settings, the
+verdict cache, and Forced Visibility (see ADR 0004). _Avoid_: target state, expected state
+
+**Converge**: One idempotent pass diffing an image's Desired State against what the DOM shows and
+applying the difference — the only writer of image presentation. _Avoid_: reprocess, update
+
+**Image Controller**: The module that converges dirty images: computes Desired State, reads observed
+state from the DOM, applies the diff. Sole writer of image presentation (ADR 0004). _Avoid_:
+processor, converge service
+
+**Inference Scheduler**: The module deciding when to spend inference for an image: viewport
+priority, src stabilization, owner election, watchdog, GIF frame sessions. Fills the verdict cache;
+never touches presentation (ADR 0004). _Avoid_: inference queue, request manager
+
 **Tracked image**: An image the Reconciliation Loop currently knows about: observed at least once
 and not yet pruned or reported removed. _Avoid_: known image, registered image
 
