@@ -62,6 +62,8 @@ function makeHandle(store: SessionFrameStore, latchedDelaySec: number): SessionH
       store,
       player: null as unknown as NonNullable<SessionHandle['dvr']>['player'],
       lastCapturedMediaTime: 0,
+      captureTap: null,
+      lastTapMediaTime: Number.NEGATIVE_INFINITY,
       captureSurface: null,
       registeredWidth: 640,
       registeredHeight: 360,
@@ -93,6 +95,34 @@ function makeAdapter() {
   });
   return { adapter, dispatched };
 }
+
+describe('PresentationAdapter.captureIntoRing', () => {
+  it('rVFC captures stand down while the tap delivers, and resume once it stalls', () => {
+    const { adapter } = makeAdapter();
+    const store = makeStore();
+    const setLimits = vi.spyOn(store, 'setLimits');
+    const handle = makeHandle(store, DEFAULT_DVR_DELAY_MS / 1000);
+    handle.dvr!.captureTap = { stop: () => {} };
+    handle.dvr!.lastTapMediaTime = 10;
+
+    adapter.captureIntoRing(handle, 10.1);
+    expect(setLimits).not.toHaveBeenCalled();
+
+    // The tap stalled: the rVFC tick is now far from its last delivery.
+    adapter.captureIntoRing(handle, 11);
+    expect(setLimits).toHaveBeenCalled();
+  });
+
+  it('captures on every tick when no tap exists', () => {
+    const { adapter } = makeAdapter();
+    const store = makeStore();
+    const setLimits = vi.spyOn(store, 'setLimits');
+    const handle = makeHandle(store, DEFAULT_DVR_DELAY_MS / 1000);
+
+    adapter.captureIntoRing(handle, 10.1);
+    expect(setLimits).toHaveBeenCalled();
+  });
+});
 
 describe('PresentationAdapter.raiseDelayIfLagging', () => {
   beforeEach(() => updateAudioDelay.mockClear());

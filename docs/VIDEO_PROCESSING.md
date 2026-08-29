@@ -126,6 +126,7 @@ Key invariants:
 | Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`                                        | Segmentation mask rendering (paused/standby verdicts)                                                                                                 |
 | DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`                                          | Delayed masked canvas playback (playback verdicts)                                                                                                    |
 | DVR buffers          | `entrypoints/content/video/dvr/{frameStore,rawFrameRing,encodedFrameRing,verdictTimeline}.ts` | Media-time-keyed frame store (raw ImageBitmap ring or WebCodecs-encoded ring behind one `DvrFrameStore` interface) + session-lifetime verdict history |
+| DVR capture tap      | `entrypoints/content/video/dvr/captureTap.ts`                                                 | Full-rate ring capture via `captureStream` + `MediaStreamTrackProcessor`; rVFC ticks are the fallback                                                 |
 | DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                          | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                   |
 | DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                                                 | Global backend-tiered byte budget with a shared quality-degradation ladder                                                                            |
 | DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                 | WebAudio DelayNode routing + the delayability check                                                                                                   |
@@ -301,10 +302,17 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
 
 - **`play`** → `startDvr`: the presentation adapter derives and latches `D`, registers the session's
   demand with the global ring budget, and creates a `DvrFrameStore` via the frame-store factory: a
-  raw ImageBitmap ring immediately (rVFC captures, capped by the budget ladder's tier), upgraded
+  raw ImageBitmap ring immediately (capped at ~30 fps by the budget ladder's tier), upgraded
   in-place to the WebCodecs-encoded ring when the async hardware probe passes (native-resolution
-  `VideoFrame` captures, bitrate-shaped demand, ~50-100x smaller; the upgrade flush re-warms like a
-  seek). The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
+  `VideoFrame` captures at the source's **native frame rate**, bitrate-shaped demand, ~50-100x
+  smaller; the upgrade flush re-warms like a seek). Ring capture is driven by a full-rate **capture
+  tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame,
+  keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — rVFC alone
+  misses frames on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever
+  the tap is absent or stalls (media-time liveness window, no explicit health protocol). The intent
+  split: **inference samples stay small** (model-input-sized, ~4 fps, `frameCapture.ts`), while
+  **presented frames are full video frames at the native rate** when the encoded store carries the
+  ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
   codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
   is whole-blurred: the DOM overlay of an already-masked session would lag the moving content, a
   verdict-less session simply keeps its adoption blur, and a safe-verdicted session is covered too
@@ -419,19 +427,20 @@ in device pixels (up to native), so an embedded player buffers cheaply while a f
 captures at full resolution — pixels the viewer cannot see are wasted bytes, everything they can see
 is captured when the byte budget allows. When the projected demand of all registered sessions
 exceeds the budget, every session degrades down a shared ladder — capture width ∞ (display-capped) →
-1280 → 640 → 480 → 320 px, then capture rate ~30 → ~15 fps, then ring horizon shrink — and recovers
-in reverse as sessions release (suspension, disposal). Demand is projected from registered geometry
-rather than measured from live ring bytes, so degradation and recovery are immediate; a session that
-started its DVR before metadata landed re-registers as soon as the real frame geometry arrives, so
-the projection cannot stay stuck on the fallback 16:9 estimate — and a materially resized player
-(embedded → fullscreen crosses the 1.25× hysteresis) re-registers its display-derived cap the same
-way. Per-session, the ring stays bounded by `D`+slack, the backend-tiered session cap, and the
-budget-derived capture scale (`dvr/captureScale.ts`): the largest capture size — up to min(display
-size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack inside the byte
-cap. A live ring never shrinks below its latched `D`, or presentation would strand on the warm-up
-frame. The presenter's base canvas backs at device-pixel resolution and scales buffered frames
-smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is the masking
-effect itself).
+1280 → 640 → 480 → 320 px, then capture rate (raw ~30 → ~15 fps; encoded native → ~30 fps — its byte
+demand is bitrate-shaped, so native rate costs no ring memory), then ring horizon shrink — and
+recovers in reverse as sessions release (suspension, disposal). Demand is projected from registered
+geometry rather than measured from live ring bytes, so degradation and recovery are immediate; a
+session that started its DVR before metadata landed re-registers as soon as the real frame geometry
+arrives, so the projection cannot stay stuck on the fallback 16:9 estimate — and a materially
+resized player (embedded → fullscreen crosses the 1.25× hysteresis) re-registers its display-derived
+cap the same way. Per-session, the ring stays bounded by `D`+slack, the backend-tiered session cap,
+and the budget-derived capture scale (`dvr/captureScale.ts`): the largest capture size — up to
+min(display size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack
+inside the byte cap. A live ring never shrinks below its latched `D`, or presentation would strand
+on the warm-up frame. The presenter's base canvas backs at device-pixel resolution and scales
+buffered frames smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is
+the masking effect itself).
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
 the video's next sibling with the video's own z-index (see
