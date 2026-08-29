@@ -553,7 +553,10 @@ export class EncodedFrameRing implements DvrFrameStore {
   private fail(error: unknown): void {
     if (this.failed || this.released) return;
     this.failed = true;
-    log.warn('Encoded DVR ring failed; falling back to raw ring:', error);
+    // DOMException stringifies to '[object DOMException]' in some consoles;
+    // name/message is the identifiable form.
+    const detail = error instanceof DOMException ? `${error.name}: ${error.message}` : error;
+    log.warn('Encoded DVR ring failed; falling back to raw ring:', detail);
     this.teardownCodecs();
     this.clearStorage();
     this.onFatalError(error);
