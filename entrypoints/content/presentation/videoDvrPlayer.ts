@@ -90,6 +90,9 @@ export class VideoDvrPlayer {
   private lastDrawKey = '';
   /** A buffered frame has been presented: the canvases hold real content a covered miss can pin. */
   private hasPresentedFrame = false;
+  /** Exposed as data-hb-presented-frames: presented-fps ground truth (pixel-diff probes undercount on low-motion scenes). */
+  private presentedFrameCount = 0;
+  private lastPresentedMediaTime = Number.NEGATIVE_INFINITY;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
   private readonly gridCache = new WeakMap<VerdictEntry, HTMLCanvasElement | null>();
   /** Scratch canvases for renderMasks, reused across draws instead of allocated per frame. */
@@ -340,6 +343,11 @@ export class VideoDvrPlayer {
     }
 
     this.hasPresentedFrame = true;
+    if (frame.mediaTime !== this.lastPresentedMediaTime) {
+      this.lastPresentedMediaTime = frame.mediaTime;
+      this.presentedFrameCount++;
+      surfaces.overlay.dataset.hbPresentedFrames = String(this.presentedFrameCount);
+    }
     if (verdict.kind === 'none') {
       // Verdict pending (warm-up pin, coverage hole): buffered frame,
       // whole-blurred, so the arriving verdict unblurs it in place.

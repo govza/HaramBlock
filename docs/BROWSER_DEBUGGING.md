@@ -67,6 +67,7 @@ The extension marks everything it touches, so page-side `evaluate_script` can au
 | `[data-video-mask-overlay]`                       | overlay div | Video mask overlay                                                            |
 | `[data-gif-mask-player]`                          | overlay div | Animated-GIF mask player                                                      |
 | `[data-video-dvr-player]`                         | overlay div | DVR presenter overlay                                                         |
+| `data-hb-presented-frames`                        | DVR overlay | Distinct buffered frames drawn; diff over time = presented fps ground truth   |
 
 **The DVR tell:** a `[data-video-dvr-player]` overlay present with an **empty** base-canvas
 `style.filter` is the happy path (verdicts are matching frames). A **persistent blur filter** on the

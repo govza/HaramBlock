@@ -23,14 +23,15 @@ const log = logger.withTag('encodedFrameRing');
 
 /** Force a keyframe about once a second: the eviction and warm-start granularity. */
 export const ENCODED_KEYFRAME_INTERVAL_SEC = 1;
-/** Chrome best-practices backpressure cap: beyond this, drop the capture tick. */
-const ENCODE_QUEUE_CAP = 2;
+/** Backpressure cap: a dropped tick is a permanently lost presented frame, so sized for 60 fps bursts. */
+const ENCODE_QUEUE_CAP = 6;
 /** Decoded lookahead target past the cursor (~130 ms at native 60 fps capture). */
 const DECODE_LOOKAHEAD_FRAMES = 8;
 /** Never queue more than this into the decoder; it falls behind, frameAt pins. */
 const DECODE_QUEUE_CAP = 16;
 /** Cursor more than this far behind the target: re-warm from a keyframe instead of grinding. */
 const REWARM_BEHIND_SEC = 2;
+const PACED_ADVANCE_MAX_BACKLOG = 10;
 const MICROS_PER_SEC = 1_000_000;
 const BYTES_PER_PIXEL = 4;
 
@@ -104,7 +105,9 @@ export function encoderConfigFor(width: number, height: number): VideoEncoderCon
     height,
     bitrate: encodedBitrate(width, height),
     framerate: 60,
-    latencyMode: 'realtime',
+    // 'realtime' lets the encoder drop frames to chase latency — wrong for a
+    // buffer whose latency is D, not encoder-bound; 'quality' encodes them all.
+    latencyMode: 'quality',
     avc: { format: 'annexb' },
   };
 }
@@ -259,9 +262,17 @@ export class EncodedFrameRing implements DvrFrameStore {
     // keeps "at or before" from skipping that frame for a tick.
     const targetMicros = mediaTime * MICROS_PER_SEC + 1;
 
-    // Advance the cursor window: keep exactly one decoded frame at or before
-    // the target (the candidate), close everything older.
-    while (this.decoded.length >= 2 && this.decoded[1]!.timestamp <= targetMicros) {
+    // Decoder outputs arrive in bursts relative to the presenter's read
+    // cadence: jumping straight to the newest eligible frame throws the
+    // burst's middle frames away unseen (~10 presented fps lost at 60 fps).
+    // Advance one frame per read; a backlog past the pacing bound is genuine
+    // lag, so jump.
+    let eligible = 0;
+    while (eligible + 1 < this.decoded.length && this.decoded[eligible + 1]!.timestamp <= targetMicros) {
+      eligible++;
+    }
+    const advance = eligible > PACED_ADVANCE_MAX_BACKLOG ? eligible : Math.min(eligible, 1);
+    for (let i = 0; i < advance; i++) {
       this.decoded.shift()!.close();
     }
 

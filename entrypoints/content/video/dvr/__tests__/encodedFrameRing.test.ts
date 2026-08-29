@@ -96,7 +96,7 @@ describe('EncodedFrameRing', () => {
     const { ring, codecs } = makeRing(10);
     ring.push(asCaptureFrame(fakeVideoFrame(0)), 0);
     const encoder = codecs.encoders[0]!;
-    encoder.encodeQueueSize = 5;
+    encoder.encodeQueueSize = 7;
     const dropped = fakeVideoFrame(0.1);
     const before = encoder.encodeCalls;
     ring.push(asCaptureFrame(dropped), 0.1);
