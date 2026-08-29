@@ -9,6 +9,7 @@
  */
 
 import type { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
+import type { DvrCaptureTap } from '@/entrypoints/content/video/dvr/captureTap';
 import type { SessionFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { PendingFrameSample } from '@/entrypoints/content/video/frameSample';
@@ -20,6 +21,10 @@ interface DvrRuntime {
   player: VideoDvrPlayer;
   /** Throttles buffer captures below the tick rate (rVFC ticks are denser). */
   lastCapturedMediaTime: number;
+  /** Full-rate captureStream tap; null when the platform lacks it (rVFC captures alone then). */
+  captureTap: DvrCaptureTap | null;
+  /** Media time of the tap's latest delivery: rVFC captures stand down while the tap is live. */
+  lastTapMediaTime: number;
   /** Reused capture surface: transferToImageBitmap leaves the canvas reusable, so one per DVR run suffices. */
   captureSurface: OffscreenCanvas | null;
   /** Frame geometry the ring budget was last told about; 0 until metadata lands. */

@@ -29,13 +29,16 @@ export const WASM_SESSION_MAX_BYTES = 128 * 1024 * 1024;
 export const DVR_CAPTURE_INTERVAL_SEC = 1 / 33;
 /** Degraded cadence, ~15 fps (same anti-aliasing offset). */
 const HALF_RATE_CAPTURE_INTERVAL_SEC = 2 / 33;
+export const NATIVE_RATE_CAPTURE_INTERVAL_SEC = 0;
 
 const BYTES_PER_PIXEL = 4;
 
 export interface RingQuality {
   /** Capture width ceiling in pixels. */
   readonly maxWidth: number;
+  /** Raw-ring capture cadence: RGBA bytes scale with fps, so the raw ring stays fps-capped. */
   readonly captureIntervalSec: number;
+  readonly encodedCaptureIntervalSec: number;
   /** Multiplier on the session's ring time horizon. */
   readonly horizonScale: number;
 }
@@ -49,19 +52,26 @@ export interface RingQuality {
 const FULL_QUALITY: RingQuality = {
   maxWidth: Number.POSITIVE_INFINITY,
   captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
+  encodedCaptureIntervalSec: NATIVE_RATE_CAPTURE_INTERVAL_SEC,
   horizonScale: 1,
 };
 
-/** Degradation order per spec: width ∞ → 1280 → 640 → 480 → 320, then fps 30 → 15, then horizon shrink. */
+const RATE_FLOOR_QUALITY: RingQuality = {
+  maxWidth: 320,
+  captureIntervalSec: HALF_RATE_CAPTURE_INTERVAL_SEC,
+  encodedCaptureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
+  horizonScale: 1,
+};
+
 export const RING_QUALITY_LADDER: readonly RingQuality[] = [
   FULL_QUALITY,
-  { maxWidth: 1280, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
-  { maxWidth: 640, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
-  { maxWidth: 480, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
-  { maxWidth: 320, captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
-  { maxWidth: 320, captureIntervalSec: HALF_RATE_CAPTURE_INTERVAL_SEC, horizonScale: 1 },
-  { maxWidth: 320, captureIntervalSec: HALF_RATE_CAPTURE_INTERVAL_SEC, horizonScale: 0.5 },
-  { maxWidth: 320, captureIntervalSec: HALF_RATE_CAPTURE_INTERVAL_SEC, horizonScale: 0.25 },
+  { ...FULL_QUALITY, maxWidth: 1280 },
+  { ...FULL_QUALITY, maxWidth: 640 },
+  { ...FULL_QUALITY, maxWidth: 480 },
+  { ...FULL_QUALITY, maxWidth: 320 },
+  RATE_FLOOR_QUALITY,
+  { ...RATE_FLOOR_QUALITY, horizonScale: 0.5 },
+  { ...RATE_FLOOR_QUALITY, horizonScale: 0.25 },
 ];
 
 export interface SessionDemand {
@@ -90,8 +100,8 @@ export interface SessionDemand {
   readonly encodedBytesPerSec?: number;
 }
 
-/** Decode-lookahead allowance for encoded sessions: a handful of RGBA frames. */
-const ENCODED_DECODE_LOOKAHEAD_FRAMES = 5;
+/** Decode-lookahead allowance for encoded sessions: a handful of RGBA frames (sized for 60 fps lookahead). */
+const ENCODED_DECODE_LOOKAHEAD_FRAMES = 10;
 
 export class DvrRingBudget {
   private backendBudget = WASM_GLOBAL_BUDGET_BYTES;

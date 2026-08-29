@@ -12,6 +12,7 @@ import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlaye
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypoints/content/video/dvr/audioDelay';
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
+import { startDvrCaptureTap } from '@/entrypoints/content/video/dvr/captureTap';
 import {
   deriveDvrDelayMs,
   isAnalysisUnderrun,
@@ -45,6 +46,8 @@ const FALLBACK_CAPTURE_CAP_PX = 1920;
 const CAP_REREGISTER_RATIO = 1.25;
 /** Per-verdict D growth when the store reports a decode stall (covered miss). */
 const DECODE_STALL_DELAY_STEP_SEC = 0.25;
+/** A tap can stall silently (muted cross-origin track); rVFC captures resume past this window. */
+const TAP_LIVENESS_WINDOW_SEC = 0.5;
 
 /**
  * Finite capture-width cap: rendered width in device pixels, up to native. The
@@ -143,10 +146,12 @@ export class PresentationAdapter {
         this.ports.dispatch(handle, { type: 'bufferReady', at: performance.now() });
       },
     });
-    handle.dvr = {
+    const dvr: NonNullable<SessionHandle['dvr']> = {
       store,
       player,
       lastCapturedMediaTime: Number.NEGATIVE_INFINITY,
+      captureTap: null,
+      lastTapMediaTime: Number.NEGATIVE_INFINITY,
       captureSurface: null,
       registeredWidth,
       registeredHeight,
@@ -157,6 +162,17 @@ export class PresentationAdapter {
       stallHoldoff: true,
       underrunStreak: 0,
     };
+    handle.dvr = dvr;
+    dvr.captureTap = startDvrCaptureTap(handle.video, (frame, mediaTime) => {
+      // The tap can outlive its run by a frame or two (async reader); a stale
+      // delivery must not feed a newer run's ring.
+      if (handle.dvr !== dvr) {
+        frame.close();
+        return;
+      }
+      dvr.lastTapMediaTime = mediaTime;
+      this.capture(handle, frame, mediaTime);
+    });
   }
 
   /**
@@ -237,6 +253,7 @@ export class PresentationAdapter {
     if (!dvr) return;
     handle.dvr = null;
     handle.dvrDelaySec = null;
+    dvr.captureTap?.stop();
     dvrRingBudget.release(handle.sessionId);
     this.releaseAudioRoute(handle);
     dvr.player.destroy();
@@ -354,19 +371,41 @@ export class PresentationAdapter {
     });
   }
 
-  /**
-   * Feed the ring while the DVR is active: presentation-sized, throttled below
-   * the tick rate. Buffering is display-only (no pixel readback), so it works
-   * even for sources whose pixels inference may not read — the taint just
-   * travels with the bitmap onto the presentation canvas.
-   */
   captureIntoRing(handle: SessionHandle, mediaTime: number): void {
     const { dvr } = handle;
     if (!dvr) return;
+    // Liveness is media-time distance, absolute: a seek must not strand the
+    // fallback on a dead tap.
+    if (dvr.captureTap && Math.abs(mediaTime - dvr.lastTapMediaTime) < TAP_LIVENESS_WINDOW_SEC) return;
+    this.capture(handle, null, mediaTime);
+  }
+
+  /**
+   * Feed the ring: presentation-sized for the raw ring (throttled to its
+   * cadence), native-resolution VideoFrames for the encoded ring (native rate
+   * from the tap). Buffering is display-only (no pixel readback), so it works
+   * even for sources whose pixels inference may not read — the taint just
+   * travels with the bitmap onto the presentation canvas.
+   */
+  private capture(handle: SessionHandle, tapFrame: VideoFrame | null, mediaTime: number): void {
+    const { dvr } = handle;
+    if (!dvr) {
+      tapFrame?.close();
+      return;
+    }
     // Read the shared budget's current tier every capture: degradation and
     // recovery apply to live rings without a restart.
     const quality = dvrRingBudget.quality();
-    if (mediaTime - dvr.lastCapturedMediaTime < quality.captureIntervalSec && mediaTime >= dvr.lastCapturedMediaTime) {
+    const intervalSec =
+      dvr.store.captureMode === 'video-frame' ? quality.encodedCaptureIntervalSec : quality.captureIntervalSec;
+    // The equality guard matters at the native-rate interval (0): Chrome can
+    // report the same currentTime for consecutive tap frames, and a duplicate
+    // key would just be pushed for the store to drop again.
+    if (
+      mediaTime === dvr.lastCapturedMediaTime ||
+      (mediaTime - dvr.lastCapturedMediaTime < intervalSec && mediaTime > dvr.lastCapturedMediaTime)
+    ) {
+      tapFrame?.close();
       return;
     }
     try {
@@ -395,9 +434,11 @@ export class PresentationAdapter {
       if (dvr.store.captureMode === 'video-frame') {
         // Encoded store: zero-copy GPU reference at native resolution — the
         // capture-scale ladder is bypassed, hardware encoding replaces it. The
-        // timestamp carries the media time through encode → store → decode.
+        // timestamp carries the media time through encode → store → decode. A
+        // tap frame is re-wrapped: its own timestamp lives in the capture
+        // clock, not the media timeline.
         try {
-          const frame = new VideoFrame(video, { timestamp: Math.round(mediaTime * 1_000_000) });
+          const frame = new VideoFrame(tapFrame ?? video, { timestamp: Math.round(mediaTime * 1_000_000) });
           dvr.lastCapturedMediaTime = mediaTime;
           dvr.store.push(frame, mediaTime);
         } catch (error) {
@@ -431,7 +472,7 @@ export class PresentationAdapter {
       }
       const ctx = surface.getContext('2d');
       if (!ctx) return;
-      ctx.drawImage(video, 0, 0, width, height);
+      ctx.drawImage(tapFrame ?? video, 0, 0, width, height);
       // transferToImageBitmap needs no readback, so this works (display-only,
       // taint carried along) even for sources whose pixels we may not read.
       const bitmap = surface.transferToImageBitmap();
@@ -439,6 +480,8 @@ export class PresentationAdapter {
       dvr.store.push(bitmap, mediaTime);
     } catch (error) {
       log.debug('DVR buffer capture failed:', error);
+    } finally {
+      tapFrame?.close();
     }
   }
 

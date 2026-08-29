@@ -25,10 +25,10 @@ const log = logger.withTag('encodedFrameRing');
 export const ENCODED_KEYFRAME_INTERVAL_SEC = 1;
 /** Chrome best-practices backpressure cap: beyond this, drop the capture tick. */
 const ENCODE_QUEUE_CAP = 2;
-/** Decoded lookahead target past the cursor (~100-170 ms at 30 fps). */
-const DECODE_LOOKAHEAD_FRAMES = 4;
+/** Decoded lookahead target past the cursor (~130 ms at native 60 fps capture). */
+const DECODE_LOOKAHEAD_FRAMES = 8;
 /** Never queue more than this into the decoder; it falls behind, frameAt pins. */
-const DECODE_QUEUE_CAP = 8;
+const DECODE_QUEUE_CAP = 16;
 /** Cursor more than this far behind the target: re-warm from a keyframe instead of grinding. */
 const REWARM_BEHIND_SEC = 2;
 const MICROS_PER_SEC = 1_000_000;
@@ -103,7 +103,7 @@ export function encoderConfigFor(width: number, height: number): VideoEncoderCon
     width,
     height,
     bitrate: encodedBitrate(width, height),
-    framerate: 30,
+    framerate: 60,
     latencyMode: 'realtime',
     avc: { format: 'annexb' },
   };

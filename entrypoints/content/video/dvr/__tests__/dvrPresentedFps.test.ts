@@ -18,8 +18,8 @@ import { RING_QUALITY_LADDER } from '@/entrypoints/content/video/dvr/ringBudget'
 
 import type { DvrCaptureFrame, DvrFrameStore } from '@/entrypoints/content/video/dvr/frameStore';
 
-/** The harness guards the full-quality tier — the cadence every session gets under budget. */
 const DVR_CAPTURE_INTERVAL_SEC = RING_QUALITY_LADDER[0]!.captureIntervalSec;
+const ENCODED_CAPTURE_INTERVAL_SEC = RING_QUALITY_LADDER[0]!.encodedCaptureIntervalSec;
 
 const SOURCE_FPS = 60;
 const DELAY_SEC = 1.5;
@@ -32,31 +32,39 @@ interface StoreCase {
   label: string;
   create: () => DvrFrameStore;
   frame: (mediaTime: number) => DvrCaptureFrame;
+  captureIntervalSec: number;
+  minPresentedFps: number;
 }
+
+const createEncoded = () =>
+  new EncodedFrameRing({
+    maxDurationSec: 5,
+    maxBytes: MAX_BYTES,
+    codecs: createMockCodecs(),
+    onFatalError: () => {
+      throw new Error('encoded store must not fail in the harness');
+    },
+  });
 
 const CASES: StoreCase[] = [
   {
-    label: 'RawFrameRing',
+    label: 'RawFrameRing (~30 fps cadence)',
     create: () => new RawFrameRing(5, MAX_BYTES),
     frame: () => fakeBitmap,
+    captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
+    minPresentedFps: 24,
   },
   {
-    label: 'EncodedFrameRing',
-    create: () =>
-      new EncodedFrameRing({
-        maxDurationSec: 5,
-        maxBytes: MAX_BYTES,
-        codecs: createMockCodecs(),
-        onFatalError: () => {
-          throw new Error('encoded store must not fail in the harness');
-        },
-      }),
+    label: 'EncodedFrameRing (native cadence)',
+    create: createEncoded,
     frame: mediaTime => asCaptureFrame(fakeVideoFrame(mediaTime)),
+    captureIntervalSec: ENCODED_CAPTURE_INTERVAL_SEC,
+    minPresentedFps: 55,
   },
 ];
 
-describe.each(CASES)('DVR presented fps: $label', ({ create, frame }) => {
-  it('presents at least 24 distinct frames per second from a 60 fps source', () => {
+describe.each(CASES)('DVR presented fps: $label', ({ create, frame, captureIntervalSec, minPresentedFps }) => {
+  it(`presents at least ${minPresentedFps} distinct frames per second from a 60 fps source`, () => {
     const store = create();
     let lastCapturedMediaTime = -Infinity;
 
@@ -64,7 +72,7 @@ describe.each(CASES)('DVR presented fps: $label', ({ create, frame }) => {
     for (let tick = 0; tick < (DURATION_SEC + DELAY_SEC) * SOURCE_FPS; tick++) {
       const mediaTime = tick / SOURCE_FPS;
       // captureIntoRing's throttle, verbatim
-      if (!(mediaTime - lastCapturedMediaTime < DVR_CAPTURE_INTERVAL_SEC && mediaTime >= lastCapturedMediaTime)) {
+      if (!(mediaTime - lastCapturedMediaTime < captureIntervalSec && mediaTime >= lastCapturedMediaTime)) {
         lastCapturedMediaTime = mediaTime;
         store.push(frame(mediaTime), mediaTime);
       }
@@ -76,7 +84,7 @@ describe.each(CASES)('DVR presented fps: $label', ({ create, frame }) => {
     }
 
     const fps = presented.size / DURATION_SEC;
-    expect(fps).toBeGreaterThanOrEqual(24);
+    expect(fps).toBeGreaterThanOrEqual(minPresentedFps);
     store.release();
   });
 });

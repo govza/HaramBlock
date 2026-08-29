@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DVR_CAPTURE_INTERVAL_SEC,
   DvrRingBudget,
+  NATIVE_RATE_CAPTURE_INTERVAL_SEC,
   RING_QUALITY_LADDER,
   WASM_GLOBAL_BUDGET_BYTES,
   WEBGPU_GLOBAL_BUDGET_BYTES,
@@ -54,13 +55,22 @@ describe('DvrRingBudget', () => {
         expect(step.horizonScale).toBeLessThan(prev.horizonScale);
       }
     }
-    // The full tier drives the presented-fps harness's ~30 fps capture cadence,
-    // and has no ladder ceiling: the session's display-derived cap bounds it.
     expect(RING_QUALITY_LADDER[0]).toEqual({
       maxWidth: Number.POSITIVE_INFINITY,
       captureIntervalSec: DVR_CAPTURE_INTERVAL_SEC,
+      encodedCaptureIntervalSec: NATIVE_RATE_CAPTURE_INTERVAL_SEC,
       horizonScale: 1,
     });
+  });
+
+  it('encoded capture stays at native rate through every width tier, throttling only at the fps floor', () => {
+    for (const step of RING_QUALITY_LADDER) {
+      if (step.captureIntervalSec === DVR_CAPTURE_INTERVAL_SEC) {
+        expect(step.encodedCaptureIntervalSec).toBe(NATIVE_RATE_CAPTURE_INTERVAL_SEC);
+      } else {
+        expect(step.encodedCaptureIntervalSec).toBeGreaterThan(NATIVE_RATE_CAPTURE_INTERVAL_SEC);
+      }
+    }
   });
 
   it('keeps a single modest session at full quality', () => {
