@@ -1,14 +1,14 @@
 /**
- * rVFC misses frames on 60 fps sources (~43/60 observed), so the tap reads
- * every decoded frame off the track processor instead. Frames are keyed by
- * `video.currentTime` read at delivery — captureStream frame timestamps live
- * in the capture clock, not the media timeline. A cross-origin source yields
- * a muted track that simply delivers no frames; rVFC stays the fallback.
+ * rVFC misses frames on 60 fps sources (~43/60 observed). Frames are keyed by
+ * `video.currentTime` at delivery: captureStream timestamps live in the capture
+ * clock, not the media timeline.
  */
 
 import { logger } from '@/utils/logger';
 
 const log = logger.withTag('dvrCaptureTap');
+
+const TAP_BUFFER_FRAMES = 8;
 
 interface VideoFrameReadable {
   readable: ReadableStream<VideoFrame>;
@@ -18,7 +18,8 @@ declare global {
   interface HTMLVideoElement {
     captureStream?: () => MediaStream;
   }
-  var MediaStreamTrackProcessor: (new (init: { track: MediaStreamTrack }) => VideoFrameReadable) | undefined;
+  var MediaStreamTrackProcessor:
+    (new (init: { track: MediaStreamTrack; maxBufferSize?: number }) => VideoFrameReadable) | undefined;
 }
 
 export interface DvrCaptureTap {
@@ -41,7 +42,9 @@ export function startDvrCaptureTap(
   if (!track) return null;
   let reader: ReadableStreamDefaultReader<VideoFrame>;
   try {
-    reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    // The processor's default single-frame queue silently drops a frame
+    // whenever the main thread is busy at delivery (~8 fps lost at 60 fps).
+    reader = new MediaStreamTrackProcessor({ track, maxBufferSize: TAP_BUFFER_FRAMES }).readable.getReader();
   } catch (error) {
     log.debug('Capture tap unavailable:', error);
     track.stop();

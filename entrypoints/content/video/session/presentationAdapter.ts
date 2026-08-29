@@ -48,6 +48,10 @@ const CAP_REREGISTER_RATIO = 1.25;
 const DECODE_STALL_DELAY_STEP_SEC = 0.25;
 /** A tap can stall silently (muted cross-origin track); rVFC captures resume past this window. */
 const TAP_LIVENESS_WINDOW_SEC = 0.5;
+/** Backwards steps smaller than this are currentTime quantization, not a seek. */
+const TAP_KEY_JITTER_SEC = 0.02;
+/** Forward nudge for a quantization-stalled key; must clear the ring's 1 ms jitter tolerance. */
+const TAP_KEY_NUDGE_SEC = 0.002;
 
 /**
  * Finite capture-width cap: rendered width in device pixels, up to native. The
@@ -170,8 +174,17 @@ export class PresentationAdapter {
         frame.close();
         return;
       }
-      dvr.lastTapMediaTime = mediaTime;
-      this.capture(handle, frame, mediaTime);
+      // currentTime quantizes coarser than a 60 fps frame grid, so consecutive
+      // tap frames can carry the same key: a sub-jitter stall gets a forward
+      // nudge; a genuinely backwards key is a seek and flows through untouched
+      // for the ring's discontinuity flush.
+      const sinceLastSec = mediaTime - dvr.lastCapturedMediaTime;
+      const key =
+        sinceLastSec <= 0 && sinceLastSec > -TAP_KEY_JITTER_SEC
+          ? dvr.lastCapturedMediaTime + TAP_KEY_NUDGE_SEC
+          : mediaTime;
+      dvr.lastTapMediaTime = key;
+      this.capture(handle, frame, key);
     });
   }
 
