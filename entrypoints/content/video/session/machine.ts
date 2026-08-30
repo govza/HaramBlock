@@ -3,7 +3,7 @@
  * events carry timestamps in, effects describe what the adapter must do out.
  */
 
-export type SessionPhase = 'adopted' | 'thumbnailing' | 'standby' | 'sampling' | 'error' | 'disposed';
+export type SessionPhase = 'attached' | 'thumbnailing' | 'standby' | 'sampling' | 'error' | 'disposed';
 
 /**
  * DVR presentation lifecycle: 'warming' = ring buffer filling behind the
@@ -40,7 +40,6 @@ export interface VideoSessionState {
   masked: boolean;
   /** Consecutive clean samples while masked; clears the mask at the hysteresis threshold. */
   cleanStreak: number;
-  /** The whole-video blur is active (adoption blur or watchdog re-blur). */
   blurred: boolean;
   /** Consecutive capture/send failures; ERROR at the limit. */
   errorStreak: number;
@@ -148,7 +147,7 @@ export interface ReduceResult {
 export function createVideoSession(): ReduceResult {
   return {
     state: {
-      phase: 'adopted',
+      phase: 'attached',
       thumbnailRetried: false,
       inflightIndex: null,
       lastSentAt: Number.NEGATIVE_INFINITY,
@@ -249,7 +248,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // deferred, or unavailable while muted: stay pending and retry later.
     return { state, effects: [] };
   }
-  if (event.type === 'thumbnailSourceReady' && state.phase === 'adopted') {
+  if (event.type === 'thumbnailSourceReady' && state.phase === 'attached') {
     return { state: { ...state, phase: 'thumbnailing' }, effects: [{ kind: 'captureThumbnail' }] };
   }
   if (
@@ -434,7 +433,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
   }
   if (
     event.type === 'play' &&
-    (state.phase === 'standby' || state.phase === 'thumbnailing' || state.phase === 'adopted')
+    (state.phase === 'standby' || state.phase === 'thumbnailing' || state.phase === 'attached')
   ) {
     const effects: SessionEffect[] = [{ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS }];
     const next = { ...state, phase: 'sampling' as const };
@@ -597,7 +596,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     // when a verdict-less presentation loses its per-frame canvas cover. A
     // safe session re-warms behind its pinned frame; a verdict-less warm-up
     // keeps whatever blur it already had (a resumed skipped session stays
-    // deliberately unblurred, an adoption-blurred one stays covered).
+    // deliberately unblurred, an attachment-blurred one stays covered).
     const coverWarmUp = state.masked || (verdictPending(state) && state.dvr === 'presenting');
     return {
       state: { ...sampled.state, dvr: 'warming', audioRoute: 'none', blurred: coverWarmUp || sampled.state.blurred },

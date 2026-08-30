@@ -48,7 +48,7 @@ Given('I open the video test page with {string} images', async (mode: string) =>
 /**
  * Thumbnail path: a video whose poster is a known-unsafe gallery image. The
  * poster needs no video data, so the verdict must arrive without playback.
- * The src points at a nonexistent file on purpose — adoption requires a
+ * The src points at a nonexistent file on purpose — attachment requires a
  * resolved source, but the Thumbnail must not wait for media readiness.
  */
 When('I inject a video using the first gallery image as poster', async () => {
@@ -74,7 +74,7 @@ When('I inject a video using the first gallery image as poster', async () => {
  * Playback path: record a short neutral canvas animation into a video blob
  * and play it. blob: sources are CORS-safe for frame capture. Mode
  * "source-child" attaches the source via a <source> element, exercising the
- * loadstart adoption path (the <video> element itself never has a src
+ * loadstart attachment path (the <video> element itself never has a src
  * attribute). The recording mimeType is negotiated per platform (Firefox on
  * Android lacks some encoders), and every failure path reports which stage
  * broke so CI logs stay diagnosable.
@@ -327,7 +327,7 @@ Then('the DVR canvas player replaces the native video', async () => {
  * Whole-blur watcher: records (in-page) whether the machine's whole-video blur
  * class lands on the native element after the DVR canvas has taken over. The
  * continuous DVR composites verdicts into the running presentation, so the
- * blur may appear only before takeover (adoption / warm-up cover).
+ * blur may appear only before takeover (attachment / warm-up cover).
  */
 When('I watch the native video for whole-blur changes', async () => {
   const failure = await browser.execute(

@@ -27,7 +27,7 @@ const liftInlineHide = (element: Element | null): void => {
  * Remove what a crashed predecessor instance failed to tear down. A live
  * orphan disposes its own artifacts when the sentinel supersedes it; this
  * sweep covers predecessors that died mid-teardown and could not. Runs at
- * startup before first adoption, so everything matched belongs to a
+ * startup before first attachment, so everything matched belongs to a
  * predecessor — this instance has not created anything yet.
  */
 export const sweepPredecessorArtifacts = (): void => {

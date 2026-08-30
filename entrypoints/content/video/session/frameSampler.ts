@@ -164,7 +164,7 @@ export class FrameSampler {
 
   /**
    * Signal Thumbnail readiness: a poster needs no video data at all; otherwise
-   * wait for the first frame. preload="none" without a poster stays in ADOPTED
+   * wait for the first frame. preload="none" without a poster stays in ATTACHED
    * (blurred, nothing rendered) until data or playback arrives.
    */
   queueThumbnailSourceReady(handle: SessionHandle): void {

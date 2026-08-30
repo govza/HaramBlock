@@ -1,6 +1,6 @@
 /**
- * DOM markers stamped on adopted videos. The registry owns their lifecycle
- * (stamped on adopt, removed on teardown); the predecessor sweep
+ * DOM markers stamped on attached videos. The registry owns their lifecycle
+ * (stamped on attach, removed on teardown); the predecessor sweep
  * (lifecycle/predecessorSweep.ts) selects on them to find videos a crashed
  * predecessor instance never released.
  */

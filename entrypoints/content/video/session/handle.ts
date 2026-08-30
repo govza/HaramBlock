@@ -2,7 +2,7 @@
  * Per-session mutable state shared by the session modules
  * (docs/VIDEO_PROCESSING.md).
  *
- * The registry creates a SessionHandle at adoption; each module owns its own
+ * The registry creates a SessionHandle at attachment; each module owns its own
  * slice of the fields: lifecycle (registry.ts), sampling (frameSampler.ts),
  * viewport suspension (viewportSuspension.ts), and presentation
  * (presentationAdapter.ts).
@@ -30,7 +30,6 @@ export interface SessionHandle {
   removeListeners: () => void;
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
-  /** The live DVR run (dvr/run.ts); null while the DVR is off. All run-local state lives inside it. */
   dvrRun: DvrRun | null;
   /** Session-lifetime verdict history: survives DVR stop/start, seeks, and loop restarts. */
   readonly timeline: VerdictTimeline;

@@ -7,9 +7,9 @@ architecture, the vocabulary, and the design decisions behind it. General (non-v
 ## Vocabulary
 
 **VideoSession**: The binding of one video element to one resolved source. Born when the pipeline
-adopts a video whose source is resolved; dies when the source changes or the element is removed.
-Pauses, replays, and seeks all happen inside a single VideoSession. _Avoid_: playback session,
-playback run
+attaches to a video whose source is resolved; dies when the source changes or the element is
+removed. Pauses, replays, and seeks all happen inside a single VideoSession. _Avoid_: playback
+session, playback run
 
 **Thumbnail**: The first-pass input for a video's initial verdict — its poster image, or its first
 frame when no poster exists. Analyzed before any playback. _Avoid_: poster (that is only one source
@@ -48,7 +48,7 @@ clean verdict. The video analog of GIF mask inertia. _Avoid_: tolerance, slack
 Every video×resolved-source binding is a **VideoSession** driven by an explicit state machine:
 
 ```
-ADOPTED ──capture thumbnail──► THUMBNAILING
+ATTACHED ──capture thumbnail──► THUMBNAILING
  (blur on)                          │ verdict OR fail-closed timeout
                                     ▼
              play ┌──────────── STANDBY ◄──── sendFailed, transient (capture failed;
@@ -72,7 +72,7 @@ lifecycle and exits.
 Before a VideoSession exists, document-start bootstrap styles hide light-DOM videos and Reddit's
 `<shreddit-player>` host. After settings arrive, a narrower discovery guard remains active for
 video-enabled policies: newly inserted videos/player hosts stay hidden until discovery has applied
-either blacklist styling or the adoption/pending-source blur, then
+either blacklist styling or the attachment/pending-source blur, then
 `data-haramblock-video-discovered` reveals them. This covers the interval before an asynchronously
 attached shadow root can be observed without delaying the pipeline until `DOMContentLoaded`.
 
@@ -96,18 +96,18 @@ Key invariants:
   `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
 - **Audible audio must have a delayed route** (ADRs
   [0001](adr/0001-continuous-dvr-and-relay-audio.md),
-  [0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)): every video is adopted,
-  and when the WebAudio delay line is unavailable, **Relay Audio** plays the video's original URL at
-  `currentTime − D` instead. The policy is a reducer-owned `audioRoute` axis: while a route is
-  `pending`, an audible session rides a bounded-silence mute hold; protection withdraws (finalized
-  `skipped`) only when the delay line is permanently unavailable, the relay element terminally
-  failed to play, and the video is audibly unmuted. Permanently desynced audible audio is still
-  judged worse than absent protection.
+  [0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)): every video is
+  attached, and when the WebAudio delay line is unavailable, **Relay Audio** plays the video's
+  original URL at `currentTime − D` instead. The policy is a reducer-owned `audioRoute` axis: while
+  a route is `pending`, an audible session rides a bounded-silence mute hold; protection withdraws
+  (finalized `skipped`) only when the delay line is permanently unavailable, the relay element
+  terminally failed to play, and the video is audibly unmuted. Permanently desynced audible audio is
+  still judged worse than absent protection.
 - **Withdrawn on Firefox for Android** (ADR
   [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)): Gecko's opaque-surface readback
   returns empty pixels for every capture API on Android, so the `videoProcessingAvailable`
   capability flag gates discovery (`entrypoints/content/core/mediaRouting.ts`) and videos are never
-  adopted, hidden, or styled there. Images and GIFs are unaffected.
+  attached, hidden, or styled there. Images and GIFs are unaffected.
 
 ## Components
 
@@ -120,7 +120,7 @@ Key invariants:
 | Viewport suspension  | `entrypoints/content/video/session/viewportSuspension.ts`                                     | IntersectionObserver suspend/resume with grace period                                                                                                 |
 | Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`                                    | Whole blur, serialized mask overlays, audio route execution, DVR run lifecycle                                                                        |
 | DVR run              | `entrypoints/content/video/dvr/run.ts`                                                        | One DVR run behind five ports: store + presenter + capture drivers, latched D and its growth, budget demand; session-lifetime state in/out via carry  |
-| Discovery            | `entrypoints/content/core/VideoProcessor.ts`                                                  | Routes discovered videos: blacklist styling or registry adoption                                                                                      |
+| Discovery            | `entrypoints/content/core/VideoProcessor.ts`                                                  | Routes discovered videos: blacklist styling or registry attachment                                                                                    |
 | Frame Sample model   | `entrypoints/content/video/sampling/sample.ts`                                                | Separates live routing identity from reusable media-timeline identity                                                                                 |
 | Frame capture        | `entrypoints/content/video/sampling/capture.ts`                                               | Canvas capture, poster extraction, CORS workaround                                                                                                    |
 | Transport            | `entrypoints/content/communication/sender.ts`                                                 | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                |
@@ -163,14 +163,14 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
 — `frameSampler.ts` (capture and transport), `viewportSuspension.ts` (offscreen suspend/resume), and
 `presentationAdapter.ts` (blur, overlays, DVR). Together they bind each session to the real world:
 
-- **Adoption** (`adopt`): creates the session, applies the initial blur, binds media events (`play`,
-  `pause`, `ended`, `seeked`, `loadstart`, `emptied`), starts the frame ticker, and signals
+- **Attachment** (`attach`): creates the session, applies the initial blur, binds media events
+  (`play`, `pause`, `ended`, `seeked`, `loadstart`, `emptied`), starts the frame ticker, and signals
   Thumbnail readiness — a `poster` is tried immediately; if it fails to load, capture fails closed
   (no frame is drawn below `HAVE_CURRENT_DATA`) and readiness is re-signaled on `loadeddata`, where
   the machine re-captures only a still verdict-less session. `preload="none"` without a poster idles
-  in ADOPTED (nothing rendered, blur on) until data or playback arrives. A video whose source is not
-  resolved yet is held in a registry-owned pending set: re-discovery refreshes its host settings,
-  and `dispose`/`disposeAll` cancel the wait so it cannot outlive the pipeline.
+  in ATTACHED (nothing rendered, blur on) until data or playback arrives. A video whose source is
+  not resolved yet is held in a registry-owned pending set: re-discovery refreshes its host
+  settings, and `dispose`/`disposeAll` cancel the wait so it cannot outlive the pipeline.
 - **Frame ticker**: `requestVideoFrameCallback` — fires only when a new frame is actually presented
   (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
   `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
@@ -194,7 +194,7 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   same-URL videos have independent sessions. An inference-error result dispatches transient
   `sendFailed`, freeing the in-flight slot immediately instead of waiting out the sample timeout.
 - **Source changes**: a `loadstart` or `emptied` whose URL or `srcObject` no longer matches the
-  session disposes it and adopts a fresh one (immediately, or once the next source resolves). This
+  session disposes it and attaches a fresh one (immediately, or once the next source resolves). This
   covers `<source>`-children swaps, MSE attachment, object-backed streams, and
   `removeAttribute('src') + load()` teardowns — the last fires `emptied` but never `loadstart`.
 - **Sampling transport**: a failed capture or send dispatches `sendFailed`, as does an
@@ -245,12 +245,12 @@ identity attached to the pixels it actually supplies.
 `VideoProcessor` (`core/VideoProcessor.ts`) is intentionally thin:
 
 - **Blacklist policy** → blacklist styling only, no inference, no session.
-- **Everything else** → `videoSessions.adopt(video, hostSettings)`. The registry itself waits out
+- **Everything else** → `videoSessions.attach(video, hostSettings)`. The registry itself waits out
   videos with no resolved source yet (`<video><source …>`, MSE, late `src` assignment) via a
   `loadstart` listener; a non-null `srcObject` is itself a resolved source even though it has no
   URL, so discovery holds no state of its own. The wait is blurred: a src-less video still displays
-  its poster, and adoption keeps the blur — there is no unprotected gap between discovery and
-  ADOPTED.
+  its poster, and attachment keeps the blur — there is no unprotected gap between discovery and
+  ATTACHED.
 
 ## DVR: continuous delayed presentation
 
@@ -316,7 +316,7 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
   codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
   is whole-blurred: the DOM overlay of an already-masked session would lag the moving content, a
-  verdict-less session simply keeps its adoption blur, and a safe-verdicted session is covered too
+  verdict-less session simply keeps its attachment blur, and a safe-verdicted session is covered too
   because the pinned earliest frame is no cover until the player has captured a frame and injected
   its canvas — the native element renders live for those first ticks. `bufferReady` lifts it as soon
   as the canvas takes over, and a clean playback verdict is the escape when capture never succeeds.
@@ -531,7 +531,7 @@ where audio cannot be delayed receive no protection at all.
 ## Testing
 
 - **Unit** (`entrypoints/content/video/session/__tests__/machine.test.ts`): every machine behavior —
-  adoption, timeout-at-first-send, verdict finalization, retry-then-blocked, pacing, staleness,
+  attachment, timeout-at-first-send, verdict finalization, retry-then-blocked, pacing, staleness,
   hysteresis, watchdog re-blur + self-heal, lost-sample slot recovery, paused-seek one-shots,
   terminal allow (error streak + permanent failures), terminal disposal, play-preempts-thumbnail,
   and the continuous-DVR lifecycle (start on play, warm-up cover rules, bufferReady, clean streak

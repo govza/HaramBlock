@@ -8,7 +8,7 @@ import type { FrameInferenceResult, IHostSettings } from '@/utils/types';
  * Routes discovered video elements into the VideoSession pipeline; the video
  * sibling of ImageProcessor.
  * - Blacklist policy: mask outright, no inference.
- * - Otherwise adopt: the registry itself waits out videos with no resolved
+ * - Otherwise attach: the registry itself waits out videos with no resolved
  *   source yet (<source> children, MSE, late src assignment), so re-discovery
  *   always refreshes host settings and pipeline teardown cancels the wait.
  */
@@ -27,17 +27,13 @@ export class VideoProcessor {
         continue;
       }
 
-      videoSessions.adopt(video, this.hostSettings);
-      // adopt() synchronously applies either the VideoSession adoption blur or
+      videoSessions.attach(video, this.hostSettings);
+      // attach() synchronously applies either the VideoSession attachment blur or
       // the unresolved-source pending blur. Only now may bootstrap hiding lift.
       markVideoDiscovered(video);
     }
   }
 
-  /**
-   * The registry itself re-adopts on source changes via 'loadstart'; this
-   * covers attribute mutations observed before any media event fires.
-   */
   handleSrcChange(video: HTMLVideoElement): void {
     this.processAll([video]);
   }

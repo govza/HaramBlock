@@ -62,7 +62,7 @@ The extension marks everything it touches, so page-side `evaluate_script` can au
 | ------------------------------------------------- | ----------- | ----------------------------------------------------------------------------- |
 | `data-haramblock-instance`                        | `<html>`    | Instance sentinel nonce; a changed value means a successor instance took over |
 | `data-haramblock-processed-safe/-unsafe/-skipped` | media       | Verdict landed for the element                                                |
-| `data-haramblock-video-discovered`                | video/host  | Video adopted by a session                                                    |
+| `data-haramblock-video-discovered`                | video/host  | Video attached to a session                                                   |
 | `[data-mask-overlay="unified-mask-overlay"]`      | overlay div | Image mask overlay                                                            |
 | `[data-video-mask-overlay]`                       | overlay div | Video mask overlay                                                            |
 | `[data-gif-mask-player]`                          | overlay div | Animated-GIF mask player                                                      |

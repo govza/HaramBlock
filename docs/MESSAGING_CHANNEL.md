@@ -378,7 +378,7 @@ Orphaned instances are additionally detected by a pure-DOM supersede sentinel: e
 a nonce onto `<html data-haramblock-instance>` at startup and observes it. When a successor instance
 (injected after an extension reload/update) stamps its own nonce, every earlier instance tears
 itself down — this works even though the orphan's extension APIs all throw. The successor also
-sweeps overlay elements a crashed predecessor left behind before adopting media itself.
+sweeps overlay elements a crashed predecessor left behind before attaching media itself.
 
 **Coverage limits.** Neither signal is exhaustive. The permanent-death event only fires when a
 channel establishment attempt fails, i.e. on the orphan's next send — a page whose media all settled
