@@ -110,7 +110,7 @@ class VideoSessionRegistry {
     dispatch: (handle, event) => this.dispatch(handle, event),
     // Latched per DVR run (set at startDvr); the adaptive estimate only seeds
     // runs that derive it fresh.
-    currentDelaySec: handle => handle.dvrDelaySec ?? this.sampler.currentDvrDelaySec(handle),
+    currentDelaySec: handle => handle.dvrRun?.delaySec ?? this.sampler.currentDvrDelaySec(handle),
   });
 
   private readonly sampler = new FrameSampler({
@@ -186,9 +186,8 @@ class VideoSessionRegistry {
       stopTicker: null,
       removeListeners: () => {},
       overlayChain: Promise.resolve(),
-      dvr: null,
+      dvrRun: null,
       timeline: new VerdictTimeline(),
-      dvrDelaySec: null,
       dvrStallFloorSec: 0,
       dvrEncodedIneligible: false,
       pendingSamples: new Map(),
@@ -266,8 +265,7 @@ class VideoSessionRegistry {
       if (settled) {
         // After the verdict lands in the timeline: the coverage it just added
         // decides whether the latched delay is still large enough.
-        this.presentation.raiseDelayIfLagging(handle);
-        this.presentation.syncAudioDelay(handle);
+        this.presentation.syncDvrVerdict(handle);
       }
     }
   }
