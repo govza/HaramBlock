@@ -52,7 +52,7 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
 
 let warnedTimestamplessPrediction = false;
 
-interface PendingAdoption {
+interface PendingAttachment {
   hostSettings: IHostSettings;
   cancel: () => void;
 }
@@ -95,12 +95,12 @@ class VideoSessionRegistry {
   private readonly byId = new Map<string, SessionHandle>();
   private readonly byVideo = new WeakMap<HTMLVideoElement, SessionHandle>();
   /** Videos awaiting a resolved source; strong so disposeAll/sweep can cancel the waits. */
-  private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAdoption>();
-  /** Quick-toggle overrides; consulted at adoption so a forced video never gets a session. */
+  private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
+  /** Quick-toggle overrides; consulted at attachment so a forced video never gets a session. */
   private readonly forcedByVideo = new WeakMap<HTMLVideoElement, ForcedEntry>();
   /** Teardown for live forced presentations (no session exists); strong so disposeAll/sweep reach them. */
   private readonly forcedActive = new Map<HTMLVideoElement, () => void>();
-  /** Last adoption settings, so a toggle on a session-less forced video can re-adopt. */
+  /** Last attachment settings, so a toggle on a session-less forced video can re-attach. */
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
 
   // Every port forwards through an arrow so the modules resolve each other at
@@ -136,12 +136,12 @@ class VideoSessionRegistry {
   });
 
   /**
-   * Adopt a video, creating its VideoSession. A video without a resolved
-   * source yet is adopted as soon as resource selection yields one.
-   * Re-adopting the same (element, source) pair only refreshes host settings;
+   * Attach a video, creating its VideoSession. A video without a resolved
+   * source yet is attached as soon as resource selection yields one.
+   * Re-attaching the same (element, source) pair only refreshes host settings;
    * a changed source disposes the old session and starts a fresh one.
    */
-  adopt(video: HTMLVideoElement, hostSettings: IHostSettings): void {
+  attach(video: HTMLVideoElement, hostSettings: IHostSettings): void {
     this.sweepDisconnected();
     this.settingsByVideo.set(video, hostSettings);
     const source = resolveVideoSource(video);
@@ -209,7 +209,7 @@ class VideoSessionRegistry {
     handle.state = born.state;
     this.execute(handle, born.effects);
 
-    // Undelayable audio is not an adoption gate (ADR 0001): the machine's
+    // Undelayable audio is not an attachment gate (ADR 0001): the machine's
     // audioRoute policy decides engage/retry/withdraw from engage results
     // and raw mute intent (ADR 0002).
     this.bindMediaEvents(handle);
@@ -273,7 +273,7 @@ class VideoSessionRegistry {
   /** Dispose the session bound to this element (source change or removal). */
   dispose(video: HTMLVideoElement): void {
     // Presentation dies here, but the forcedByVideo override survives on
-    // purpose: it is keyed per (element × source), so re-adopting the same
+    // purpose: it is keyed per (element × source), so re-attaching the same
     // pair re-enters the forced presentation; a changed source drops it.
     this.forcedActive.get(video)?.();
     const pending = this.pendingByVideo.get(video);
@@ -302,7 +302,7 @@ class VideoSessionRegistry {
   /**
    * Quick-toggle entry point: 'visible' and 'blocked' replace the session with
    * a static presentation (no sampling, no DVR, no audio delay); 'auto' drops
-   * the override and re-adopts for a fresh verdict. State is per
+   * the override and re-attaches for a fresh verdict. State is per
    * (element × source) and dies with the source — nothing is persisted.
    */
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
@@ -313,7 +313,7 @@ class VideoSessionRegistry {
       this.forcedByVideo.delete(video);
       this.forcedActive.get(video)?.();
       this.dispose(video);
-      this.adopt(video, settings);
+      this.attach(video, settings);
       return;
     }
 
@@ -321,14 +321,14 @@ class VideoSessionRegistry {
     if (!source) return;
     const unprocessed = this.forcedByVideo.get(video)?.unprocessed ?? video.hasAttribute(PROCESSED_ATTR_MAP.skipped);
     this.forcedByVideo.set(video, { srcObject: source.srcObject, url: source.url, state: next, unprocessed });
-    this.adopt(video, settings);
+    this.attach(video, settings);
   }
 
   /**
    * The extension goes hands-off ('visible') or applies the blacklist-style
    * mask ('blocked') with no VideoSession behind it. A source-change listener
    * is the only machinery left running: the override describes this source
-   * only, so a new source re-enters normal adoption.
+   * only, so a new source re-enters normal attachment.
    */
   private applyForcedPresentation(video: HTMLVideoElement, hostSettings: IHostSettings, entry: ForcedEntry): void {
     const existing = this.byVideo.get(video);
@@ -355,7 +355,7 @@ class VideoSessionRegistry {
       if (forced && matchesForcedSource(forced, current)) return;
       this.forcedByVideo.delete(video);
       this.forcedActive.get(video)?.();
-      this.adopt(video, hostSettings);
+      this.attach(video, hostSettings);
     };
     video.addEventListener('loadstart', onSourceChanged);
     video.addEventListener('emptied', onSourceChanged);
@@ -387,9 +387,9 @@ class VideoSessionRegistry {
 
   /**
    * A video with no resolved source yet (<source> children still selecting,
-   * MSE, late src assignment) is adopted when resource selection yields one:
+   * MSE, late src assignment) is attached when resource selection yields one:
    * 'loadstart' fires whenever selection begins — even with preload="none".
-   * Object-backed media is adopted as soon as `srcObject` becomes available,
+   * Object-backed media is attached as soon as `srcObject` becomes available,
    * despite having no URL in `currentSrc` or `src`.
    * The wait lives in the registry so re-discovery refreshes its settings and
    * dispose/disposeAll cancel it; it cannot outlive the pipeline.
@@ -401,14 +401,14 @@ class VideoSessionRegistry {
       return;
     }
     // Fail closed during the wait: a src-less video still displays its poster.
-    // Adoption re-applies the blur (idempotent); it never lifts here, so the
-    // wait→ADOPTED handoff has no unprotected gap.
+    // Attachment re-applies the blur (idempotent); it never lifts here, so the
+    // wait→ATTACHED handoff has no unprotected gap.
     applyWholeBlur(video, hostSettings);
-    const entry: PendingAdoption = { hostSettings, cancel: () => {} };
+    const entry: PendingAttachment = { hostSettings, cancel: () => {} };
     const onLoadstart = () => {
       if (!resolveVideoSource(video)) return;
       entry.cancel();
-      this.adopt(video, entry.hostSettings);
+      this.attach(video, entry.hostSettings);
     };
     entry.cancel = () => {
       video.removeEventListener('loadstart', onLoadstart);
@@ -583,7 +583,7 @@ class VideoSessionRegistry {
     }
   }
 
-  /** Media events feed the machine; a source change re-adopts under the stored settings. */
+  /** Media events feed the machine; a source change re-attaches under the stored settings. */
   private bindMediaEvents(handle: SessionHandle): void {
     const { video } = handle;
     const now = () => performance.now();
@@ -612,7 +612,7 @@ class VideoSessionRegistry {
       // matters because removeAttribute('src') + load() never fires loadstart.
       const settings = handle.hostSettings;
       this.dispose(video);
-      this.adopt(video, settings);
+      this.attach(video, settings);
     };
 
     video.addEventListener('play', onPlay);
@@ -636,7 +636,7 @@ class VideoSessionRegistry {
     if (!video.muted && video.volume > 0) {
       this.dispatch(handle, { type: 'unmuted', at: now() });
     }
-    // A video already playing at adoption goes straight to sampling.
+    // A video already playing at attachment goes straight to sampling.
     if (!video.paused && !video.ended) {
       onPlay();
     }

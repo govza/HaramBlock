@@ -64,10 +64,10 @@ describe('VideoSession machine', () => {
     expect(released.state.pendingSeekTimestampSec).toBeNull();
   });
 
-  it('blurs on adoption and captures the Thumbnail once its source is ready', () => {
+  it('blurs on attachment and captures the Thumbnail once its source is ready', () => {
     const born = createVideoSession();
     expect(born.effects).toContainEqual({ kind: 'applyBlur' });
-    expect(born.state.phase).toBe('adopted');
+    expect(born.state.phase).toBe('attached');
 
     const { state, effects } = run(born.state, { type: 'thumbnailSourceReady' });
     expect(effects).toContainEqual({ kind: 'captureThumbnail' });
@@ -644,7 +644,7 @@ describe('VideoSession machine', () => {
     expect(ready.effects).toContainEqual({ kind: 'clearBlur' });
   });
 
-  it('keeps the adoption blur when a verdict-less video begins playing (fail-closed warm-up)', () => {
+  it('keeps the attachment blur when a verdict-less video begins playing (fail-closed warm-up)', () => {
     const eager = run(createVideoSession().state, { type: 'thumbnailSourceReady' }, { type: 'play', at: 50 });
     expect(eager.state.phase).toBe('sampling');
     expect(eager.state.dvr).toBe('warming');
@@ -934,7 +934,6 @@ describe('VideoSession machine', () => {
   });
 
   it('still captures a Thumbnail for an active session that has no verdict yet', () => {
-    // Adopted while already playing: 'play' preempts THUMBNAILING entirely.
     const playingFirst = run(createVideoSession().state, { type: 'play', at: 10 });
     expect(playingFirst.state.phase).toBe('sampling');
 
@@ -953,7 +952,7 @@ describe('VideoSession machine', () => {
     expect(verdicted.effects.filter(e => e.kind === 'captureThumbnail')).toHaveLength(0);
   });
 
-  it('lifts the adoption blur when play preempts the Thumbnail and the first sample is clean', () => {
+  it('lifts the attachment blur when play preempts the Thumbnail and the first sample is clean', () => {
     const eager = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
