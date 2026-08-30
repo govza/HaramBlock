@@ -34,7 +34,7 @@ describe('bitmapToCompressedBlob', () => {
   it('reuses one canvas across samples and resizes only on dimension change', async () => {
     vi.resetModules();
     vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
-    const { bitmapToCompressedBlob } = await import('@/entrypoints/content/video/frameCompression');
+    const { bitmapToCompressedBlob } = await import('@/entrypoints/content/video/sampling/compression');
 
     const first = await bitmapToCompressedBlob(fakeBitmap(640, 360));
     await bitmapToCompressedBlob(fakeBitmap(640, 360));
@@ -58,7 +58,7 @@ describe('bitmapToCompressedBlob', () => {
       }
     }
     vi.stubGlobal('OffscreenCanvas', GatedOffscreenCanvas);
-    const { bitmapToCompressedBlob } = await import('@/entrypoints/content/video/frameCompression');
+    const { bitmapToCompressedBlob } = await import('@/entrypoints/content/video/sampling/compression');
 
     const first = bitmapToCompressedBlob(fakeBitmap(640, 360));
     const second = bitmapToCompressedBlob(fakeBitmap(320, 180));

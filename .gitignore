@@ -49,3 +49,4 @@ scripts/benchmark/results/
 
 # Local WIP issue tracker (official issues live in GitHub — see docs/agents/issue-tracker.md)
 .scratch/
+.teach/

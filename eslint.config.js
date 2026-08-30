@@ -13,6 +13,7 @@ export default [
       'build/**',
       '.output/**',
       '.wxt/**',
+      '.teach/**',
       'node_modules/**',
       '*.min.js',
       'coverage/**',

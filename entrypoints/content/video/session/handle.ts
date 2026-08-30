@@ -10,7 +10,7 @@
 
 import type { DvrRun } from '@/entrypoints/content/video/dvr/run';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
-import type { PendingFrameSample } from '@/entrypoints/content/video/frameSample';
+import type { PendingFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
 

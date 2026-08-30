@@ -1,5 +1,5 @@
 import { dvrRingBudget } from '@/entrypoints/content/video/dvr/ringBudget';
-import { bitmapToCompressedBlob } from '@/entrypoints/content/video/frameCompression';
+import { bitmapToCompressedBlob } from '@/entrypoints/content/video/sampling/compression';
 import {
   IS_CHROME,
   IMAGE_TRANSFER_KIND,
@@ -10,7 +10,7 @@ import {
 import { logger } from '@/utils/logger';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 
-import type { CapturedFrameSample } from '@/entrypoints/content/video/frameSample';
+import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type {
   ForcedVisibility,
   IHostSettings,
