@@ -28,26 +28,8 @@ export type VerdictLookup =
   /** No verdict near this frame yet (inference running late): fail closed. */
   | { kind: 'none' };
 
-/** Detection jitter guard: a verdict never covers less than this around its sample. */
-export const MIN_INERTIA_WINDOW_SEC = 0.35;
-/** Ceiling so sparse sampling (throttled tabs) cannot stretch one verdict over seconds of content. */
-export const MAX_INERTIA_WINDOW_SEC = 2;
-/** Covers capture→verdict timestamp scatter on top of the sampling gap. */
-export const INERTIA_JITTER_MARGIN_SEC = 0.15;
-/** How many recent inter-verdict gaps inform the window estimate. */
-const CADENCE_SAMPLE_COUNT = 8;
-/**
- * How far a neighboring verdict can stretch to cover a hole in verdict
- * coverage (an inference-latency spike between two resolved samples). Bridged
- * frames show a mask or clean content instead of the whole-blur flash.
- */
+/** Past this, an upcoming unsafe verdict contributes no mask geometry. */
 export const BRIDGE_HORIZON_SEC = 3;
-/**
- * A neighbor just outside the Inertia Window still covers a short overshoot —
- * for a past unsafe verdict this bounds how far its mask may extend forward
- * (a stale mask must not smear over a scene change).
- */
-export const OVERSHOOT_WINDOW_MULTIPLIER = 2;
 /**
  * Session-lifetime bound: verdicts are small (clean entries carry no masks),
  * but a very long playback must not grow the timeline without limit. At ~4
@@ -55,7 +37,7 @@ export const OVERSHOOT_WINDOW_MULTIPLIER = 2;
  */
 export const MAX_TIMELINE_ENTRIES = 4000;
 /** Two verdicts further apart than this break continuous coverage. */
-export const COVERAGE_MAX_GAP_SEC = MAX_INERTIA_WINDOW_SEC;
+export const COVERAGE_MAX_GAP_SEC = 2;
 
 export class VerdictTimeline {
   private entries: VerdictEntry[] = [];
@@ -102,63 +84,42 @@ export class VerdictTimeline {
    * an unsafe verdict right after) does not cut: the mask holds, fail closed.
    *
    * Frames between two unsafe samples composite both bounding masks (inertia
-   * over the unknown motion in between). Past the last verdict an unsafe mask
-   * covers only a short overshoot, and a span wider than the bridge horizon
-   * whole-blurs — that far out the stale geometry no longer describes the
-   * scene. Only genuine verdict silence stays 'none'.
+   * over the unknown motion in between; a distant upcoming unsafe verdict
+   * contributes no geometry). Any verdict behind covers at any distance with
+   * what it knows — a clean one presents clean, an unsafe one keeps masking
+   * with its own geometry: masked content beats hiding the whole frame. Only
+   * genuine verdict silence behind (nothing yet, or only an upcoming unsafe
+   * verdict, which is never pre-rolled) stays 'none'.
    *
    * Entries are timestamp-ordered, so the lookup binary-searches to the
    * position and reads the bounding neighbors: this runs on every draw tick of
    * every playing video, and a full-history scan would grow with the session.
    */
-  verdictFor(mediaTime: number, windowSec: number, bridgeHorizonSec = BRIDGE_HORIZON_SEC): VerdictLookup {
+  verdictFor(mediaTime: number, bridgeHorizonSec = BRIDGE_HORIZON_SEC): VerdictLookup {
     const after = this.upperBound(mediaTime);
     const previous = this.entries[after - 1];
     const next = this.entries[after];
 
     if (!previous) {
-      // Nothing describes any frame at or before this one. No pre-masking: an
-      // upcoming clean verdict near warm-up presents clean, anything else
-      // fails closed with the whole-blur.
-      if (next && !next.unsafe && next.timestampSec - mediaTime <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
-        return { kind: 'clean' };
-      }
+      // No pre-masking: an upcoming unsafe verdict fails closed.
+      if (next && !next.unsafe) return { kind: 'clean' };
       return { kind: 'none' };
     }
 
-    // A verdict beyond the bridge horizon no longer describes this frame:
-    // never composite its mask geometry here, and never let a clean pair
-    // bridge across a hole that wide — whole-blur instead.
+    // A distant upcoming unsafe verdict still cuts spans, but contributes no geometry.
     const nextNear = next && next.timestampSec - mediaTime <= bridgeHorizonSec ? next : null;
 
     if (previous.unsafe) {
-      if (next) {
-        if (mediaTime - previous.timestampSec > bridgeHorizonSec) return { kind: 'none' };
-        return { kind: 'unsafe', entries: nextNear?.unsafe ? [previous, nextNear] : [previous] };
-      }
-      // Live edge: cover a short overshoot ahead of the newest unsafe sample,
-      // then whole-blur so a stale mask cannot smear over a scene change.
-      if (mediaTime - previous.timestampSec <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
-        return { kind: 'unsafe', entries: [previous] };
-      }
-      return { kind: 'none' };
+      // Stale geometry over the content beats hiding the whole frame.
+      return { kind: 'unsafe', entries: nextNear?.unsafe ? [previous, nextNear] : [previous] };
     }
 
     const before = this.entries[after - 2];
     if (before?.unsafe && (!next || next.unsafe)) {
       // The clean verdict at `previous` is unconfirmed: hold the mask.
-      if (mediaTime - before.timestampSec > bridgeHorizonSec) return { kind: 'none' };
       return { kind: 'unsafe', entries: nextNear?.unsafe ? [before, nextNear] : [before] };
     }
-    if (mediaTime - previous.timestampSec <= (nextNear ? bridgeHorizonSec : windowSec * OVERSHOOT_WINDOW_MULTIPLIER)) {
-      return { kind: 'clean' };
-    }
-    // Far from the clean verdict behind, but just ahead of an upcoming clean
-    // one (seek into a hole): the short approach presents clean.
-    if (nextNear && !nextNear.unsafe && nextNear.timestampSec - mediaTime <= windowSec * OVERSHOOT_WINDOW_MULTIPLIER) {
-      return { kind: 'clean' };
-    }
-    return { kind: 'none' };
+    return { kind: 'clean' };
   }
 
   /** Index of the first entry strictly after `mediaTime`. */
@@ -175,26 +136,6 @@ export class VerdictTimeline {
       }
     }
     return low;
-  }
-
-  /**
-   * Inertia window derived from the observed verdict cadence (median of recent
-   * gaps + jitter margin) instead of a hardcoded interval, clamped so both a
-   * burst of verdicts and a throttled trickle stay sane.
-   */
-  inertiaWindowSec(): number {
-    const gaps: number[] = [];
-    const first = Math.max(1, this.entries.length - CADENCE_SAMPLE_COUNT);
-    for (let i = first; i < this.entries.length; i++) {
-      const previous = this.entries[i - 1];
-      const current = this.entries[i];
-      if (previous && current) gaps.push(current.timestampSec - previous.timestampSec);
-    }
-    if (!gaps.length) return MIN_INERTIA_WINDOW_SEC + INERTIA_JITTER_MARGIN_SEC;
-    gaps.sort((a, b) => a - b);
-    const median = gaps[Math.floor(gaps.length / 2)] ?? 0;
-    const clamped = Math.min(MAX_INERTIA_WINDOW_SEC, Math.max(MIN_INERTIA_WINDOW_SEC, median));
-    return clamped + INERTIA_JITTER_MARGIN_SEC;
   }
 
   size(): number {

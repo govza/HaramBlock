@@ -45,6 +45,9 @@ const log = logger.withTag('videoDvrPlayer');
  */
 const NONE_REDRAWS_PER_SEC = 30;
 
+/** Presented-clock catch-up margin: 5% is imperceptible, a snap is not. */
+const PRESENTED_CATCH_UP_RATE = 1.05;
+
 /**
  * The base canvas scales smoothly: buffered frames below display resolution
  * (budget degradation) must interpolate, not nearest-neighbour into visible
@@ -90,9 +93,10 @@ export class VideoDvrPlayer {
   private lastDrawKey = '';
   /** A buffered frame has been presented: the canvases hold real content a covered miss can pin. */
   private hasPresentedFrame = false;
-  /** Exposed as data-hb-presented-frames: presented-fps ground truth (pixel-diff probes undercount on low-motion scenes). */
   private presentedFrameCount = 0;
   private lastPresentedMediaTime = Number.NEGATIVE_INFINITY;
+  private presentedClockSec: number | null = null;
+  private lastTickWallSec: number | null = null;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
   private readonly gridCache = new WeakMap<VerdictEntry, HTMLCanvasElement | null>();
   /** Scratch canvases for renderMasks, reused across draws instead of allocated per frame. */
@@ -267,24 +271,26 @@ export class VideoDvrPlayer {
     // holds on that frame — masked — until now − D reaches it, then runs.
     const oldest = store.oldestTime();
     const newest = store.newestTime();
-    const targetTime =
+    const nowSec = performance.now() / 1000;
+    const wallDt = this.lastTickWallSec === null ? 0 : nowSec - this.lastTickWallSec;
+    this.lastTickWallSec = nowSec;
+    const idealTarget =
       this.drainClock && newest !== null
-        ? drainTargetTime(this.drainClock, performance.now() / 1000, newest)
+        ? drainTargetTime(this.drainClock, nowSec, newest)
         : clampToOldest(video.currentTime - delaySec, oldest);
+    let targetTime = idealTarget;
+    if (this.hasPresentedFrame && !this.drainClock && this.presentedClockSec !== null) {
+      const maxAdvance = video.paused ? 0 : wallDt * video.playbackRate * PRESENTED_CATCH_UP_RATE;
+      targetTime = Math.min(idealTarget, clampToOldest(this.presentedClockSec + maxAdvance, oldest));
+    }
+    this.presentedClockSec = targetTime;
     const frame = store.frameAt(targetTime);
-    // Covered miss (decode stall: the buffer spans the target — it is clamped
-    // to oldest — but the decoder is behind): hold the last presented frame
-    // and its mask, per the store contract. Flashing the live fallback would
-    // jump forward by D (and whole-blur a masked session) for a stall of a
-    // few ticks. Warm-up has nothing to hold yet and keeps the live fallback.
-    if (!frame && this.hasPresentedFrame && oldest !== null) return;
+    if (!frame && this.hasPresentedFrame) return;
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
     // than blurring: the bridge horizon scales with the observed round-trip.
     const bridgeHorizonSec = Math.max(BRIDGE_HORIZON_SEC, delaySec * 2);
-    const verdict = frame
-      ? timeline.verdictFor(frame.mediaTime, timeline.inertiaWindowSec(), bridgeHorizonSec)
-      : ({ kind: 'none' } as const);
+    const verdict = timeline.verdictFor(frame ? frame.mediaTime : video.currentTime, bridgeHorizonSec);
 
     // A verdict-less frame always fails closed: a Thumbnail-cleared session
     // must not fail-open playback frames its poster verdict does not describe
@@ -301,26 +307,17 @@ export class VideoDvrPlayer {
     // captured — which is exactly what fullscreen does (the layout grows, the
     // ring frame does not), so cap the ratio at the source's own resolution.
     const dpr = frameCappedDpr(frame, content.width);
-    const drawKey =
-      verdict.kind === 'none'
-        ? [
-            'none',
-            frame ? frame.mediaTime : Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC),
-            width,
-            height,
-            dpr,
-          ].join('|')
-        : [
-            frame?.mediaTime,
-            verdict.kind,
-            // Verdict identity, not just count: while pinned on the warm-up
-            // frame, a newer verdict must refresh the mask geometry.
-            verdict.kind === 'unsafe' ? verdict.entries.map(entry => entry.timestampSec).join(',') : '',
-            width,
-            height,
-            dpr,
-            masking.pixelationScale,
-          ].join('|');
+    const drawKey = [
+      frame ? frame.mediaTime : `live:${Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC)}`,
+      verdict.kind,
+      // Verdict identity, not just count: while pinned on the warm-up
+      // frame, a newer verdict must refresh the mask geometry.
+      verdict.kind === 'unsafe' ? verdict.entries.map(entry => entry.timestampSec).join(',') : '',
+      width,
+      height,
+      dpr,
+      masking.pixelationScale,
+    ].join('|');
     if (drawKey === this.lastDrawKey) return;
     this.lastDrawKey = drawKey;
 
@@ -334,11 +331,21 @@ export class VideoDvrPlayer {
     maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
 
     if (!frame) {
+      // Drawing a cross-origin video only taints the canvas — display still works.
+      const liveFrame: PresentableFrame = {
+        source: video,
+        width: video.videoWidth,
+        height: video.videoHeight,
+        mediaTime: video.currentTime,
+      };
       maskCanvas.style.filter = '';
-      // Nothing buffered yet: live frame, whole-blurred. Drawing a
-      // cross-origin video only taints the canvas — display still works.
       baseCtx.drawImage(video, content.offsetX, content.offsetY, content.width, content.height);
-      baseCanvas.style.filter = buildMaskingFilter(masking);
+      if (verdict.kind === 'unsafe' && liveFrame.width > 0) {
+        baseCanvas.style.filter = '';
+        this.renderMasks(liveFrame, verdict.entries, content, masking);
+      } else {
+        baseCanvas.style.filter = verdict.kind === 'clean' ? '' : buildMaskingFilter(masking);
+      }
       return;
     }
 
