@@ -9,10 +9,8 @@
  */
 
 import {
-  applyBlacklistStyling,
   clearProcessedStatus,
   PROCESSED_ATTR_MAP,
-  resetImageStyling,
   type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
@@ -20,6 +18,7 @@ import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskO
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
+import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
 import {
   createVideoSession,
@@ -35,6 +34,7 @@ import {
   clearWholeBlur,
   PresentationAdapter,
 } from '@/entrypoints/content/video/session/presentationAdapter';
+import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { logger } from '@/utils/logger';
 import { generateNonce } from '@/utils/nonce';
@@ -57,38 +57,10 @@ interface PendingAttachment {
   cancel: () => void;
 }
 
-interface ResolvedVideoSource {
-  srcObject: HTMLVideoElement['srcObject'];
-  url: string;
-}
-
-/** `srcObject` is the active source even if a previous URL is still reflected temporarily. */
-function resolveVideoSource(video: HTMLVideoElement): ResolvedVideoSource | null {
-  if (video.srcObject) return { srcObject: video.srcObject, url: '' };
-  const url = video.currentSrc || video.src;
-  return url ? { srcObject: null, url } : null;
-}
-
 function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): boolean {
   return source.srcObject
     ? handle.srcObject === source.srcObject
     : handle.srcObject === null && handle.src === source.url;
-}
-
-/**
- * A user's forced visibility for one (element × source) pair. Session-scoped by
- * design: nothing is persisted, and a changed source drops the override — a
- * different video deserves a fresh verdict.
- */
-interface ForcedEntry {
-  srcObject: HTMLVideoElement['srcObject'];
-  url: string;
-  state: Exclude<ForcedVisibility, 'auto'>;
-  unprocessed: boolean;
-}
-
-function matchesForcedSource(entry: ForcedEntry, source: ResolvedVideoSource): boolean {
-  return source.srcObject ? entry.srcObject === source.srcObject : entry.srcObject === null && entry.url === source.url;
 }
 
 class VideoSessionRegistry {
@@ -96,16 +68,21 @@ class VideoSessionRegistry {
   private readonly byVideo = new WeakMap<HTMLVideoElement, SessionHandle>();
   /** Videos awaiting a resolved source; strong so disposeAll/sweep can cancel the waits. */
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
-  /** Quick-toggle overrides; consulted at attachment so a forced video never gets a session. */
-  private readonly forcedByVideo = new WeakMap<HTMLVideoElement, ForcedEntry>();
-  /** Teardown for live forced presentations (no session exists); strong so disposeAll/sweep reach them. */
-  private readonly forcedActive = new Map<HTMLVideoElement, () => void>();
-  /** Last attachment settings, so a toggle on a session-less forced video can re-attach. */
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
 
   // Every port forwards through an arrow so the modules resolve each other at
   // call time, not at field-initialization time: the wiring stays correct
   // however these three fields are ordered.
+  private readonly forced = new ForcedPresentation({
+    attach: (video, hostSettings) => this.attach(video, hostSettings),
+    disposeSession: video => {
+      const handle = this.byVideo.get(video);
+      if (handle) this.dispatch(handle, { type: 'dispose' });
+    },
+    registerToggle: (video, hostSettings, forcedVisibility, hasDetections, unprocessed) =>
+      this.registerToggle(video, hostSettings, forcedVisibility, hasDetections, unprocessed),
+  });
+
   private readonly presentation = new PresentationAdapter({
     dispatch: (handle, event) => this.dispatch(handle, event),
     // Latched per DVR run (set at startDvr); the adaptive estimate only seeds
@@ -151,15 +128,7 @@ class VideoSessionRegistry {
     }
     this.pendingByVideo.get(video)?.cancel();
 
-    const forced = this.forcedByVideo.get(video);
-    if (forced) {
-      if (matchesForcedSource(forced, source)) {
-        this.applyForcedPresentation(video, hostSettings, forced);
-        return;
-      }
-      this.forcedByVideo.delete(video);
-      this.forcedActive.get(video)?.();
-    }
+    if (this.forced.reconcile(video, source, hostSettings)) return;
 
     const existing = this.byVideo.get(video);
     if (existing) {
@@ -272,10 +241,10 @@ class VideoSessionRegistry {
 
   /** Dispose the session bound to this element (source change or removal). */
   dispose(video: HTMLVideoElement): void {
-    // Presentation dies here, but the forcedByVideo override survives on
-    // purpose: it is keyed per (element × source), so re-attaching the same
-    // pair re-enters the forced presentation; a changed source drops it.
-    this.forcedActive.get(video)?.();
+    // Presentation dies here, but the forced override survives on purpose: it
+    // is keyed per (element × source), so re-attaching the same pair re-enters
+    // the forced presentation; a changed source drops it.
+    this.forced.release(video);
     const pending = this.pendingByVideo.get(video);
     pending?.cancel();
     const handle = this.byVideo.get(video);
@@ -287,9 +256,7 @@ class VideoSessionRegistry {
   }
 
   disposeAll(): void {
-    for (const cleanup of [...this.forcedActive.values()]) {
-      cleanup();
-    }
+    this.forced.releaseAll();
     for (const [video, pending] of [...this.pendingByVideo]) {
       pending.cancel();
       clearWholeBlur(video);
@@ -310,8 +277,7 @@ class VideoSessionRegistry {
     if (!settings) return;
 
     if (next === 'auto') {
-      this.forcedByVideo.delete(video);
-      this.forcedActive.get(video)?.();
+      this.forced.clearOverride(video);
       this.dispose(video);
       this.attach(video, settings);
       return;
@@ -319,53 +285,8 @@ class VideoSessionRegistry {
 
     const source = resolveVideoSource(video);
     if (!source) return;
-    const unprocessed = this.forcedByVideo.get(video)?.unprocessed ?? video.hasAttribute(PROCESSED_ATTR_MAP.skipped);
-    this.forcedByVideo.set(video, { srcObject: source.srcObject, url: source.url, state: next, unprocessed });
+    this.forced.setOverride(video, source, next);
     this.attach(video, settings);
-  }
-
-  /**
-   * The extension goes hands-off ('visible') or applies the blacklist-style
-   * mask ('blocked') with no VideoSession behind it. A source-change listener
-   * is the only machinery left running: the override describes this source
-   * only, so a new source re-enters normal attachment.
-   */
-  private applyForcedPresentation(video: HTMLVideoElement, hostSettings: IHostSettings, entry: ForcedEntry): void {
-    const existing = this.byVideo.get(video);
-    if (existing) this.dispatch(existing, { type: 'dispose' });
-    this.forcedActive.get(video)?.();
-
-    clearWholeBlur(video);
-    resetImageStyling(video);
-    if (entry.state === 'blocked') {
-      applyBlacklistStyling(video, hostSettings);
-      video.setAttribute(PROCESSED_ATTR_MAP.unsafe, '');
-    } else {
-      video.setAttribute(PROCESSED_ATTR_MAP.skipped, '');
-    }
-    this.registerToggle(video, hostSettings, entry.state, entry.state === 'blocked', entry.unprocessed);
-
-    const onSourceChanged = () => {
-      const current = resolveVideoSource(video);
-      // A same-source reload passes through a transient no-source moment
-      // ('emptied' before re-selection). Not a source change yet: keep the
-      // override and let the loadstart that resolves a source decide.
-      if (!current) return;
-      const forced = this.forcedByVideo.get(video);
-      if (forced && matchesForcedSource(forced, current)) return;
-      this.forcedByVideo.delete(video);
-      this.forcedActive.get(video)?.();
-      this.attach(video, hostSettings);
-    };
-    video.addEventListener('loadstart', onSourceChanged);
-    video.addEventListener('emptied', onSourceChanged);
-    this.forcedActive.set(video, () => {
-      this.forcedActive.delete(video);
-      video.removeEventListener('loadstart', onSourceChanged);
-      video.removeEventListener('emptied', onSourceChanged);
-      unregisterQuickToggle(video);
-      resetImageStyling(video);
-    });
   }
 
   private registerToggle(
@@ -401,8 +322,6 @@ class VideoSessionRegistry {
       return;
     }
     // Fail closed during the wait: a src-less video still displays its poster.
-    // Attachment re-applies the blur (idempotent); it never lifts here, so the
-    // wait→ATTACHED handoff has no unprotected gap.
     applyWholeBlur(video, hostSettings);
     const entry: PendingAttachment = { hostSettings, cancel: () => {} };
     const onLoadstart = () => {
@@ -434,11 +353,7 @@ class VideoSessionRegistry {
         pending.cancel();
       }
     }
-    for (const [video, cleanup] of [...this.forcedActive]) {
-      if (!video.isConnected) {
-        cleanup();
-      }
-    }
+    this.forced.sweepDisconnected();
   }
 
   private dispatch(handle: SessionHandle, event: SessionEvent): void {
@@ -583,7 +498,6 @@ class VideoSessionRegistry {
     }
   }
 
-  /** Media events feed the machine; a source change re-attaches under the stored settings. */
   private bindMediaEvents(handle: SessionHandle): void {
     const { video } = handle;
     const now = () => performance.now();
@@ -636,7 +550,6 @@ class VideoSessionRegistry {
     if (!video.muted && video.volume > 0) {
       this.dispatch(handle, { type: 'unmuted', at: now() });
     }
-    // A video already playing at attachment goes straight to sampling.
     if (!video.paused && !video.ended) {
       onPlay();
     }
