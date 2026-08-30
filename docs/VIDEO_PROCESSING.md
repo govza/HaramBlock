@@ -121,8 +121,8 @@ Key invariants:
 | Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`                                    | Whole blur, serialized mask overlays, audio route execution, DVR run lifecycle                                                                        |
 | DVR run              | `entrypoints/content/video/dvr/run.ts`                                                        | One DVR run behind five ports: store + presenter + capture drivers, latched D and its growth, budget demand; session-lifetime state in/out via carry  |
 | Discovery            | `entrypoints/content/handlers/handleVideos.ts`                                                | Routes discovered videos: blacklist styling or registry adoption                                                                                      |
-| Frame Sample model   | `entrypoints/content/video/frameSample.ts`                                                    | Separates live routing identity from reusable media-timeline identity                                                                                 |
-| Frame capture        | `entrypoints/content/video/frameCapture.ts`                                                   | Canvas capture, poster extraction, CORS workaround                                                                                                    |
+| Frame Sample model   | `entrypoints/content/video/sampling/sample.ts`                                                | Separates live routing identity from reusable media-timeline identity                                                                                 |
+| Frame capture        | `entrypoints/content/video/sampling/capture.ts`                                               | Canvas capture, poster extraction, CORS workaround                                                                                                    |
 | Transport            | `entrypoints/content/communication/sender.ts`                                                 | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                |
 | Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`                                        | Segmentation mask rendering (paused/standby verdicts)                                                                                                 |
 | DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`                                          | Delayed masked canvas playback (playback verdicts)                                                                                                    |
@@ -198,10 +198,10 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   covers `<source>`-children swaps, MSE attachment, object-backed streams, and
   `removeAttribute('src') + load()` teardowns — the last fires `emptied` but never `loadstart`.
 - **Sampling transport**: a failed capture or send dispatches `sendFailed`, as does an
-  inference-error reply from the background. `frameCapture.ts` distinguishes **permanent** failures
-  (`SecurityError` — the canvas is CORS-tainted and can never be read) from **transient** ones (no
-  frame data yet, zero dimensions): permanent finalizes the session as allow immediately, transient
-  counts consecutive failures toward ERROR. Each capture+send round is capped by
+  inference-error reply from the background. `sampling/capture.ts` distinguishes **permanent**
+  failures (`SecurityError` — the canvas is CORS-tainted and can never be read) from **transient**
+  ones (no frame data yet, zero dimensions): permanent finalizes the session as allow immediately,
+  transient counts consecutive failures toward ERROR. Each capture+send round is capped by
   `CAPTURE_SEND_TIMEOUT_MS` (10 s, `frameSampler.ts`) so a never-settling CORS-clone or poster load
   cannot occupy the in-flight slot forever. Capture stages have shorter internal deadlines as well:
   poster load/bitmap creation, CORS clone load/seek, and frame bitmap creation fail independently. A
@@ -277,7 +277,7 @@ present verdict-less, whole-blurred frames for the rest of the run. Growing D sl
 further behind the live edge (repeating a moment of already-seen video, within the ring horizon); it
 never shrinks, so presentation never jumps forward into content no verdict describes. A genuinely
 covered range still re-derives the small covered D, so it is left alone. Inference sample captures
-are capped at the active model's input size (`frameCapture.ts`, longest side, refreshed on model
+are capped at the active model's input size (`sampling/capture.ts`, longest side, refreshed on model
 switches) so the round-trip itself — and therefore `D` — stays small on HD videos. Frame and mask
 are composited in the same draw, mirroring the GIF player.
 
@@ -311,7 +311,7 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — rVFC alone
   misses frames on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever
   the tap is absent or stalls (media-time liveness window, no explicit health protocol). The intent
-  split: **inference samples stay small** (model-input-sized, ~4 fps, `frameCapture.ts`), while
+  split: **inference samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while
   **presented frames are full video frames at the native rate** when the encoded store carries the
   ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
   codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up

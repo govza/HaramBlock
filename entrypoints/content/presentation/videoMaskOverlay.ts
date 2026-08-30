@@ -8,7 +8,7 @@ import {
   overlayPlacement,
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
-import { ensureCorsSafeSource } from '@/entrypoints/content/video/frameCapture';
+import { ensureCorsSafeSource } from '@/entrypoints/content/video/sampling/capture';
 import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';

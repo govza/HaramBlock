@@ -19,7 +19,7 @@ import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/conten
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
-import { releaseCorsVideoCache } from '@/entrypoints/content/video/frameCapture';
+import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
 import {
   createVideoSession,

@@ -1,4 +1,4 @@
-import { PermanentFrameTransferError, isWriteOnlyCanvasError } from '@/entrypoints/content/video/frameTransfer';
+import { PermanentFrameTransferError, isWriteOnlyCanvasError } from '@/entrypoints/content/video/sampling/transfer';
 
 let compressionCanvas: OffscreenCanvas | null = null;
 let compressionLease: Promise<unknown> = Promise.resolve();

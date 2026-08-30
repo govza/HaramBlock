@@ -4,7 +4,7 @@ import {
   CaptureStageTimeoutError,
   ensureCorsSafeSource,
   waitForVideoFrameAt,
-} from '@/entrypoints/content/video/frameCapture';
+} from '@/entrypoints/content/video/sampling/capture';
 
 class FakeVideo extends EventTarget {
   currentTime = 0;
@@ -47,7 +47,7 @@ describe('leaseDrawingSurface', () => {
       return canvas;
     });
     vi.stubGlobal('document', { createElement });
-    const { leaseDrawingSurface } = await import('@/entrypoints/content/video/frameCapture');
+    const { leaseDrawingSurface } = await import('@/entrypoints/content/video/sampling/capture');
     return { leaseDrawingSurface, createElement, canvases };
   };
 

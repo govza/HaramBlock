@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isWriteOnlyCanvasError } from '@/entrypoints/content/video/frameTransfer';
+import { isWriteOnlyCanvasError } from '@/entrypoints/content/video/sampling/transfer';
 
 describe('isWriteOnlyCanvasError', () => {
   it('recognizes Firefox write-only canvas blob failures', () => {

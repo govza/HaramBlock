@@ -7,12 +7,12 @@
 
 import { cancelVideoSessionInference, requestVideoFrameInference } from '@/entrypoints/content/communication/sender';
 import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
-import { captureFrameBitmap, captureThumbnailBitmap } from '@/entrypoints/content/video/frameCapture';
-import { PermanentFrameTransferError } from '@/entrypoints/content/video/frameTransfer';
+import { captureFrameBitmap, captureThumbnailBitmap } from '@/entrypoints/content/video/sampling/capture';
+import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import { logger } from '@/utils/logger';
 
-import type { CapturedFrameSample, PendingFrameSample } from '@/entrypoints/content/video/frameSample';
+import type { CapturedFrameSample, PendingFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { SessionEvent } from '@/entrypoints/content/video/session/machine';
 
