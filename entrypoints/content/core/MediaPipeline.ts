@@ -8,24 +8,21 @@ import { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 import { DomObserver } from '@/entrypoints/content/core/DomObserver';
 import { ImageProcessor } from '@/entrypoints/content/core/ImageProcessor';
 import { routesVideos, runsVideoInference } from '@/entrypoints/content/core/mediaRouting';
-import {
-  handleVideos,
-  handleVideoAttributeChange,
-  disposeVideoSession,
-} from '@/entrypoints/content/handlers/handleVideos';
-import { videoSessions } from '@/entrypoints/content/video/session/registry';
+import { VideoProcessor } from '@/entrypoints/content/core/VideoProcessor';
 
-import type { FrameInferenceResult, IHostSettings, IImagePrediction } from '@/utils/types';
+import type { IHostSettings, IImagePrediction } from '@/utils/types';
 
 export class MediaPipeline {
   private readonly dom: DomObserver;
   private readonly imageProcessor: ImageProcessor;
+  private readonly videoProcessor: VideoProcessor;
   private readonly badgeCounter: BadgeCounter;
   private unsubscribeFns: Array<() => void> = [];
 
   constructor(private readonly opts: { hostSettings: IHostSettings; videoProcessingAvailable: boolean }) {
     this.badgeCounter = new BadgeCounter();
     this.imageProcessor = new ImageProcessor(opts.hostSettings, this.badgeCounter);
+    this.videoProcessor = new VideoProcessor(opts.hostSettings);
 
     this.dom = new DomObserver({
       onMediaAdded: (images, videos) => this.onMediaAdded(images, videos),
@@ -78,7 +75,7 @@ export class MediaPipeline {
     if (this.shouldRunVideoInference) {
       const unsubFramePreds = onFramePredictions(data => {
         if (data.hostname === this.opts.hostSettings.hostname) {
-          this.handleFrameResults(data.results);
+          this.videoProcessor.handleInferenceResults(data.results);
         }
       });
       this.unsubscribeFns.push(unsubFramePreds);
@@ -98,7 +95,7 @@ export class MediaPipeline {
     this.dom.stop();
     this.imageProcessor.dispose();
     this.badgeCounter.dispose();
-    videoSessions.disposeAll();
+    this.videoProcessor.dispose();
     this.unsubscribeFns.forEach(fn => fn());
     this.unsubscribeFns = [];
   }
@@ -110,7 +107,7 @@ export class MediaPipeline {
       this.imageProcessor.processAll(images);
     }
     if (videos.length && this.shouldProcessVideo) {
-      handleVideos(videos, this.opts.hostSettings);
+      this.videoProcessor.processAll(videos);
     }
   }
 
@@ -123,7 +120,7 @@ export class MediaPipeline {
       // session with nothing left to rediscover it.
       if (el.isConnected) continue;
       if (el.tagName === 'VIDEO') {
-        disposeVideoSession(el as HTMLVideoElement);
+        this.videoProcessor.handleRemoved(el as HTMLVideoElement);
       } else if (el.tagName === 'IMG') {
         this.imageProcessor.handleRemoved(el as HTMLImageElement);
       }
@@ -137,13 +134,8 @@ export class MediaPipeline {
           this.imageProcessor.handleSrcChange(el as HTMLImageElement);
         }
       } else if (el.tagName === 'VIDEO' && this.shouldProcessVideo) {
-        handleVideoAttributeChange(el as HTMLVideoElement, this.opts.hostSettings);
+        this.videoProcessor.handleSrcChange(el as HTMLVideoElement);
       }
     }
-  }
-
-  private handleFrameResults(results: FrameInferenceResult[]): void {
-    if (!results || results.length === 0) return;
-    videoSessions.handleResults(results);
   }
 }
