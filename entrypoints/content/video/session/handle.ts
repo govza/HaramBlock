@@ -8,42 +8,11 @@
  * (presentationAdapter.ts).
  */
 
-import type { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
-import type { DvrCaptureTap } from '@/entrypoints/content/video/dvr/captureTap';
-import type { SessionFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
+import type { DvrRun } from '@/entrypoints/content/video/dvr/run';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { PendingFrameSample } from '@/entrypoints/content/video/frameSample';
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
-
-interface DvrRuntime {
-  store: SessionFrameStore;
-  player: VideoDvrPlayer;
-  /** Throttles buffer captures below the tick rate (rVFC ticks are denser). */
-  lastCapturedMediaTime: number;
-  /** Full-rate captureStream tap; null when the platform lacks it (rVFC captures alone then). */
-  captureTap: DvrCaptureTap | null;
-  /** Media time of the tap's latest delivery: rVFC captures stand down while the tap is live. */
-  lastTapMediaTime: number;
-  /** Reused capture surface: transferToImageBitmap leaves the canvas reusable, so one per DVR run suffices. */
-  captureSurface: OffscreenCanvas | null;
-  /** Frame geometry the ring budget was last told about; 0 until metadata lands. */
-  registeredWidth: number;
-  registeredHeight: number;
-  /** Display-derived capture-width cap last registered; re-registers on a material resize. */
-  registeredCaptureCap: number;
-  /** Store's covered-miss counter at the last per-verdict sync; a diff is a decode stall. */
-  lastCoveredMisses: number;
-  /**
-   * Set by a D raise, cleared at the next sync: the raise moves the target
-   * backward and forces a decoder re-warm whose misses are self-inflicted, so
-   * the next sync swallows its miss delta instead of raising again (the
-   * ratchet would otherwise climb to the ceiling one step per verdict).
-   */
-  stallHoldoff: boolean;
-  /** Consecutive underrun observations this run; dispatches analysisUnderrun at the hysteresis threshold. */
-  underrunStreak: number;
-}
 
 export interface SessionHandle {
   readonly sessionId: string;
@@ -61,11 +30,10 @@ export interface SessionHandle {
   removeListeners: () => void;
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
-  dvr: DvrRuntime | null;
+  /** The live DVR run (dvr/run.ts); null while the DVR is off. All run-local state lives inside it. */
+  dvrRun: DvrRun | null;
   /** Session-lifetime verdict history: survives DVR stop/start, seeks, and loop restarts. */
   readonly timeline: VerdictTimeline;
-  /** Presentation delay latched for the current DVR run; null while the DVR is off. */
-  dvrDelaySec: number | null;
   /** Session-lifetime floor under the derived delay, learned from stall raises:
    *  a store that proved it needs a larger D must not re-limp after every re-warm. */
   dvrStallFloorSec: number;
