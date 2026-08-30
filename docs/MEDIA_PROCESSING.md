@@ -117,7 +117,7 @@ The main orchestrator that combines DOM observation with image/video processing.
 
 - Uses `DomObserver` for DOM change detection
 - Delegates image processing to `ImageProcessor`
-- Handles video processing via `handleVideos`
+- Handles video processing via `VideoProcessor`
 - Subscribes to prediction broadcasts from background
 - Manages cleanup and resource disposal
 - Video sessions additionally suspend outside a 400 px viewport margin (after a 1 s grace period, so

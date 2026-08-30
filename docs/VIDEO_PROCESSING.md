@@ -120,7 +120,7 @@ Key invariants:
 | Viewport suspension  | `entrypoints/content/video/session/viewportSuspension.ts`                                     | IntersectionObserver suspend/resume with grace period                                                                                                 |
 | Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`                                    | Whole blur, serialized mask overlays, audio route execution, DVR run lifecycle                                                                        |
 | DVR run              | `entrypoints/content/video/dvr/run.ts`                                                        | One DVR run behind five ports: store + presenter + capture drivers, latched D and its growth, budget demand; session-lifetime state in/out via carry  |
-| Discovery            | `entrypoints/content/handlers/handleVideos.ts`                                                | Routes discovered videos: blacklist styling or registry adoption                                                                                      |
+| Discovery            | `entrypoints/content/core/VideoProcessor.ts`                                                  | Routes discovered videos: blacklist styling or registry adoption                                                                                      |
 | Frame Sample model   | `entrypoints/content/video/sampling/sample.ts`                                                | Separates live routing identity from reusable media-timeline identity                                                                                 |
 | Frame capture        | `entrypoints/content/video/sampling/capture.ts`                                               | Canvas capture, poster extraction, CORS workaround                                                                                                    |
 | Transport            | `entrypoints/content/communication/sender.ts`                                                 | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                |
@@ -242,7 +242,7 @@ identity attached to the pixels it actually supplies.
 
 ### Discovery
 
-`handleVideos.ts` is intentionally thin:
+`VideoProcessor` (`core/VideoProcessor.ts`) is intentionally thin:
 
 - **Blacklist policy** → blacklist styling only, no inference, no session.
 - **Everything else** → `videoSessions.adopt(video, hostSettings)`. The registry itself waits out

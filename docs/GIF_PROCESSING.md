@@ -22,9 +22,9 @@ Key properties:
 ## Relationship to image processing
 
 GIFs are `<img>` elements, so they share the image lifecycle rather than getting a separate
-processor (contrast videos, which are `<video>` and live in `handlers/handleVideos.ts`).
+processor (contrast videos, which are `<video>` and live in `core/VideoProcessor.ts`).
 
-- `MediaPipeline` routes `<img>` → `ImageProcessor`, `<video>` → `handleVideos`.
+- `MediaPipeline` routes `<img>` → `ImageProcessor`, `<video>` → `VideoProcessor`.
 - Inside `ImageProcessor.process()`, an early branch routes GIF candidates to `processGif()` and
   everything else to the static-image path:
 
