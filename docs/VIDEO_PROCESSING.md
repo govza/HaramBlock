@@ -38,10 +38,12 @@ stop/start, seeks, and loop restarts; live inference writes it today, the shared
 write it tomorrow — readers cannot tell the difference. _Avoid_: verdict track (the old per-DVR-run
 structure)
 
-**Inertia Window**: The cadence-derived span (observed sampling gap + jitter margin) that bounds how
-far past the last verdict a mask or clean verdict still applies during DVR presentation. Between
-verdicts the clean-cut rule governs instead: a mask spans exactly unsafe-sample → next confirmed
-clean verdict. The video analog of GIF mask inertia. _Avoid_: tolerance, slack
+**Bridge Horizon**: How far ahead an upcoming unsafe verdict can be and still merge its mask
+geometry into a frame's cover; further out it contributes no geometry. Between verdicts the
+clean-cut rule governs: a mask spans exactly unsafe-sample → next confirmed clean verdict, and any
+verdict behind covers forward at any distance (clean presents clean, unsafe keeps its own mask). The
+video analog of GIF mask inertia. _Avoid_: tolerance, slack, inertia window (the old cadence-derived
+bound)
 
 ## Overview
 
@@ -343,16 +345,19 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right after) does not cut —
   the mask holds, fail closed. Frames between two unsafe samples composite the union of both
   bounding masks (RLE-decoded once, pixelated content + destination-in) — inertia over the unknown
-  motion in between. Past the last verdict an unsafe mask covers only a short overshoot, and a
-  masked span wider than the bridge horizon whole-blurs instead — that far out the stale geometry no
-  longer describes the scene. There is no fail-open exception for a session the machine already
+  motion in between; an upcoming unsafe verdict beyond the Bridge Horizon contributes no geometry.
+  **Any verdict behind covers forward at any distance** (closest verdict wins): a clean one presents
+  clean (no mask geometry to go stale), an unsafe one keeps masking with its own geometry — masked
+  content beats hiding the whole frame — so a paused frame or a coverage hole after a seek presents
+  instead of whole-blurring. There is no fail-open exception for a session the machine already
   cleared: the clearing verdict there is the Thumbnail, which describes the poster and carries no
   media time, so it must never present playback frames it does not describe — that let Shorts'
-  unsafe first frame show unmasked for a full round-trip. A verdict-less frame always whole-blurs
-  (the cost is a short blur over the pinned frame on a clean video's first play; re-warms into
-  covered ranges present clean immediately). Lookups binary-search the timestamp-ordered timeline
-  and read the bounding neighbors, so per-tick cost stays constant rather than growing with the
-  session. Sampling continues at the live edge throughout.
+  unsafe first frame show unmasked for a full round-trip. Only genuine verdict silence — no verdict
+  behind at all, including frames that precede an upcoming unsafe sample (never pre-rolled) —
+  whole-blurs (the cost is a short blur over the pinned frame on a clean video's first play;
+  re-warms into covered ranges present clean immediately). Lookups binary-search the
+  timestamp-ordered timeline and read the bounding neighbors, so per-tick cost stays constant rather
+  than growing with the session. Sampling continues at the live edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
   permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
@@ -542,9 +547,9 @@ where audio cannot be delayed receive no protection at all.
   discontinuity flush, release), encoded-ring specifics (GOP keyframing, decode-ahead, backpressure
   drops, keyframe re-warm, codec-error teardown), the store factory's selection matrix (probe ×
   concurrency cap × prior error × flag), the VerdictTimeline (window lookup, inertia merging,
-  cadence-derived window, coverage-ahead, entry cap), coverage-derived delay derivation, the
-  budget-derived capture scale, the global ring budget's degradation ladder, the drain clock, and
-  the presented-fps simulation harness parameterized over both stores.
+  coverage-ahead, entry cap), coverage-derived delay derivation, the budget-derived capture scale,
+  the global ring budget's degradation ladder, the drain clock, and the presented-fps simulation
+  harness parameterized over both stores.
 - **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
   the `<source>`-child discovery path, DVR canvas takeover on a clean playing video, and an unsafe
   verdict landing mid-playback compositing into the running DVR without a whole-blur flash.
