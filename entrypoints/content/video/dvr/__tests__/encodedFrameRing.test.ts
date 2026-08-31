@@ -155,6 +155,21 @@ describe('EncodedFrameRing', () => {
     ring.release();
   });
 
+  it('paces the cursor by media-time lag, so a sparse-interval backlog jumps instead of drifting', () => {
+    const { ring } = makeRing(10);
+    const sparse = 0.2;
+    for (let t = 0; t <= 2 + 1e-9; t += sparse) {
+      ring.push(asCaptureFrame(fakeVideoFrame(t)), t);
+    }
+    settledFrameAt(ring, 0.2);
+
+    const frame = ring.frameAt(1.0);
+    expect(frame).not.toBeNull();
+    expect(frame!.mediaTime).toBeGreaterThan(1.0 - 2 * sparse);
+    expect(frame!.mediaTime).toBeLessThanOrEqual(1.0);
+    ring.release();
+  });
+
   it('counts encoded chunks and the decoded lookahead in bytes()', () => {
     const { ring } = makeRing(10);
     fill(ring, 0, 1);

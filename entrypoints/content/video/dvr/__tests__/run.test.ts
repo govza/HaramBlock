@@ -43,6 +43,7 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
   const dispatched: DvrRunEvent[] = [];
   const onDelayChanged = vi.fn();
   let currentTime = 10;
+  let nowMs = 0;
   let tapDeliver: ((frame: VideoFrame, mediaTime: number) => void) | null = null;
   const driverStop = vi.fn();
   const presenter = { startDrain: vi.fn(), destroy: vi.fn() };
@@ -57,7 +58,7 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     events: event => dispatched.push(event),
     onDelayChanged,
     surface: {
-      now: () => 0,
+      now: () => nowMs,
       currentTime: () => currentTime,
       nativeWidth: () => 640,
       nativeHeight: () => 360,
@@ -100,6 +101,9 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     setCurrentTime: (t: number) => {
       currentTime = t;
     },
+    setNow: (ms: number) => {
+      nowMs = ms;
+    },
   };
 }
 
@@ -128,8 +132,20 @@ describe('DvrRun.onTick', () => {
     run.onTick(10.1);
     expect(setLimits.mock.calls.length).toBe(tapCaptures);
 
-    // The tap stalled: the rVFC tick is now far from its last delivery.
     run.onTick(11);
+    expect(setLimits.mock.calls.length).toBeGreaterThan(tapCaptures);
+  });
+
+  it('rVFC captures resume on a wall-stale tap even while the media clock crawls', () => {
+    const store = makeStore();
+    const setLimits = vi.spyOn(store, 'setLimits');
+    const { run, deliverTapFrame, setNow } = makeHarness({ store, withTapDriver: true });
+
+    deliverTapFrame(10);
+    const tapCaptures = setLimits.mock.calls.length;
+
+    setNow(1000);
+    run.onTick(10.1);
     expect(setLimits.mock.calls.length).toBeGreaterThan(tapCaptures);
   });
 
@@ -157,8 +173,6 @@ describe('DvrRun.onVerdict delay growth', () => {
     const { run, onDelayChanged } = makeHarness({ store });
     const latched = run.delaySec;
 
-    // The construction holdoff swallows warm-up priming misses; a fresh delta
-    // on the sync after that is a genuine stall.
     store.misses = 1;
     run.onVerdict();
     store.misses = 2;

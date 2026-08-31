@@ -31,7 +31,7 @@ const DECODE_LOOKAHEAD_FRAMES = 8;
 const DECODE_QUEUE_CAP = 16;
 /** Cursor more than this far behind the target: re-warm from a keyframe instead of grinding. */
 const REWARM_BEHIND_SEC = 2;
-const PACED_ADVANCE_MAX_BACKLOG = 10;
+const PACED_ADVANCE_MAX_LAG_SEC = 0.17;
 const MICROS_PER_SEC = 1_000_000;
 const BYTES_PER_PIXEL = 4;
 
@@ -262,16 +262,14 @@ export class EncodedFrameRing implements DvrFrameStore {
     // keeps "at or before" from skipping that frame for a tick.
     const targetMicros = mediaTime * MICROS_PER_SEC + 1;
 
-    // Decoder outputs arrive in bursts relative to the presenter's read
-    // cadence: jumping straight to the newest eligible frame throws the
-    // burst's middle frames away unseen (~10 presented fps lost at 60 fps).
-    // Advance one frame per read; a backlog past the pacing bound is genuine
-    // lag, so jump.
+    // Advance one frame per read so burst-delivered frames are not skipped; a
+    // backlog past the pacing bound (media time, not a frame count) jumps.
     let eligible = 0;
     while (eligible + 1 < this.decoded.length && this.decoded[eligible + 1]!.timestamp <= targetMicros) {
       eligible++;
     }
-    const advance = eligible > PACED_ADVANCE_MAX_BACKLOG ? eligible : Math.min(eligible, 1);
+    const lagMicros = eligible > 0 ? this.decoded[eligible]!.timestamp - this.decoded[0]!.timestamp : 0;
+    const advance = lagMicros > PACED_ADVANCE_MAX_LAG_SEC * MICROS_PER_SEC ? eligible : Math.min(eligible, 1);
     for (let i = 0; i < advance; i++) {
       this.decoded.shift()!.close();
     }
