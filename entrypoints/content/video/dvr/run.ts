@@ -1,11 +1,3 @@
-/**
- * One DVR run (docs/VIDEO_PROCESSING.md): everything that lives between the
- * machine's startDvr and stopDvr effects — frame store, presenter, capture
- * drivers, latched Presentation Delay D and its growth — behind five ports so
- * the whole run is exercisable with in-memory adapters. Session-lifetime state
- * enters via DvrRunContext and leaves via the carry returned from stop().
- */
-
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
 import { startDvrCaptureTap } from '@/entrypoints/content/video/dvr/captureTap';
@@ -40,6 +32,8 @@ const CAP_REREGISTER_RATIO = 1.25;
 const DECODE_STALL_DELAY_STEP_SEC = 0.25;
 /** A tap can stall silently (muted cross-origin track); rVFC captures resume past this window. */
 const TAP_LIVENESS_WINDOW_SEC = 0.5;
+
+const TAP_LIVENESS_WALL_MS = 500;
 /** Backwards steps smaller than this are currentTime quantization, not a seek. */
 const TAP_KEY_JITTER_SEC = 0.02;
 /** Forward nudge for a quantization-stalled key; must clear the ring's 1 ms jitter tolerance. */
@@ -52,10 +46,8 @@ export interface VideoSurface {
   currentTime(): number;
   nativeWidth(): number;
   nativeHeight(): number;
-  /** Rendered width in device pixels. */
   displayWidth(): number;
   drawSource(): CanvasImageSource;
-  /** Debug marker for the active store path (e2e asserts which ran); null clears it. */
   markStoreKind(kind: DvrStoreKind | null): void;
 }
 
@@ -96,11 +88,9 @@ export interface DvrRunPorts {
   presenter: PresenterPort;
 }
 
-/** Session-lifetime state entering the run; the matching carry leaves via stop(). */
 export interface DvrRunContext {
   readonly sessionId: string;
   readonly timeline: VerdictTimeline;
-  /** Live view — the sampler appends to it while the run is up. */
   readonly latenciesMs: readonly number[];
   readonly stallFloorSec: number;
   readonly encodedIneligible: boolean;
@@ -112,14 +102,10 @@ export interface DvrRunCarry {
 }
 
 export interface DvrRun {
-  /** Latched Presentation Delay D; monotonically non-decreasing for the run's lifetime. */
   readonly delaySec: number;
-  /** Per-settled-verdict housekeeping: let D grow on lag, detect analysis underrun. */
   onVerdict(): void;
-  /** rVFC pull driver; stands down while the push driver is delivering. */
   onTick(mediaTime: number): void;
   drain(): void;
-  /** Idempotent; releases every port claim and returns the updated carry. */
   stop(): DvrRunCarry;
 }
 
@@ -171,12 +157,12 @@ class Run implements DvrRun {
 
   private lastCapturedMediaTime = Number.NEGATIVE_INFINITY;
   private lastTapMediaTime = Number.NEGATIVE_INFINITY;
+  private lastTapWallMs = Number.NEGATIVE_INFINITY;
   private captureSurface: OffscreenCanvas | null = null;
   private registeredWidth: number;
   private registeredHeight: number;
   private registeredCaptureCap: number;
   private lastCoveredMisses = 0;
-  /** Warm-up priming misses are not a stall; counting them would ratchet D on every re-warm. */
   private stallHoldoff = true;
   private underrunStreak = 0;
   private demandEncoded = false;
@@ -186,10 +172,6 @@ class Run implements DvrRun {
     private readonly ctx: DvrRunContext,
   ) {
     const { surface, budget } = ports;
-    // D is derived once per run — the machine re-warms through stopDvr/startDvr
-    // at every discontinuity — then latched, so presentation never jumps
-    // mid-run. Floored by the stall floor: a store that already proved it needs
-    // a larger D must not re-limp through the same raises after every re-warm.
     this.delay = Math.max(
       deriveDvrDelayMs(ctx.latenciesMs, ctx.timeline.coverageAheadOf(surface.currentTime())) / 1000,
       ctx.stallFloorSec,
@@ -231,22 +213,20 @@ class Run implements DvrRun {
     });
 
     this.driver = ports.captureDriver((frame, mediaTime) => {
-      // The push driver can outlive its run by a frame or two (async reader);
-      // a stale delivery must not feed a newer run's ring.
+      // The push driver can outlive its run by a frame or two (async reader).
       if (this.stopped) {
         frame.close();
         return;
       }
-      // currentTime quantizes coarser than a 60 fps frame grid, so consecutive
-      // tap frames can carry the same key: a sub-jitter stall gets a forward
-      // nudge; a genuinely backwards key is a seek and flows through untouched
-      // for the ring's discontinuity flush.
+      // currentTime quantizes coarser than a 60 fps frame grid: an equal key is
+      // nudged forward, a genuinely backwards key is a seek.
       const sinceLastSec = mediaTime - this.lastCapturedMediaTime;
       const key =
         sinceLastSec <= 0 && sinceLastSec > -TAP_KEY_JITTER_SEC
           ? this.lastCapturedMediaTime + TAP_KEY_NUDGE_SEC
           : mediaTime;
-      this.lastTapMediaTime = key;
+      this.lastTapMediaTime = mediaTime;
+      this.lastTapWallMs = this.ports.surface.now();
       this.capture(frame, key);
     });
   }
@@ -257,9 +237,12 @@ class Run implements DvrRun {
 
   onTick(mediaTime: number): void {
     if (this.stopped) return;
-    // Liveness is media-time distance, absolute: a seek must not strand the
-    // fallback on a dead push driver.
-    if (this.driver && Math.abs(mediaTime - this.lastTapMediaTime) < TAP_LIVENESS_WINDOW_SEC) return;
+    // Both clocks: media distance survives seeks, wall-clock catches a tap that
+    // died while the media clock crawls (slow rate, a stall).
+    const tapLive =
+      Math.abs(mediaTime - this.lastTapMediaTime) < TAP_LIVENESS_WINDOW_SEC &&
+      this.ports.surface.now() - this.lastTapWallMs < TAP_LIVENESS_WALL_MS;
+    if (this.driver && tapLive) return;
     this.capture(null, mediaTime);
   }
 
@@ -392,9 +375,8 @@ class Run implements DvrRun {
     const quality = budget.quality();
     const intervalSec =
       this.store.captureMode === 'video-frame' ? quality.encodedCaptureIntervalSec : quality.captureIntervalSec;
-    // The equality guard matters at the native-rate interval (0): Chrome can
-    // report the same currentTime for consecutive tap frames, and a duplicate
-    // key would just be pushed for the store to drop again.
+    // Chrome can report the same currentTime for consecutive tap frames, which
+    // the native-rate interval (0) would otherwise let through.
     if (
       mediaTime === this.lastCapturedMediaTime ||
       (mediaTime - this.lastCapturedMediaTime < intervalSec && mediaTime > this.lastCapturedMediaTime)
