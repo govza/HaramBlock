@@ -7,11 +7,11 @@ import { pipeline } from 'node:stream/promises';
 import { config as baseConfig } from './wdio.conf.js';
 import { ADB_BIN, ADB_DEVICE_SERIAL, ANDROID_HOME, adb, adbOutput, runAdbCleanup } from '../utils/android.js';
 import { getExtensionPath, getGeckoAddonId } from '../utils/extension-path.js';
-import { dismissFenixOnboarding } from '../utils/fenix-onboarding.js';
 
 const ADDON_ID = await getGeckoAddonId();
 const FENIX_PACKAGE = 'org.mozilla.fenix';
 const FENIX_ARCHIVE_BASE = 'https://archive.mozilla.org/pub/fenix/nightly';
+const FENIX_PINNED_BUILD = process.env.FENIX_NIGHTLY_BUILD;
 const DEBUG_CI_MODE = process.argv.includes('--debug');
 export const IS_CI = Boolean(process.env.CI) || DEBUG_CI_MODE;
 const AVD_NAME = process.env.AVD_NAME || 'Pixel_3a_API_34_extension_level_7_x86_64';
@@ -38,6 +38,12 @@ const CLEANUP_BETWEEN_SESSIONS = envFlag(process.env.ANDROID_CLEANUP_BETWEEN_SES
 const { ANDROID_E2E_TAGS } = process.env;
 const DEVICE_EXT_PATH = '/data/local/tmp/haramblock-extension';
 const FENIX_TEST_ROOT = `/storage/emulated/0/Android/data/${FENIX_PACKAGE}/files/test_root`;
+
+const keepDeviceAwake = (): void => {
+  runAdbCleanup(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'], 'wake screen');
+  runAdbCleanup(['shell', 'wm', 'dismiss-keyguard'], 'dismiss keyguard');
+  runAdbCleanup(['shell', 'svc', 'power', 'stayon', 'true'], 'keep screen on');
+};
 
 const cleanupFirefoxRuntime = (reason: string): void => {
   console.warn(`[android] Cleaning Firefox runtime (${reason}).`);
@@ -102,28 +108,7 @@ const getEmulatorArch = (): string => {
   }
 };
 
-/**
- * Download Firefox Nightly APK from archive.mozilla.org.
- * URL structure: /pub/fenix/nightly/{year}/{month}/{timestamp}-fenix-{version}-android-{arch}/fenix-{version}.multi.android-{arch}.apk
- * Caches the APK in node_modules/.cache/firefox-nightly/ to avoid re-downloading.
- */
-const downloadFenixApk = async (arch: string): Promise<string> => {
-  await mkdir(FENIX_CACHE_DIR, { recursive: true });
-
-  // Check for existing cached APK
-  try {
-    const cached = await readdir(FENIX_CACHE_DIR);
-    const existing = cached.find(f => f.includes(arch) && f.endsWith('.apk'));
-    if (existing) {
-      const apkPath = resolve(FENIX_CACHE_DIR, existing);
-      console.warn(`[android] Using cached APK: ${apkPath}`);
-      return apkPath;
-    }
-  } catch {
-    // No cache yet
-  }
-
-  // Navigate the archive: year → month → find latest build dir for our arch
+const findLatestBuildUrl = async (arch: string): Promise<string> => {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -134,8 +119,6 @@ const downloadFenixApk = async (arch: string): Promise<string> => {
   if (!response.ok) throw new Error(`Failed to fetch nightly listing: ${response.status}`);
   const html = await response.text();
 
-  // Find the latest build directory for our arch (entries are chronologically ordered)
-  // href values are absolute paths like "/pub/fenix/nightly/2026/04/{dir}/"
   const dirPattern = new RegExp(`href="([^"]*-android-${arch}/)"`, 'g');
   let lastMatch: RegExpExecArray | null = null;
   let m: RegExpExecArray | null;
@@ -143,11 +126,37 @@ const downloadFenixApk = async (arch: string): Promise<string> => {
   if (!lastMatch) throw new Error(`No nightly build found for ${arch} at ${monthUrl}`);
 
   const buildHref = lastMatch[1];
-  // Use archive base for absolute hrefs, append to monthUrl for relative ones
-  const buildUrl = buildHref.startsWith('/') ? `https://archive.mozilla.org${buildHref}` : `${monthUrl}${buildHref}`;
+  return buildHref.startsWith('/') ? `https://archive.mozilla.org${buildHref}` : `${monthUrl}${buildHref}`;
+};
 
-  // Fetch the build directory to find the APK filename
-  console.warn(`[android] Found latest build: ${buildUrl}`);
+/**
+ * Download the Firefox Nightly APK from archive.mozilla.org — the latest build,
+ * or the one pinned via FENIX_NIGHTLY_BUILD (e.g. "2026/08/2026-08-27-09-45-44-fenix-156.0a1").
+ * URL structure: /pub/fenix/nightly/{year}/{month}/{timestamp}-fenix-{version}-android-{arch}/fenix-{version}.multi.android-{arch}.apk
+ * Caches the APK in node_modules/.cache/firefox-nightly/ to avoid re-downloading.
+ */
+const downloadFenixApk = async (arch: string): Promise<string> => {
+  await mkdir(FENIX_CACHE_DIR, { recursive: true });
+
+  const pinnedVersion = FENIX_PINNED_BUILD?.match(/fenix-([\d.a]+)/)?.[1];
+  try {
+    const cached = await readdir(FENIX_CACHE_DIR);
+    const existing = cached.find(
+      f => f.includes(arch) && f.endsWith('.apk') && (!pinnedVersion || f.includes(pinnedVersion)),
+    );
+    if (existing) {
+      const apkPath = resolve(FENIX_CACHE_DIR, existing);
+      console.warn(`[android] Using cached APK: ${apkPath}`);
+      return apkPath;
+    }
+  } catch {
+    // No cache yet
+  }
+
+  const buildUrl = FENIX_PINNED_BUILD
+    ? `${FENIX_ARCHIVE_BASE}/${FENIX_PINNED_BUILD}-android-${arch}/`
+    : await findLatestBuildUrl(arch);
+  console.warn(`[android] Using build: ${buildUrl}`);
   const buildResponse = await fetch(buildUrl);
   if (!buildResponse.ok) throw new Error(`Failed to fetch build listing: ${buildResponse.status}`);
   const buildHtml = await buildResponse.text();
@@ -234,9 +243,35 @@ const androidCapabilities: WebdriverIO.Capabilities = {
   'moz:firefoxOptions': {
     androidPackage: 'org.mozilla.fenix',
     androidDeviceSerial: ADB_DEVICE_SERIAL,
+    // Fenix's AutomatedLaunch: these launch-intent extras make HomeActivity
+    // finish onboarding in-process and disable CFR/popup interruptions before
+    // the first frame. "performancetest" is the long-standing hook (needs
+    // emulator or USB-plugged + adb); "automationtest" (Fenix >=157,
+    // 2026-08-24) needs only adb enabled.
+    // These REPLACE geckodriver's default intent arguments, so the default
+    // VIEW action/data must be repeated here.
+    androidIntentArguments: [
+      '-a',
+      'android.intent.action.VIEW',
+      '-d',
+      'about:blank',
+      '--ez',
+      'performancetest',
+      'true',
+      '--ez',
+      'automationtest',
+      'true',
+    ],
     prefs: {
       'gfx.webrender.force-disabled': true,
       'layers.acceleration.disabled': true,
+      ...(process.env.ANDROID_CONSOLE_TO_LOGCAT
+        ? {
+            'devtools.console.stdout.content': true,
+            'devtools.console.stdout.chrome': true,
+            'browser.dom.window.dump.enabled': true,
+          }
+        : {}),
     },
   },
 } as WebdriverIO.Capabilities;
@@ -301,11 +336,22 @@ export const config: WebdriverIO.Config = {
     try {
       adb(['root'], { encoding: 'utf-8', stdio: 'pipe' });
       adb(['wait-for-device'], { stdio: 'pipe' });
+      const shellReadyDeadline = Date.now() + 30_000;
+      for (;;) {
+        try {
+          adb(['shell', 'true'], { stdio: 'pipe' });
+          break;
+        } catch (err) {
+          if (Date.now() > shellReadyDeadline) throw err;
+          await new Promise(done => setTimeout(done, 1000));
+        }
+      }
       console.warn('[android] ADB root enabled.');
     } catch {
       console.warn('[android] ADB root not available (expected on production emulator images).');
     }
 
+    keepDeviceAwake();
     cleanupFirefoxSessionState('initial setup');
   },
   beforeSession: () => {
@@ -318,12 +364,9 @@ export const config: WebdriverIO.Config = {
       throw new Error('Firefox extension path not set');
     }
 
-    await dismissFenixOnboarding();
-
-    // The session's initial tab was created behind the onboarding flow and Fenix
-    // never brings it to the foreground, leaving every element non-interactable.
-    // Keep it open: Android geckodriver can return no remaining handles from
-    // closeWindow(), which makes WebdriverIO terminate the entire session.
+    // Keep the session's initial tab open and create a fresh one: Android
+    // geckodriver can return no remaining handles from closeWindow(), which
+    // makes WebdriverIO terminate the entire session.
     const { handle } = await browser.createWindow('tab');
     await browser.switchToWindow(handle);
 
@@ -365,15 +408,26 @@ export const config: WebdriverIO.Config = {
         );
       };
 
+      const landedOnTarget = async (): Promise<boolean> => {
+        const currentUrl = await browser.getUrl().catch(() => '');
+        if (!currentUrl) return false;
+        return currentUrl.startsWith(path) || path.startsWith(currentUrl);
+      };
+
       await waitForNavigation();
 
-      // Verify we actually landed on the target. On Android Firefox, navigation to
-      // moz-extension:// pages from certain contexts can silently no-op; retry once.
-      const currentUrl = await browser.getUrl().catch(() => '');
-      if (!currentUrl.startsWith(path) && !path.startsWith(currentUrl)) {
-        console.warn(`[android] Navigation to ${path} landed on ${currentUrl}; retrying once.`);
+      const MAX_NAVIGATION_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt++) {
+        if (await landedOnTarget()) return;
+        const currentUrl = await browser.getUrl().catch(() => '');
+        console.warn(
+          `[android] Navigation to ${path} landed on ${currentUrl}; recovering (attempt ${attempt}/${MAX_NAVIGATION_ATTEMPTS}).`,
+        );
+        keepDeviceAwake();
         await waitForNavigation();
       }
+      const finalUrl = await browser.getUrl().catch(() => '');
+      throw new Error(`[android] Navigation to ${path} failed; stuck on ${finalUrl}`);
     });
 
     // Install extension via moz/addon/install. Firefox runs on Android so we push

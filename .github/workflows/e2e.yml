@@ -111,13 +111,15 @@ jobs:
       - name: Build Firefox extension
         run: pnpm build:firefox
 
+      - name: Compute daily cache key
+        id: nightly-date
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Firefox Nightly APK
         uses: actions/cache@v5
         with:
           path: node_modules/.cache/firefox-nightly
-          key: fenix-nightly-${{ runner.os }}-x86_64-${{ github.run_id }}
-          restore-keys: |
-            fenix-nightly-${{ runner.os }}-x86_64-
+          key: fenix-nightly-${{ runner.os }}-x86_64-${{ steps.nightly-date.outputs.date }}
 
       - name: Run Android E2E tests
         uses: reactivecircus/android-emulator-runner@v2
