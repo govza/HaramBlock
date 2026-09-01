@@ -1,8 +1,10 @@
-import { logger } from '@/utils/logger';
 import { setRpcContext } from '@/utils/messaging/rpcContext';
+import { getLogger } from '@/utils/telemetry';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
+
+const log = getLogger('CompositeProvideAdapter');
 
 interface MessageSender {
   tab?: { id?: number; url?: string };
@@ -60,12 +62,12 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
         this.messageCallbacks.forEach(callback => callback(enrichedMessage));
       },
     );
-    logger.withTag('CompositeProvideAdapter').debug('Browser runtime listener initialized');
+    log.debug('rpc.runtime_listener_initialized');
   }
 
   private initializeMessageChannel(): void {
     globalThis.addEventListener('message', this.handleGlobalMessage);
-    logger.withTag('CompositeProvideAdapter').debug('MessageChannel listener initialized');
+    log.debug('channel.listener_initialized');
   }
 
   private handleGlobalMessage = (event: Event): void => {
@@ -79,7 +81,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     const port = ports[0];
 
     if (!secret || !port) {
-      logger.withTag('CompositeProvideAdapter').warn('Missing secret or port on PORT_READY');
+      log.warn('channel.port_ready_missing_data');
       return;
     }
 
@@ -93,7 +95,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     };
 
     port.onmessageerror = () => {
-      logger.withTag('CompositeProvideAdapter').error('Port message error, removing:', secret);
+      log.error('channel.port_message_error', { secret });
       this.removePort(secret);
     };
 
@@ -101,7 +103,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     try {
       port.postMessage({ type: 'READY' });
     } catch (error) {
-      logger.withTag('CompositeProvideAdapter').error('Failed to ACK on port:', error);
+      log.error('channel.ack_failed', { error });
     }
   };
 
@@ -132,7 +134,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
   private initializeTabCleanup(): void {
     browser.tabs.onRemoved.addListener(this.releaseTab);
-    logger.withTag('CompositeProvideAdapter').debug('Tab cleanup listener initialized');
+    log.debug('rpc.tab_cleanup_listener_initialized');
   }
 
   /**

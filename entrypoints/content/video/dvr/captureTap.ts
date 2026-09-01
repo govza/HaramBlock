@@ -4,9 +4,9 @@
  * clock, not the media timeline.
  */
 
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
-const log = logger.withTag('dvrCaptureTap');
+const log = getLogger('dvrCaptureTap');
 
 const TAP_BUFFER_FRAMES = 8;
 
@@ -35,7 +35,7 @@ export function startDvrCaptureTap(
   try {
     stream = video.captureStream();
   } catch (error) {
-    log.debug('captureStream unavailable:', error);
+    log.debug('capture_tap.capture_stream.unavailable', { error });
     return null;
   }
   const track = stream.getVideoTracks()[0];
@@ -46,7 +46,7 @@ export function startDvrCaptureTap(
     // whenever the main thread is busy at delivery (~8 fps lost at 60 fps).
     reader = new MediaStreamTrackProcessor({ track, maxBufferSize: TAP_BUFFER_FRAMES }).readable.getReader();
   } catch (error) {
-    log.debug('Capture tap unavailable:', error);
+    log.debug('capture_tap.unavailable', { error });
     track.stop();
     return null;
   }
@@ -62,7 +62,7 @@ export function startDvrCaptureTap(
         onFrame(value, video.currentTime);
       }
     } catch (error) {
-      log.debug('Capture tap ended:', error);
+      log.debug('capture_tap.ended', { error });
     }
   })();
   return {

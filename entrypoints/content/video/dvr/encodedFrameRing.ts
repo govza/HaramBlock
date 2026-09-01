@@ -17,9 +17,9 @@ import {
   type DvrFrameStore,
   type PresentableFrame,
 } from '@/entrypoints/content/video/dvr/frameStore';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
-const log = logger.withTag('encodedFrameRing');
+const log = getLogger('encodedFrameRing');
 
 /** Force a keyframe about once a second: the eviction and warm-start granularity. */
 export const ENCODED_KEYFRAME_INTERVAL_SEC = 1;
@@ -554,7 +554,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     // DOMException stringifies to '[object DOMException]' in some consoles;
     // name/message is the identifiable form.
     const detail = error instanceof DOMException ? `${error.name}: ${error.message}` : error;
-    log.warn('Encoded DVR ring failed; falling back to raw ring:', detail);
+    log.warn('dvr.encoded_ring.failed', { detail });
     this.teardownCodecs();
     this.clearStorage();
     this.onFatalError(error);

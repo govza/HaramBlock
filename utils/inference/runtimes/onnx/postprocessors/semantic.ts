@@ -1,9 +1,11 @@
 import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
-import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
+import { getLogger } from '@/utils/telemetry';
 
 import type { PostprocessContext } from '@/utils/inference/runtimes/onnx/postprocessors/types';
 import type { IElementPrediction } from '@/utils/types';
+
+const log = getLogger('prediction');
 
 interface ClassAccumulator {
   mask: Uint8Array;
@@ -31,7 +33,7 @@ export function processSemanticSegmentation({
 
   const output = results['output0'];
   if (!output) {
-    logger.withTag('prediction').error(`Missing 'output0' tensor. Available: ${Object.keys(results).join(', ')}`);
+    log.error('postprocess.tensor.missing', { tensorName: 'output0', availableTensors: Object.keys(results) });
     return [];
   }
 

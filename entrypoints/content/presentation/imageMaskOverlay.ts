@@ -13,9 +13,9 @@ import {
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
 import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
-import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
+import { getLogger } from '@/utils/telemetry';
 import {
   shouldBlock,
   type IHostSettings,
@@ -26,6 +26,8 @@ import {
 } from '@/utils/types';
 
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
+
+const log = getLogger('imageMaskOverlay');
 
 /**
  * An image the site already blurs at least as strongly as our own pending
@@ -250,7 +252,7 @@ class ImageMaskOverlay implements IMediaOverlay {
   `;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      logger.withTag('maskOverlay').error('Failed to get canvas context');
+      log.error('overlay.canvas_context.failed', { canvas: 'main' });
       throw new Error('Failed to get canvas context');
     }
 
@@ -497,7 +499,7 @@ const renderUnifiedCanvasMask = (
   tmp.height = smallH;
   const tctx = tmp.getContext('2d');
   if (!tctx) {
-    logger.withTag('maskOverlay').error('Failed to get tmp canvas context');
+    log.error('overlay.canvas_context.failed', { canvas: 'tmp' });
     return;
   }
 
@@ -528,7 +530,7 @@ const renderUnifiedCanvasMask = (
   maskGrid.height = gridH;
   const mg = maskGrid.getContext('2d');
   if (!mg) {
-    logger.withTag('maskOverlay').error('Failed to get grid mask context');
+    log.error('overlay.canvas_context.failed', { canvas: 'grid' });
     return;
   }
   mg.clearRect(0, 0, gridW, gridH);
@@ -561,7 +563,7 @@ const renderUnifiedCanvasMask = (
   maskCanvas.height = overlayHeight;
   const maskCtx = maskCanvas.getContext('2d');
   if (!maskCtx) {
-    logger.withTag('maskOverlay').error('Failed to get mask canvas context');
+    log.error('overlay.canvas_context.failed', { canvas: 'mask' });
     return;
   }
   maskCtx.clearRect(0, 0, overlayWidth, overlayHeight);

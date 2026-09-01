@@ -1,5 +1,7 @@
 import { IconService } from '@/entrypoints/background/services/iconService';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('iconEventListener');
 
 /**
  * IconEventListener handles all browser events related to icon and badge updates.
@@ -22,7 +24,7 @@ export class IconEventListener {
       if (changeInfo.url || changeInfo.status === 'complete') {
         if (tab.url) {
           this.iconService.updateIconForUrl(tabId, tab.url).catch(error => {
-            logger.withTag('iconEventListener').error('Error updating icon for tab:', error);
+            log.error('icon.update_for_tab_failed', { tabId, error });
           });
         }
       }
@@ -39,7 +41,7 @@ export class IconEventListener {
           return Promise.resolve();
         })
         .catch(error => {
-          logger.withTag('iconEventListener').error('Error handling tab activation:', error);
+          log.error('icon.tab_activation_failed', { tabId: activeInfo.tabId, error });
         });
     });
 

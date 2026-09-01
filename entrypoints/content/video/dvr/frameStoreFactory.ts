@@ -15,7 +15,7 @@ import {
   type EncodedRingCodecs,
 } from '@/entrypoints/content/video/dvr/encodedFrameRing';
 import { RawFrameRing } from '@/entrypoints/content/video/dvr/rawFrameRing';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type {
   DvrCaptureFrame,
@@ -25,7 +25,7 @@ import type {
   PresentableFrame,
 } from '@/entrypoints/content/video/dvr/frameStore';
 
-const log = logger.withTag('frameStoreFactory');
+const log = getLogger('frameStoreFactory');
 
 /**
  * Conservative cap on concurrent hardware encoder sessions; sessions beyond it
@@ -183,7 +183,7 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
         });
         store.swapTo(encoded, () => slots.release());
       })
-      .catch((error: unknown) => log.debug('Encoded ring probe failed:', error));
+      .catch((error: unknown) => log.debug('dvr.encoded_ring_probe.failed', { error }));
   }
   return store;
 }

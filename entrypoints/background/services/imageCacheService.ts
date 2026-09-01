@@ -1,6 +1,8 @@
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
+
+const log = getLogger('imageCacheService');
 
 /**
  * ImageCacheService handles business logic for image prediction cache
@@ -13,7 +15,7 @@ export class ImageCacheService {
     try {
       this.repository = new ImageCacheRepository();
     } catch {
-      logger.withTag('imageCacheService').error('Failed to initialize ImageCacheRepository');
+      log.error('cache.repository_init_failed');
       throw new Error('Failed to initialize ImageCacheRepository');
     }
   }
@@ -32,7 +34,7 @@ export class ImageCacheService {
 
       await Promise.all(cachePromises);
     } catch (error) {
-      logger.withTag('imageCacheService').error('Error caching predictions:', error);
+      log.error('cache.write_failed', { error });
       throw error;
     }
   }
@@ -62,19 +64,17 @@ export class ImageCacheService {
               const updatedPrediction = this.repository.updateAccessTime(prediction);
               await this.repository.savePrediction(updatedPrediction);
             } catch (error) {
-              logger
-                .withTag('imageCacheService')
-                .warn('Failed to update access time for prediction:', prediction.src, error);
+              log.warn('cache.access_time_update_failed', { src: prediction.src, error });
             }
           }),
         ).catch(error => {
-          logger.withTag('imageCacheService').warn('Background access time update failed:', error);
+          log.warn('cache.access_time_background_update_failed', { error });
         });
       }
 
       return predictionsToReturn;
     } catch (error) {
-      logger.withTag('imageCacheService').error('Error retrieving cached predictions for hostname:', hostname, error);
+      log.error('cache.get_by_hostname_failed', { hostname, error });
       throw error;
     }
   }
@@ -89,7 +89,7 @@ export class ImageCacheService {
       const predictions = await this.repository.findBySrc(src);
       return predictions;
     } catch (error) {
-      logger.withTag('imageCacheService').error('Error retrieving cached prediction by src:', src, error);
+      log.error('cache.get_by_src_failed', { src, error });
       throw error;
     }
   }
@@ -107,7 +107,7 @@ export class ImageCacheService {
       };
       await this.repository.savePrediction(updatedPrediction);
     } catch (error) {
-      logger.withTag('imageCacheService').error('Error updating toggle state:', src, error);
+      log.error('cache.update_toggle_state_failed', { src, error });
       throw error;
     }
   }

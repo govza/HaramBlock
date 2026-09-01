@@ -12,9 +12,9 @@ import {
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
 import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
-import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
+import { getLogger } from '@/utils/telemetry';
 import {
   shouldBlock,
   type IElementPrediction,
@@ -25,6 +25,8 @@ import {
 } from '@/utils/types';
 
 import type { DecodedGifFrame } from '@/entrypoints/content/gif/gifDecoder';
+
+const log = getLogger('gifMaskPlayer');
 
 type GifPrediction = Omit<IGifFramePrediction, 'maskTransform'> & {
   maskTransform?: IMaskTransform;
@@ -110,7 +112,7 @@ class GifMaskPlayer {
     baseCanvas.style.cssText = canvasStyle(imageRect.width, imageRect.height);
     const baseCtx = baseCanvas.getContext('2d');
     if (!baseCtx) {
-      logger.withTag('gifMaskPlayer').error('Failed to get GIF base canvas context');
+      log.error('gif.canvas_context.failed', { canvas: 'base' });
       return;
     }
 
@@ -118,7 +120,7 @@ class GifMaskPlayer {
     maskCanvas.style.cssText = canvasStyle(imageRect.width, imageRect.height);
     const maskCtx = maskCanvas.getContext('2d');
     if (!maskCtx) {
-      logger.withTag('gifMaskPlayer').error('Failed to get GIF mask canvas context');
+      log.error('gif.canvas_context.failed', { canvas: 'mask' });
       return;
     }
 

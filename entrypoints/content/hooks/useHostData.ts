@@ -1,8 +1,10 @@
 import { requestHostData } from '@/entrypoints/content/communication/sender';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
+
+const log = getLogger('useHostData');
 
 /**
  * Unified content script hook for managing both host settings and cached predictions
@@ -28,12 +30,10 @@ export async function useHostData(
     predictions: IImagePrediction[];
   }> => {
     const hostData = await requestHostData(effectiveHostname);
-    logger.withTag('useHostData').debug(
-      'Fetched data: host settings: ',
-      hostData.settings,
-      'cached predictions: ',
-      hostData.predictions.map(pred => pred.src),
-    );
+    log.debug('host_data.fetched', {
+      settings: hostData.settings,
+      predictionSrcs: hostData.predictions.map(pred => pred.src),
+    });
     return hostData;
   };
 

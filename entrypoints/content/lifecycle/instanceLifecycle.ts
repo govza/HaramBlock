@@ -1,6 +1,6 @@
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
-const log = logger.withTag('InstanceLifecycle');
+const log = getLogger('InstanceLifecycle');
 
 export interface InstanceLifecyclePorts {
   /** Distinguishes a dead extension context from a transient transport failure. */
@@ -46,7 +46,7 @@ export class InstanceLifecycle {
   private teardown(reason: string): void {
     if (this.tornDown) return;
     this.tornDown = true;
-    log.warn(`Instance orphaned (${reason}); failing open`);
+    log.warn('instance.orphaned', { reason });
     for (const unsubscribe of this.stopListening) this.runStep(unsubscribe);
     this.stopListening.length = 0;
     this.runStep(() => this.ports.stopPipeline());
@@ -58,7 +58,7 @@ export class InstanceLifecycle {
     try {
       step();
     } catch (error) {
-      log.error('Teardown step failed:', error);
+      log.error('instance.teardown_step.failed', { error });
     }
   }
 }

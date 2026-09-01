@@ -29,14 +29,14 @@ import {
   type VerdictEntry,
   type VerdictTimeline,
 } from '@/entrypoints/content/video/dvr/verdictTimeline';
-import { logger } from '@/utils/logger';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
+import { getLogger } from '@/utils/telemetry';
 
 import type { DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
 import type { IMaskingSettings } from '@/utils/types';
 
-const log = logger.withTag('videoDvrPlayer');
+const log = getLogger('videoDvrPlayer');
 
 /**
  * The verdict-less fallback draws the live element whole-blurred, so per-frame
@@ -159,7 +159,7 @@ export class VideoDvrPlayer {
       if (!this.syncGeometry()) return;
       this.draw();
     } catch (error) {
-      log.error('DVR draw failed:', error);
+      log.error('dvr.draw.failed', { error });
     }
   };
 
@@ -179,7 +179,7 @@ export class VideoDvrPlayer {
       // Unrecoverable (2D context exhaustion): latch off, or every subsequent
       // tick would re-enter here and allocate two canvases per frame. The
       // machine stays in 'warming' under the whole-blur — still fail-closed.
-      log.error('Failed to get DVR canvas context');
+      log.error('dvr.canvas_context.failed');
       this.teardown();
       return;
     }

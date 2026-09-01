@@ -14,13 +14,13 @@ import {
   type SessionFrameStore,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoints/content/video/dvr/ringBudget';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { IMaskingSettings } from '@/utils/types';
 
-const log = logger.withTag('dvrRun');
+const log = getLogger('dvrRun');
 
 /** Ring horizon: the adaptive delay's ceiling plus slack, so a growing D still finds frames. */
 const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
@@ -422,7 +422,7 @@ class Run implements DvrRun {
         } catch (error) {
           // Typically SecurityError on a tainted source: VideoFrame needs
           // readable pixels, which the display-only canvas path does not.
-          log.debug('VideoFrame capture failed; demoting to raw ring:', error);
+          log.debug('dvr.video_frame_capture.failed', { error });
           this.encodedIneligible = true;
           this.store.demoteToRaw();
         }
@@ -457,7 +457,7 @@ class Run implements DvrRun {
       this.lastCapturedMediaTime = mediaTime;
       this.store.push(bitmap, mediaTime);
     } catch (error) {
-      log.debug('DVR buffer capture failed:', error);
+      log.debug('dvr.buffer_capture.failed', { error });
     } finally {
       tapFrame?.close();
     }

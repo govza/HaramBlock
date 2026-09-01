@@ -1,12 +1,14 @@
 import { liveQuery } from 'dexie';
 
 import { hostSettingsDb } from '@/utils/db/db';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { IHostSettings } from '@/utils/types';
 
 type SettingsChangedCallback = (hostname: string) => void;
 const SESSION_STORAGE_PREFIX = 'hostSettings:';
+
+const log = getLogger('hostSettingsObserver');
 
 const areSettingsEqual = (a: IHostSettings, b: IHostSettings): boolean => {
   return (
@@ -58,7 +60,7 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
   observable.subscribe({
     next: detectChanges,
     error: error => {
-      logger.withTag('hostSettingsObserver').error('liveQuery error:', error);
+      log.error('host_settings.live_query_failed', { error });
     },
   });
 
@@ -83,5 +85,5 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
     changedHostnames.forEach(hostname => onSettingsChanged(hostname));
   });
 
-  logger.withTag('hostSettingsObserver').info('Initialized hostSettings observers (Dexie + session storage)');
+  log.info('host_settings.observers_initialized');
 }

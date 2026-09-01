@@ -1,11 +1,13 @@
 import { t } from '@/utils/i18n';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { ForcedVisibility } from '@/utils/types';
 
 type MenuAction = 'block' | 'show' | 'auto';
 
 const MENU_PREFIX = 'haramblock';
+
+const log = getLogger('contextMenuListener');
 
 const ACTION_TO_VISIBILITY: Record<MenuAction, ForcedVisibility> = {
   block: 'blocked',
@@ -18,7 +20,7 @@ export class ContextMenuListener {
 
   initialize(onToggle: (src: string, forcedVisibility: ForcedVisibility) => void): void {
     if (!browser.contextMenus) {
-      logger.withTag('contextMenuListener').debug('contextMenus API not available, skipping');
+      log.debug('context_menu.api_unavailable');
       return;
     }
 
@@ -27,7 +29,7 @@ export class ContextMenuListener {
       this.createMenuItems();
       this.listenForClicks();
     } catch (error) {
-      logger.withTag('contextMenuListener').error('Failed to initialize:', error);
+      log.error('context_menu.init_failed', { error });
     }
   }
 
@@ -58,7 +60,7 @@ export class ContextMenuListener {
       if (!action) return;
 
       if (!this.onToggleCallback) {
-        logger.withTag('contextMenu').error('Toggle callback not set');
+        log.error('context_menu.toggle_callback_missing');
         return;
       }
 

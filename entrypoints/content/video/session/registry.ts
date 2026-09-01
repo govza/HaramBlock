@@ -36,13 +36,13 @@ import {
 } from '@/entrypoints/content/video/session/presentationAdapter';
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
-import { logger } from '@/utils/logger';
 import { generateNonce } from '@/utils/nonce';
+import { getLogger } from '@/utils/telemetry';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { FrameInferenceResult, ForcedVisibility, IFramePrediction, IHostSettings } from '@/utils/types';
 
-const log = logger.withTag('videoSession:registry');
+const log = getLogger('videoSession:registry');
 
 const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   safe: 'safe',
@@ -207,7 +207,7 @@ class VideoSessionRegistry {
       const pred = result.prediction;
       const handle = this.byId.get(pred.sessionId);
       if (!handle) {
-        log.debug('Dropping prediction for unknown session:', pred.sessionId);
+        log.debug('registry.prediction.unknown_session', { sessionId: pred.sessionId });
         continue;
       }
       // A playback frame without a timeline position means the background is
@@ -217,9 +217,7 @@ class VideoSessionRegistry {
       // surface the skew instead of blurring silently forever.
       if (pred.frameIndex >= 0 && typeof pred.timestampSec !== 'number' && !warnedTimestamplessPrediction) {
         warnedTimestamplessPrediction = true;
-        log.error(
-          'Frame prediction arrived without timestampSec — background and content script are from different builds. Reload the extension.',
-        );
+        log.error('registry.prediction.missing_timestamp');
       }
       handle.lastPrediction = pred;
       const unsafe = Boolean(pred.predictions?.length);

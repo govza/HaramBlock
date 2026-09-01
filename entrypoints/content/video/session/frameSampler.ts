@@ -10,13 +10,13 @@ import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/v
 import { captureFrameBitmap, captureThumbnailBitmap } from '@/entrypoints/content/video/sampling/capture';
 import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { CapturedFrameSample, PendingFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { SessionEvent } from '@/entrypoints/content/video/session/machine';
 
-const log = logger.withTag('videoSession:sampler');
+const log = getLogger('videoSession:sampler');
 
 /**
  * Ceiling on one capture+send round. The machine frees the in-flight slot on
@@ -279,8 +279,8 @@ export class FrameSampler {
       this.ports.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
     } catch (error) {
       const permanent = error instanceof PermanentFrameTransferError;
-      if (permanent) log.warn('Frame Sample cannot be serialized for inference:', error);
-      else log.error('Frame Sample capture/send failed:', error);
+      if (permanent) log.warn('sampler.frame_sample.serialize_failed', { error });
+      else log.error('sampler.frame_sample.capture_send_failed', { error });
       handle.pendingSamples.delete(frameIndex);
       this.ports.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now(), permanent });
     }

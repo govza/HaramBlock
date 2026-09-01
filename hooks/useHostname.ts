@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 
 import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 import { extractHostnameFromUrl } from '@/utils/hostnameUtil';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('useHostname');
 
 /**
  * Hook for managing hostname detection
@@ -27,7 +29,7 @@ export function useHostname() {
         }
       } catch (error) {
         setError('Error fetching current tab URL');
-        logger.withTag('useHostname').error('Error fetching current tab URL:', error);
+        log.error('host.tab_url.fetch_failed', { error });
       }
     };
 

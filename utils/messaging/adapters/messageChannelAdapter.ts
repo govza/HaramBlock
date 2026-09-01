@@ -1,8 +1,10 @@
 import { isExtensionContextValid } from '@/utils/extensionContext';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
+
+const log = getLogger('MessageChannelInjectAdapter');
 
 /**
  * MessageChannelAdapter implements comctx Adapter interface using MessageChannel transport.
@@ -43,7 +45,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
   private handleEstablishFailure(): void {
     this.resetState();
     if (isExtensionContextValid()) return;
-    logger.withTag('MessageChannelInjectAdapter').warn('Channel establishment failed: extension context invalidated');
+    log.warn('channel.establish_failed_context_invalidated');
     this.deathCallbacks.forEach(callback => callback());
   }
 
@@ -68,15 +70,15 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
       if (result.type === 'port') {
         this.port = result.port;
         this.isReady = true;
-        logger.withTag('MessageChannelInjectAdapter').debug('Channel established');
+        log.debug('channel.established');
       } else {
         // Timeout - but keep waiting in background (don't discard the promise)
-        logger.withTag('MessageChannelInjectAdapter').warn('Channel timeout, continuing in background...');
+        log.warn('channel.establish_timeout');
         this.channelPromise
           .then(port => {
             this.port = port;
             this.isReady = true;
-            logger.withTag('MessageChannelInjectAdapter').debug('Channel established (late)');
+            log.debug('channel.established_late');
           })
           .catch(() => {
             this.handleEstablishFailure();
@@ -119,7 +121,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     // Wait for service worker to ACK with READY (with timeout)
     const readyReceived = await new Promise<boolean>(resolve => {
       const timeout = setTimeout(() => {
-        logger.withTag('MessageChannelInjectAdapter').error('Timeout waiting for READY ACK from service worker');
+        log.error('channel.ready_ack_timeout');
         resolve(false);
       }, 10000); // 10s timeout for SW ACK
 
@@ -162,7 +164,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     // lazily (not here) avoids a wake/idle keepalive loop while the page is
     // quiet. (No-op on engines without the close event.)
     mc.port1.addEventListener('close', () => {
-      logger.withTag('MessageChannelInjectAdapter').warn('Channel port closed; will re-establish on next send');
+      log.warn('channel.port_closed');
       this.resetState();
     });
 
@@ -184,7 +186,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
         this.port.postMessage(message);
       }
     } catch (error) {
-      logger.withTag('MessageChannelInjectAdapter').error('Failed to send message:', error);
+      log.error('channel.send_failed', { error });
     }
   }
 
@@ -198,7 +200,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
     if (this.isReady && this.port) {
       this.doSend(enrichedMessage, transfer);
     } else {
-      logger.withTag('MessageChannelInjectAdapter').error('Channel not available');
+      log.error('channel.unavailable');
       // The message is lost (callers time out and retry); make sure a channel
       // is being (re-)established for the retry to land on.
       void this.initialize();
@@ -261,7 +263,7 @@ export class MessageChannelInjectAdapter implements Adapter<MessageMeta> {
           return true;
         }
 
-        logger.withTag('MessageChannelInjectAdapter').error('Hard timeout waiting for channel');
+        log.error('channel.hard_timeout');
         return false;
       } catch {
         this.handleEstablishFailure();
