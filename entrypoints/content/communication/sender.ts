@@ -374,7 +374,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
         [ATTR.reqId]: requestIdFor(videoUrl),
         [ATTR.src]: videoUrl,
         [ATTR.priority]: priority,
-        ...(page.spanContext ? { [ATTR.parentTraceId]: page.spanContext.traceId } : {}),
+        ...(page.spanContext ? { [ATTR.sessionTraceId]: page.spanContext.traceId } : {}),
       },
       links: page.spanContext ? [{ context: page.spanContext }] : [],
     },

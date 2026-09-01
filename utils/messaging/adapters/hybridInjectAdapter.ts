@@ -1,11 +1,21 @@
 import { USE_MESSAGE_CHANNEL } from '@/utils/constants';
 import { InjectAdapter, type MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import { MessageChannelInjectAdapter } from '@/utils/messaging/adapters/messageChannelAdapter';
-import { getLogger } from '@/utils/telemetry';
+import { extractTraceparent, getLogger } from '@/utils/telemetry';
 
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 const log = getLogger('HybridInjectAdapter');
+
+function logEnvelope(message: Message<MessageMeta>, transport: 'channel' | 'runtime', transferCount: number): void {
+  const payload = message.args?.[0] as { traceparent?: string } | undefined;
+  const traceparent = typeof payload?.traceparent === 'string' ? payload.traceparent : undefined;
+  log.debug(
+    'rpc.envelope.sent',
+    { method: message.path.join('.'), transport, transferCount, hasTraceparent: traceparent !== undefined },
+    extractTraceparent(traceparent),
+  );
+}
 
 /**
  * HybridInjectAdapter routes RPC calls based on transferable requirements:
@@ -75,10 +85,11 @@ export class HybridInjectAdapter implements Adapter<MessageMeta> {
           throw new Error('MessageChannel not available for transferable data');
         }
       }
-      log.debug('channel.routing', { transferCount: transfer.length });
+      logEnvelope(message, 'channel', transfer.length);
       return channelAdapter.sendMessage(message, transfer);
     }
 
+    logEnvelope(message, 'runtime', 0);
     return this.runtimeAdapter.sendMessage(message, transfer);
   };
 
