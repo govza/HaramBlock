@@ -24,9 +24,6 @@ function styleFor(level: LogLevel): string {
   return `background: ${LEVEL_COLORS[level]}; border-radius: 0.5em; color: white; font-weight: bold; padding: 2px 0.5em;`;
 }
 
-/**
- * Dev-console rendering of one record: `[hb:<scope>] event.name {attrs}`, level-coloured.
- */
 export function printLogRecord(record: TelemetryLogRecord): void {
   const args: unknown[] = [`%c${labelFor(record)}%c ${record.event}`, styleFor(record.level), ''];
   if (Object.keys(record.attributes).length > 0) args.push(record.attributes);

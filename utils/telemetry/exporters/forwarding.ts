@@ -4,11 +4,6 @@ import type { SerializedSpan, TelemetryBatch, TelemetryLogRecord } from '@/utils
 
 export type SendBatch = (batch: TelemetryBatch) => Promise<void>;
 
-/**
- * Buffers records produced outside the background and ships them in one RPC per delay window;
- * the background re-emits them into its own exporters (it is the only context allowed to reach
- * the collector).
- */
 export class TelemetryForwarder {
   private logs: TelemetryLogRecord[] = [];
   private spans: SerializedSpan[] = [];

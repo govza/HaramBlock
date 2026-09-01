@@ -32,9 +32,6 @@ export type AttributeValue = string | number | boolean | string[] | number[] | b
 export type Attributes = Record<string, AttributeValue | undefined>;
 export type LooseAttributes = Record<string, unknown>;
 
-/**
- * FNV-1a over the media URL, so the same image always maps to the same short id in every context.
- */
 export function requestIdFor(src: string): string {
   let hash = 2166136261;
   for (let i = 0; i < src.length; i++) {
@@ -64,10 +61,6 @@ const stringify = (value: unknown): string => {
 const isPrimitive = (value: unknown): value is string | number | boolean =>
   typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 
-/**
- * Coerce arbitrary call-site attributes to the OTel attribute value space: errors expand to
- * error.* keys, plain objects become JSON, undefined is dropped.
- */
 export function sanitizeAttributes(input: LooseAttributes | undefined): Record<string, AttributeValue> {
   const result: Record<string, AttributeValue> = {};
   if (!input) return result;

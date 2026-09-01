@@ -239,7 +239,6 @@ async function sendImageForInference(
  * @param hostname - The hostname for these images
  * @param image - Image element to process
  * @param priority - Queue priority (higher = runs first); use the shared inference priority tiers
- * @param parent - Trace context of the round-trip span this request belongs to
  * @returns Promise that resolves when images are queued
  */
 export async function requestImageInference(

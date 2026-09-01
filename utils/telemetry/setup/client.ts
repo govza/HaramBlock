@@ -13,14 +13,11 @@ import type { TelemetryLogRecord } from '@/utils/telemetry/records';
 
 const isWarnOrAbove = (record: TelemetryLogRecord): boolean => record.level === 'warn' || record.level === 'error';
 
-/**
- * Non-background contexts never talk to the collector themselves: logs and spans are batched
- * and forwarded over RPC. In production only warn+ logs travel (into the background ring);
- * the tracing SDK is not registered, so spans are no-ops.
- */
 export function initClientTelemetry(hbContext: HbContext, send: SendBatch): void {
   setLogContext(hbContext);
   const forwarder = new TelemetryForwarder(hbContext, send);
+
+  if (import.meta.env.DEV) registerLogSink(consoleLogSink);
 
   if (!TELEMETRY_ENABLED) {
     registerLogSink(record => {
@@ -29,7 +26,6 @@ export function initClientTelemetry(hbContext: HbContext, send: SendBatch): void
     return;
   }
 
-  registerLogSink(consoleLogSink);
   registerLogSink(forwarder.pushLog);
 
   const provider = new BasicTracerProvider({

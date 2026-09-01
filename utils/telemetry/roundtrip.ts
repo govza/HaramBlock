@@ -35,6 +35,8 @@ interface ActiveRoundtrip {
   children: Map<string, Span>;
 }
 
+const MAX_ACTIVE_ROUNDTRIPS = 500;
+
 const tracer = getTracer('inference');
 const active = new Map<string, ActiveRoundtrip>();
 let umbrella: UmbrellaSession = { sessionId: 'none' };
@@ -42,11 +44,6 @@ let umbrella: UmbrellaSession = { sessionId: 'none' };
 const isValid = (spanContext: SpanContext | undefined): spanContext is SpanContext =>
   spanContext !== undefined && spanContext.traceId !== '0'.repeat(32);
 
-/**
- * A long-lived umbrella span for the page (images) or a video session; every round-trip links to
- * it and carries its trace id, so a dashboard can group one page's traffic without nesting hundreds
- * of spans under a parent that only ends on unload.
- */
 export function startUmbrellaSession(
   name: string,
   attributes: LooseAttributes = {},
@@ -99,7 +96,15 @@ export function startRoundtrip(key: string, start: RoundtripStart): Context {
   );
   const ctx = contextWithSpan(span);
   active.set(key, { span, ctx, children: new Map() });
+  evictOldestRoundtrips();
   return ctx;
+}
+
+function evictOldestRoundtrips(): void {
+  for (const key of active.keys()) {
+    if (active.size <= MAX_ACTIVE_ROUNDTRIPS) return;
+    cancelRoundtrip(key, 'evicted');
+  }
 }
 
 export function getRoundtripContext(key: string): Context | undefined {
@@ -152,12 +157,12 @@ export function endRoundtrip(key: string, end: RoundtripEnd): void {
   roundtrip.span.end();
 }
 
-export function cancelRoundtrip(key: string): void {
+export function cancelRoundtrip(key: string, status: 'cancelled' | 'evicted' = 'cancelled'): void {
   const roundtrip = active.get(key);
   if (!roundtrip) return;
   active.delete(key);
   for (const child of roundtrip.children.values()) child.end();
-  roundtrip.span.setAttribute(ATTR.status, 'cancelled');
+  roundtrip.span.setAttribute(ATTR.status, status);
   roundtrip.span.end();
 }
 

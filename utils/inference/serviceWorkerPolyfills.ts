@@ -3,6 +3,10 @@
  * This file MUST be imported before any onnxruntime-web imports.
  */
 
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('xhrPolyfill');
+
 // Polyfill window for service worker environment
 // eslint-disable-next-line no-restricted-globals
 if (typeof window === 'undefined') {
@@ -61,23 +65,20 @@ if (typeof XMLHttpRequest === 'undefined') {
       }
 
       this._readyState = 1;
-      // eslint-disable-next-line no-console -- Polyfill runs before logger is available
-      console.debug('[XMLHttpRequest polyfill] open:', this._method, this._url);
+      log.debug('xhr.open', { method: this._method, url: this._url });
     }
 
     send() {
-      // eslint-disable-next-line no-console -- Polyfill runs before logger is available
-      console.debug('[XMLHttpRequest polyfill] send:', this._url, 'responseType:', this._responseType);
+      log.debug('xhr.send', { url: this._url, responseType: this._responseType });
 
       fetch(this._url, { method: this._method })
         .then(async res => {
-          // eslint-disable-next-line no-console -- Polyfill runs before logger is available
-          console.debug('[XMLHttpRequest polyfill] response status:', res.status, 'for', this._url);
+          log.debug('xhr.response', { status: res.status, url: this._url });
           this._status = res.status;
           this._readyState = 4;
 
           if (!res.ok) {
-            console.error('[XMLHttpRequest polyfill] fetch failed:', res.status, res.statusText);
+            log.error('xhr.fetch.failed', { status: res.status, statusText: res.statusText, url: this._url });
             this._response = null;
             this.onerror?.(new Error(`HTTP ${res.status}: ${res.statusText}`));
             return;
@@ -85,19 +86,17 @@ if (typeof XMLHttpRequest === 'undefined') {
 
           if (this._responseType === 'arraybuffer') {
             this._response = await res.arrayBuffer();
-            // eslint-disable-next-line no-console -- Polyfill runs before logger is available
-            console.debug('[XMLHttpRequest polyfill] arraybuffer size:', this._response.byteLength);
+            log.debug('xhr.response.arraybuffer', { bytes: this._response.byteLength });
           } else {
             this._response = await res.text();
-            // eslint-disable-next-line no-console -- Polyfill runs before logger is available
-            console.debug('[XMLHttpRequest polyfill] text length:', this._response.length);
+            log.debug('xhr.response.text', { length: this._response.length });
           }
 
           this.onreadystatechange?.();
           this.onload?.();
         })
         .catch(e => {
-          console.error('[XMLHttpRequest polyfill] fetch error:', e);
+          log.error('xhr.fetch.error', { url: this._url, error: e });
           this._readyState = 4;
           this._status = 0;
           this._response = null;
