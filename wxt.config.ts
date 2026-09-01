@@ -1,9 +1,11 @@
 import tailwindcss from '@tailwindcss/vite';
+import { loadEnv } from 'vite';
 import { defineConfig } from 'wxt';
 
 // eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
+const DEFAULT_OTEL_ENDPOINT = 'http://localhost:4318';
 const NO_GPU = process.env.NO_GPU === 'true' || process.env.NO_GPU === '1';
 const WEBGPU_WARMUP_RUNS = Number.parseInt(process.env.WEBGPU_WARMUP_RUNS ?? '2', 10);
 
@@ -16,12 +18,17 @@ const debugChromiumArgs = [
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
-  vite: () => ({
-    plugins: [toUtf8(), tailwindcss()],
-    define: {
-      __WEBGPU_WARMUP_RUNS__: JSON.stringify(Number.isFinite(WEBGPU_WARMUP_RUNS) ? WEBGPU_WARMUP_RUNS : 2),
-    },
-  }),
+  vite: env => {
+    const otelEndpoint = loadEnv(env.mode, process.cwd(), 'WXT_').WXT_OTEL_ENDPOINT ?? DEFAULT_OTEL_ENDPOINT;
+    return {
+      plugins: [toUtf8(), tailwindcss()],
+      define: {
+        __WEBGPU_WARMUP_RUNS__: JSON.stringify(Number.isFinite(WEBGPU_WARMUP_RUNS) ? WEBGPU_WARMUP_RUNS : 2),
+        __HB_TELEMETRY_ENABLED__: JSON.stringify(env.mode === 'development' && otelEndpoint !== ''),
+        __HB_OTEL_ENDPOINT__: JSON.stringify(otelEndpoint),
+      },
+    };
+  },
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   webExt: {
     chromiumArgs: NO_GPU ? debugChromiumArgs : [],

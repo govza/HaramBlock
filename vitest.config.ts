@@ -9,6 +9,11 @@ export default defineConfig({
     exclude: ['tests/e2e/**', 'node_modules/**'],
   },
 
+  define: {
+    __HB_TELEMETRY_ENABLED__: 'false',
+    __HB_OTEL_ENDPOINT__: JSON.stringify(''),
+  },
+
   plugins: [WxtVitest()],
 
   // If any dependencies rely on webextension-polyfill, add them here to the `ssr.noExternal` option.
