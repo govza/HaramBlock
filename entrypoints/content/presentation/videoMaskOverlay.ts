@@ -9,12 +9,14 @@ import {
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { ensureCorsSafeSource } from '@/entrypoints/content/video/sampling/capture';
-import { logger } from '@/utils/logger';
 import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
+import { getLogger } from '@/utils/telemetry';
 
 import type { IHostSettings, IImagePrediction, IMaskTransform, IMaskingSettings } from '@/utils/types';
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
+
+const log = getLogger('videoMaskOverlay');
 
 /**
  * Manages mask overlays for video elements.
@@ -383,15 +385,15 @@ function renderVideoMask(
   masking: IMaskingSettings,
 ): void {
   if (!allMasks || !allMasks.length) {
-    logger.withTag('videoOverlay').warn('renderVideoMask: No masks provided');
+    log.warn('overlay.render.no_masks');
     return;
   }
   if (overlayWidth <= 0 || overlayHeight <= 0) {
-    logger.withTag('videoOverlay').warn('renderVideoMask: Invalid overlay dimensions');
+    log.warn('overlay.render.invalid_dimensions', { target: 'overlay' });
     return;
   }
   if (contentWidth <= 0 || contentHeight <= 0) {
-    logger.withTag('videoOverlay').warn('renderVideoMask: Invalid content dimensions');
+    log.warn('overlay.render.invalid_dimensions', { target: 'content' });
     return;
   }
 
@@ -411,7 +413,7 @@ function renderVideoMask(
   const elementHeight = posterImage ? posterImage.naturalHeight : video.videoHeight || video.clientHeight;
 
   if (!elementWidth || !elementHeight) {
-    logger.withTag('videoOverlay').warn('No element dimensions available', {
+    log.warn('overlay.render.no_element_dimensions', {
       posterImage: Boolean(posterImage),
       videoWidth: video.videoWidth,
       clientWidth: video.clientWidth,
@@ -423,10 +425,13 @@ function renderVideoMask(
   const smallW = Math.max(1, Math.floor(dWidth / blockSize));
   const smallH = Math.max(1, Math.floor(dHeight / blockSize));
 
-  logger.withTag('videoOverlay').debug('Rendering video mask', {
-    displaySize: { width: dWidth, height: dHeight },
-    elementSize: { width: elementWidth, height: elementHeight },
-    inferenceSize: { width: originalWidth, height: originalHeight },
+  log.debug('overlay.render.video_mask', {
+    displayWidth: dWidth,
+    displayHeight: dHeight,
+    elementWidth,
+    elementHeight,
+    inferenceWidth: originalWidth,
+    inferenceHeight: originalHeight,
     blockSize,
     usingPoster: Boolean(posterImage),
     videoSrc: video.currentSrc || video.src,
@@ -446,7 +451,7 @@ function renderVideoMask(
     // Use the entire natural element dimensions for proper scaling
     tctx.drawImage(sourceElement, 0, 0, elementWidth, elementHeight, 0, 0, smallW, smallH);
   } catch (error) {
-    logger.withTag('videoOverlay').error('Failed to draw source element:', error);
+    log.error('overlay.render.draw_source_element.failed', { error });
     return;
   }
 

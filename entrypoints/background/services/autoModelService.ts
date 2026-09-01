@@ -16,13 +16,13 @@ import {
   onInferenceLatencySample,
   TARGET_P75_MS,
 } from '@/utils/inference/shared/latencyTracker';
-import { logger } from '@/utils/logger';
 import {
   getModelSettings,
   onModelSettingsChange,
   updateAutoModelState,
   type AutoModelState,
 } from '@/utils/modelSettings';
+import { getLogger } from '@/utils/telemetry';
 
 import type { ModelService } from '@/entrypoints/background/services/modelService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
@@ -31,7 +31,7 @@ import type { QueueService } from '@/entrypoints/background/services/queueServic
 // downgrade line, at least this far apart) re-opens evaluation.
 const SLOW_GUARD_MIN_GAP_MS = 10 * 60 * 1000;
 
-const log = logger.withTag('autoModel');
+const log = getLogger('autoModel');
 
 export class AutoModelService {
   private autoEnabled = false;
@@ -74,10 +74,12 @@ export class AutoModelService {
       await this.reconcileOnStartup();
     }
 
-    log.debug(
-      `Initialized: auto=${this.autoEnabled}, settled=${this.settled}, ` +
-        `target p75 ≤ ${TARGET_P75_MS}ms, downgrade > ${DOWNGRADE_ABOVE_MS}ms`,
-    );
+    log.debug('automodel.initialized', {
+      auto: this.autoEnabled,
+      settled: this.settled,
+      targetP75Ms: TARGET_P75_MS,
+      downgradeAboveMs: DOWNGRADE_ABOVE_MS,
+    });
   }
 
   cleanup(): void {
@@ -117,7 +119,7 @@ export class AutoModelService {
     const settleFresh = this.auto.settledAt !== undefined && now - this.auto.settledAt <= MEASUREMENT_TTL_MS;
     this.settled = settleFresh;
     if (this.auto.settledAt !== undefined && !settleFresh) {
-      log.info('Settled state expired, re-evaluating from current selection');
+      log.info('automodel.settled_state_expired');
       await updateAutoModelState({ settledAt: undefined });
     }
 
@@ -149,7 +151,7 @@ export class AutoModelService {
       measured: keepMeasurements ? this.auto.measured : undefined,
     });
 
-    log.info(`Reseeding auto session (${cause}): target ${target} on ${backend}`);
+    log.info('automodel.reseeding', { cause, target, backend });
     if (getCurrentModelId() !== target) {
       this.requestSwitch(target, 'reseed', cause);
     }
@@ -186,7 +188,7 @@ export class AutoModelService {
         this.settled = true;
         await this.recordMeasurement(snapshot.modelId, snapshot.p75Ms);
         await updateAutoModelState({ settledAt: Date.now(), selectedModelId: snapshot.modelId });
-        log.info(`Settled on ${snapshot.modelId}: ${decision.reason}`);
+        log.info('automodel.settled', { modelId: snapshot.modelId, reason: decision.reason });
       } else if (decision.action === 'switch') {
         await this.recordMeasurement(snapshot.modelId, snapshot.p75Ms);
         this.requestSwitch(decision.targetModelId, decision.direction, decision.reason);
@@ -208,7 +210,7 @@ export class AutoModelService {
     const now = Date.now();
     if (this.slowStrikeAt === 0) {
       this.slowStrikeAt = now;
-      log.info(`Slow guard strike 1: p75 ${Math.round(p75Ms)}ms > ${DOWNGRADE_ABOVE_MS}ms on settled model`);
+      log.info('automodel.slow_guard_strike', { p75Ms: Math.round(p75Ms), downgradeAboveMs: DOWNGRADE_ABOVE_MS });
       return;
     }
     if (now - this.slowStrikeAt < SLOW_GUARD_MIN_GAP_MS) return;
@@ -247,7 +249,7 @@ export class AutoModelService {
     if (this.queueService.isIdle()) {
       void this.applyPendingSwitch();
     } else {
-      log.info(`Deferring ${direction} to ${targetModelId} until queue idles (${reason})`);
+      log.info('automodel.switch_deferred', { direction, targetModelId, reason });
     }
   }
 
@@ -258,7 +260,11 @@ export class AutoModelService {
 
     if (getCurrentModelId() === pending.targetModelId) return;
 
-    log.info(`Auto ${pending.direction}: → ${pending.targetModelId} (${pending.reason})`);
+    log.info('automodel.switch_applying', {
+      direction: pending.direction,
+      targetModelId: pending.targetModelId,
+      reason: pending.reason,
+    });
     // Anchor the cooldown on the attempt, not the outcome, so a failing switch is not retried in a
     // tight loop.
     await updateAutoModelState({ lastSwitchAt: Date.now() });
@@ -267,7 +273,7 @@ export class AutoModelService {
       this.sessionSwitchCount += 1;
       await updateAutoModelState({ selectedModelId: pending.targetModelId, backend: getBackend() });
     } catch (error) {
-      log.error(`Auto switch to ${pending.targetModelId} failed:`, error);
+      log.error('automodel.switch_failed', { targetModelId: pending.targetModelId, error });
     }
   }
 }

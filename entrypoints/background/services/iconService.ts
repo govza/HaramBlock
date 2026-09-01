@@ -1,7 +1,9 @@
 import { createHostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { extractHostnameFromUrl } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('iconService');
 
 /**
  * IconService handles browser extension icon and badge updates.
@@ -17,7 +19,7 @@ export class IconService {
       const iconPaths = getIconPaths(hostSettings.policy.behavior);
       await (browser.action ?? browser.browserAction).setIcon({ tabId, path: iconPaths });
     } catch (error) {
-      logger.withTag('iconService').error('Error updating toolbar icon for hostname:', hostname, error);
+      log.error('icon.update_for_hostname_failed', { hostname, error });
     }
   }
 
@@ -33,7 +35,7 @@ export class IconService {
         }
       }
     } catch (error) {
-      logger.withTag('iconService').error('Error updating icon for active tab:', error);
+      log.error('icon.update_for_active_tab_failed', { error });
     }
   }
 
@@ -52,7 +54,7 @@ export class IconService {
       await action.setBadgeText({ tabId, text: count > 0 ? String(count) : '' });
       await action.setBadgeBackgroundColor({ tabId, color: '#666' });
     } catch (error) {
-      logger.withTag('iconService').error('Error updating badge for tab:', error);
+      log.error('icon.update_badge_failed', { tabId, error });
     }
   }
 }

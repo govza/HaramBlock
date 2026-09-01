@@ -4,9 +4,11 @@ import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner'
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { DEFAULT_GLOBAL_KEY } from '@/utils/constants';
 import { t } from '@/utils/i18n';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { IHostSettings } from '@/utils/types';
+
+const log = getLogger('CustomSettings');
 
 export const CustomSettings = () => {
   const { hostSettingsRepository, isLoading } = useHostDataContext();
@@ -55,7 +57,7 @@ export const CustomSettings = () => {
         setAllHosts(sortedHosts);
         setGlobalSettings(globalHost);
       } catch (error) {
-        logger.withTag('CustomSettings').error('Failed to load hosts:', error);
+        log.error('ui.hosts.load_failed', { error });
       }
     };
 
@@ -79,7 +81,7 @@ export const CustomSettings = () => {
         setAllHosts(prev => prev.filter(host => host.hostname !== hostname));
       }
     } catch (error) {
-      logger.withTag('CustomSettings').error('Failed to remove host:', error);
+      log.error('ui.host.remove_failed', { error });
     }
   };
 

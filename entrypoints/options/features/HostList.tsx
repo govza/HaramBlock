@@ -4,9 +4,11 @@ import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner'
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { t } from '@/utils/i18n';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { IHostSettings } from '@/utils/types';
+
+const log = getLogger('HostList');
 
 export const HostList = () => {
   const { hostSettingsRepository, isLoading } = useHostDataContext();
@@ -28,7 +30,7 @@ export const HostList = () => {
         setWhitelistHosts(whitelist);
         setBlacklistHosts(blacklist);
       } catch (error) {
-        logger.withTag('HostList').error('Failed to load hosts:', error);
+        log.error('ui.hosts.load_failed', { error });
       }
     };
 
@@ -56,7 +58,7 @@ export const HostList = () => {
 
       setNewHostname('');
     } catch (error) {
-      logger.withTag('HostList').error('Failed to add host:', error);
+      log.error('ui.host.add_failed', { error });
     } finally {
       setIsSubmitting(false);
     }
@@ -74,7 +76,7 @@ export const HostList = () => {
         setBlacklistHosts(prev => prev.filter(host => host.hostname !== hostname));
       }
     } catch (error) {
-      logger.withTag('HostList').error('Failed to remove host:', error);
+      log.error('ui.host.remove_failed', { error });
     }
   };
 

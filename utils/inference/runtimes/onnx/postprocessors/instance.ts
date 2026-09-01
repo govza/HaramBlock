@@ -1,9 +1,11 @@
 import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
-import { logger } from '@/utils/logger';
 import { encodeMaskRLE } from '@/utils/rle';
+import { getLogger } from '@/utils/telemetry';
 
 import type { PostprocessContext } from '@/utils/inference/runtimes/onnx/postprocessors/types';
 import type { IElementPrediction } from '@/utils/types';
+
+const log = getLogger('prediction');
 
 let maskBuffer: Uint8Array | null = null;
 
@@ -40,9 +42,7 @@ export function processInstanceSegmentation({
   const predictions: IElementPrediction[] = [];
 
   if (!detectionsOutput) {
-    logger
-      .withTag('prediction')
-      .error(`Missing '${detectionsName}' tensor. Available: ${Object.keys(results).join(', ')}`);
+    log.error('postprocess.tensor.missing', { tensorName: detectionsName, availableTensors: Object.keys(results) });
     return predictions;
   }
 

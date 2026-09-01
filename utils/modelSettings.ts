@@ -1,4 +1,6 @@
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('modelSettings');
 
 export type ModelPreference = 'auto' | (string & {});
 
@@ -38,7 +40,10 @@ export const setModelSettings = async (settings: Partial<ModelSettings>): Promis
   const newSettings = { ...current, ...settings };
 
   if (settings.preference && settings.preference !== current.preference) {
-    logger.withTag('modelSettings').info(`Model preference changed: ${current.preference} → ${settings.preference}`);
+    log.info('settings.model_preference.changed', {
+      fromPreference: current.preference,
+      toPreference: settings.preference,
+    });
   }
 
   await browser.storage.local.set({

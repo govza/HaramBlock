@@ -1,11 +1,13 @@
-import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
+import { getLogger } from '@/utils/telemetry';
 import {
   type ForcedVisibility,
   type FrameInferenceResult,
   type GifFrameInferenceResult,
   type ImageInferenceResult,
 } from '@/utils/types';
+
+const log = getLogger('listener');
 
 type ImagePredictionsMessage = { results: ImageInferenceResult[]; hostname: string };
 type FramePredictionsMessage = { results: FrameInferenceResult[]; hostname: string };
@@ -30,7 +32,7 @@ export function onImagePredictions(callback: (data: ImagePredictionsMessage) => 
       }
     })
     .catch(error => {
-      logger.withTag('listener').error('Failed to subscribe to image predictions:', error);
+      log.error('listener.subscribe.image_predictions.failed', { error });
     });
 
   return () => {
@@ -59,7 +61,7 @@ export function onFramePredictions(callback: (data: FramePredictionsMessage) => 
       }
     })
     .catch(error => {
-      logger.withTag('listener').error('Failed to subscribe to frame predictions:', error);
+      log.error('listener.subscribe.frame_predictions.failed', { error });
     });
 
   return () => {
@@ -88,7 +90,7 @@ export function onGifFramePredictions(callback: (data: GifFramePredictionsMessag
       }
     })
     .catch(error => {
-      logger.withTag('listener').error('Failed to subscribe to GIF frame predictions:', error);
+      log.error('listener.subscribe.gif_frame_predictions.failed', { error });
     });
 
   return () => {
@@ -117,7 +119,7 @@ export function onContextMenuToggle(callback: (data: ContextMenuToggleMessage) =
       }
     })
     .catch(error => {
-      logger.withTag('listener').error('Failed to subscribe to context menu toggle:', error);
+      log.error('listener.subscribe.context_menu_toggle.failed', { error });
     });
 
   return () => {

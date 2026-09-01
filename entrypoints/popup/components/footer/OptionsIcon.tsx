@@ -1,10 +1,12 @@
 import { t } from '@/utils/i18n';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('OptionsIcon');
 
 export const OptionsIcon = () => {
   const handleClick = () => {
     void browser.runtime.openOptionsPage().catch(error => {
-      logger.error('Failed to open options page:', error);
+      log.error('ui.options_page.open_failed', { error });
     });
   };
   return (

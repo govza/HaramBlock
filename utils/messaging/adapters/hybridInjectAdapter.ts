@@ -1,9 +1,11 @@
 import { USE_MESSAGE_CHANNEL } from '@/utils/constants';
-import { logger } from '@/utils/logger';
 import { InjectAdapter, type MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import { MessageChannelInjectAdapter } from '@/utils/messaging/adapters/messageChannelAdapter';
+import { getLogger } from '@/utils/telemetry';
 
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
+
+const log = getLogger('HybridInjectAdapter');
 
 /**
  * HybridInjectAdapter routes RPC calls based on transferable requirements:
@@ -66,14 +68,14 @@ export class HybridInjectAdapter implements Adapter<MessageMeta> {
 
     if (USE_MESSAGE_CHANNEL && hasTransferables && channelAdapter) {
       if (!channelAdapter.isAvailable()) {
-        logger.withTag('HybridInjectAdapter').debug('Waiting for MessageChannel to be ready...');
+        log.debug('channel.waiting_for_ready');
         const ready = await channelAdapter.waitForReady();
         if (!ready) {
-          logger.withTag('HybridInjectAdapter').error('MessageChannel not available, cannot send transferables');
+          log.error('channel.unavailable_for_transferables');
           throw new Error('MessageChannel not available for transferable data');
         }
       }
-      logger.withTag('HybridInjectAdapter').debug(`Routing via MessageChannel (${transfer.length} transferables)`);
+      log.debug('channel.routing', { transferCount: transfer.length });
       return channelAdapter.sendMessage(message, transfer);
     }
 

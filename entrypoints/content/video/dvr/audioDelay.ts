@@ -15,9 +15,9 @@
  */
 
 import { MAX_DVR_DELAY_MS } from '@/entrypoints/content/video/dvr/delay';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
-const log = logger.withTag('audioDelay');
+const log = getLogger('audioDelay');
 
 /** Smoothing for delay adjustments; jumps click, ramps briefly resample. */
 const DELAY_RAMP_TIME_CONSTANT_SEC = 0.3;
@@ -126,7 +126,7 @@ async function doEngage(
       // The site already captured this element into its own graph; its audio
       // routing is not ours to change. Never retry.
       entries.set(video, null);
-      log.debug('Cannot capture element audio (already captured?):', error);
+      log.debug('audio_delay.capture.failed', { error });
       return 'unavailable';
     }
   }
@@ -141,7 +141,7 @@ async function doEngage(
   entry.source.disconnect();
   entry.source.connect(delay);
   entry.delay = delay;
-  log.debug('Audio delayed by', delaySec, 's');
+  log.debug('audio_delay.engaged', { delaySec });
   return 'engaged';
 }
 

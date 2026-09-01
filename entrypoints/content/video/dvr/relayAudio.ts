@@ -13,9 +13,9 @@
  * of the page element's audio output.
  */
 
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
-const log = logger.withTag('relayAudio');
+const log = getLogger('relayAudio');
 
 /** Beyond this drift the element seeks; below it playbackRate nudges catch up. */
 const HARD_RESYNC_DRIFT_SEC = 0.25;
@@ -227,7 +227,7 @@ async function doEngage(
 
   entries.set(video, entry);
   sync(video, entry);
-  log.debug('Relay Audio engaged (direct URL)');
+  log.debug('relay_audio.engaged');
   return 'engaged';
 }
 
@@ -274,7 +274,7 @@ export function drainRelayAudio(video: HTMLVideoElement): void {
   const { audio } = entry;
   audio.playbackRate = video.playbackRate;
   if (audio.paused) {
-    audio.play().catch((error: unknown) => log.debug('Relay Audio drain play rejected:', error));
+    audio.play().catch((error: unknown) => log.debug('relay_audio.drain_play.rejected', { error }));
   }
   entry.drainTimer = setTimeout(() => audio.pause(), entry.getDelaySec() * 1000);
 }
@@ -316,6 +316,6 @@ function sync(video: HTMLVideoElement, entry: RelayAudioEntry): void {
   }
   if (audio.paused) {
     // Rejections are rare (unmuted starts follow a user-gesture unmute) and retried here.
-    audio.play().catch((error: unknown) => log.debug('Relay Audio play rejected:', error));
+    audio.play().catch((error: unknown) => log.debug('relay_audio.play.rejected', { error }));
   }
 }

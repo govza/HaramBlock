@@ -1,4 +1,6 @@
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('mediaFetch');
 
 /** Dedicated media-download cap, decoupled from the DVR ring budget (ADR 0002). */
 export const MEDIA_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024;
@@ -21,7 +23,7 @@ export class MediaFetchService {
 
     const request = this.fetchWithinCap(url)
       .catch((error: unknown) => {
-        logger.withTag('mediaFetch').debug('Relay Fetch failed:', url, error);
+        log.debug('media_fetch.failed', { url, error });
         return null;
       })
       .finally(() => this.inflight.delete(url));
@@ -36,13 +38,13 @@ export class MediaFetchService {
     try {
       const response = await fetch(url, { credentials: 'omit', signal: controller.signal });
       if (!response.ok || !response.body) {
-        logger.withTag('mediaFetch').debug('Relay Fetch rejected:', url, response.status);
+        log.debug('media_fetch.rejected', { url, status: response.status });
         return null;
       }
 
       const declaredLength = Number(response.headers.get('content-length'));
       if (declaredLength > cap) {
-        logger.withTag('mediaFetch').debug('Relay Fetch over budget:', url, declaredLength, '>', cap);
+        log.debug('media_fetch.over_budget', { url, declaredLength, cap });
         await response.body.cancel();
         return null;
       }
@@ -55,7 +57,7 @@ export class MediaFetchService {
         if (done) break;
         total += value.byteLength;
         if (total > cap) {
-          logger.withTag('mediaFetch').debug('Relay Fetch aborted mid-stream over budget:', url, total, '>', cap);
+          log.debug('media_fetch.aborted_over_budget', { url, total, cap });
           await reader.cancel();
           return null;
         }

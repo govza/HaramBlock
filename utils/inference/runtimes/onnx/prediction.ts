@@ -5,10 +5,13 @@ import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
 import { acquireModelRuntime, getBackend, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
 import { getPostprocessor, type TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
 import type { InferenceTask } from '@/utils/types/model';
+
+const log = getLogger('prediction');
+const profilerLog = getLogger('profiler');
 
 /** One slot of a batched run: either a prediction or the error that isolated this image. */
 export interface BatchItemResult {
@@ -174,7 +177,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
       try {
         return { index, image: await prepareImage(task) };
       } catch (error) {
-        logger.withTag('prediction').error(`Failed to prepare image for ${task.imageSrc}:`, error);
+        log.error('prediction.image.prepare_failed', { src: task.imageSrc, error });
         results[index] = { error: error instanceof Error ? error : new Error(String(error)) };
         return { index, image: null };
       }
@@ -235,7 +238,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
             ),
           };
         } catch (error) {
-          logger.withTag('prediction').error(`Postprocess failed for ${item.image.task.imageSrc}:`, error);
+          log.error('prediction.postprocess.failed', { src: item.image.task.imageSrc, error });
           results[item.index] = { error: error instanceof Error ? error : new Error(String(error)) };
         }
       });
@@ -246,17 +249,17 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
       }
 
       if (import.meta.env.DEV) {
-        logger
-          .withTag('profiler')
-          .info(
-            `batch=${ready.length} session.run: ${runTime.toFixed(1)}ms (${(runTime / ready.length).toFixed(1)}ms/img)`,
-          );
+        profilerLog.info('profiler.batch.session_run', {
+          batchSize: ready.length,
+          durationMs: Math.round(runTime),
+          perImageMs: Math.round(runTime / ready.length),
+        });
       }
     } finally {
       runtime.release();
     }
   } catch (error) {
-    logger.withTag('prediction').error('Batched inference failed:', error);
+    log.error('prediction.batch.failed', { error });
     const err = error instanceof Error ? error : new Error(String(error));
     ready.forEach(item => {
       results[item.index] ??= { error: err };

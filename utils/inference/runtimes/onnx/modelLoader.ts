@@ -15,11 +15,14 @@ import {
   MODEL_PATHS,
   type ModelDefinition,
 } from '@/utils/inference/shared/modelRegistry';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { ModelMetadata } from '@/utils/types';
 
 declare const __WEBGPU_WARMUP_RUNS__: number;
+
+const log = getLogger('modelLoader');
+const profilerLog = getLogger('profiler');
 
 // Configure ONNX Runtime for service worker environment
 // - numThreads=1: Single-threaded (SharedArrayBuffer not available in service workers)
@@ -91,7 +94,7 @@ function getWarmupRuns(): number {
 
 function getBackendPreference(): Backend[] {
   if (!('gpu' in navigator)) {
-    logger.withTag('modelLoader').info('WebGPU API unavailable, using WASM backend');
+    log.info('model.backend.webgpu_unavailable');
     return ['wasm'];
   }
 
@@ -241,13 +244,13 @@ async function warmupModel(sessionToWarm: ort.InferenceSession, modelConfig: Mod
     if (import.meta.env.DEV) {
       warmupTimes.forEach((time, index) => {
         const label = getWarmupLabel(index);
-        logger.withTag('profiler').info(`Warmup ${index + 1} (${label}): ${time.toFixed(1)}ms`);
+        profilerLog.info('profiler.warmup.run', { index: index + 1, label, durationMs: Math.round(time) });
       });
     }
 
-    logger.withTag('modelLoader').info('Model warmup completed');
+    log.info('model.warmup.completed');
   } catch (error) {
-    logger.withTag('modelLoader').error('Error during model warmup:', error);
+    log.error('model.warmup.failed', { error });
   }
 }
 
@@ -272,13 +275,13 @@ export async function initializeModel(modelId?: string): Promise<void> {
     const metadata = await fetchMetadata(modelDef.basePath);
     config = createConfigFromMetadata(metadata, DEFAULT_CONFIG);
     currentModelId = targetModelId;
-    logger
-      .withTag('modelLoader')
-      .info(
-        `Metadata loaded for ${modelDef.name}: ${Object.keys(config.names).length} classes, input shape: ${config.imgsz.join('x')}`,
-      );
+    log.info('model.metadata.loaded', {
+      modelName: modelDef.name,
+      classCount: Object.keys(config.names).length,
+      inputShape: config.imgsz.join('x'),
+    });
   } catch (error) {
-    logger.withTag('modelLoader').error('Failed to load metadata:', error);
+    log.error('model.metadata.load_failed', { error });
     throw error;
   }
 
@@ -286,27 +289,27 @@ export async function initializeModel(modelId?: string): Promise<void> {
     const initT0 = performance.now();
 
     // Pre-load WASM binary before creating session (WebGPU needs WASM for some operations)
-    logger.withTag('modelLoader').info('Pre-loading WASM binary...');
+    log.info('model.wasm.preloading');
     const wasmBinary = await preloadWasmBinary();
     ort.env.wasm.wasmBinary = wasmBinary;
-    logger.withTag('modelLoader').info(`WASM binary loaded: ${wasmBinary.byteLength} bytes`);
+    log.info('model.wasm.loaded', { byteLength: wasmBinary.byteLength });
 
     const { session: loadedSession, config: loadedConfig } = await loadModel();
     await warmupModel(loadedSession, loadedConfig);
 
     if (import.meta.env.DEV) {
-      logger.withTag('profiler').info(`Total init E2E: ${(performance.now() - initT0).toFixed(1)}ms`);
+      profilerLog.info('profiler.model.init_completed', { durationMs: Math.round(performance.now() - initT0) });
     }
 
-    logger
-      .withTag('modelLoader')
-      .info(
-        `ONNX model loaded and ready for inference: ${currentModelId} (${modelDef.name}, ${cachedBackend.toUpperCase()})`,
-      );
+    log.info('model.init.completed', {
+      modelId: currentModelId,
+      modelName: modelDef.name,
+      backend: cachedBackend.toUpperCase(),
+    });
   } catch (error) {
     currentModelId = previousModelId;
     config = previousConfig;
-    logger.withTag('modelLoader').error('Failed to load ONNX model:', error);
+    log.error('model.load.failed', { error });
     throw error;
   }
 }
@@ -342,9 +345,9 @@ export async function loadModel(): Promise<ModelRuntime> {
 
     for (const backend of backends) {
       try {
-        logger.withTag('modelLoader').info(`Loading ${modelDef.name} with ${backend.toUpperCase()} backend...`);
+        log.info('model.backend.loading', { modelName: modelDef.name, backend: backend.toUpperCase() });
         if (import.meta.env.DEV && backend === 'webgpu') {
-          logger.withTag('profiler').info(`WebGPU warmups: ${getWarmupRuns()}`);
+          profilerLog.info('profiler.webgpu.warmup_runs', { warmupRuns: getWarmupRuns() });
         }
 
         const sessionT0 = performance.now();
@@ -357,15 +360,16 @@ export async function loadModel(): Promise<ModelRuntime> {
           sessionModelId = targetModelId;
           cachedBackend = backend;
           if (import.meta.env.DEV) {
-            logger
-              .withTag('profiler')
-              .info(`Session creation (${backend}): ${(performance.now() - sessionT0).toFixed(1)}ms`);
+            profilerLog.info('profiler.session.created', {
+              backend,
+              durationMs: Math.round(performance.now() - sessionT0),
+            });
           }
-          logger.withTag('modelLoader').info(`Model loaded successfully with ${backend.toUpperCase()}`);
+          log.info('model.load.succeeded', { backend: backend.toUpperCase() });
           return { session, config: targetConfig, modelId: targetModelId, backend };
         }
       } catch (error) {
-        logger.withTag('modelLoader').warn(`Failed to load model with ${backend.toUpperCase()}:`, error);
+        log.warn('model.backend.load_failed', { backend: backend.toUpperCase(), error });
         if (backend === backends[backends.length - 1]) {
           throw error; // No more fallbacks
         }
@@ -407,7 +411,7 @@ export function getAvailableModels(): ModelDefinition[] {
 
 export async function switchModel(modelId: string): Promise<void> {
   if (modelId === currentModelId && session !== null) {
-    logger.withTag('modelLoader').info(`Model ${modelId} is already loaded`);
+    log.info('model.switch.already_loaded', { modelId });
     return;
   }
 
@@ -416,12 +420,12 @@ export async function switchModel(modelId: string): Promise<void> {
   }
 
   if (modelId === currentModelId && session !== null) {
-    logger.withTag('modelLoader').info(`Model ${modelId} is already loaded`);
+    log.info('model.switch.already_loaded', { modelId });
     return;
   }
 
   const previousModelId = currentModelId;
-  logger.withTag('modelLoader').info(`Switching model from ${previousModelId} to ${modelId}...`);
+  log.info('model.switch.started', { fromModelId: previousModelId, toModelId: modelId });
 
   switchPromise = (async () => {
     await waitForRuntimeLeasesToDrain();
@@ -439,7 +443,7 @@ export async function switchModel(modelId: string): Promise<void> {
     switchPromise = null;
   }
 
-  logger.withTag('modelLoader').info(`Successfully switched to model ${modelId}`);
+  log.info('model.switch.completed', { modelId });
 }
 
 export { ort };
@@ -459,6 +463,6 @@ export async function cleanup(): Promise<void> {
       sessionModelId = null;
     }
   } catch (error) {
-    logger.withTag('modelLoader').error('Error during model cleanup:', error);
+    log.error('model.cleanup.failed', { error });
   }
 }

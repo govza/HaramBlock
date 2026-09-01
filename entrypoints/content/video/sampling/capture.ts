@@ -1,6 +1,8 @@
-import { logger } from '@/utils/logger';
 import { backgroundRpc } from '@/utils/messaging/content';
 import { onModelSettingsChange } from '@/utils/modelSettings';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('videoSamplingCapture');
 
 // Cache CORS videos per original video element to avoid re-creating on every frame
 // Stores either the cached CORS video or null if CORS failed (to avoid retrying).
@@ -66,16 +68,14 @@ export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<C
         return { bitmap: posterBitmap };
       }
     } catch (error) {
-      logger
-        .withTag('videoSamplingCapture')
-        .debug('Failed to extract poster image, falling back to video frame:', error);
+      log.debug('capture.thumbnail.poster_extract.failed', { error });
     }
   }
 
   // Fail closed: below HAVE_CURRENT_DATA drawImage silently draws nothing, and a
   // transparent capture would be verdicted "safe" for content nobody analyzed.
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-    logger.withTag('videoSamplingCapture').debug('No current frame data, cannot extract thumbnail');
+    log.debug('capture.thumbnail.no_frame_data');
     return { failure: 'transient' };
   }
 
@@ -84,7 +84,7 @@ export async function captureThumbnailBitmap(video: HTMLVideoElement): Promise<C
 
 export async function captureFrameBitmap(video: HTMLVideoElement, timestampSec: number): Promise<CaptureResult> {
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-    logger.withTag('videoSamplingCapture').debug('Skipping frame capture, no current frame data');
+    log.debug('capture.frame.no_frame_data');
     return { failure: 'transient' };
   }
 
@@ -112,9 +112,7 @@ async function refreshInferenceCaptureSize(): Promise<void> {
     const size = models.find(model => model.id === modelId)?.inputSize;
     if (size) inferenceCaptureSize = size;
   } catch (error) {
-    logger
-      .withTag('videoSamplingCapture')
-      .debug('Could not resolve model input size, keeping', inferenceCaptureSize, error);
+    log.debug('capture.model_input_size.resolve_failed', { inferenceCaptureSize, error });
   }
 }
 
@@ -130,7 +128,7 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
   trackInferenceCaptureSize();
   const { width, height } = captureDimensions(video, inferenceCaptureSize);
   if (width === 0 || height === 0) {
-    logger.withTag('videoSamplingCapture').warn('Video has zero dimensions, cannot capture frame');
+    log.warn('capture.frame.zero_dimensions');
     return { failure: 'transient' };
   }
 
@@ -139,7 +137,7 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
   const sourceVideo = await ensureCorsSafeSource(video, timestampSec);
   return leaseDrawingSurface(width, height, async ({ ctx, canvas }) => {
     if (!ctx) {
-      logger.withTag('videoSamplingCapture').warn('Could not get 2D context for frame capture');
+      log.warn('capture.frame.context_unavailable');
       return { failure: 'transient' };
     }
     ctx.drawImage(sourceVideo, 0, 0, width, height);
@@ -150,7 +148,7 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
       ctx.getImageData(0, 0, 1, 1);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
-        logger.withTag('videoSamplingCapture').warn('Canvas tainted by cross-origin video, cannot capture');
+        log.warn('capture.frame.canvas_tainted');
         return { failure: 'permanent' };
       }
       throw error;
@@ -167,7 +165,7 @@ async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Pro
       };
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
-        logger.withTag('videoSamplingCapture').warn('Cannot create bitmap from cross-origin video canvas');
+        log.warn('capture.frame.bitmap_cross_origin_failed');
         return { failure: 'permanent' };
       }
       throw error;
@@ -190,7 +188,7 @@ export async function ensureCorsSafeSource(
   if (cached) {
     // Invalidate cache if source changed
     if (cached.src !== actualSrc) {
-      logger.withTag('videoSamplingCapture').debug('CORS video cache invalidated (src changed)');
+      log.debug('capture.cors_cache.invalidated');
       disposeCloneEntry(cached);
       corsVideoCache.delete(video);
     } else if (cached.corsVideo === null) {
@@ -234,10 +232,10 @@ async function createTieredClone(
   timestampSec: number,
 ): Promise<HTMLVideoElement> {
   // Tier 2: CORS clone (rare path - server supports CORS but page forgot crossOrigin attr)
-  logger.withTag('videoSamplingCapture').debug('Attempting CORS video workaround for:', actualSrc);
+  log.debug('capture.cors_workaround.attempt', { src: actualSrc });
   try {
     const corsVideo = await createCloneVideo(video, actualSrc, timestampSec, { crossOrigin: true });
-    logger.withTag('videoSamplingCapture').info('CORS video workaround succeeded');
+    log.info('capture.cors_workaround.succeeded');
     corsVideoCache.set(video, { corsVideo, src: actualSrc });
     return corsVideo;
   } catch (error) {
@@ -246,7 +244,7 @@ async function createTieredClone(
       // permanently unsupported. Leave the cache empty so a later sample can retry.
       throw error;
     }
-    logger.withTag('videoSamplingCapture').debug('CORS video workaround failed (expected for most videos):', error);
+    log.debug('capture.cors_workaround.failed', { error });
   }
 
   // Tier 3: Relay Fetch - the background fetches the bytes CORS-exempt and the
@@ -258,7 +256,7 @@ async function createTieredClone(
   }
   try {
     const relayVideo = await createCloneVideo(video, blobUrl, timestampSec, { crossOrigin: false });
-    logger.withTag('videoSamplingCapture').info('Relay Fetch workaround succeeded');
+    log.info('capture.relay_fetch_workaround.succeeded');
     corsVideoCache.set(video, { corsVideo: relayVideo, src: actualSrc, blobUrl });
     return relayVideo;
   } catch (error) {
@@ -266,7 +264,7 @@ async function createTieredClone(
     if (error instanceof CaptureStageTimeoutError) {
       throw error;
     }
-    logger.withTag('videoSamplingCapture').debug('Relay Fetch clone failed:', error);
+    log.debug('capture.relay_fetch_clone.failed', { error });
     corsVideoCache.set(video, { corsVideo: null, src: actualSrc });
     return video;
   }
@@ -285,7 +283,7 @@ async function relayFetchBlobUrl(src: string): Promise<string | null> {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return URL.createObjectURL(new Blob([bytes], { type: mediaMimeType(src) }));
   } catch (error) {
-    logger.withTag('videoSamplingCapture').debug('Relay Fetch failed:', error);
+    log.debug('capture.relay_fetch.failed', { error });
     return null;
   }
 }
@@ -395,7 +393,7 @@ async function extractPosterImage(posterUrl: string): Promise<ImageBitmap | null
       late => late.close(),
     );
   } catch (error) {
-    logger.withTag('videoSamplingCapture').debug('Error extracting poster image:', error);
+    log.debug('capture.poster_extract.failed', { error });
     return null;
   } finally {
     img.onload = null;
@@ -465,7 +463,7 @@ function mirrorVideoPlayback(source: HTMLVideoElement, clone: HTMLVideoElement):
   // The clone is muted, so normal autoplay policy permits this. A rejection is
   // harmless: the next sample falls back to the bounded exact-seek path.
   void clone.play().catch(error => {
-    logger.withTag('videoSamplingCapture').debug('Could not keep CORS video clone playing:', error);
+    log.debug('capture.cors_clone_play.failed', { error });
   });
 }
 

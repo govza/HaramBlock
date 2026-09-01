@@ -1,8 +1,10 @@
 import { load } from 'js-yaml';
 
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { ModelMetadata, YamlModelMetadata } from '@/utils/types';
+
+const log = getLogger('modelLoader');
 
 export interface ModelDefinition {
   id: string;
@@ -123,9 +125,7 @@ export async function discoverModels(
     availableModels.set(model.id, model);
   }
 
-  logger
-    .withTag('modelLoader')
-    .info(`Discovered ${availableModels.size} models: ${[...availableModels.keys()].join(', ')}`);
+  log.info('model.discovery.completed', { modelCount: availableModels.size, modelIds: [...availableModels.keys()] });
 
   return resolveDefaultModelId(availableModels);
 }
@@ -140,9 +140,7 @@ function resolveDefaultModelId(availableModels: Map<string, ModelDefinition>): s
 
   const firstModelId = availableModels.keys().next().value;
   if (firstModelId) {
-    logger
-      .withTag('modelLoader')
-      .warn(`Default model '${DEFAULT_MODEL_ID}' not found, falling back to '${firstModelId}'`);
+    log.warn('model.default.fallback', { defaultModelId: DEFAULT_MODEL_ID, fallbackModelId: firstModelId });
     return firstModelId;
   }
 

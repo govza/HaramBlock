@@ -1,7 +1,9 @@
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
+
+const log = getLogger('MessageChannelProvideAdapter');
 
 interface PortInfo {
   port: MessagePort;
@@ -31,7 +33,7 @@ export class MessageChannelProvideAdapter implements Adapter<MessageMeta> {
 
     // Listen for PORT_READY messages from injected iframes
     globalThis.addEventListener('message', this.handleGlobalMessage);
-    logger.withTag('MessageChannelProvideAdapter').log('Initialized, listening for PORT_READY');
+    log.info('channel.provide_initialized');
   }
 
   private handleGlobalMessage = (event: Event): void => {
@@ -45,7 +47,7 @@ export class MessageChannelProvideAdapter implements Adapter<MessageMeta> {
     const port = ports[0];
 
     if (!secret || !port) {
-      logger.withTag('MessageChannelProvideAdapter').warn('Missing secret or port on PORT_READY');
+      log.warn('channel.port_ready_missing_data');
       return;
     }
 
@@ -59,16 +61,16 @@ export class MessageChannelProvideAdapter implements Adapter<MessageMeta> {
     };
 
     port.onmessageerror = () => {
-      logger.withTag('MessageChannelProvideAdapter').error('Port message error, removing:', secret);
+      log.error('channel.port_message_error', { secret });
       this.ports.delete(secret);
     };
 
     // ACK to content script
     try {
       port.postMessage({ type: 'READY' });
-      logger.withTag('MessageChannelProvideAdapter').log('Port established for secret:', secret);
+      log.info('channel.port_established', { secret });
     } catch (error) {
-      logger.withTag('MessageChannelProvideAdapter').error('Failed to ACK on port:', error);
+      log.error('channel.ack_failed', { error });
     }
   };
 
@@ -100,13 +102,13 @@ export class MessageChannelProvideAdapter implements Adapter<MessageMeta> {
     if (!secret) {
       // No secret means we can't route via MessageChannel
       // This might be a broadcast or the message didn't come from MessageChannel
-      logger.withTag('MessageChannelProvideAdapter').warn('No channel secret in message meta, cannot route');
+      log.warn('channel.secret_missing');
       return;
     }
 
     const portInfo = this.ports.get(secret);
     if (!portInfo) {
-      logger.withTag('MessageChannelProvideAdapter').warn('Port not found for secret:', secret);
+      log.warn('channel.port_not_found', { secret });
       return;
     }
 
@@ -126,7 +128,7 @@ export class MessageChannelProvideAdapter implements Adapter<MessageMeta> {
         portInfo.port.postMessage(cleanMessage);
       }
     } catch (error) {
-      logger.withTag('MessageChannelProvideAdapter').error('Failed to send message:', error);
+      log.error('channel.send_failed', { error });
       // Port might be dead, clean it up
       this.ports.delete(secret);
     }

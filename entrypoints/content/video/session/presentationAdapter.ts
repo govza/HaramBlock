@@ -19,13 +19,13 @@ import {
 } from '@/entrypoints/content/video/dvr/relayAudio';
 import { defaultDvrRunPorts, startDvrRun } from '@/entrypoints/content/video/dvr/run';
 import { type AudioEngageOutcome, type SessionEvent } from '@/entrypoints/content/video/session/machine';
-import { logger } from '@/utils/logger';
 import { buildMaskingFilter } from '@/utils/masking';
+import { getLogger } from '@/utils/telemetry';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
-const log = logger.withTag('videoSession:presentation');
+const log = getLogger('videoSession:presentation');
 
 /**
  * Whole-video blur is applied inline: the BLUR_CLASS stylesheet lives in the
@@ -137,7 +137,7 @@ export class PresentationAdapter {
         };
         report(outcomeByRelay[relay]);
       })
-      .catch((error: unknown) => log.debug('Audio route engage failed:', error));
+      .catch((error: unknown) => log.debug('presentation.audio_route_engage.failed', { error }));
   }
 
   /** Drop whatever delayed route is up; the site's audio intent is restored. */
@@ -232,7 +232,7 @@ export class PresentationAdapter {
       try {
         await task();
       } catch (error) {
-        log.error('Overlay work failed:', error);
+        log.error('presentation.overlay_work.failed', { error });
       }
     });
   }

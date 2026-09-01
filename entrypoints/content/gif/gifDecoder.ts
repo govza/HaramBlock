@@ -1,5 +1,7 @@
 import { GIF_MAX_INFERENCE_FRAMES, GIF_MIN_INFERENCE_FRAMES, MAX_GIF_DECODE_FRAMES } from '@/utils/constants/gif';
-import { logger } from '@/utils/logger';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('gifDecoder');
 
 export interface DecodedGif {
   frames: DecodedGifFrame[]; // Decoded composited playback frames
@@ -79,9 +81,7 @@ export async function decodeGifFrames(blob: Blob): Promise<DecodedGif | null> {
     }
 
     if (track.frameCount > MAX_GIF_DECODE_FRAMES) {
-      logger
-        .withTag('gifDecoder')
-        .debug(`GIF has ${track.frameCount} frames; decoding the first ${MAX_GIF_DECODE_FRAMES}.`);
+      log.debug('gif.decode.frame_cap', { frameCount: track.frameCount, decodedFrames: MAX_GIF_DECODE_FRAMES });
     }
     const frameIndices = allFrameIndices(Math.min(track.frameCount, MAX_GIF_DECODE_FRAMES));
     const frames: DecodedGifFrame[] = [];
@@ -118,7 +118,7 @@ export async function decodeGifFrames(blob: Blob): Promise<DecodedGif | null> {
 
     return { frames, totalFrames: track.frameCount, width, height };
   } catch (error) {
-    logger.withTag('gifDecoder').debug('Failed to decode GIF frames:', error);
+    log.debug('gif.decode.failed', { error });
     return null;
   } finally {
     decoder?.close();
