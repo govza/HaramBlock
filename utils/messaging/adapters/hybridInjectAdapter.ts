@@ -7,7 +7,10 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 const log = getLogger('HybridInjectAdapter');
 
+const TELEMETRY_METHODS = new Set(['pushTelemetry', 'getTelemetryExport']);
+
 function logEnvelope(message: Message<MessageMeta>, transport: 'channel' | 'runtime', transferCount: number): void {
+  if (message.type !== 'apply' || TELEMETRY_METHODS.has(message.path.join('.'))) return;
   const payload = message.args?.[0] as { traceparent?: string } | undefined;
   const traceparent = typeof payload?.traceparent === 'string' ? payload.traceparent : undefined;
   log.debug(
