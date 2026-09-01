@@ -64,6 +64,7 @@ interface IImageTransferBase {
   metadata: IImageMetadata;
   hostname: string;
   priority: number;
+  traceparent?: string;
   // Timing from content script
   requestStartAt: number; // Timestamp when content script started processing (before fetch/decode)
   fetchTime?: number; // Fetch duration (content-side, may hit cache or network)
@@ -104,6 +105,7 @@ interface IVideoFrameTransferBase extends IFrameSampleIdentity {
   originalHeight: number; // Original video height (for prediction mapping)
   hostname: string;
   priority: number; // Queue priority (higher = runs first)
+  traceparent?: string;
 }
 
 // Chrome only: ImageBitmap via MessageChannel (zero-copy transfer)
@@ -141,6 +143,7 @@ interface IGifFrameTransferBase {
   originalHeight: number; // Original GIF height (for prediction mapping)
   hostname: string;
   priority: number; // Queue priority (higher = runs first)
+  traceparent?: string;
 }
 
 // Chrome only: ImageBitmap via MessageChannel (zero-copy transfer)

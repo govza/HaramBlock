@@ -68,7 +68,6 @@
     "@opentelemetry/sdk-trace-web": "2.11.0",
     "@wxt-dev/i18n": "^0.2.7",
     "comctx": "^1.7.5",
-    "consola": "^3.4.2",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "js-yaml": "^5.2.3",

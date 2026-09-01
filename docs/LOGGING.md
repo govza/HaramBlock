@@ -1,143 +1,102 @@
-# Production Logging System
+# Telemetry (logs, traces, metrics)
 
-This document describes the wide event logging implementation for HaramBlock.
+HaramBlock instruments itself with OpenTelemetry. One structured logging API replaces the old
+consola logger and the WideEvent pipeline; traces describe every inference round-trip; a few metrics
+summarise throughput. All of it lives in `utils/telemetry/`.
 
-## Overview
+Series: this is part 1 of 3 (infra + migration). Part 2 adds DVR instrumentation, part 3 the Grafana
+dashboard and collector setup.
 
-The logging system uses **wide events** (canonical log lines) instead of scattered log statements.
-One comprehensive event is emitted per image when processing completes, making it easy to trace any
-image through the entire pipeline.
+## Logging API
 
-**Key features:**
+```ts
+import { getLogger } from '@/utils/telemetry';
 
-- **Wide events** - One event per image with all context (not scattered logs)
-- **Stable reqId** - Hash of image URL for consistent correlation
-- **Memory-only storage** - Last 500 events buffered in the background, flushed to
-  `browser.storage.session` (ephemeral) on a 1s debounce
-- **Images only** - Playback video frames are excluded from the wide-event stream
-- **Console toggle** - Enable verbose console output in production via popup
-- **Copy to clipboard** - Export events as JSON for debugging
-- **Merged events** - Content timing merged into background event for complete picture
+const log = getLogger('ImageProcessor'); // scope = instrumentation scope name
 
-## Architecture
-
-```
-Content Script:
-  Image detected → create timing context
-    → blur applied
-    → sent to background (record sendTime)
-    → predictions received (record receiveTime)
-    → styling applied (record applyTime)
-    → send content timing to background for merge
-
-Background Service Worker:
-  Request received → check cache
-    → if cached: emit cached event (stored only)
-    → else: queue → inference → emit success/error event (stored only)
-    → when content timing arrives: merge into existing event → log merged event to console
+log.debug('inference.retry', { src, attempt });
+log.warn('capture.bitmap.failed', { src, fallback: 'url', error });
 ```
 
-## Two Separate Systems
+- Levels: `debug`, `info`, `warn`, `error`.
+- The message is a **static dotted event name**. Never interpolate values into it; put them in the
+  attributes object. `error` values expand to `error.type` / `error.message` / `error.stack`, plain
+  objects are JSON-stringified.
+- An optional third argument is a trace `Context`; the record then carries that span's trace and
+  span ids. Never rely on `context.active()` across an `await` - pass the context explicitly.
 
-### 1. Wide Event Logging (Ephemeral Debug Output)
+## Where records go
 
-Buffered in background memory (last 500 events) and flushed to `browser.storage.session` on a 1s
-debounce so per-event writes never serialize the whole array through storage IPC. Used for real-time
-debugging via console toggle and "Copy Logs" button. Events are emitted via `emitEvent()` and lost
-when the browser closes. Playback video frames do not emit wide events.
+| Context                   | Sinks                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| background                | prod: in-memory ring (warn+, 500). dev: ring (all levels), dev console, OTLP via the SDK pipeline   |
+| content / popup / options | prod: warn+ forwarded to the background ring. dev: local console + everything forwarded (1 s batch) |
 
-### 2. Prediction Cache (Persistent Performance Data)
+Forwarding uses `backgroundRpc.pushTelemetry(batch)`; the background re-emits forwarded logs and
+spans into its own processors, so the collector sees one `service.name = haramblock` with an
+`hb.context` resource attribute per origin. The background is the **only** context that talks to the
+collector: content-script `fetch` is blocked by page CSP.
 
-Stored in IndexedDB with each `IImagePrediction`. Used by PerformancePanel to show historical timing
-stats per hostname. Data persists across sessions. See `IImagePrediction.processingTime` in
-`utils/types/prediction.ts`.
+"Copy logs" in the popup exports the background ring as JSON (`getTelemetryExport`).
 
----
+## Enabling the OTLP export
 
-## Wide Event Schema
-
-All events use a single unified schema. Context-specific fields are only populated for their
-respective context.
-
-```typescript
-interface WideEvent {
-  reqId: string; // Hash of src - stable per URL
-  src: string; // Image URL
-  hostname: string;
-  context: 'content' | 'background';
-  timestamp: number;
-
-  // Timings (all in ms)
-  totalMs: number; // Total processing time
-
-  // Background timing fields
-  queueMs?: number; // Time waiting in queue
-  fetchMs?: number; // Time to fetch image
-  decodeMs?: number; // Time to decode image (createImageBitmap)
-  inferenceMs?: number; // AI model inference time
-  e2eMs?: number; // End-to-end time (content request to inference complete)
-
-  // Content timing fields
-  sendMs?: number; // Time to prepare and send to background
-  waitMs?: number; // Time waiting for background response
-  styleMs?: number; // Time to apply styling/overlays
-
-  // Result
-  status: 'success' | 'error' | 'skipped' | 'cached';
-  detectionsCount?: number;
-  cacheHit?: boolean;
-  overlayType?: string; // blur | segment | full
-  backend?: string; // webgpu | wasm
-  error?: { message: string; type: string };
-
-  version: string;
-}
-```
-
-**Field usage by context:**
-
-| Field             | Background | Content |
-| ----------------- | ---------- | ------- |
-| `queueMs`         | ✓          |         |
-| `fetchMs`         | ✓          |         |
-| `decodeMs`        | ✓          |         |
-| `inferenceMs`     | ✓          |         |
-| `e2eMs`           | ✓          |         |
-| `sendMs`          |            | ✓       |
-| `waitMs`          |            | ✓       |
-| `styleMs`         |            | ✓       |
-| `cacheHit`        | ✓          |         |
-| `backend`         | ✓          |         |
-| `overlayType`     |            | ✓       |
-| `detectionsCount` | ✓          | ✓       |
-
-## Key Files
-
-- `utils/logging/emitEvent.ts` - Core event emission
-- `utils/logging/eventBuffer.ts` - Session storage buffer (500 events max)
-- `utils/logging/contentTiming.ts` - Content-side timing context
-- `utils/logging/types.ts` - Type definitions
-- `entrypoints/background/services/inferenceOrchestrationService.ts` - Background event emission
-
-## Console Output
-
-Events logged with stable hash prefix for correlation:
+Telemetry export is compiled in only for development builds (`pnpm dev`, or a static
+`wxt build --mode development`) and only when an endpoint is configured:
 
 ```
-[f7a2] success example.com +165ms (background) { queueMs: 10, inferenceMs: 120, e2eMs: 165, detectionsCount: 2 }
+WXT_OTEL_ENDPOINT=http://localhost:4318   # default; set to '' to disable
 ```
 
-The `[f7a2]` prefix is a hash of the image URL. Content timing (sendMs, waitMs, styleMs,
-overlayType) is merged into the background event in storage but not shown in the initial console
-log. Use "Copy Logs" to see the fully merged events.
+The flag is a build-time define (`__HB_TELEMETRY_ENABLED__`), so production bundles keep only
+`@opentelemetry/api` (no-op tracer / meter) and the ring.
 
-## Design Decisions
+Exporters (`@opentelemetry/exporter-*-otlp-http`) post with `mode: 'cors'`; the collector must allow
+`chrome-extension://*` and `moz-extension://*` origins (part 3 ships the `otel-lgtm` config). Batch
+processors flush every 1 s, metrics export every 1 s, and a 5 s idle timer force-flushes everything
+(Firefox event pages have no `runtime.onSuspend`).
 
-| Decision                             | Rationale                                         |
-| ------------------------------------ | ------------------------------------------------- |
-| Hash URL for reqId                   | Stable ID - same image always has same reqId      |
-| `browser.storage.session` for events | Ephemeral, shared across contexts, no disk I/O    |
-| `browser.storage.local` for toggle   | Persists user preference                          |
-| 500 event limit                      | Enough for debugging, bounded memory              |
-| Merge content timing into background | One complete event per image with all timing data |
-| Remove scattered logs                | Wide events capture all needed info in one place  |
+## Resource attributes
+
+`service.name = haramblock`, `service.version`, `hb.version`, `hb.context`
+(content|background|popup|options), `browser.name`, `hb.tab.id` where known. `hb.backend`
+(webgpu|wasm) is stamped on every background span/log once the model has loaded.
+
+## Trace model
+
+One trace per **inference round-trip**:
+
+```
+inference.roundtrip (content)            hb.req.id, hb.src, hb.hostname, hb.media.kind, hb.session.id
+├─ inference.capture (content)           fetch/decode of the bitmap, hb.transfer_kind
+├─ inference.send (content)              the RPC call
+├─ inference.cache (background)          cache lookup, hb.cache_hit
+├─ inference.queue.wait (background)     enqueue → dequeue
+├─ inference.run (background)            decode/preprocess/session.run, timing attrs, hb.batch_size
+└─ inference.apply (content)             styling/overlay work, hb.overlay_type
+```
+
+Propagation: `IImageTransfer`, `IVideoFrameTransfer` and `IGifFrameTransfer` carry `traceparent`;
+the background extracts it (`extractTraceparent`) and parents its spans under it. Every result
+(`ImageInferenceResult`, `FrameInferenceResult`, `GifFrameInferenceResult`) carries the same
+`traceparent` back.
+
+Umbrella: the content script opens one `page.session` span per document. Each round-trip links to it
+and carries `hb.parent_trace_id`, so a page's traffic can be grouped without nesting.
+
+Video frames currently get a round-trip span that covers capture → send (part 2 extends it to the
+DVR pipeline).
+
+## Metrics
+
+- `hb.inference.run.duration` (histogram, ms) - per task, by `hb.media.kind` / `hb.status`.
+- `hb.inference.requests` (counter) - by `hb.media.kind` / `hb.status` (success|error|cached).
+
+## Key files
+
+- `utils/telemetry/logger.ts` - `getLogger`, sink registry, common attributes
+- `utils/telemetry/propagation.ts` - `traceparent` inject/extract (api only)
+- `utils/telemetry/roundtrip.ts` - content-side round-trip span bookkeeping
+- `utils/telemetry/setup/background.ts` - SDK pipeline, ring, forwarded-batch ingestion
+- `utils/telemetry/setup/client.ts` - forwarding setup for content/popup/options
+- `utils/telemetry/exporters/` - console printer, ring, forwarding, span (de)serialisation

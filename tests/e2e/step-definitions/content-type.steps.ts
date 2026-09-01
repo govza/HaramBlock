@@ -51,20 +51,6 @@ Given('I start capturing extension console errors', () => {
   }
 });
 
-Given('extension console logging is enabled', async () => {
-  const extensionPath = await browser.getExtensionPath();
-  await browser.url(`${extensionPath}/popup.html`);
-
-  const helpBtn = await $('[data-testid="help-toggle"]');
-  await helpBtn.waitForDisplayed({ timeout: 15000 });
-  await helpBtn.click();
-
-  const consoleBtn = await $('[data-testid="console-toggle"]');
-  await consoleBtn.waitForDisplayed({ timeout: 5000 });
-  await consoleBtn.click();
-  await browser.pause(500);
-});
-
 Then('there should be no HaramBlock console errors', async () => {
   await browser.pause(2000);
   const errors = capturedLogs.filter(e => e.level === 'error');

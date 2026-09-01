@@ -1,7 +1,6 @@
-import { logger } from '@/utils/logger';
-import { mergeContentEvent, storeWideEvent } from '@/utils/logging/eventStorage';
-import { getLogSettings } from '@/utils/logging/logSettings';
 import { getRpcContext } from '@/utils/messaging/rpcContext';
+import { getLogger, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
+import { exportTelemetry, ingestForwardedTelemetry } from '@/utils/telemetry/setup/background';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -10,7 +9,6 @@ import type { InferenceOrchestrationService } from '@/entrypoints/background/ser
 import type { MediaFetchService } from '@/entrypoints/background/services/mediaFetchService';
 import type { ModelService } from '@/entrypoints/background/services/modelService';
 import type { LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
-import type { WideEvent } from '@/utils/logging/types';
 import type { ModelPreference } from '@/utils/modelSettings';
 import type {
   ForcedVisibility,
@@ -25,6 +23,7 @@ import type {
 } from '@/utils/types';
 
 const BASE64_CHUNK_BYTES = 0x8000;
+const log = getLogger('backgroundRpc');
 
 function encodeBase64(bytes: Uint8Array): string {
   let binary = '';
@@ -121,7 +120,7 @@ export class BackgroundRpc {
     try {
       return await this.imageCacheService.getCachedPredictionsByHostname(hostname);
     } catch (error) {
-      logger.withTag('backgroundRpc').error('Error retrieving cached predictions:', hostname, error);
+      log.error('cache.read.failed', { hostname, error });
       throw error;
     }
   }
@@ -130,38 +129,20 @@ export class BackgroundRpc {
     try {
       await this.imageCacheService.updateToggleState(src, forcedVisibility);
     } catch (error) {
-      logger.withTag('backgroundRpc').error('Failed to update toggle state:', error);
+      log.error('toggle.update.failed', { src, error });
       throw error;
     }
   }
 
-  /**
-   * Merge content timing into existing background event.
-   * If no matching background event exists, store as separate event.
-   */
-  async storeContentEvent(event: WideEvent): Promise<void> {
-    const merged = await mergeContentEvent(event);
-    const settings = await getLogSettings();
-    const shouldLog = settings.consoleEnabled || import.meta.env.DEV;
+  /** Content/popup/options forward their batched logs and spans here; the background re-exports them. */
+  pushTelemetry(batch: TelemetryBatch): Promise<void> {
+    const { tabId } = getRpcContext();
+    ingestForwardedTelemetry(batch, tabId);
+    return Promise.resolve();
+  }
 
-    if (merged) {
-      // Log the merged event to console if enabled
-      if (shouldLog) {
-        const prefix = `[${merged.reqId}]`;
-        const summary = `${merged.status} ${merged.hostname} +${merged.totalMs}ms`;
-        // eslint-disable-next-line no-console
-        console.log(prefix, summary, merged);
-      }
-    } else {
-      // No matching background event found - store and log as standalone content event
-      await storeWideEvent(event);
-      if (shouldLog) {
-        const prefix = `[${event.reqId}]`;
-        const summary = `${event.status} ${event.hostname} +${event.totalMs}ms (content-only)`;
-        // eslint-disable-next-line no-console
-        console.log(prefix, summary, event);
-      }
-    }
+  getTelemetryExport(): Promise<TelemetryExport> {
+    return Promise.resolve(exportTelemetry());
   }
 
   /**
@@ -171,10 +152,10 @@ export class BackgroundRpc {
    */
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
     const receivedAt = Date.now();
-    const { hostname, src, width, height, metadata, priority } = imageData;
+    const { hostname, src, width, height, metadata, priority, traceparent } = imageData;
 
     if (!hostname) {
-      logger.withTag('backgroundRpc').error('Hostname is required for inference request');
+      log.error('inference.request.rejected', { reason: 'missing hostname', src, mediaKind: 'image' });
       return;
     }
 
@@ -199,6 +180,7 @@ export class BackgroundRpc {
           hostSettings,
           mediaMetadata,
           priority,
+          traceparent,
         });
       } else if (imageData.kind === 'blob') {
         await this.inferenceService.scheduleInferenceTask({
@@ -216,6 +198,7 @@ export class BackgroundRpc {
           hostSettings,
           mediaMetadata,
           priority,
+          traceparent,
         });
       } else {
         await this.inferenceService.scheduleInferenceTask({
@@ -224,10 +207,11 @@ export class BackgroundRpc {
           hostSettings,
           mediaMetadata,
           priority,
+          traceparent,
         });
       }
     } catch (error) {
-      logger.withTag('backgroundRpc').error('Failed to schedule inference:', hostname, error);
+      log.error('inference.schedule.failed', { hostname, src, mediaKind: 'image', error });
     }
   }
 
@@ -237,19 +221,21 @@ export class BackgroundRpc {
    * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
    */
   async postInferenceVideoFrame(frameData: IVideoFrameTransfer): Promise<void> {
-    const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight, priority } = frameData;
+    const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight, priority, traceparent } =
+      frameData;
 
     if (!hostname) {
-      logger.withTag('backgroundRpc').error('Hostname is required for video frame inference request');
+      log.error('inference.request.rejected', { reason: 'missing hostname', videoUrl, mediaKind: 'frame' });
       return;
     }
 
-    const frameLabel = frameIndex === -1 ? 'thumbnail' : `frame ${frameIndex}`;
-    logger.withTag('backgroundRpc').debug(`postInferenceVideoFrame: ${frameLabel}`, {
-      kind: frameData.kind,
+    log.debug('inference.frame.received', {
+      transferKind: frameData.kind,
       hostname,
       videoUrl,
+      frameIndex,
       timestampSec,
+      sessionId: frameData.sessionId,
     });
 
     try {
@@ -272,9 +258,10 @@ export class BackgroundRpc {
           timestampSec,
         },
         priority,
+        traceparent,
       });
     } catch (error) {
-      logger.withTag('backgroundRpc').error('Failed to schedule video frame inference:', hostname, error);
+      log.error('inference.schedule.failed', { hostname, videoUrl, frameIndex, mediaKind: 'frame', error });
     }
   }
 
@@ -292,10 +279,11 @@ export class BackgroundRpc {
    * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
    */
   async postInferenceGifFrame(frameData: IGifFrameTransfer): Promise<void> {
-    const { hostname, src, frameIndex, frameCount, sessionId, originalWidth, originalHeight, priority } = frameData;
+    const { hostname, src, frameIndex, frameCount, sessionId, originalWidth, originalHeight, priority, traceparent } =
+      frameData;
 
     if (!hostname) {
-      logger.withTag('backgroundRpc').error('Hostname is required for GIF frame inference request');
+      log.error('inference.request.rejected', { reason: 'missing hostname', src, mediaKind: 'gifFrame' });
       return;
     }
 
@@ -319,9 +307,10 @@ export class BackgroundRpc {
           sessionId,
         },
         priority,
+        traceparent,
       });
     } catch (error) {
-      logger.withTag('backgroundRpc').error('Failed to schedule GIF frame inference:', hostname, error);
+      log.error('inference.schedule.failed', { hostname, src, frameIndex, mediaKind: 'gifFrame', error });
     }
   }
 
@@ -345,7 +334,7 @@ export class BackgroundRpc {
     try {
       await this.iconService.updateIconForTab(tabId, hostname);
     } catch (error) {
-      logger.withTag('backgroundRpc').error('Error updating icon:', hostname, error);
+      log.error('icon.update.failed', { hostname, tabId, error });
       throw error;
     }
   }

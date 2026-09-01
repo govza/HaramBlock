@@ -1,14 +1,15 @@
 import { useState } from 'react';
 
 import { t } from '@/utils/i18n';
-import { exportEventsAsJson } from '@/utils/logging';
+import { backgroundRpc } from '@/utils/messaging/popup';
 
 export const CopyLogsButton = () => {
   const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle');
 
   const handleClick = () => {
-    exportEventsAsJson()
-      .then(json => navigator.clipboard.writeText(json))
+    backgroundRpc
+      .getTelemetryExport()
+      .then(data => navigator.clipboard.writeText(JSON.stringify(data, null, 2)))
       .then(() => setStatus('copied'))
       .catch(() => setStatus('error'))
       .finally(() => setTimeout(() => setStatus('idle'), 2000));

@@ -1,7 +1,7 @@
 import { EMAIL_PATH } from '@/components/ui/icons';
 import packageJson from '@/package.json';
 import { t } from '@/utils/i18n';
-import { exportEventsAsJson } from '@/utils/logging';
+import { backgroundRpc } from '@/utils/messaging/popup';
 
 const EMAIL = 'admin@haramblock.com';
 
@@ -13,13 +13,14 @@ const buildMailtoUrl = (logsCopied: boolean) => {
 };
 
 /**
- * Copies the wide-event log export to the clipboard, then opens a prefilled
+ * Copies the telemetry log export to the clipboard, then opens a prefilled
  * bug-report email (mailto cannot attach files, so logs travel via paste).
  */
 export const ContactButton = () => {
   const handleClick = () => {
-    exportEventsAsJson()
-      .then(json => navigator.clipboard.writeText(json))
+    backgroundRpc
+      .getTelemetryExport()
+      .then(data => navigator.clipboard.writeText(JSON.stringify(data, null, 2)))
       .then(
         () => globalThis.open(buildMailtoUrl(true)),
         () => globalThis.open(buildMailtoUrl(false)),
