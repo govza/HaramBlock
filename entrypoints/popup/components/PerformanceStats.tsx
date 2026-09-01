@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
 
-import { TERMINAL_PATH } from '@/components/ui/icons';
 import { CopyLogsButton } from '@/entrypoints/popup/components/footer/CopyLogsButton';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 import { type LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
-import { getLogSettings, onLogSettingsChange, setLogSettings } from '@/utils/logging';
 import { backgroundRpc } from '@/utils/messaging/popup';
 import { type IImagePrediction } from '@/utils/types';
 
@@ -76,18 +74,6 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
   const [stats, setStats] = useState<PredictionStats | null>(null);
   const [liveLatency, setLiveLatency] = useState<LatencySnapshot | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [consoleEnabled, setConsoleEnabled] = useState(false);
-
-  useEffect(() => {
-    getLogSettings()
-      .then(s => setConsoleEnabled(s.consoleEnabled))
-      .catch(() => {});
-    return onLogSettingsChange(s => setConsoleEnabled(s.consoleEnabled));
-  }, []);
-
-  const handleConsoleToggle = () => {
-    void setLogSettings({ consoleEnabled: !consoleEnabled });
-  };
 
   useEffect(() => {
     if (!isActive) return;
@@ -136,24 +122,6 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
       <div className='flex items-center justify-between mb-2'>
         <div className='text-sm font-mono'>📊 {t('PerformanceStats.title')}</div>
         <div className='flex items-center gap-1'>
-          <button
-            className='cursor-pointer p-1'
-            onClick={handleConsoleToggle}
-            title={consoleEnabled ? t('ConsoleToggle.disable') : t('ConsoleToggle.enable')}
-            aria-label={consoleEnabled ? t('ConsoleToggle.disable') : t('ConsoleToggle.enable')}
-            data-testid='console-toggle'
-          >
-            <svg
-              xmlns='http://www.w3.org/2000/svg'
-              fill='none'
-              viewBox='0 0 24 24'
-              strokeWidth={1.5}
-              stroke={consoleEnabled ? '#22c55e' : 'currentColor'}
-              className='size-5'
-            >
-              <path strokeLinecap='round' strokeLinejoin='round' d={TERMINAL_PATH} />
-            </svg>
-          </button>
           <CopyLogsButton />
         </div>
       </div>

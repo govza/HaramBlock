@@ -13,8 +13,10 @@ import {
 } from '@/entrypoints/content/presentation/styleInjecting';
 import { getVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
 import { isExtensionContextValid } from '@/utils/extensionContext';
-import { logger } from '@/utils/logger';
-import { onMessageChannelPermanentDeath, warmupMessageChannel } from '@/utils/messaging/content';
+import { backgroundRpc, onMessageChannelPermanentDeath, warmupMessageChannel } from '@/utils/messaging/content';
+import { ATTR, getLogger } from '@/utils/telemetry';
+import { setPageSession, SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
+import { initClientTelemetry } from '@/utils/telemetry/setup/client';
 
 let stopPipeline: (() => void) | null = null;
 
@@ -30,7 +32,14 @@ export default defineContentScript({
     const ct = document.contentType;
     if (!ct || (ct !== 'text/html' && ct !== 'application/xhtml+xml' && !ct.startsWith('image/'))) return;
 
-    logger.withTag('content').debug('Starting content script initialization...');
+    initClientTelemetry('content', batch => backgroundRpc.pushTelemetry(batch));
+    const log = getLogger('content');
+    const pageSession = startUmbrellaSession(SPAN.pageSession, {
+      [ATTR.hostname]: globalThis.location.hostname,
+      isTopFrame: globalThis.self === globalThis.top,
+    });
+    setPageSession(pageSession.session);
+    log.debug('content.init.start', { sessionId: pageSession.session.sessionId });
     // Claim the page before anything else: stamping the sentinel makes any
     // orphaned predecessor (extension reload/update) tear itself down, and the
     // sweep removes what a crashed predecessor could not.
@@ -129,7 +138,7 @@ export default defineContentScript({
       // canceled, the page keeps living and still needs a working pipeline. Resources
       // are reclaimed with the document either way.
     } catch (error) {
-      logger.withTag('content').error('Error during initialization:', error);
+      log.error('content.init.failed', { error });
       hideInitStyle.remove();
     }
   },

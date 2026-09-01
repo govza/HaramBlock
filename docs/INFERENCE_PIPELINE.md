@@ -214,8 +214,8 @@ isolation; use the popup stats (below) for end-to-end. Key findings: concurrent 
   - **Throughput** - `1000 / mean(inferenceTime)` (an inference-speed metric, not wall-clock).
   - **E2E** - median `e2eTime` (request -> result, includes queue wait).
   - **Batch** - average `batchSize`.
-- **Wide events** (`utils/logging`) carry per-image `inferenceMs`, `e2eMs`, `batchSize`, `backend`,
-  `modelId`. Enable the popup console toggle or use Copy Logs.
+- **Traces** (`utils/telemetry`, see [LOGGING.md](LOGGING.md)): the `inference.run` span carries
+  per-image timing attributes (`hb.timing.*`), `hb.batch_size`, `hb.backend`, `hb.model_id`.
 
 ## File map
 

@@ -18,10 +18,14 @@ import {
 } from '@/entrypoints/background/services/autoModelDecision';
 import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
 import { resolveVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
-import { initializeInference } from '@/utils/inference';
-import { logger } from '@/utils/logger';
+import { getInferenceBackend, initializeInference } from '@/utils/inference';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
 import { getModelSettings, setModelSettings, updateAutoModelState, type ModelSettings } from '@/utils/modelSettings';
+import { ATTR, getLogger, setCommonAttributes } from '@/utils/telemetry';
+import { initBackgroundTelemetry } from '@/utils/telemetry/setup/background';
+
+initBackgroundTelemetry();
+const log = getLogger('background');
 
 // Resolve which model to load at startup. A manual preference always wins. In auto mode, honor the
 // remembered auto selection when this environment can run it - unlike the old auto switcher, a
@@ -47,7 +51,7 @@ export default defineBackground({
   type: 'module',
   main() {
     void resolveVideoProcessingAvailable().catch(error => {
-      logger.withTag('background').error('Failed to resolve video processing capability:', error);
+      log.error('capability.video.resolve.failed', { error });
     });
 
     // Initialize core services (business logic layer)
@@ -66,7 +70,6 @@ export default defineBackground({
 
     // Initialize and provide BackgroundRpc via comctx
     // Uses CompositeProvideAdapter to handle both browser.runtime and MessageChannel transports
-    logger.withTag('background').log('Initializing BackgroundRpc with CompositeProvideAdapter...');
     const backgroundRpc = provideBackgroundRpc(
       new CompositeProvideAdapter(),
       hostSettingsService,
@@ -76,7 +79,7 @@ export default defineBackground({
       modelService,
       mediaFetchService,
     );
-    logger.withTag('background').log('BackgroundRpc initialized successfully');
+    log.debug('rpc.initialized');
 
     // Reap a closed tab's subscription entries; frames that navigate away are
     // evicted when their successor re-subscribes (see BackgroundRpc.subscribe)
@@ -127,14 +130,7 @@ export default defineBackground({
         // failure, so the no-arg call falls back to a model that loads. Only forget a stored choice
         // when it's genuinely gone from the registry - a transient failure shouldn't discard it.
         const stillAvailable = getAvailableModels().some(m => m.id === preferredModelId);
-        logger
-          .withTag('background')
-          .warn(
-            `Model '${preferredModelId}' failed to load${
-              stillAvailable ? '' : ' (no longer available)'
-            }, falling back to default`,
-            error,
-          );
+        log.warn('model.load.fallback', { modelId: preferredModelId, stillAvailable, error });
         if (!stillAvailable) {
           if (isAuto) {
             await updateAutoModelState({ selectedModelId: undefined });
@@ -147,10 +143,11 @@ export default defineBackground({
 
       // Backend and model are resolved now: size concurrency to the active model's batch cap.
       inferenceService.refreshConcurrency();
+      setCommonAttributes({ [ATTR.backend]: getInferenceBackend() });
 
       await autoModelService.initialize();
     })().catch(error => {
-      logger.withTag('background').error('Failed to initialize inference:', error);
+      log.error('inference.init.failed', { error });
     });
   },
 });

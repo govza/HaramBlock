@@ -208,15 +208,13 @@ Displays the current extension version from `package.json`.
 
 ### HelpToggle
 
-Toggles the `HelpPanel` visibility and syncs with console logging state. When opened, console
-logging is enabled; when closed, it's disabled. The panel state is persisted across popup sessions
-via `getLogSettings`/`setLogSettings`.
+Toggles the `HelpPanel` visibility.
 
 ### CopyLogsButton
 
-A `[logs]` text button that exports all logs to clipboard as JSON using `exportEventsAsJson()`.
-Shows `[copied]` (green) or `[error]` (red) feedback for 2 seconds after click. Located inside
-`HelpPanel`.
+A `[logs]` text button that copies the background telemetry ring (see [LOGGING.md](LOGGING.md)) to
+the clipboard as JSON via `backgroundRpc.getTelemetryExport()`. Shows `[copied]` (green) or
+`[error]` (red) feedback for 2 seconds after click. Located inside `HelpPanel`.
 
 ## Data Flow
 

@@ -95,10 +95,6 @@
     "singleModelTooltip": "Модель: $1",
     "errorTooltip": "Не удалось переключить модель"
   },
-  "ConsoleToggle": {
-    "enable": "Включить логи консоли",
-    "disable": "Отключить логи консоли"
-  },
   "HelpToggle": {
     "open": "Открыть справку",
     "close": "Закрыть справку"

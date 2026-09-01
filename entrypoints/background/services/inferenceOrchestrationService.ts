@@ -1,9 +1,12 @@
+import { SpanStatusCode, type Span } from '@opentelemetry/api';
+
 import { getCurrentModelId } from '@inference-runtime';
 
 import { BatchCollector } from '@/entrypoints/background/services/batchCollector';
 import { getBatchCap, getInferenceBackend, processInferenceBatch, processInferenceTask } from '@/utils/inference';
-import { logger } from '@/utils/logger';
-import { emitEvent } from '@/utils/logging';
+import { ATTR, extractTraceparent, getLogger, getMeter, getTracer, requestIdFor } from '@/utils/telemetry';
+import { SPAN } from '@/utils/telemetry/roundtrip';
+import { noteSpanActivity } from '@/utils/telemetry/setup/background';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
@@ -55,7 +58,45 @@ export type ScheduleArgs = {
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
   priority: number;
+  traceparent?: string;
 };
+
+const log = getLogger('inferenceOrchestrationService');
+const tracer = getTracer('inference');
+const meter = getMeter('inference');
+const runDurationMs = meter.createHistogram('hb.inference.run.duration', {
+  unit: 'ms',
+  description: 'Wall time of one inference task from dequeue to prediction',
+});
+const requestCounter = meter.createCounter('hb.inference.requests', {
+  description: 'Inference requests by media kind and outcome',
+});
+
+function mediaAttributes(mediaMetadata: IMediaMetadata, hostname: string): Record<string, string | number> {
+  if (mediaMetadata.kind === 'frame') {
+    return {
+      [ATTR.mediaKind]: 'frame',
+      [ATTR.hostname]: hostname,
+      [ATTR.sessionId]: mediaMetadata.sessionId,
+      [ATTR.frameIndex]: mediaMetadata.frameIndex,
+      [ATTR.reqId]: requestIdFor(mediaMetadata.videoUrl),
+    };
+  }
+  if (mediaMetadata.kind === 'gifFrame') {
+    return {
+      [ATTR.mediaKind]: 'gif',
+      [ATTR.hostname]: hostname,
+      [ATTR.sessionId]: mediaMetadata.sessionId,
+      [ATTR.frameIndex]: mediaMetadata.frameIndex,
+      [ATTR.reqId]: requestIdFor(mediaMetadata.src),
+    };
+  }
+  return { [ATTR.mediaKind]: 'image', [ATTR.hostname]: hostname };
+}
+
+function modelAttributes(): Record<string, string> {
+  return { [ATTR.backend]: getInferenceBackend(), [ATTR.modelId]: getCurrentModelId() ?? 'unknown' };
+}
 
 export class InferenceOrchestrationService {
   private onImagePredictionsCallback?: OnImagePredictionsCallback;
@@ -63,6 +104,7 @@ export class InferenceOrchestrationService {
   private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
   /** At most one not-yet-started playback frame is retained per video session. */
   private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
+  private queueWaitSpans = new WeakMap<InferenceTask, Span>();
 
   // Batches concurrent queue tasks into one session.run for dynamic-batch models.
   private batchCollector = new BatchCollector<InferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
@@ -97,12 +139,18 @@ export class InferenceOrchestrationService {
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
-    const { input, hostname, hostSettings, mediaMetadata } = args;
+    const { input, hostname, hostSettings, mediaMetadata, traceparent } = args;
     const { imageSrc } = input;
-    const startTime = Date.now();
+    const traceContext = extractTraceparent(traceparent);
+    const attributes: Record<string, string | number> = {
+      ...mediaAttributes(mediaMetadata, hostname),
+      [ATTR.src]: imageSrc,
+      [ATTR.reqId]: requestIdFor(imageSrc),
+    };
 
     // Only check cache for images, not video frames
     if (mediaMetadata.kind === 'image') {
+      const cacheSpan = tracer.startSpan(SPAN.cache, { attributes }, traceContext);
       try {
         const cachedPredictions = await this.imageCacheService.getCachedPredictionsBySrc(imageSrc);
 
@@ -113,27 +161,23 @@ export class InferenceOrchestrationService {
           }));
           await this.imageCacheService.cachePredictions(predictionsWithHostname);
           this.sendImageResultsToContent(
-            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction })),
+            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction, traceparent })),
             hostname,
           );
-
-          emitEvent({
-            src: imageSrc,
-            hostname,
-            context: 'background',
-            status: 'cached',
-            totalMs: Date.now() - startTime,
-            cacheHit: true,
-            detectionsCount: cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0),
-            backend: getInferenceBackend(),
-            modelId: getCurrentModelId() ?? undefined,
-          });
+          const detectionsCount = cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0);
+          cacheSpan.setAttributes({ [ATTR.cacheHit]: true, [ATTR.detectionsCount]: detectionsCount });
+          cacheSpan.end();
+          requestCounter.add(1, { [ATTR.mediaKind]: 'image', [ATTR.status]: 'cached' });
+          log.debug('inference.cache.hit', { ...attributes, detectionsCount }, traceContext);
+          noteSpanActivity();
           return;
         }
+        cacheSpan.setAttribute(ATTR.cacheHit, false);
+        cacheSpan.end();
       } catch (error) {
-        logger
-          .withTag('inferenceOrchestrationService')
-          .warn(`Cache lookup failed for ${imageSrc}, proceeding with inference:`, error);
+        cacheSpan.setStatus({ code: SpanStatusCode.ERROR });
+        cacheSpan.end();
+        log.warn('inference.cache.lookup.failed', { ...attributes, error }, traceContext);
       }
     }
 
@@ -145,6 +189,8 @@ export class InferenceOrchestrationService {
       hostSettings,
       mediaMetadata,
       priority: args.priority,
+      traceparent,
+      traceContext,
       requestStartAt: input.requestStartAt,
       receivedAt: input.receivedAt,
       queueStartAt,
@@ -183,70 +229,101 @@ export class InferenceOrchestrationService {
           previous.task.mediaMetadata.kind === 'frame' ? previous.task.mediaMetadata.frameIndex : -1;
         if (previousIndex >= mediaMetadata.frameIndex) {
           task.bitmap?.close();
+          log.debug('inference.frame.dropped', { ...attributes, reason: 'older than queued' }, traceContext);
           return;
         }
         previous.controller.abort();
         previous.task.bitmap?.close();
+        this.endQueueWait(previous.task, 'superseded');
       }
       controller = new AbortController();
       this.queuedPlaybackFrames.set(mediaMetadata.sessionId, { task, controller });
     }
 
+    this.queueWaitSpans.set(
+      task,
+      tracer.startSpan(SPAN.queueWait, { attributes: { ...attributes, [ATTR.priority]: args.priority } }, traceContext),
+    );
     this.queueService.enqueue(task, controller?.signal).catch(error => {
-      if (controller?.signal.aborted) return;
-      logger.withTag('inferenceOrchestrationService').error(`Failed to enqueue task for ${imageSrc}:`, error);
+      if (controller?.signal.aborted) {
+        this.endQueueWait(task, 'aborted');
+        return;
+      }
+      this.endQueueWait(task, 'error');
+      log.error('inference.enqueue.failed', { ...attributes, error }, traceContext);
       this.sendErrorToContent(task, error);
     });
+  }
+
+  private endQueueWait(task: InferenceTask, outcome: 'started' | 'aborted' | 'superseded' | 'error'): void {
+    const span = this.queueWaitSpans.get(task);
+    if (!span) return;
+    this.queueWaitSpans.delete(task);
+    span.setAttribute(ATTR.status, outcome);
+    span.end();
   }
 
   private setupEventHandlers(): void {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       this.markPlaybackFrameStarted(task);
+      this.endQueueWait(task, 'started');
+      const attributes: Record<string, string | number> = {
+        ...mediaAttributes(task.mediaMetadata, task.hostname),
+        [ATTR.src]: task.imageSrc,
+        [ATTR.reqId]: requestIdFor(task.imageSrc),
+      };
+      const runSpan = tracer.startSpan(SPAN.run, { attributes }, task.traceContext);
+      const runStartedAt = Date.now();
       try {
         // Dynamic-batch models go through the collector (batched session.run); static models keep the
         // direct path so their decode/preprocess still overlaps the run via queue concurrency.
         const imagePrediction =
           getBatchCap() > 1 ? await this.batchCollector.submit(task) : await processInferenceTask(task);
+        this.recordRun(runSpan, task, imagePrediction, runStartedAt);
         await this.handleSuccess(task, imagePrediction);
-
-        // Video and GIF frames arrive at sample cadence (~4/s per video) and
-        // would flood the 500-entry wide-event buffer image debugging relies on
-        if (task.mediaMetadata.kind !== 'image') return;
-
-        emitEvent({
-          src: task.imageSrc,
-          hostname: task.hostname,
-          context: 'background',
-          status: 'success',
-          totalMs: Date.now() - task.createdAt.getTime(),
-          fetchMs: imagePrediction.processingTime.fetchTime,
-          decodeMs: imagePrediction.processingTime.decodeTime,
-          queueMs: imagePrediction.processingTime.queueTime,
-          inferenceMs: imagePrediction.processingTime.inferenceTime,
-          e2eMs: imagePrediction.processingTime.e2eTime,
-          batchSize: imagePrediction.processingTime.batchSize,
-          detectionsCount: imagePrediction.predictions.length,
-          cacheHit: false,
-          backend: getInferenceBackend(),
-          modelId: getCurrentModelId() ?? undefined,
-        });
       } catch (error) {
-        if (task.mediaMetadata.kind === 'image') {
-          emitEvent({
-            src: task.imageSrc,
-            hostname: task.hostname,
-            context: 'background',
-            status: 'error',
-            totalMs: Date.now() - task.createdAt.getTime(),
-            error: error instanceof Error ? error : new Error(String(error)),
-            backend: getInferenceBackend(),
-            modelId: getCurrentModelId() ?? undefined,
-          });
-        }
-        logger.withTag('inferenceOrchestrationService').error(`Error processing image ${task.imageSrc}:`, error);
+        runSpan.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message : undefined });
+        runSpan.setAttributes({ ...modelAttributes(), [ATTR.status]: 'error' });
+        runSpan.end();
+        runDurationMs.record(Date.now() - runStartedAt, {
+          [ATTR.mediaKind]: attributes[ATTR.mediaKind],
+          [ATTR.status]: 'error',
+        });
+        requestCounter.add(1, { [ATTR.mediaKind]: attributes[ATTR.mediaKind], [ATTR.status]: 'error' });
+        log.error('inference.run.failed', { ...attributes, error }, task.traceContext);
         this.sendErrorToContent(task, error);
+      } finally {
+        noteSpanActivity();
       }
     });
+  }
+
+  private recordRun(runSpan: Span, task: InferenceTask, prediction: IImagePrediction, runStartedAt: number): void {
+    const { processingTime } = prediction;
+    const mediaKind = mediaAttributes(task.mediaMetadata, task.hostname)[ATTR.mediaKind];
+    const timing = {
+      [ATTR.fetchMs]: processingTime.fetchTime,
+      [ATTR.decodeMs]: processingTime.decodeTime,
+      [ATTR.queueMs]: processingTime.queueTime,
+      [ATTR.inferenceMs]: processingTime.inferenceTime,
+      [ATTR.e2eMs]: processingTime.e2eTime,
+      [ATTR.batchSize]: processingTime.batchSize ?? 1,
+      [ATTR.detectionsCount]: prediction.predictions.length,
+      [ATTR.status]: 'success',
+      ...modelAttributes(),
+    };
+    runSpan.setAttributes(timing);
+    runSpan.setStatus({ code: SpanStatusCode.OK });
+    runSpan.end();
+    runDurationMs.record(Date.now() - runStartedAt, { [ATTR.mediaKind]: mediaKind, [ATTR.status]: 'success' });
+    requestCounter.add(1, { [ATTR.mediaKind]: mediaKind, [ATTR.status]: 'success' });
+    if (task.mediaMetadata.kind === 'image') {
+      log.info(
+        'inference.run.completed',
+        { [ATTR.src]: task.imageSrc, [ATTR.hostname]: task.hostname, ...timing },
+        task.traceContext,
+      );
+    }
   }
 
   /** Abort and release a playback frame that has not started inference yet. */
@@ -256,6 +333,7 @@ export class InferenceOrchestrationService {
     this.queuedPlaybackFrames.delete(sessionId);
     queued.controller.abort();
     queued.task.bitmap?.close();
+    this.endQueueWait(queued.task, 'aborted');
   }
 
   private markPlaybackFrameStarted(task: InferenceTask): void {
@@ -265,27 +343,29 @@ export class InferenceOrchestrationService {
   }
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
+    const { traceparent } = task;
     try {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction }], task.hostname);
+        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction, traceparent }], task.hostname);
       } else if (task.mediaMetadata.kind === 'gifFrame') {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendGifFrameResultsToContent([{ status: 'ok', prediction: gifFramePrediction }], task.hostname);
+        this.sendGifFrameResultsToContent(
+          [{ status: 'ok', prediction: gifFramePrediction, traceparent }],
+          task.hostname,
+        );
       } else {
         // A cache write failure must not suppress the reply - the verdict is
         // already computed and content is waiting on it.
         try {
           await this.imageCacheService.cachePredictions([imagePrediction]);
         } catch (error) {
-          logger
-            .withTag('inferenceOrchestrationService')
-            .warn(`Failed to cache prediction for ${task.imageSrc}:`, error);
+          log.warn('inference.cache.write.failed', { src: task.imageSrc, error }, task.traceContext);
         }
-        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction }], task.hostname);
+        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction, traceparent }], task.hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error(`Error handling success for ${task.imageSrc}:`, error);
+      log.error('inference.result.dispatch.failed', { src: task.imageSrc, error }, task.traceContext);
     }
   }
 
@@ -330,7 +410,7 @@ export class InferenceOrchestrationService {
    */
   private sendErrorToContent(task: InferenceTask, error: unknown): void {
     const reason = error instanceof Error ? error.message : String(error);
-    const { mediaMetadata } = task;
+    const { mediaMetadata, traceparent } = task;
     if (mediaMetadata.kind === 'frame') {
       this.sendFrameResultsToContent(
         [
@@ -340,6 +420,7 @@ export class InferenceOrchestrationService {
             sessionId: mediaMetadata.sessionId,
             frameIndex: mediaMetadata.frameIndex,
             reason,
+            traceparent,
           },
         ],
         task.hostname,
@@ -353,13 +434,14 @@ export class InferenceOrchestrationService {
             src: mediaMetadata.src,
             sessionId: mediaMetadata.sessionId,
             reason,
+            traceparent,
           },
         ],
         task.hostname,
       );
     } else {
       this.sendImageResultsToContent(
-        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason }],
+        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason, traceparent }],
         task.hostname,
       );
     }
@@ -371,7 +453,7 @@ export class InferenceOrchestrationService {
         this.onImagePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending image inference results:', error);
+      log.error('inference.result.emit.failed', { hostname, mediaKind: 'image', error });
     }
   }
 
@@ -381,7 +463,7 @@ export class InferenceOrchestrationService {
         this.onFramePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending frame inference results:', error);
+      log.error('inference.result.emit.failed', { hostname, mediaKind: 'frame', error });
     }
   }
 
@@ -391,7 +473,7 @@ export class InferenceOrchestrationService {
         this.onGifFramePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      logger.withTag('inferenceOrchestrationService').error('Error sending GIF frame inference results:', error);
+      log.error('inference.result.emit.failed', { hostname, mediaKind: 'gif', error });
     }
   }
 }

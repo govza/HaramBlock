@@ -95,10 +95,6 @@
     "singleModelTooltip": "النموذج: $1",
     "errorTooltip": "فشل تبديل النموذج"
   },
-  "ConsoleToggle": {
-    "enable": "تفعيل سجلات وحدة التحكم",
-    "disable": "تعطيل سجلات وحدة التحكم"
-  },
   "HelpToggle": {
     "open": "فتح المساعدة",
     "close": "إغلاق المساعدة"

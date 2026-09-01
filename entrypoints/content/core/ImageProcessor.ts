@@ -34,15 +34,17 @@ import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/
 import { IS_CHROME } from '@/utils/constants/environment';
 import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
-import { logger } from '@/utils/logger';
-import {
-  cancelContentTiming,
-  completeContentTiming,
-  markReceived,
-  markSent,
-  startContentTiming,
-} from '@/utils/logging';
 import { waitForMessageChannel } from '@/utils/messaging/content';
+import { ATTR, getLogger } from '@/utils/telemetry';
+import {
+  cancelRoundtrip,
+  endRoundtrip,
+  endRoundtripChild,
+  getRoundtripContext,
+  SPAN,
+  startRoundtrip,
+  startRoundtripChild,
+} from '@/utils/telemetry/roundtrip';
 import {
   shouldBlock,
   type GifFrameInferenceResult,
@@ -57,6 +59,8 @@ import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
 // =============================================================================
 // Constants
 // =============================================================================
+
+const log = getLogger('ImageProcessor');
 
 const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
@@ -207,8 +211,7 @@ export class ImageProcessor {
       return;
     }
 
-    // Start timing for this image (new processing path)
-    startContentTiming(src, this.hostSettings.hostname);
+    startRoundtrip(src, { src, hostname: this.hostSettings.hostname, mediaKind: 'image' });
 
     // Apply blur if not already present (idempotent)
     if (!hasInitialStyling(img)) {
@@ -308,7 +311,7 @@ export class ImageProcessor {
   handleRemoved(img: HTMLImageElement): void {
     const src = img.currentSrc || img.src;
     if (src) {
-      cancelContentTiming(src);
+      cancelRoundtrip(src);
     }
     const timeout = this.srcChangeDebounce.get(img);
     if (timeout) {
@@ -437,28 +440,27 @@ export class ImageProcessor {
         this.clearPendingInference(src, img);
         // Re-process with the actual loaded URL instead of just aborting
         this.process(img);
-        cancelContentTiming(src);
+        cancelRoundtrip(src);
         return;
       }
 
       // Skip only if all currently pending elements for this src are below threshold.
       if (this.isBelowMinSizeForSrc(src, img)) {
         this.clearPendingInference(src, img, true);
-        completeContentTiming(src, { status: 'skipped' });
+        endRoundtrip(src, { status: 'skipped', attributes: { reason: 'below min size' } });
         this.finalizeAllImagesForSrc(src, 'skipped');
         return;
       }
 
       try {
-        markSent(src);
         this.armInferenceWatchdog(src, img);
         const isVisible = this.visibilityMap.get(img) ?? false;
         const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
-        await requestImageInference(this.hostSettings.hostname, img, priority);
+        await requestImageInference(this.hostSettings.hostname, img, priority, getRoundtripContext(src));
       } catch (err) {
         if (this.pendingInference.get(src) !== img) return;
         this.clearPendingInference(src, img, true);
-        completeContentTiming(src, { status: 'error', error: err instanceof Error ? err : undefined });
+        endRoundtrip(src, { status: 'error', error: err });
         this.finalizeAllImagesForSrc(src, 'skipped');
       }
     };
@@ -474,7 +476,7 @@ export class ImageProcessor {
       } else {
         error = new Error('Image failed to load');
       }
-      completeContentTiming(src, { status: 'error', error });
+      endRoundtrip(src, { status: 'error', error });
       this.finalizeAllImagesForSrc(src, 'skipped');
     };
 
@@ -540,13 +542,15 @@ export class ImageProcessor {
 
     if (attempts >= MAX_IMAGE_INFERENCE_ATTEMPTS) {
       this.inferenceAttempts.delete(src);
-      completeContentTiming(src, {
+      endRoundtrip(src, {
         status: 'error',
         error: new Error(`Image inference failed after ${attempts} attempts${reason ? `: ${reason}` : ''}`),
+        attributes: { attempts },
       });
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;
     }
+    log.debug('inference.retry', { src, attempt: attempts, reason }, getRoundtripContext(src));
 
     const candidates = this.findImagesBySrc(src);
     const retryOwner =
@@ -625,7 +629,12 @@ export class ImageProcessor {
     this.gifSessions.set(src, session);
     this.evictGifSessionsIfNeeded();
 
-    startContentTiming(src, this.hostSettings.hostname);
+    startRoundtrip(src, {
+      src,
+      hostname: this.hostSettings.hostname,
+      mediaKind: 'gif',
+      attributes: { [ATTR.sessionId]: session.sessionId },
+    });
     if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
@@ -643,12 +652,13 @@ export class ImageProcessor {
 
     if (this.isBelowMinSizeForSrc(src, img)) {
       this.gifSessions.delete(src);
-      completeContentTiming(src, { status: 'skipped' });
+      endRoundtrip(src, { status: 'skipped', attributes: { reason: 'below min size' } });
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;
     }
 
     let decoded: Awaited<ReturnType<typeof decodeGifFrames>> = null;
+    startRoundtripChild(src, SPAN.capture);
     try {
       const response = await fetch(src, { cache: 'force-cache' });
       if (!response.ok) {
@@ -657,8 +667,9 @@ export class ImageProcessor {
       const blob = await response.blob();
       decoded = await decodeGifFrames(blob);
     } catch (error) {
-      logger.withTag('ImageProcessor').debug('GIF fetch/decode failed, falling back to single frame:', error);
+      log.debug('gif.decode.failed', { src, fallback: 'single frame', error }, getRoundtripContext(src));
     }
+    endRoundtripChild(src, SPAN.capture, { frameCount: decoded?.frames.length ?? 0 });
 
     if (session.disposed) {
       this.releaseGifFrames(decoded?.frames);
@@ -679,7 +690,7 @@ export class ImageProcessor {
     const inferenceIndices = sampleFrameIndices(totalFrames, gifInferenceFrameCap(totalFrames));
     session.frameCount = inferenceIndices.length;
     session.maskInertia = Math.max(GIF_MIN_MASK_INERTIA, Math.ceil(totalFrames / Math.max(1, inferenceIndices.length)));
-    markSent(src);
+    const roundtripContext = getRoundtripContext(src);
 
     const isVisible = this.visibilityMap.get(img) ?? false;
     const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
@@ -703,9 +714,10 @@ export class ImageProcessor {
             originalWidth: decoded.width,
             originalHeight: decoded.height,
             priority,
+            parent: roundtripContext,
           });
         } catch (error) {
-          logger.withTag('ImageProcessor').debug('GIF frame send failed:', error);
+          log.debug('gif.frame.send.failed', { src, frameIndex: frame.frameIndex, error }, roundtripContext);
           this.handleGifFrameError(src, session);
         }
       }),
@@ -765,10 +777,11 @@ export class ImageProcessor {
     session.aggregatePrediction = aggregatePrediction;
     this.cache.set(src, aggregatePrediction);
 
-    markReceived(src);
+    startRoundtripChild(src, SPAN.apply);
     for (const img of this.findImagesBySrc(src)) {
       this.applyGifVerdict(img, src, aggregatePrediction);
     }
+    endRoundtripChild(src, SPAN.apply);
 
     // Safe GIFs play natively (no canvas player), so their decoded bitmaps are dead
     // weight. Release them; a later force-block toggle uses a whole-frame blur that
@@ -778,10 +791,14 @@ export class ImageProcessor {
       session.frames = undefined;
     }
 
-    completeContentTiming(src, {
+    endRoundtrip(src, {
       status: 'success',
-      detectionsCount: aggregatePrediction.predictions.length,
-      overlayType: shouldBlock(aggregatePrediction) ? 'segment' : undefined,
+      attributes: {
+        [ATTR.detectionsCount]: aggregatePrediction.predictions.length,
+        [ATTR.overlayType]: shouldBlock(aggregatePrediction) ? 'segment' : undefined,
+        forceBlocked,
+        failedFrames: session.failedFrames,
+      },
     });
   }
 
@@ -920,8 +937,7 @@ export class ImageProcessor {
       return;
     }
 
-    // Mark that we received the prediction
-    markReceived(prediction.src);
+    startRoundtripChild(prediction.src, SPAN.apply);
 
     // Track detections synchronously for badge (before async apply)
     let detectionCount = prediction.predictions.length;
@@ -981,11 +997,14 @@ export class ImageProcessor {
         overlayType = undefined; // No detections, no overlay
       }
 
-      // Log the completion with overlay type
-      completeContentTiming(prediction.src, {
+      endRoundtrip(prediction.src, {
         status: 'success',
-        detectionsCount: prediction.predictions.length,
-        overlayType,
+        attributes: {
+          [ATTR.detectionsCount]: prediction.predictions.length,
+          [ATTR.overlayType]: overlayType,
+          [ATTR.e2eMs]: prediction.processingTime.e2eTime,
+          [ATTR.backend]: prediction.processingTime.backend,
+        },
       });
     };
 

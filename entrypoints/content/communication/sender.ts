@@ -1,3 +1,5 @@
+import { ROOT_CONTEXT, SpanStatusCode, type Context, type Span } from '@opentelemetry/api';
+
 import { dvrRingBudget } from '@/entrypoints/content/video/dvr/ringBudget';
 import { bitmapToCompressedBlob } from '@/entrypoints/content/video/sampling/compression';
 import {
@@ -7,8 +9,9 @@ import {
   type ImageTransferKind,
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
-import { logger } from '@/utils/logger';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
+import { ATTR, contextWithSpan, getLogger, getTracer, injectTraceparent, requestIdFor } from '@/utils/telemetry';
+import { endSpanWithError, getPageSession, SPAN } from '@/utils/telemetry/roundtrip';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type {
@@ -20,6 +23,9 @@ import type {
   IVideoFrameTransfer,
   IGifFrameTransfer,
 } from '@/utils/types';
+
+const log = getLogger('sender');
+const tracer = getTracer('inference');
 
 /**
  * Request host settings from background script
@@ -35,7 +41,7 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
     }
     return result;
   } catch (error) {
-    logger.withTag('sender').error('Failed to request host settings:', error);
+    log.error('host_settings.request.failed', { hostname, error });
     throw error;
   }
 }
@@ -48,7 +54,7 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
     const result = await backgroundRpc.getCachedPredictions(hostname);
     return result || [];
   } catch (error) {
-    logger.withTag('sender').error('Failed to request cached predictions:', error);
+    log.error('cached_predictions.request.failed', { hostname, error });
     return [];
   }
 }
@@ -60,7 +66,7 @@ export async function requestToggleUpdate(src: string, forcedVisibility: ForcedV
   try {
     await backgroundRpc.updateToggleState(src, forcedVisibility);
   } catch (error) {
-    logger.withTag('sender').error('Failed to update toggle state:', error);
+    log.error('toggle.update.failed', { src, forcedVisibility, error });
   }
 }
 
@@ -72,7 +78,7 @@ export async function resetBadgeCount(): Promise<void> {
   try {
     await backgroundRpc.updateIconBadge(0, globalThis.location.href);
   } catch (error) {
-    logger.withTag('sender').error('Failed to reset badge count:', error);
+    log.error('badge.reset.failed', { error });
   }
 }
 
@@ -86,7 +92,7 @@ async function resolveImageTransferKind(): Promise<ImageTransferKind> {
   if (IS_CHROME && IMAGE_TRANSFER_KIND === 'bitmap') {
     const channelReady = await waitForMessageChannel();
     if (!channelReady) {
-      logger.withTag('sender').warn('MessageChannel not available, falling back to URL transfer');
+      log.warn('transport.channel.unavailable', { fallback: IMAGE_FALLBACK_KIND });
       return IMAGE_FALLBACK_KIND;
     }
     return 'bitmap';
@@ -104,13 +110,16 @@ async function buildPayload(
   image: HTMLImageElement,
   metadata: IImageMetadata,
   priority: number,
+  parent: Context,
 ): Promise<IImageTransfer> {
   const requestStartAt = Date.now();
   const src = image.currentSrc || image.src;
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
+  const traceparent = injectTraceparent(parent);
 
   const transferKind = await resolveImageTransferKind();
+  const captureSpan = tracer.startSpan(SPAN.capture, { attributes: { [ATTR.transferKind]: transferKind } }, parent);
 
   const fetchImageBlob = async (): Promise<{ blob: Blob; fetchTime: number }> => {
     const fetchStart = Date.now();
@@ -128,6 +137,8 @@ async function buildPayload(
       const decodeStart = Date.now();
       const bitmap = await createImageBitmap(blob);
       const decodeTime = Date.now() - decodeStart;
+      captureSpan.setAttributes({ [ATTR.fetchMs]: fetchTime, [ATTR.decodeMs]: decodeTime });
+      captureSpan.end();
       return {
         src,
         width,
@@ -140,24 +151,42 @@ async function buildPayload(
         decodeTime,
         kind: 'bitmap',
         bitmap,
+        traceparent,
       };
     } catch (error) {
-      logger.withTag('sender').warn('Bitmap transfer failed, falling back to URL:', error);
+      log.warn('capture.bitmap.failed', { src, fallback: 'url', error }, parent);
     }
   } else if (transferKind === 'blob') {
     try {
       const { blob, fetchTime } = await fetchImageBlob();
-      return { src, width, height, hostname, metadata, priority, requestStartAt, fetchTime, kind: 'blob', blob };
+      captureSpan.setAttribute(ATTR.fetchMs, fetchTime);
+      captureSpan.end();
+      return {
+        src,
+        width,
+        height,
+        hostname,
+        metadata,
+        priority,
+        requestStartAt,
+        fetchTime,
+        kind: 'blob',
+        blob,
+        traceparent,
+      };
     } catch (error) {
-      logger.withTag('sender').warn('Blob transfer failed, falling back to URL:', error);
+      log.warn('capture.blob.failed', { src, fallback: 'url', error }, parent);
     }
   }
 
   if (src.startsWith('blob:')) {
+    endSpanWithError(captureSpan, new Error('blob URL is inaccessible from extension contexts'));
     throw new Error(`Cannot process blob URL: inaccessible from extension contexts`);
   }
 
-  return { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url' };
+  captureSpan.setAttribute(ATTR.transferKind, 'url');
+  captureSpan.end();
+  return { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url', traceparent };
 }
 
 /**
@@ -175,24 +204,33 @@ async function sendImageForInference(
   image: HTMLImageElement,
   metadata: IImageMetadata,
   priority: number,
+  parent: Context,
 ): Promise<void> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let sendSpan: Span | undefined;
     try {
-      const payload = await buildPayload(hostname, image, metadata, priority);
+      const payload = await buildPayload(hostname, image, metadata, priority, parent);
+      sendSpan = tracer.startSpan(
+        SPAN.send,
+        { attributes: { [ATTR.transferKind]: payload.kind, attempt, [ATTR.priority]: priority } },
+        parent,
+      );
       await backgroundRpc.postInferenceImage(payload);
+      sendSpan.end();
       return;
     } catch (error) {
       lastError = error;
+      if (sendSpan) endSpanWithError(sendSpan, error);
       const isProviderError = error instanceof Error && error.message.includes('Provider unavailable');
       if (!isProviderError || attempt === MAX_RETRIES) break;
-      logger.withTag('sender').warn(`Inference send failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying...`);
+      log.warn('inference.send.retry', { attempt: attempt + 1, maxAttempts: MAX_RETRIES + 1 }, parent);
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
     }
   }
 
-  logger.withTag('sender').error('Failed to send image for inference:', lastError);
+  log.error('inference.send.failed', { src: image.currentSrc || image.src, error: lastError }, parent);
   throw lastError;
 }
 
@@ -201,12 +239,14 @@ async function sendImageForInference(
  * @param hostname - The hostname for these images
  * @param image - Image element to process
  * @param priority - Queue priority (higher = runs first); use the shared inference priority tiers
+ * @param parent - Trace context of the round-trip span this request belongs to
  * @returns Promise that resolves when images are queued
  */
 export async function requestImageInference(
   hostname: string,
   image: HTMLImageElement,
   priority: number,
+  parent: Context = ROOT_CONTEXT,
 ): Promise<void> {
   const metadata: IImageMetadata = {
     kind: 'image',
@@ -218,7 +258,7 @@ export async function requestImageInference(
     expires: image.dataset.expires || null,
   };
 
-  await sendImageForInference(hostname, image, metadata, priority);
+  await sendImageForInference(hostname, image, metadata, priority, parent);
 }
 
 const BACKEND_POLL_MS = 5000;
@@ -249,7 +289,7 @@ function syncDvrRingBudgetBackend(attempt = 0): void {
     .catch((error: unknown) => {
       // A transient RPC failure (service worker restarting) must not pin a
       // WebGPU machine to the conservative tier forever - keep polling.
-      logger.withTag('sender').debug('Could not resolve inference backend yet:', error);
+      log.debug('backend.resolve.retry', { attempt, error });
       if (attempt < BACKEND_POLL_MAX_ATTEMPTS) {
         setTimeout(() => syncDvrRingBudgetBackend(attempt + 1), BACKEND_POLL_MS);
       }
@@ -277,7 +317,7 @@ export async function requestHostData(hostname: string): Promise<{
       predictions,
     };
   } catch (error) {
-    logger.withTag('sender').error('Failed to request host data:', error);
+    log.error('host_data.request.failed', { hostname, error });
     throw error;
   }
 }
@@ -323,6 +363,26 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
   const { sample, hostname, priority } = params;
   const { bitmap, videoUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
+  const page = getPageSession();
+  const roundtripSpan = tracer.startSpan(
+    SPAN.roundtrip,
+    {
+      attributes: {
+        [ATTR.mediaKind]: 'frame',
+        [ATTR.hostname]: hostname,
+        [ATTR.sessionId]: sessionId,
+        [ATTR.frameIndex]: frameIndex,
+        [ATTR.reqId]: requestIdFor(videoUrl),
+        [ATTR.src]: videoUrl,
+        [ATTR.priority]: priority,
+        ...(page.spanContext ? { [ATTR.parentTraceId]: page.spanContext.traceId } : {}),
+      },
+      links: page.spanContext ? [{ context: page.spanContext }] : [],
+    },
+    ROOT_CONTEXT,
+  );
+  const parent = contextWithSpan(roundtripSpan);
+
   try {
     const base = {
       videoUrl,
@@ -335,6 +395,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       hostname,
       sessionId,
       priority,
+      traceparent: injectTraceparent(parent),
     };
 
     const transferKind = await resolveVideoFrameTransferKind();
@@ -357,7 +418,16 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
         throw new Error(`Unsupported video frame transfer kind: ${transferKind as string}`);
     }
 
-    await backgroundRpc.postInferenceVideoFrame(payload);
+    const sendSpan = tracer.startSpan(SPAN.send, { attributes: { [ATTR.transferKind]: transferKind } }, parent);
+    try {
+      await backgroundRpc.postInferenceVideoFrame(payload);
+      sendSpan.end();
+    } catch (error) {
+      endSpanWithError(sendSpan, error);
+      throw error;
+    }
+    roundtripSpan.setStatus({ code: SpanStatusCode.OK });
+    roundtripSpan.end();
   } catch (error) {
     // Clean up bitmap on error if not already transferred/closed
     try {
@@ -365,7 +435,8 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     } catch {
       // Already closed or transferred - ignore
     }
-    logger.withTag('sender').error('Failed to send video frame for inference:', error);
+    endSpanWithError(roundtripSpan, error);
+    log.error('inference.frame.send.failed', { videoUrl, sessionId, frameIndex, error }, parent);
     throw error;
   }
 }
@@ -375,7 +446,7 @@ export async function cancelVideoSessionInference(sessionId: string): Promise<vo
   try {
     await backgroundRpc.cancelVideoSessionInference(sessionId);
   } catch (error) {
-    logger.withTag('sender').debug('Failed to cancel queued video inference:', error);
+    log.debug('inference.frame.cancel.failed', { sessionId, error });
   }
 }
 
@@ -393,6 +464,7 @@ export interface GifFrameParams {
   originalWidth: number;
   originalHeight: number;
   priority: number;
+  parent?: Context;
 }
 
 /**
@@ -403,6 +475,8 @@ export interface GifFrameParams {
  */
 export async function requestGifFrameInference(params: GifFrameParams): Promise<void> {
   const { src, bitmap, hostname, sessionId, frameIndex, frameCount, originalWidth, originalHeight, priority } = params;
+  const parent = params.parent ?? ROOT_CONTEXT;
+  const sendSpan = tracer.startSpan(SPAN.send, { attributes: { [ATTR.frameIndex]: frameIndex } }, parent);
 
   try {
     const base = {
@@ -416,6 +490,7 @@ export async function requestGifFrameInference(params: GifFrameParams): Promise<
       originalHeight,
       hostname,
       priority,
+      traceparent: injectTraceparent(parent),
     };
 
     const transferKind = await resolveVideoFrameTransferKind();
@@ -436,14 +511,17 @@ export async function requestGifFrameInference(params: GifFrameParams): Promise<
         throw new Error(`Unsupported GIF frame transfer kind: ${transferKind as string}`);
     }
 
+    sendSpan.setAttribute(ATTR.transferKind, transferKind);
     await backgroundRpc.postInferenceGifFrame(payload);
+    sendSpan.end();
   } catch (error) {
     try {
       bitmap.close();
     } catch {
       // Already closed or transferred - ignore
     }
-    logger.withTag('sender').error('Failed to send GIF frame for inference:', error);
+    endSpanWithError(sendSpan, error);
+    log.error('inference.gif_frame.send.failed', { src, sessionId, frameIndex, error }, parent);
     throw error;
   }
 }

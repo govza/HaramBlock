@@ -95,10 +95,6 @@
     "singleModelTooltip": "Modèle : $1",
     "errorTooltip": "Échec du changement de modèle"
   },
-  "ConsoleToggle": {
-    "enable": "Activer les journaux de console",
-    "disable": "Désactiver les journaux de console"
-  },
   "HelpToggle": {
     "open": "Ouvrir l'aide",
     "close": "Fermer l'aide"
