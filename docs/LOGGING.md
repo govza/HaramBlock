@@ -27,10 +27,10 @@ log.warn('capture.bitmap.failed', { src, fallback: 'url', error });
 
 ## Where records go
 
-| Context                   | Sinks                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| background                | prod: in-memory ring (warn+, 500). dev: ring (all levels), dev console, OTLP via the SDK pipeline   |
-| content / popup / options | prod: warn+ forwarded to the background ring. dev: local console + everything forwarded (1 s batch) |
+| Context                   | Sinks                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| background                | ring (warn+ in prod, all levels in dev, 500 records); dev console; OTLP when the export is enabled   |
+| content / popup / options | dev console; forwarded to the background (prod: warn+ logs only; dev: all logs and spans, 1 s batch) |
 
 Forwarding uses `backgroundRpc.pushTelemetry(batch)`; the background re-emits forwarded logs and
 spans into its own processors, so the collector sees one `service.name = haramblock` with an
@@ -76,7 +76,9 @@ inference.roundtrip (content)            hb.req.id, hb.src, hb.hostname, hb.medi
 └─ inference.apply (content)             styling/overlay work, hb.overlay_type
 ```
 
-Propagation: `IImageTransfer`, `IVideoFrameTransfer` and `IGifFrameTransfer` carry `traceparent`;
+Propagation: the inference envelopes (`IImageTransfer`, `IVideoFrameTransfer`, `IGifFrameTransfer`)
+carry `traceparent` explicitly. comctx runs an async heartbeat before every RPC send, so the active
+context cannot be captured in the adapter; other RPC methods therefore carry no trace context yet.
 the background extracts it (`extractTraceparent`) and parents its spans under it. Every result
 (`ImageInferenceResult`, `FrameInferenceResult`, `GifFrameInferenceResult`) carries the same
 `traceparent` back.

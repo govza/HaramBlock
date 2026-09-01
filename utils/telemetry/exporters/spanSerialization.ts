@@ -43,10 +43,6 @@ export function serializeSpan(span: ReadableSpan, hbContext: HbContext): Seriali
   };
 }
 
-/**
- * Rebuild a span that ended in another context so the background's processors can export it
- * as if it were their own.
- */
 export function deserializeSpan(serialized: SerializedSpan, resource: Resource): ReadableSpan {
   const startTime = millisToHrTime(serialized.startTimeMs);
   const endTime = millisToHrTime(serialized.endTimeMs);

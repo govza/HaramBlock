@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { t } from '@/utils/i18n';
 import { backgroundRpc } from '@/utils/messaging/popup';
 import { onModelSettingsChange, type ModelPreference } from '@/utils/modelSettings';
+import { getLogger } from '@/utils/telemetry';
+
+const log = getLogger('ModelToggle');
 
 type ModelInfo = { id: string; name: string; inputSize: number };
 
@@ -83,7 +86,7 @@ export const ModelToggle = () => {
         const newEffective = await backgroundRpc.getEffectiveModelId();
         setEffectiveId(newEffective);
       } catch (error) {
-        console.error('Failed to switch model:', error);
+        log.error('model.switch.failed', { preference: next, error });
         setHasError(true);
         setTimeout(() => setHasError(false), 2000);
       } finally {

@@ -70,7 +70,7 @@ function scheduleIdleFlush(): void {
   }, IDLE_FLUSH_DELAY_MS);
 }
 
-function emitToSdk(record: TelemetryLogRecord, tabId?: number): void {
+function emitToSdk(record: TelemetryLogRecord): void {
   if (!sdk) return;
   let logger = sdk.loggers.get(record.scope);
   if (!logger) {
@@ -83,11 +83,7 @@ function emitToSdk(record: TelemetryLogRecord, tabId?: number): void {
     timestamp: record.timeMs,
     severityNumber: SEVERITY[record.level],
     severityText: record.level,
-    attributes: {
-      ...record.attributes,
-      [ATTR.context]: record.context,
-      ...(tabId !== undefined ? { [ATTR.tabId]: tabId } : {}),
-    },
+    attributes: { ...record.attributes, [ATTR.context]: record.context },
     context: contextFromRecord(record),
   });
   scheduleIdleFlush();
@@ -160,18 +156,14 @@ function installSdk(): SdkPipeline {
   };
 }
 
-/**
- * The background owns the only OTLP exporters and the production log ring. Everything the other
- * contexts forward is re-emitted here, so the collector sees one service with four `hb.context`s.
- */
 export function initBackgroundTelemetry(): void {
   setLogContext('background');
-  ring = new RingLogSink(RING_CAPACITY, TELEMETRY_ENABLED ? 'debug' : 'warn');
+  ring = new RingLogSink(RING_CAPACITY, import.meta.env.DEV ? 'debug' : 'warn');
   registerLogSink(ring.push);
+  if (import.meta.env.DEV) registerLogSink(consoleLogSink);
 
   if (!TELEMETRY_ENABLED) return;
 
-  registerLogSink(consoleLogSink);
   sdk = installSdk();
   registerLogSink(record => emitToSdk(record));
 }
@@ -181,9 +173,8 @@ export function ingestForwardedTelemetry(batch: TelemetryBatch, tabId?: number):
     const stamped =
       tabId === undefined ? record : { ...record, attributes: { ...record.attributes, [ATTR.tabId]: tabId } };
     ring?.push(stamped);
-    if (!TELEMETRY_ENABLED) continue;
-    consoleLogSink(stamped);
-    emitToSdk(stamped, tabId);
+    if (import.meta.env.DEV) consoleLogSink(stamped);
+    emitToSdk(stamped);
   }
   if (!sdk || batch.spans.length === 0) return;
   const resource = forwardedResource(batch.context, tabId);

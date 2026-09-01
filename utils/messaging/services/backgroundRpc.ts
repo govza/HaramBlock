@@ -134,7 +134,6 @@ export class BackgroundRpc {
     }
   }
 
-  /** Content/popup/options forward their batched logs and spans here; the background re-exports them. */
   pushTelemetry(batch: TelemetryBatch): Promise<void> {
     const { tabId } = getRpcContext();
     ingestForwardedTelemetry(batch, tabId);
