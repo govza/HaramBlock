@@ -84,7 +84,7 @@ the background extracts it (`extractTraceparent`) and parents its spans under it
 `traceparent` back.
 
 Umbrella: the content script opens one `page.session` span per document. Each round-trip links to it
-and carries `hb.parent_trace_id`, so a page's traffic can be grouped without nesting.
+and carries `hb.session.trace_id`, so a page's traffic can be grouped without nesting.
 
 Video frames currently get a round-trip span that covers capture → send (part 2 extends it to the
 DVR pipeline).

@@ -87,7 +87,7 @@ export function startRoundtrip(key: string, start: RoundtripStart): Context {
         [ATTR.hostname]: start.hostname,
         [ATTR.mediaKind]: start.mediaKind,
         [ATTR.sessionId]: session.sessionId,
-        ...(session.spanContext ? { [ATTR.parentTraceId]: session.spanContext.traceId } : {}),
+        ...(session.spanContext ? { [ATTR.sessionTraceId]: session.spanContext.traceId } : {}),
         ...sanitizeAttributes(start.attributes),
       },
       links: session.spanContext ? [{ context: session.spanContext }] : [],

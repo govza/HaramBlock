@@ -8,7 +8,7 @@ export const ATTR = {
   reqId: 'hb.req.id',
   hostname: 'hb.hostname',
   mediaKind: 'hb.media.kind',
-  parentTraceId: 'hb.parent_trace_id',
+  sessionTraceId: 'hb.session.trace_id',
   src: 'hb.src',
   status: 'hb.status',
   cacheHit: 'hb.cache_hit',
