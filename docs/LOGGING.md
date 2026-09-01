@@ -41,8 +41,8 @@ collector: content-script `fetch` is blocked by page CSP.
 
 ## Enabling the OTLP export
 
-Telemetry export is compiled in only for development builds (`pnpm dev`, or a static
-`wxt build --mode development`) and only when an endpoint is configured:
+Telemetry export is compiled in only for development builds (`pnpm dev`, `pnpm dev:firefox`, or a
+static `wxt build --mode development` for either browser) and only when an endpoint is configured:
 
 ```
 WXT_OTEL_ENDPOINT=http://localhost:4318   # default; set to '' to disable
