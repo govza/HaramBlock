@@ -9,8 +9,8 @@ export interface InferenceTask {
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
   priority: number; // Queue priority (higher = runs first)
-  traceparent?: string; // W3C trace context of the content-side round-trip span
-  traceContext?: Context; // Parsed traceparent; parent for background spans
+  traceparent?: string;
+  traceContext?: Context;
   bitmap?: ImageBitmap; // Pre-loaded bitmap (from MessageChannel transferable)
   blob?: Blob; // Blob (from Firefox structured clone) - converted to bitmap by inference library
   originalWidth?: number; // Original image dimensions (when bitmap or blob is provided)

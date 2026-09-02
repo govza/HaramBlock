@@ -161,7 +161,7 @@ export class InferenceOrchestrationService {
           }));
           await this.imageCacheService.cachePredictions(predictionsWithHostname);
           this.sendImageResultsToContent(
-            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction, traceparent })),
+            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction })),
             hostname,
           );
           const detectionsCount = cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0);
@@ -343,17 +343,13 @@ export class InferenceOrchestrationService {
   }
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
-    const { traceparent } = task;
     try {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction, traceparent }], task.hostname);
+        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction }], task.hostname);
       } else if (task.mediaMetadata.kind === 'gifFrame') {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendGifFrameResultsToContent(
-          [{ status: 'ok', prediction: gifFramePrediction, traceparent }],
-          task.hostname,
-        );
+        this.sendGifFrameResultsToContent([{ status: 'ok', prediction: gifFramePrediction }], task.hostname);
       } else {
         // A cache write failure must not suppress the reply - the verdict is
         // already computed and content is waiting on it.
@@ -362,7 +358,7 @@ export class InferenceOrchestrationService {
         } catch (error) {
           log.warn('inference.cache.write.failed', { src: task.imageSrc, error }, task.traceContext);
         }
-        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction, traceparent }], task.hostname);
+        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction }], task.hostname);
       }
     } catch (error) {
       log.error('inference.result.dispatch.failed', { src: task.imageSrc, error }, task.traceContext);
@@ -410,7 +406,7 @@ export class InferenceOrchestrationService {
    */
   private sendErrorToContent(task: InferenceTask, error: unknown): void {
     const reason = error instanceof Error ? error.message : String(error);
-    const { mediaMetadata, traceparent } = task;
+    const { mediaMetadata } = task;
     if (mediaMetadata.kind === 'frame') {
       this.sendFrameResultsToContent(
         [
@@ -420,7 +416,6 @@ export class InferenceOrchestrationService {
             sessionId: mediaMetadata.sessionId,
             frameIndex: mediaMetadata.frameIndex,
             reason,
-            traceparent,
           },
         ],
         task.hostname,
@@ -434,14 +429,13 @@ export class InferenceOrchestrationService {
             src: mediaMetadata.src,
             sessionId: mediaMetadata.sessionId,
             reason,
-            traceparent,
           },
         ],
         task.hostname,
       );
     } else {
       this.sendImageResultsToContent(
-        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason, traceparent }],
+        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason }],
         task.hostname,
       );
     }

@@ -51,7 +51,7 @@ WXT_OTEL_ENDPOINT=http://localhost:4318   # default; set to '' to disable
 The flag is a build-time define (`__HB_TELEMETRY_ENABLED__`), so production bundles keep only
 `@opentelemetry/api` (no-op tracer / meter) and the ring.
 
-Exporters (`@opentelemetry/exporter-*-otlp-http`) post with `mode: 'cors'`; the collector must allow
+Exporters (`@opentelemetry/exporter-*-otlp-http`) post cross-origin; the collector must allow
 `chrome-extension://*` and `moz-extension://*` origins (part 3 ships the `otel-lgtm` config). Batch
 processors flush every 1 s, metrics export every 1 s, and a 5 s idle timer force-flushes everything
 (Firefox event pages have no `runtime.onSuspend`).
@@ -79,12 +79,13 @@ inference.roundtrip (content)            hb.req.id, hb.src, hb.hostname, hb.medi
 Propagation: the inference envelopes (`IImageTransfer`, `IVideoFrameTransfer`, `IGifFrameTransfer`)
 carry `traceparent` explicitly. comctx runs an async heartbeat before every RPC send, so the active
 context cannot be captured in the adapter; other RPC methods therefore carry no trace context yet.
-the background extracts it (`extractTraceparent`) and parents its spans under it. Every result
-(`ImageInferenceResult`, `FrameInferenceResult`, `GifFrameInferenceResult`) carries the same
-`traceparent` back.
+the background extracts it (`extractTraceparent`) and parents its spans under it. Results carry no
+trace context back: the content side keeps the open round-trip span keyed by `src` and ends it when
+the verdict is applied.
 
-Umbrella: the content script opens one `page.session` span per document. Each round-trip links to it
-and carries `hb.session.trace_id`, so a page's traffic can be grouped without nesting.
+Umbrella: the content script emits one zero-length `page.session` anchor span per document at init.
+Each round-trip links to it and carries `hb.session.trace_id`, so a page's traffic can be grouped
+without nesting.
 
 Video frames currently get a round-trip span that covers capture → send (part 2 extends it to the
 DVR pipeline).

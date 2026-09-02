@@ -70,8 +70,7 @@ export type ForcedVisibility = 'auto' | 'visible' | 'blocked';
  * future 'skipped').
  */
 export type ImageInferenceResult =
-  | { status: 'ok'; prediction: IImagePrediction; traceparent?: string }
-  | { status: 'error'; src: string; hostname: string; reason?: string; traceparent?: string };
+  { status: 'ok'; prediction: IImagePrediction } | { status: 'error'; src: string; hostname: string; reason?: string };
 
 export function shouldBlock(prediction: IImagePrediction): boolean {
   if (prediction.forcedVisibility === 'visible') return false;
@@ -138,8 +137,8 @@ export interface IGifFramePrediction {
  * arm) instead of waiting out the sample timeout.
  */
 export type FrameInferenceResult =
-  | { status: 'ok'; prediction: IFramePrediction; traceparent?: string }
-  | { status: 'error'; hostname: string; sessionId: string; frameIndex: number; reason?: string; traceparent?: string };
+  | { status: 'ok'; prediction: IFramePrediction }
+  | { status: 'error'; hostname: string; sessionId: string; frameIndex: number; reason?: string };
 
 /**
  * Outcome of one GIF frame inference request. An 'error' counts toward the
@@ -148,8 +147,8 @@ export type FrameInferenceResult =
  * timeout.
  */
 export type GifFrameInferenceResult =
-  | { status: 'ok'; prediction: IGifFramePrediction; traceparent?: string }
-  | { status: 'error'; hostname: string; src: string; sessionId: string; reason?: string; traceparent?: string };
+  | { status: 'ok'; prediction: IGifFramePrediction }
+  | { status: 'error'; hostname: string; src: string; sessionId: string; reason?: string };
 
 export interface IVideoPrediction {
   hostname: string;
