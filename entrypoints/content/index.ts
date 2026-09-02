@@ -38,8 +38,8 @@ export default defineContentScript({
       [ATTR.hostname]: globalThis.location.hostname,
       isTopFrame: globalThis.self === globalThis.top,
     });
-    setPageSession(pageSession.session);
-    log.debug('content.init.start', { sessionId: pageSession.session.sessionId });
+    setPageSession(pageSession);
+    log.debug('content.init.start', { [ATTR.sessionId]: pageSession.sessionId });
     // Claim the page before anything else: stamping the sentinel makes any
     // orphaned predecessor (extension reload/update) tear itself down, and the
     // sweep removes what a crashed predecessor could not.
