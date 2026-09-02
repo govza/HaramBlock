@@ -1,6 +1,6 @@
 import { createHostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { IHostSettings } from '@/utils/types';
 
@@ -22,7 +22,7 @@ export class HostSettingsService {
       const repository = createHostSettingsRepository(isIncognito);
       return await repository.findByHostname(effectiveHostname);
     } catch (error) {
-      log.error('host_settings.get_failed', { hostname: effectiveHostname, error });
+      log.error('host_settings.get_failed', { [ATTR.hostname]: effectiveHostname, error });
       throw error;
     }
   }

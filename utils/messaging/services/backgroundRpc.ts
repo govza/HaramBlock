@@ -1,5 +1,5 @@
 import { getRpcContext } from '@/utils/messaging/rpcContext';
-import { getLogger, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
+import { ATTR, getLogger, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
 import { exportTelemetry, ingestForwardedTelemetry } from '@/utils/telemetry/setup/background';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
@@ -120,7 +120,7 @@ export class BackgroundRpc {
     try {
       return await this.imageCacheService.getCachedPredictionsByHostname(hostname);
     } catch (error) {
-      log.error('cache.read.failed', { hostname, error });
+      log.error('cache.read.failed', { [ATTR.hostname]: hostname, error });
       throw error;
     }
   }
@@ -154,7 +154,7 @@ export class BackgroundRpc {
     const { hostname, src, width, height, metadata, priority, traceparent } = imageData;
 
     if (!hostname) {
-      log.error('inference.request.rejected', { reason: 'missing hostname', src, mediaKind: 'image' });
+      log.error('inference.request.rejected', { reason: 'missing hostname', src, [ATTR.mediaKind]: 'image' });
       return;
     }
 
@@ -210,7 +210,7 @@ export class BackgroundRpc {
         });
       }
     } catch (error) {
-      log.error('inference.schedule.failed', { hostname, src, mediaKind: 'image', error });
+      log.error('inference.schedule.failed', { [ATTR.hostname]: hostname, src, [ATTR.mediaKind]: 'image', error });
     }
   }
 
@@ -224,7 +224,7 @@ export class BackgroundRpc {
       frameData;
 
     if (!hostname) {
-      log.error('inference.request.rejected', { reason: 'missing hostname', videoUrl, mediaKind: 'frame' });
+      log.error('inference.request.rejected', { reason: 'missing hostname', videoUrl, [ATTR.mediaKind]: 'frame' });
       return;
     }
 
@@ -260,7 +260,13 @@ export class BackgroundRpc {
         traceparent,
       });
     } catch (error) {
-      log.error('inference.schedule.failed', { hostname, videoUrl, frameIndex, mediaKind: 'frame', error });
+      log.error('inference.schedule.failed', {
+        [ATTR.hostname]: hostname,
+        videoUrl,
+        [ATTR.frameIndex]: frameIndex,
+        [ATTR.mediaKind]: 'frame',
+        error,
+      });
     }
   }
 
@@ -282,7 +288,7 @@ export class BackgroundRpc {
       frameData;
 
     if (!hostname) {
-      log.error('inference.request.rejected', { reason: 'missing hostname', src, mediaKind: 'gifFrame' });
+      log.error('inference.request.rejected', { reason: 'missing hostname', src, [ATTR.mediaKind]: 'gif' });
       return;
     }
 
@@ -309,7 +315,13 @@ export class BackgroundRpc {
         traceparent,
       });
     } catch (error) {
-      log.error('inference.schedule.failed', { hostname, src, frameIndex, mediaKind: 'gifFrame', error });
+      log.error('inference.schedule.failed', {
+        [ATTR.hostname]: hostname,
+        src,
+        [ATTR.frameIndex]: frameIndex,
+        [ATTR.mediaKind]: 'gif',
+        error,
+      });
     }
   }
 
@@ -333,7 +345,7 @@ export class BackgroundRpc {
     try {
       await this.iconService.updateIconForTab(tabId, hostname);
     } catch (error) {
-      log.error('icon.update.failed', { hostname, tabId, error });
+      log.error('icon.update.failed', { [ATTR.hostname]: hostname, tabId, error });
       throw error;
     }
   }

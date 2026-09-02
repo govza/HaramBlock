@@ -1,7 +1,7 @@
 import { createHostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { extractHostnameFromUrl } from '@/utils/hostnameUtil';
 import { getIconPaths } from '@/utils/icons';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 const log = getLogger('iconService');
 
@@ -19,7 +19,7 @@ export class IconService {
       const iconPaths = getIconPaths(hostSettings.policy.behavior);
       await (browser.action ?? browser.browserAction).setIcon({ tabId, path: iconPaths });
     } catch (error) {
-      log.error('icon.update_for_hostname_failed', { hostname, error });
+      log.error('icon.update_for_hostname_failed', { [ATTR.hostname]: hostname, error });
     }
   }
 
