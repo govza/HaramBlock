@@ -23,10 +23,6 @@ export function setLogContext(hbContext: HbContext): void {
   currentContext = hbContext;
 }
 
-export function getLogContext(): HbContext {
-  return currentContext;
-}
-
 export function registerLogSink(sink: LogSink): () => void {
   sinks.add(sink);
   return () => sinks.delete(sink);

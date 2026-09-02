@@ -24,11 +24,9 @@ function styleFor(level: LogLevel): string {
   return `background: ${LEVEL_COLORS[level]}; border-radius: 0.5em; color: white; font-weight: bold; padding: 2px 0.5em;`;
 }
 
-export function printLogRecord(record: TelemetryLogRecord): void {
+export const consoleLogSink = (record: TelemetryLogRecord): void => {
   const args: unknown[] = [`%c${labelFor(record)}%c ${record.event}`, styleFor(record.level), ''];
   if (Object.keys(record.attributes).length > 0) args.push(record.attributes);
   if (record.traceId) args.push(`trace=${record.traceId.slice(0, 8)}`);
   LEVEL_WRITERS[record.level](...args);
-}
-
-export const consoleLogSink = (record: TelemetryLogRecord): void => printLogRecord(record);
+};

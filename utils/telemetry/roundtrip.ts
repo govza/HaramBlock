@@ -1,5 +1,13 @@
-import { ROOT_CONTEXT, SpanStatusCode, type Context, type Span, type SpanContext } from '@opentelemetry/api';
+import {
+  isSpanContextValid,
+  ROOT_CONTEXT,
+  SpanStatusCode,
+  type Context,
+  type Span,
+  type SpanContext,
+} from '@opentelemetry/api';
 
+import { generateNonce } from '@/utils/nonce';
 import {
   ATTR,
   errorAttributes,
@@ -23,6 +31,7 @@ export const SPAN = {
 
 export type MediaKind = 'image' | 'gif' | 'frame';
 export type RoundtripStatus = 'success' | 'error' | 'skipped' | 'cached';
+export type RoundtripCancelReason = 'cancelled' | 'evicted' | 'disposed';
 
 export interface UmbrellaSession {
   sessionId: string;
@@ -41,20 +50,14 @@ const tracer = getTracer('inference');
 const active = new Map<string, ActiveRoundtrip>();
 let umbrella: UmbrellaSession = { sessionId: 'none' };
 
-const isValid = (spanContext: SpanContext | undefined): spanContext is SpanContext =>
-  spanContext !== undefined && spanContext.traceId !== '0'.repeat(32);
-
-export function startUmbrellaSession(
-  name: string,
-  attributes: LooseAttributes = {},
-): { span: Span; session: UmbrellaSession } {
-  const sessionId = crypto.randomUUID();
+export function startUmbrellaSession(name: string, attributes: LooseAttributes = {}): UmbrellaSession {
+  const sessionId = generateNonce();
   const span = tracer.startSpan(name, {
     attributes: { ...sanitizeAttributes(attributes), [ATTR.sessionId]: sessionId },
   });
   const spanContext = span.spanContext();
-  const session: UmbrellaSession = { sessionId, spanContext: isValid(spanContext) ? spanContext : undefined };
-  return { span, session };
+  span.end();
+  return { sessionId, spanContext: isSpanContextValid(spanContext) ? spanContext : undefined };
 }
 
 export function setPageSession(session: UmbrellaSession): void {
@@ -111,10 +114,6 @@ export function getRoundtripContext(key: string): Context | undefined {
   return active.get(key)?.ctx;
 }
 
-export function hasRoundtrip(key: string): boolean {
-  return active.has(key);
-}
-
 export function startRoundtripChild(key: string, name: string, attributes?: LooseAttributes): Span | undefined {
   const roundtrip = active.get(key);
   if (!roundtrip) return undefined;
@@ -157,17 +156,17 @@ export function endRoundtrip(key: string, end: RoundtripEnd): void {
   roundtrip.span.end();
 }
 
-export function cancelRoundtrip(key: string, status: 'cancelled' | 'evicted' = 'cancelled'): void {
+export function cancelRoundtrip(key: string, reason: RoundtripCancelReason = 'cancelled'): void {
   const roundtrip = active.get(key);
   if (!roundtrip) return;
   active.delete(key);
   for (const child of roundtrip.children.values()) child.end();
-  roundtrip.span.setAttribute(ATTR.status, status);
+  roundtrip.span.setAttribute(ATTR.status, reason);
   roundtrip.span.end();
 }
 
-export function startSpan(name: string, attributes: LooseAttributes | undefined, parent: Context): Span {
-  return tracer.startSpan(name, { attributes: sanitizeAttributes(attributes) }, parent);
+export function cancelAllRoundtrips(reason: RoundtripCancelReason): void {
+  for (const key of Array.from(active.keys())) cancelRoundtrip(key, reason);
 }
 
 export function endSpanWithError(span: Span, error: unknown): void {
