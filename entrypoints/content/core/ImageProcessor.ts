@@ -35,8 +35,10 @@ import { IS_CHROME } from '@/utils/constants/environment';
 import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import { waitForMessageChannel } from '@/utils/messaging/content';
+import { generateNonce } from '@/utils/nonce';
 import { ATTR, getLogger } from '@/utils/telemetry';
 import {
+  cancelAllRoundtrips,
   cancelRoundtrip,
   endRoundtrip,
   endRoundtripChild,
@@ -79,6 +81,23 @@ const GIF_VERDICT_TIMEOUT_MS = 20000;
  * playback, but inference runs on a sampled subset; the verdict finalizes once that
  * subset has returned (or the fail-closed timeout fires).
  */
+type ApplyOutcome = { kind: 'stale' } | { kind: 'drifted' } | { kind: 'applied'; overlayType: string | undefined };
+
+// decode() covers cached images whose load event fired before a listener could attach.
+function waitForImageReady(img: HTMLImageElement): Promise<void> {
+  if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+  return new Promise(resolve => {
+    let handled = false;
+    const onReady = () => {
+      if (handled) return;
+      handled = true;
+      resolve();
+    };
+    img.decode().then(onReady).catch(onReady);
+    img.addEventListener('load', onReady, { once: true });
+  });
+}
+
 interface GifSession {
   sessionId: string;
   frameCount: number; // Expected inference verdicts = sampled frame count (0 until decode completes)
@@ -207,7 +226,7 @@ export class ImageProcessor {
     // Check cache first - apply immediately if available
     const cached = this.cache.get(src);
     if (cached) {
-      this.applyPrediction(img, cached);
+      void this.applyPrediction(img, cached);
       return;
     }
 
@@ -297,12 +316,34 @@ export class ImageProcessor {
       this.cache.set(pred.src, pred);
       this.clearPendingInference(pred.src, undefined, true);
 
-      // Find and update all matching images
-      const images = this.findImagesBySrc(pred.src);
-      for (const img of images) {
-        this.applyPrediction(img, pred);
-      }
+      void this.applyPredictionToAllImages(pred);
     }
+  }
+
+  private async applyPredictionToAllImages(prediction: IImagePrediction): Promise<void> {
+    startRoundtripChild(prediction.src, SPAN.apply);
+    const outcomes = await Promise.all(
+      this.findImagesBySrc(prediction.src).map(img => this.applyPrediction(img, prediction)),
+    );
+    endRoundtripChild(prediction.src, SPAN.apply, { elementCount: outcomes.length });
+
+    const applied = outcomes.find(outcome => outcome.kind === 'applied');
+    if (!applied) {
+      endRoundtrip(prediction.src, {
+        status: 'skipped',
+        attributes: { reason: outcomes.length === 0 ? 'no elements' : 'src changed' },
+      });
+      return;
+    }
+    endRoundtrip(prediction.src, {
+      status: 'success',
+      attributes: {
+        [ATTR.detectionsCount]: prediction.predictions.length,
+        [ATTR.overlayType]: applied.overlayType,
+        [ATTR.e2eMs]: prediction.processingTime.e2eTime,
+        [ATTR.backend]: prediction.processingTime.backend,
+      },
+    });
   }
 
   /**
@@ -338,6 +379,7 @@ export class ImageProcessor {
       this.releaseGifFrames(session.frames);
     }
     this.gifSessions.clear();
+    cancelAllRoundtrips('disposed');
     destroyQuickToggle();
   }
 
@@ -617,7 +659,7 @@ export class ImageProcessor {
     }
 
     const session: GifSession = {
-      sessionId: crypto.randomUUID(),
+      sessionId: generateNonce(),
       frameCount: 0,
       received: 0,
       failedFrames: 0,
@@ -673,6 +715,7 @@ export class ImageProcessor {
 
     if (session.disposed) {
       this.releaseGifFrames(decoded?.frames);
+      cancelRoundtrip(src, 'disposed');
       return;
     }
 
@@ -911,13 +954,17 @@ export class ImageProcessor {
     if (session.timeoutId) clearTimeout(session.timeoutId);
     this.releaseGifFrames(frames);
     this.gifSessions.delete(src);
+    cancelRoundtrip(src, 'evicted');
   }
 
   private fallbackToSingleFrame(img: HTMLImageElement, src: string, session: GifSession): void {
     if (session.timeoutId) clearTimeout(session.timeoutId);
     this.releaseGifFrames(session.frames);
     this.gifSessions.delete(src);
-    if (session.disposed) return;
+    if (session.disposed) {
+      cancelRoundtrip(src, 'disposed');
+      return;
+    }
     this.queueInference(img, src);
   }
 
@@ -929,15 +976,13 @@ export class ImageProcessor {
   // Prediction Application
   // ===========================================================================
 
-  private applyPrediction(img: HTMLImageElement, prediction: IImagePrediction): void {
+  private async applyPrediction(img: HTMLImageElement, prediction: IImagePrediction): Promise<ApplyOutcome> {
     const currentSrc = img.currentSrc || img.src;
 
     // Verify src still matches (handles race where src changed)
     if (currentSrc !== prediction.src) {
-      return;
+      return { kind: 'stale' };
     }
-
-    startRoundtripChild(prediction.src, SPAN.apply);
 
     // Track detections synchronously for badge (before async apply)
     let detectionCount = prediction.predictions.length;
@@ -952,76 +997,49 @@ export class ImageProcessor {
       applyInitialImageStyling(img, this.hostSettings);
     }
 
-    const apply = async () => {
-      // Double-check src after any async wait
-      const srcNow = img.currentSrc || img.src;
-      if (srcNow !== prediction.src) {
-        // Responsive images can select a different srcset candidate while
-        // decode() is pending without producing another observable attribute
-        // mutation. Hand the newly selected resource back to the normal
-        // pipeline; otherwise the old verdict is discarded and the element
-        // remains under its protective blur forever (notably in Reddit's
-        // foreground/background image pair).
-        this.process(img);
-        return;
-      }
+    await waitForImageReady(img);
 
-      // Clear any existing overlays first (also resets protective styling)
-      this.clearOverlays(img);
-
-      const hasDetections = prediction.predictions.length > 0;
-      if (hasDetections && prediction.forcedVisibility !== 'visible') {
-        applyInitialImageStyling(img, this.hostSettings);
-      }
-      this.registerToggle(img, prediction);
-
-      // Determine overlay type based on what styling is applied
-      let overlayType: string | undefined;
-
-      // Finalize (which strips protective styling) only once the branch's own
-      // protection is in place — for masked images that means after the
-      // overlay painted, or the unprotected window would reopen
-      if (prediction.forcedVisibility === 'blocked') {
-        finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
-        applyBlacklistStyling(img, this.hostSettings);
-        overlayType = 'blur';
-      } else if (prediction.forcedVisibility === 'visible') {
-        finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
-        overlayType = undefined; // Whitelisted, no overlay
-      } else if (hasDetections) {
-        await applyPredictionsStyling([img], [prediction], this.hostSettings);
-        finalizeImageProcessing(img, 'unsafe');
-        overlayType = 'segment';
-      } else {
-        finalizeImageProcessing(img, 'safe');
-        overlayType = undefined; // No detections, no overlay
-      }
-
-      endRoundtrip(prediction.src, {
-        status: 'success',
-        attributes: {
-          [ATTR.detectionsCount]: prediction.predictions.length,
-          [ATTR.overlayType]: overlayType,
-          [ATTR.e2eMs]: prediction.processingTime.e2eTime,
-          [ATTR.backend]: prediction.processingTime.backend,
-        },
-      });
-    };
-
-    // Wait for load if needed — use decode() as fallback for cached images
-    // where the load event may have already fired before the listener was attached
-    if (img.complete && img.naturalWidth > 0) {
-      void apply();
-    } else {
-      let handled = false;
-      const onReady = () => {
-        if (handled) return;
-        handled = true;
-        void apply();
-      };
-      img.decode().then(onReady).catch(onReady);
-      img.addEventListener('load', onReady, { once: true });
+    // Double-check src after any async wait
+    const srcNow = img.currentSrc || img.src;
+    if (srcNow !== prediction.src) {
+      // Responsive images can select a different srcset candidate while
+      // decode() is pending without producing another observable attribute
+      // mutation. Hand the newly selected resource back to the normal
+      // pipeline; otherwise the old verdict is discarded and the element
+      // remains under its protective blur forever (notably in Reddit's
+      // foreground/background image pair).
+      this.process(img);
+      return { kind: 'drifted' };
     }
+
+    // Clear any existing overlays first (also resets protective styling)
+    this.clearOverlays(img);
+
+    const hasDetections = prediction.predictions.length > 0;
+    if (hasDetections && prediction.forcedVisibility !== 'visible') {
+      applyInitialImageStyling(img, this.hostSettings);
+    }
+    this.registerToggle(img, prediction);
+
+    // Finalize (which strips protective styling) only once the branch's own
+    // protection is in place — for masked images that means after the
+    // overlay painted, or the unprotected window would reopen
+    if (prediction.forcedVisibility === 'blocked') {
+      finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
+      applyBlacklistStyling(img, this.hostSettings);
+      return { kind: 'applied', overlayType: 'blur' };
+    }
+    if (prediction.forcedVisibility === 'visible') {
+      finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
+      return { kind: 'applied', overlayType: undefined };
+    }
+    if (hasDetections) {
+      await applyPredictionsStyling([img], [prediction], this.hostSettings);
+      finalizeImageProcessing(img, 'unsafe');
+      return { kind: 'applied', overlayType: 'segment' };
+    }
+    finalizeImageProcessing(img, 'safe');
+    return { kind: 'applied', overlayType: undefined };
   }
 
   // ===========================================================================
