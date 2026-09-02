@@ -1,9 +1,7 @@
-declare const __HB_TELEMETRY_ENABLED__: boolean;
 declare const __HB_OTEL_ENDPOINT__: string;
 
 export type HbContext = 'content' | 'background' | 'popup' | 'options';
 
-export const TELEMETRY_ENABLED: boolean = __HB_TELEMETRY_ENABLED__;
 export const OTEL_ENDPOINT: string = __HB_OTEL_ENDPOINT__;
 
 export const FORWARD_BATCH_DELAY_MS = 1000;

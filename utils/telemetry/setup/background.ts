@@ -15,7 +15,6 @@ import {
   METRIC_EXPORT_INTERVAL_MS,
   OTEL_ENDPOINT,
   RING_CAPACITY,
-  TELEMETRY_ENABLED,
   type HbContext,
 } from '@/utils/telemetry/config';
 import { consoleLogSink } from '@/utils/telemetry/exporters/consoleExporter';
@@ -26,6 +25,8 @@ import { createResource, getExtensionVersion } from '@/utils/telemetry/resource'
 
 import type { TelemetryBatch, TelemetryExport, TelemetryLogRecord } from '@/utils/telemetry/records';
 import type { Resource } from '@opentelemetry/resources';
+
+declare const __HB_TELEMETRY_ENABLED__: boolean;
 
 const SEVERITY: Record<TelemetryLogRecord['level'], SeverityNumber> = {
   debug: SeverityNumber.DEBUG,
@@ -164,7 +165,7 @@ export function initBackgroundTelemetry(): void {
   registerLogSink(ring.push);
   if (import.meta.env.DEV) registerLogSink(consoleLogSink);
 
-  if (!TELEMETRY_ENABLED) return;
+  if (!__HB_TELEMETRY_ENABLED__) return;
 
   sdk = installSdk();
   registerLogSink(record => emitToSdk(record));
