@@ -1,4 +1,9 @@
-import { FORWARD_BATCH_DELAY_MS, type HbContext } from '@/utils/telemetry/config';
+import {
+  FORWARD_BATCH_DELAY_MS,
+  FORWARD_MAX_BUFFERED,
+  FORWARD_RETRY_DELAY_MS,
+  type HbContext,
+} from '@/utils/telemetry/config';
 
 import type { SerializedSpan, TelemetryBatch, TelemetryLogRecord } from '@/utils/telemetry/records';
 
@@ -13,17 +18,19 @@ export class TelemetryForwarder {
     private readonly hbContext: HbContext,
     private readonly send: SendBatch,
     private readonly delayMs = FORWARD_BATCH_DELAY_MS,
+    private readonly retryDelayMs = FORWARD_RETRY_DELAY_MS,
+    private readonly maxBuffered = FORWARD_MAX_BUFFERED,
   ) {}
 
   pushLog = (record: TelemetryLogRecord): void => {
-    this.logs.push(record);
-    this.schedule();
+    this.logs = this.bounded([...this.logs, record]);
+    this.schedule(this.delayMs);
   };
 
   pushSpans(spans: SerializedSpan[]): void {
     if (spans.length === 0) return;
-    this.spans.push(...spans);
-    this.schedule();
+    this.spans = this.bounded([...this.spans, ...spans]);
+    this.schedule(this.delayMs);
   }
 
   async flush(): Promise<void> {
@@ -38,15 +45,25 @@ export class TelemetryForwarder {
     try {
       await this.send(batch);
     } catch {
-      return;
+      this.requeue(batch);
+      this.schedule(this.retryDelayMs);
     }
   }
 
-  private schedule(): void {
+  private requeue(batch: TelemetryBatch): void {
+    this.logs = this.bounded([...batch.logs, ...this.logs]);
+    this.spans = this.bounded([...batch.spans, ...this.spans]);
+  }
+
+  private bounded<T>(items: T[]): T[] {
+    return items.length > this.maxBuffered ? items.slice(items.length - this.maxBuffered) : items;
+  }
+
+  private schedule(delayMs: number): void {
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.flush();
-    }, this.delayMs);
+    }, delayMs);
   }
 }
