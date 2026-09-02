@@ -1,4 +1,4 @@
-import { SpanStatusCode, type Span } from '@opentelemetry/api';
+import { SpanStatusCode, type Counter, type Histogram, type Span } from '@opentelemetry/api';
 
 import { getCurrentModelId } from '@inference-runtime';
 
@@ -6,7 +6,6 @@ import { BatchCollector } from '@/entrypoints/background/services/batchCollector
 import { getBatchCap, getInferenceBackend, processInferenceBatch, processInferenceTask } from '@/utils/inference';
 import { ATTR, extractTraceparent, getLogger, getMeter, getTracer, requestIdFor } from '@/utils/telemetry';
 import { SPAN } from '@/utils/telemetry/roundtrip';
-import { noteSpanActivity } from '@/utils/telemetry/setup/background';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
@@ -63,14 +62,28 @@ export type ScheduleArgs = {
 
 const log = getLogger('inferenceOrchestrationService');
 const tracer = getTracer('inference');
-const meter = getMeter('inference');
-const runDurationMs = meter.createHistogram('hb.inference.run.duration', {
-  unit: 'ms',
-  description: 'Wall time of one inference task from dequeue to prediction',
-});
-const requestCounter = meter.createCounter('hb.inference.requests', {
-  description: 'Inference requests by media kind and outcome',
-});
+
+interface InferenceInstruments {
+  runDurationMs: Histogram;
+  requestCounter: Counter;
+}
+
+let instruments: InferenceInstruments | null = null;
+
+function getInstruments(): InferenceInstruments {
+  if (instruments) return instruments;
+  const meter = getMeter('inference');
+  instruments = {
+    runDurationMs: meter.createHistogram('hb.inference.run.duration', {
+      unit: 'ms',
+      description: 'Wall time of one inference task from dequeue to prediction',
+    }),
+    requestCounter: meter.createCounter('hb.inference.requests', {
+      description: 'Inference requests by media kind and outcome',
+    }),
+  };
+  return instruments;
+}
 
 function mediaAttributes(mediaMetadata: IMediaMetadata, hostname: string): Record<string, string | number> {
   if (mediaMetadata.kind === 'frame') {
@@ -167,9 +180,8 @@ export class InferenceOrchestrationService {
           const detectionsCount = cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0);
           cacheSpan.setAttributes({ [ATTR.cacheHit]: true, [ATTR.detectionsCount]: detectionsCount });
           cacheSpan.end();
-          requestCounter.add(1, { [ATTR.mediaKind]: 'image', [ATTR.status]: 'cached' });
+          getInstruments().requestCounter.add(1, { [ATTR.mediaKind]: 'image', [ATTR.status]: 'cached' });
           log.debug('inference.cache.hit', { ...attributes, detectionsCount }, traceContext);
-          noteSpanActivity();
           return;
         }
         cacheSpan.setAttribute(ATTR.cacheHit, false);
@@ -285,15 +297,16 @@ export class InferenceOrchestrationService {
         runSpan.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message : undefined });
         runSpan.setAttributes({ ...modelAttributes(), [ATTR.status]: 'error' });
         runSpan.end();
-        runDurationMs.record(Date.now() - runStartedAt, {
+        getInstruments().runDurationMs.record(Date.now() - runStartedAt, {
           [ATTR.mediaKind]: attributes[ATTR.mediaKind],
           [ATTR.status]: 'error',
         });
-        requestCounter.add(1, { [ATTR.mediaKind]: attributes[ATTR.mediaKind], [ATTR.status]: 'error' });
+        getInstruments().requestCounter.add(1, {
+          [ATTR.mediaKind]: attributes[ATTR.mediaKind],
+          [ATTR.status]: 'error',
+        });
         log.error('inference.run.failed', { ...attributes, error }, task.traceContext);
         this.sendErrorToContent(task, error);
-      } finally {
-        noteSpanActivity();
       }
     });
   }
@@ -315,8 +328,11 @@ export class InferenceOrchestrationService {
     runSpan.setAttributes(timing);
     runSpan.setStatus({ code: SpanStatusCode.OK });
     runSpan.end();
-    runDurationMs.record(Date.now() - runStartedAt, { [ATTR.mediaKind]: mediaKind, [ATTR.status]: 'success' });
-    requestCounter.add(1, { [ATTR.mediaKind]: mediaKind, [ATTR.status]: 'success' });
+    getInstruments().runDurationMs.record(Date.now() - runStartedAt, {
+      [ATTR.mediaKind]: mediaKind,
+      [ATTR.status]: 'success',
+    });
+    getInstruments().requestCounter.add(1, { [ATTR.mediaKind]: mediaKind, [ATTR.status]: 'success' });
     if (task.mediaMetadata.kind === 'image') {
       log.info(
         'inference.run.completed',

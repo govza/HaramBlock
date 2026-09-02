@@ -104,7 +104,9 @@ class CommonAttributesSpanProcessor {
   onStart(span: Span): void {
     span.setAttributes(getCommonAttributes());
   }
-  onEnd(_span: ReadableSpan): void {}
+  onEnd(_span: ReadableSpan): void {
+    scheduleIdleFlush();
+  }
   forceFlush(): Promise<void> {
     return Promise.resolve();
   }
@@ -180,10 +182,6 @@ export function ingestForwardedTelemetry(batch: TelemetryBatch, tabId?: number):
   for (const serialized of batch.spans) {
     sdk.spanProcessor.onEnd(deserializeSpan(serialized, resource));
   }
-  scheduleIdleFlush();
-}
-
-export function noteSpanActivity(): void {
   scheduleIdleFlush();
 }
 
