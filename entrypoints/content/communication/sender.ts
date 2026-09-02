@@ -66,7 +66,7 @@ export async function requestToggleUpdate(src: string, forcedVisibility: ForcedV
   try {
     await backgroundRpc.updateToggleState(src, forcedVisibility);
   } catch (error) {
-    log.error('toggle.update.failed', { src, forcedVisibility, error });
+    log.error('toggle.update.failed', { [ATTR.src]: src, forcedVisibility, error });
   }
 }
 
@@ -154,7 +154,7 @@ async function buildPayload(
         traceparent,
       };
     } catch (error) {
-      log.warn('capture.bitmap.failed', { src, fallback: 'url', error }, parent);
+      log.warn('capture.bitmap.failed', { [ATTR.src]: src, fallback: 'url', error }, parent);
     }
   } else if (transferKind === 'blob') {
     try {
@@ -175,7 +175,7 @@ async function buildPayload(
         traceparent,
       };
     } catch (error) {
-      log.warn('capture.blob.failed', { src, fallback: 'url', error }, parent);
+      log.warn('capture.blob.failed', { [ATTR.src]: src, fallback: 'url', error }, parent);
     }
   }
 
@@ -230,7 +230,7 @@ async function sendImageForInference(
     }
   }
 
-  log.error('inference.send.failed', { src: image.currentSrc || image.src, error: lastError }, parent);
+  log.error('inference.send.failed', { [ATTR.src]: image.currentSrc || image.src, error: lastError }, parent);
   throw lastError;
 }
 
@@ -513,7 +513,7 @@ export async function requestGifFrameInference(params: GifFrameParams): Promise<
     endSpanWithError(sendSpan, error);
     log.error(
       'inference.gif_frame.send.failed',
-      { src, [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, error },
+      { [ATTR.src]: src, [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, error },
       parent,
     );
     throw error;

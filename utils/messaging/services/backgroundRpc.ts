@@ -129,7 +129,7 @@ export class BackgroundRpc {
     try {
       await this.imageCacheService.updateToggleState(src, forcedVisibility);
     } catch (error) {
-      log.error('toggle.update.failed', { src, error });
+      log.error('toggle.update.failed', { [ATTR.src]: src, error });
       throw error;
     }
   }
@@ -154,7 +154,11 @@ export class BackgroundRpc {
     const { hostname, src, width, height, metadata, priority, traceparent } = imageData;
 
     if (!hostname) {
-      log.error('inference.request.rejected', { reason: 'missing hostname', src, [ATTR.mediaKind]: 'image' });
+      log.error('inference.request.rejected', {
+        reason: 'missing hostname',
+        [ATTR.src]: src,
+        [ATTR.mediaKind]: 'image',
+      });
       return;
     }
 
@@ -210,7 +214,12 @@ export class BackgroundRpc {
         });
       }
     } catch (error) {
-      log.error('inference.schedule.failed', { [ATTR.hostname]: hostname, src, [ATTR.mediaKind]: 'image', error });
+      log.error('inference.schedule.failed', {
+        [ATTR.hostname]: hostname,
+        [ATTR.src]: src,
+        [ATTR.mediaKind]: 'image',
+        error,
+      });
     }
   }
 
@@ -229,12 +238,12 @@ export class BackgroundRpc {
     }
 
     log.debug('inference.frame.received', {
-      transferKind: frameData.kind,
-      hostname,
+      [ATTR.transferKind]: frameData.kind,
+      [ATTR.hostname]: hostname,
       videoUrl,
-      frameIndex,
+      [ATTR.frameIndex]: frameIndex,
       timestampSec,
-      sessionId: frameData.sessionId,
+      [ATTR.sessionId]: frameData.sessionId,
     });
 
     try {
@@ -288,7 +297,7 @@ export class BackgroundRpc {
       frameData;
 
     if (!hostname) {
-      log.error('inference.request.rejected', { reason: 'missing hostname', src, [ATTR.mediaKind]: 'gif' });
+      log.error('inference.request.rejected', { reason: 'missing hostname', [ATTR.src]: src, [ATTR.mediaKind]: 'gif' });
       return;
     }
 
@@ -317,7 +326,7 @@ export class BackgroundRpc {
     } catch (error) {
       log.error('inference.schedule.failed', {
         [ATTR.hostname]: hostname,
-        src,
+        [ATTR.src]: src,
         [ATTR.frameIndex]: frameIndex,
         [ATTR.mediaKind]: 'gif',
         error,
@@ -345,7 +354,7 @@ export class BackgroundRpc {
     try {
       await this.iconService.updateIconForTab(tabId, hostname);
     } catch (error) {
-      log.error('icon.update.failed', { [ATTR.hostname]: hostname, tabId, error });
+      log.error('icon.update.failed', { [ATTR.hostname]: hostname, [ATTR.tabId]: tabId, error });
       throw error;
     }
   }

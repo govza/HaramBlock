@@ -5,7 +5,7 @@ import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
 import { acquireModelRuntime, getBackend, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
 import { getPostprocessor, type TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
 import type { InferenceTask } from '@/utils/types/model';
@@ -177,7 +177,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
       try {
         return { index, image: await prepareImage(task) };
       } catch (error) {
-        log.error('prediction.image.prepare_failed', { src: task.imageSrc, error });
+        log.error('prediction.image.prepare_failed', { [ATTR.src]: task.imageSrc, error });
         results[index] = { error: error instanceof Error ? error : new Error(String(error)) };
         return { index, image: null };
       }
@@ -238,7 +238,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
             ),
           };
         } catch (error) {
-          log.error('prediction.postprocess.failed', { src: item.image.task.imageSrc, error });
+          log.error('prediction.postprocess.failed', { [ATTR.src]: item.image.task.imageSrc, error });
           results[item.index] = { error: error instanceof Error ? error : new Error(String(error)) };
         }
       });

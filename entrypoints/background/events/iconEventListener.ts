@@ -1,5 +1,5 @@
 import { IconService } from '@/entrypoints/background/services/iconService';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 const log = getLogger('iconEventListener');
 
@@ -24,7 +24,7 @@ export class IconEventListener {
       if (changeInfo.url || changeInfo.status === 'complete') {
         if (tab.url) {
           this.iconService.updateIconForUrl(tabId, tab.url).catch(error => {
-            log.error('icon.update_for_tab_failed', { tabId, error });
+            log.error('icon.update_for_tab_failed', { [ATTR.tabId]: tabId, error });
           });
         }
       }
@@ -41,7 +41,7 @@ export class IconEventListener {
           return Promise.resolve();
         })
         .catch(error => {
-          log.error('icon.tab_activation_failed', { tabId: activeInfo.tabId, error });
+          log.error('icon.tab_activation_failed', { [ATTR.tabId]: activeInfo.tabId, error });
         });
     });
 

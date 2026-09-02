@@ -591,7 +591,7 @@ export class ImageProcessor {
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;
     }
-    log.debug('inference.retry', { src, attempt: attempts, reason }, getRoundtripContext(src));
+    log.debug('inference.retry', { [ATTR.src]: src, attempt: attempts, reason }, getRoundtripContext(src));
 
     const candidates = this.findImagesBySrc(src);
     const retryOwner =
@@ -708,7 +708,7 @@ export class ImageProcessor {
       const blob = await response.blob();
       decoded = await decodeGifFrames(blob);
     } catch (error) {
-      log.debug('gif.decode.failed', { src, fallback: 'single frame', error }, getRoundtripContext(src));
+      log.debug('gif.decode.failed', { [ATTR.src]: src, fallback: 'single frame', error }, getRoundtripContext(src));
     }
     endRoundtripChild(src, SPAN.capture, { frameCount: decoded?.frames.length ?? 0 });
 
@@ -759,7 +759,11 @@ export class ImageProcessor {
             parent: roundtripContext,
           });
         } catch (error) {
-          log.debug('gif.frame.send.failed', { src, frameIndex: frame.frameIndex, error }, roundtripContext);
+          log.debug(
+            'gif.frame.send.failed',
+            { [ATTR.src]: src, [ATTR.frameIndex]: frame.frameIndex, error },
+            roundtripContext,
+          );
           this.handleGifFrameError(src, session);
         }
       }),

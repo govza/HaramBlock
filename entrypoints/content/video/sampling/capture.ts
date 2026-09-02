@@ -1,6 +1,6 @@
 import { backgroundRpc } from '@/utils/messaging/content';
 import { onModelSettingsChange } from '@/utils/modelSettings';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 const log = getLogger('videoSamplingCapture');
 
@@ -232,7 +232,7 @@ async function createTieredClone(
   timestampSec: number,
 ): Promise<HTMLVideoElement> {
   // Tier 2: CORS clone (rare path - server supports CORS but page forgot crossOrigin attr)
-  log.debug('capture.cors_workaround.attempt', { src: actualSrc });
+  log.debug('capture.cors_workaround.attempt', { [ATTR.src]: actualSrc });
   try {
     const corsVideo = await createCloneVideo(video, actualSrc, timestampSec, { crossOrigin: true });
     log.info('capture.cors_workaround.succeeded');

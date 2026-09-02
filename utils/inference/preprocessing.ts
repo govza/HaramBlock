@@ -1,4 +1,4 @@
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { ModelMetadata } from '@/utils/types';
 
@@ -18,17 +18,17 @@ export async function loadImageBitmap(imageSrc: string): Promise<{
     const imageBitmap = await createBitmapFromBlob(blob);
     const decodeTime = Date.now() - decodeStartTime;
 
-    log.debug('preprocess.image.loaded', { src: imageSrc, fetchMs: fetchTime, decodeMs: decodeTime });
+    log.debug('preprocess.image.loaded', { [ATTR.src]: imageSrc, fetchMs: fetchTime, decodeMs: decodeTime });
 
     return { imageBitmap, fetchTime, decodeTime };
   } catch (error) {
-    log.error('preprocess.image.load_failed', { src: imageSrc, error });
+    log.error('preprocess.image.load_failed', { [ATTR.src]: imageSrc, error });
     throw new Error(`Failed to load image from ${imageSrc.substring(0, 50)}...`, { cause: error });
   }
 }
 
 async function fetchImageBlob(imageSrc: string): Promise<Blob> {
-  log.debug('preprocess.image.fetching', { src: imageSrc });
+  log.debug('preprocess.image.fetching', { [ATTR.src]: imageSrc });
 
   const response = await fetch(imageSrc, { cache: 'force-cache' });
   if (!response.ok) {
