@@ -9,7 +9,6 @@ export interface InferenceTask {
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
   priority: number; // Queue priority (higher = runs first)
-  traceparent?: string;
   traceContext?: Context;
   bitmap?: ImageBitmap; // Pre-loaded bitmap (from MessageChannel transferable)
   blob?: Blob; // Blob (from Firefox structured clone) - converted to bitmap by inference library

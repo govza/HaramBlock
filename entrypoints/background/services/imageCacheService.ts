@@ -15,7 +15,7 @@ export class ImageCacheService {
     try {
       this.repository = new ImageCacheRepository();
     } catch {
-      log.error('cache.repository_init_failed');
+      log.error('cache.init.failed');
       throw new Error('Failed to initialize ImageCacheRepository');
     }
   }
@@ -34,7 +34,7 @@ export class ImageCacheService {
 
       await Promise.all(cachePromises);
     } catch (error) {
-      log.error('cache.write_failed', { error });
+      log.error('cache.write.failed', { error });
       throw error;
     }
   }
@@ -64,17 +64,17 @@ export class ImageCacheService {
               const updatedPrediction = this.repository.updateAccessTime(prediction);
               await this.repository.savePrediction(updatedPrediction);
             } catch (error) {
-              log.warn('cache.access_time_update_failed', { src: prediction.src, error });
+              log.warn('cache.access_time.update.failed', { src: prediction.src, error });
             }
           }),
         ).catch(error => {
-          log.warn('cache.access_time_background_update_failed', { error });
+          log.warn('cache.access_time.batch_update.failed', { error });
         });
       }
 
       return predictionsToReturn;
     } catch (error) {
-      log.error('cache.get_by_hostname_failed', { [ATTR.hostname]: hostname, error });
+      log.error('cache.read_by_hostname.failed', { [ATTR.hostname]: hostname, error });
       throw error;
     }
   }
@@ -89,7 +89,7 @@ export class ImageCacheService {
       const predictions = await this.repository.findBySrc(src);
       return predictions;
     } catch (error) {
-      log.error('cache.get_by_src_failed', { src, error });
+      log.error('cache.read_by_src.failed', { src, error });
       throw error;
     }
   }
@@ -107,7 +107,7 @@ export class ImageCacheService {
       };
       await this.repository.savePrediction(updatedPrediction);
     } catch (error) {
-      log.error('cache.update_toggle_state_failed', { src, error });
+      log.error('cache.toggle_state.update.failed', { src, error });
       throw error;
     }
   }

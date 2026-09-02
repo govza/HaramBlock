@@ -15,9 +15,8 @@ Feature: Smoke Tests
     When I open the extension options page
     Then the options page should be visible
 
-  Scenario: Content script initializes with console logging
-    Given extension console logging is enabled
-    And I start capturing extension console errors
+  Scenario: Content script initializes without console errors
+    Given I start capturing extension console errors
     When I open a webpage "https://example.com"
     Then the content script should have initialized
     And there should be no HaramBlock console errors

@@ -27,10 +27,10 @@ log.warn('capture.bitmap.failed', { src, fallback: 'url', error });
 
 ## Where records go
 
-| Context                   | Sinks                                                                                                |
-| ------------------------- | ---------------------------------------------------------------------------------------------------- |
-| background                | ring (warn+ in prod, all levels in dev, 500 records); dev console (own records only); OTLP export    |
-| content / popup / options | dev console; forwarded to the background (prod: warn+ logs only; dev: all logs and spans, 1 s batch) |
+| Context                   | Sinks                                                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| background                | ring (warn+ in prod, all levels in dev, 500 records); dev console (own records only); OTLP export                                                           |
+| content / popup / options | dev console; forwarded to the background (warn+ logs only unless OTLP export is enabled, then all logs and spans; 1 s batch, 5 s retry, 1000-record buffer) |
 
 Forwarding uses `backgroundRpc.pushTelemetry(batch)`; the background re-emits forwarded logs and
 spans into its own processors, so the collector sees one `service.name = haramblock` with an
@@ -87,8 +87,8 @@ Umbrella: the content script emits one zero-length `page.session` anchor span pe
 Each round-trip links to it and carries `hb.session.trace_id`, so a page's traffic can be grouped
 without nesting.
 
-Video frames currently get a round-trip span that covers capture → send (part 2 extends it to the
-DVR pipeline).
+Video frames currently get a round-trip span with a single `inference.send` child (part 2 extends it
+to the DVR pipeline).
 
 ## Metrics
 
