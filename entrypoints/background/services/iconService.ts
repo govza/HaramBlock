@@ -54,7 +54,7 @@ export class IconService {
       await action.setBadgeText({ tabId, text: count > 0 ? String(count) : '' });
       await action.setBadgeBackgroundColor({ tabId, color: '#666' });
     } catch (error) {
-      log.error('icon.update_badge_failed', { tabId, error });
+      log.error('icon.update_badge_failed', { [ATTR.tabId]: tabId, error });
     }
   }
 }

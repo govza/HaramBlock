@@ -64,7 +64,7 @@ export class ImageCacheService {
               const updatedPrediction = this.repository.updateAccessTime(prediction);
               await this.repository.savePrediction(updatedPrediction);
             } catch (error) {
-              log.warn('cache.access_time.update.failed', { src: prediction.src, error });
+              log.warn('cache.access_time.update.failed', { [ATTR.src]: prediction.src, error });
             }
           }),
         ).catch(error => {
@@ -89,7 +89,7 @@ export class ImageCacheService {
       const predictions = await this.repository.findBySrc(src);
       return predictions;
     } catch (error) {
-      log.error('cache.read_by_src.failed', { src, error });
+      log.error('cache.read_by_src.failed', { [ATTR.src]: src, error });
       throw error;
     }
   }
@@ -107,7 +107,7 @@ export class ImageCacheService {
       };
       await this.repository.savePrediction(updatedPrediction);
     } catch (error) {
-      log.error('cache.toggle_state.update.failed', { src, error });
+      log.error('cache.toggle_state.update.failed', { [ATTR.src]: src, error });
       throw error;
     }
   }

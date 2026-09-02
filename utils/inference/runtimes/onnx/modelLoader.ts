@@ -15,7 +15,7 @@ import {
   MODEL_PATHS,
   type ModelDefinition,
 } from '@/utils/inference/shared/modelRegistry';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { ModelMetadata } from '@/utils/types';
 
@@ -302,9 +302,9 @@ export async function initializeModel(modelId?: string): Promise<void> {
     }
 
     log.info('model.init.completed', {
-      modelId: currentModelId,
+      [ATTR.modelId]: currentModelId,
       modelName: modelDef.name,
-      backend: cachedBackend.toUpperCase(),
+      [ATTR.backend]: cachedBackend.toUpperCase(),
     });
   } catch (error) {
     currentModelId = previousModelId;
@@ -345,7 +345,7 @@ export async function loadModel(): Promise<ModelRuntime> {
 
     for (const backend of backends) {
       try {
-        log.info('model.backend.loading', { modelName: modelDef.name, backend: backend.toUpperCase() });
+        log.info('model.backend.loading', { modelName: modelDef.name, [ATTR.backend]: backend.toUpperCase() });
         if (import.meta.env.DEV && backend === 'webgpu') {
           profilerLog.info('profiler.webgpu.warmup_runs', { warmupRuns: getWarmupRuns() });
         }
@@ -365,11 +365,11 @@ export async function loadModel(): Promise<ModelRuntime> {
               durationMs: Math.round(performance.now() - sessionT0),
             });
           }
-          log.info('model.load.succeeded', { backend: backend.toUpperCase() });
+          log.info('model.load.succeeded', { [ATTR.backend]: backend.toUpperCase() });
           return { session, config: targetConfig, modelId: targetModelId, backend };
         }
       } catch (error) {
-        log.warn('model.backend.load_failed', { backend: backend.toUpperCase(), error });
+        log.warn('model.backend.load_failed', { [ATTR.backend]: backend.toUpperCase(), error });
         if (backend === backends[backends.length - 1]) {
           throw error; // No more fallbacks
         }
@@ -411,7 +411,7 @@ export function getAvailableModels(): ModelDefinition[] {
 
 export async function switchModel(modelId: string): Promise<void> {
   if (modelId === currentModelId && session !== null) {
-    log.info('model.switch.already_loaded', { modelId });
+    log.info('model.switch.already_loaded', { [ATTR.modelId]: modelId });
     return;
   }
 
@@ -420,7 +420,7 @@ export async function switchModel(modelId: string): Promise<void> {
   }
 
   if (modelId === currentModelId && session !== null) {
-    log.info('model.switch.already_loaded', { modelId });
+    log.info('model.switch.already_loaded', { [ATTR.modelId]: modelId });
     return;
   }
 
@@ -443,7 +443,7 @@ export async function switchModel(modelId: string): Promise<void> {
     switchPromise = null;
   }
 
-  log.info('model.switch.completed', { modelId });
+  log.info('model.switch.completed', { [ATTR.modelId]: modelId });
 }
 
 export { ort };

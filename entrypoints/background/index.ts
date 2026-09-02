@@ -130,7 +130,7 @@ export default defineBackground({
         // failure, so the no-arg call falls back to a model that loads. Only forget a stored choice
         // when it's genuinely gone from the registry - a transient failure shouldn't discard it.
         const stillAvailable = getAvailableModels().some(m => m.id === preferredModelId);
-        log.warn('model.load.fallback', { modelId: preferredModelId, stillAvailable, error });
+        log.warn('model.load.fallback', { [ATTR.modelId]: preferredModelId, stillAvailable, error });
         if (!stillAvailable) {
           if (isAuto) {
             await updateAutoModelState({ selectedModelId: undefined });

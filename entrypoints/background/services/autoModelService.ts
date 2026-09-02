@@ -22,7 +22,7 @@ import {
   updateAutoModelState,
   type AutoModelState,
 } from '@/utils/modelSettings';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { ModelService } from '@/entrypoints/background/services/modelService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
@@ -151,7 +151,7 @@ export class AutoModelService {
       measured: keepMeasurements ? this.auto.measured : undefined,
     });
 
-    log.info('automodel.reseeding', { cause, target, backend });
+    log.info('automodel.reseeding', { cause, target, [ATTR.backend]: backend });
     if (getCurrentModelId() !== target) {
       this.requestSwitch(target, 'reseed', cause);
     }
@@ -188,7 +188,7 @@ export class AutoModelService {
         this.settled = true;
         await this.recordMeasurement(snapshot.modelId, snapshot.p75Ms);
         await updateAutoModelState({ settledAt: Date.now(), selectedModelId: snapshot.modelId });
-        log.info('automodel.settled', { modelId: snapshot.modelId, reason: decision.reason });
+        log.info('automodel.settled', { [ATTR.modelId]: snapshot.modelId, reason: decision.reason });
       } else if (decision.action === 'switch') {
         await this.recordMeasurement(snapshot.modelId, snapshot.p75Ms);
         this.requestSwitch(decision.targetModelId, decision.direction, decision.reason);

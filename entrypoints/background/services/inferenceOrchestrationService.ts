@@ -85,26 +85,23 @@ function getInstruments(): InferenceInstruments {
   return instruments;
 }
 
-function mediaAttributes(mediaMetadata: IMediaMetadata, hostname: string): Record<string, string | number> {
-  if (mediaMetadata.kind === 'frame') {
-    return {
-      [ATTR.mediaKind]: 'frame',
-      [ATTR.hostname]: hostname,
-      [ATTR.sessionId]: mediaMetadata.sessionId,
-      [ATTR.frameIndex]: mediaMetadata.frameIndex,
-      [ATTR.reqId]: requestIdFor(mediaMetadata.videoUrl),
-    };
-  }
-  if (mediaMetadata.kind === 'gifFrame') {
-    return {
-      [ATTR.mediaKind]: 'gif',
-      [ATTR.hostname]: hostname,
-      [ATTR.sessionId]: mediaMetadata.sessionId,
-      [ATTR.frameIndex]: mediaMetadata.frameIndex,
-      [ATTR.reqId]: requestIdFor(mediaMetadata.src),
-    };
-  }
-  return { [ATTR.mediaKind]: 'image', [ATTR.hostname]: hostname };
+type TaskIdentity = Pick<InferenceTask, 'imageSrc' | 'hostname' | 'mediaMetadata'>;
+
+function mediaKindOf(mediaMetadata: IMediaMetadata): 'image' | 'frame' | 'gif' {
+  if (mediaMetadata.kind === 'frame') return 'frame';
+  if (mediaMetadata.kind === 'gifFrame') return 'gif';
+  return 'image';
+}
+
+function taskAttributes({ imageSrc, hostname, mediaMetadata }: TaskIdentity): Record<string, string | number> {
+  const base = {
+    [ATTR.mediaKind]: mediaKindOf(mediaMetadata),
+    [ATTR.hostname]: hostname,
+    [ATTR.src]: imageSrc,
+    [ATTR.reqId]: requestIdFor(imageSrc),
+  };
+  if (mediaMetadata.kind === 'image') return base;
+  return { ...base, [ATTR.sessionId]: mediaMetadata.sessionId, [ATTR.frameIndex]: mediaMetadata.frameIndex };
 }
 
 function modelAttributes(): Record<string, string> {
@@ -155,11 +152,7 @@ export class InferenceOrchestrationService {
     const { input, hostname, hostSettings, mediaMetadata } = args;
     const { imageSrc } = input;
     const traceContext = extractTraceparent(args.traceparent);
-    const attributes: Record<string, string | number> = {
-      ...mediaAttributes(mediaMetadata, hostname),
-      [ATTR.src]: imageSrc,
-      [ATTR.reqId]: requestIdFor(imageSrc),
-    };
+    const attributes = taskAttributes({ imageSrc, hostname, mediaMetadata });
 
     // Only check cache for images, not video frames
     if (mediaMetadata.kind === 'image') {
@@ -181,7 +174,7 @@ export class InferenceOrchestrationService {
           cacheSpan.setAttributes({ [ATTR.cacheHit]: true, [ATTR.detectionsCount]: detectionsCount });
           cacheSpan.end();
           getInstruments().requestCounter.add(1, { [ATTR.mediaKind]: 'image', [ATTR.status]: 'cached' });
-          log.debug('inference.cache.hit', { ...attributes, detectionsCount }, traceContext);
+          log.debug('inference.cache.hit', { ...attributes, [ATTR.detectionsCount]: detectionsCount }, traceContext);
           return;
         }
         cacheSpan.setAttribute(ATTR.cacheHit, false);
@@ -278,11 +271,7 @@ export class InferenceOrchestrationService {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       this.markPlaybackFrameStarted(task);
       this.endQueueWait(task, 'started');
-      const attributes: Record<string, string | number> = {
-        ...mediaAttributes(task.mediaMetadata, task.hostname),
-        [ATTR.src]: task.imageSrc,
-        [ATTR.reqId]: requestIdFor(task.imageSrc),
-      };
+      const attributes = taskAttributes(task);
       const runSpan = tracer.startSpan(SPAN.run, { attributes }, task.traceContext);
       const runStartedAt = Date.now();
       try {
@@ -312,7 +301,7 @@ export class InferenceOrchestrationService {
 
   private recordRun(runSpan: Span, task: InferenceTask, prediction: IImagePrediction, runStartedAt: number): void {
     const { processingTime } = prediction;
-    const mediaKind = mediaAttributes(task.mediaMetadata, task.hostname)[ATTR.mediaKind];
+    const mediaKind = mediaKindOf(task.mediaMetadata);
     const timing = {
       [ATTR.fetchMs]: processingTime.fetchTime,
       [ATTR.decodeMs]: processingTime.decodeTime,
@@ -371,12 +360,12 @@ export class InferenceOrchestrationService {
         try {
           await this.imageCacheService.cachePredictions([imagePrediction]);
         } catch (error) {
-          log.warn('inference.cache.write.failed', { src: task.imageSrc, error }, task.traceContext);
+          log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
         }
         this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction }], task.hostname);
       }
     } catch (error) {
-      log.error('inference.result.dispatch.failed', { src: task.imageSrc, error }, task.traceContext);
+      log.error('inference.result.dispatch.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
     }
   }
 
