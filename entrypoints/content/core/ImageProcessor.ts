@@ -83,7 +83,6 @@ const GIF_VERDICT_TIMEOUT_MS = 20000;
  */
 type ApplyOutcome = { kind: 'stale' } | { kind: 'drifted' } | { kind: 'applied'; overlayType: string | undefined };
 
-// decode() covers cached images whose load event fired before a listener could attach.
 function waitForImageReady(img: HTMLImageElement): Promise<void> {
   if (img.complete && img.naturalWidth > 0) return Promise.resolve();
   return new Promise(resolve => {

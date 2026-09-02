@@ -152,9 +152,9 @@ export class InferenceOrchestrationService {
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
-    const { input, hostname, hostSettings, mediaMetadata, traceparent } = args;
+    const { input, hostname, hostSettings, mediaMetadata } = args;
     const { imageSrc } = input;
-    const traceContext = extractTraceparent(traceparent);
+    const traceContext = extractTraceparent(args.traceparent);
     const attributes: Record<string, string | number> = {
       ...mediaAttributes(mediaMetadata, hostname),
       [ATTR.src]: imageSrc,
@@ -201,7 +201,6 @@ export class InferenceOrchestrationService {
       hostSettings,
       mediaMetadata,
       priority: args.priority,
-      traceparent,
       traceContext,
       requestStartAt: input.requestStartAt,
       receivedAt: input.receivedAt,
