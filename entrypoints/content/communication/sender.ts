@@ -1,4 +1,4 @@
-import { ROOT_CONTEXT, SpanStatusCode, type Context, type Span } from '@opentelemetry/api';
+import { ROOT_CONTEXT, type Context, type Span } from '@opentelemetry/api';
 
 import { dvrRingBudget } from '@/entrypoints/content/video/dvr/ringBudget';
 import { bitmapToCompressedBlob } from '@/entrypoints/content/video/sampling/compression';
@@ -10,8 +10,8 @@ import {
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
-import { ATTR, contextWithSpan, getLogger, getTracer, injectTraceparent, requestIdFor } from '@/utils/telemetry';
-import { endSpanWithError, getPageSession, SPAN } from '@/utils/telemetry/roundtrip';
+import { ATTR, getLogger, getTracer, injectTraceparent } from '@/utils/telemetry';
+import { endRoundtrip, endSpanWithError, SPAN, startRoundtrip } from '@/utils/telemetry/roundtrip';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type {
@@ -41,7 +41,7 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
     }
     return result;
   } catch (error) {
-    log.error('host_settings.request.failed', { hostname, error });
+    log.error('host_settings.request.failed', { [ATTR.hostname]: hostname, error });
     throw error;
   }
 }
@@ -54,7 +54,7 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
     const result = await backgroundRpc.getCachedPredictions(hostname);
     return result || [];
   } catch (error) {
-    log.error('cached_predictions.request.failed', { hostname, error });
+    log.error('cached_predictions.request.failed', { [ATTR.hostname]: hostname, error });
     return [];
   }
 }
@@ -316,7 +316,7 @@ export async function requestHostData(hostname: string): Promise<{
       predictions,
     };
   } catch (error) {
-    log.error('host_data.request.failed', { hostname, error });
+    log.error('host_data.request.failed', { [ATTR.hostname]: hostname, error });
     throw error;
   }
 }
@@ -362,25 +362,13 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
   const { sample, hostname, priority } = params;
   const { bitmap, videoUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
-  const page = getPageSession();
-  const roundtripSpan = tracer.startSpan(
-    SPAN.roundtrip,
-    {
-      attributes: {
-        [ATTR.mediaKind]: 'frame',
-        [ATTR.hostname]: hostname,
-        [ATTR.sessionId]: sessionId,
-        [ATTR.frameIndex]: frameIndex,
-        [ATTR.reqId]: requestIdFor(videoUrl),
-        [ATTR.src]: videoUrl,
-        [ATTR.priority]: priority,
-        ...(page.spanContext ? { [ATTR.sessionTraceId]: page.spanContext.traceId } : {}),
-      },
-      links: page.spanContext ? [{ context: page.spanContext }] : [],
-    },
-    ROOT_CONTEXT,
-  );
-  const parent = contextWithSpan(roundtripSpan);
+  const roundtripKey = `${sessionId}:${frameIndex}`;
+  const parent = startRoundtrip(roundtripKey, {
+    src: videoUrl,
+    hostname,
+    mediaKind: 'frame',
+    attributes: { [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, [ATTR.priority]: priority },
+  });
 
   try {
     const base = {
@@ -425,8 +413,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       endSpanWithError(sendSpan, error);
       throw error;
     }
-    roundtripSpan.setStatus({ code: SpanStatusCode.OK });
-    roundtripSpan.end();
+    endRoundtrip(roundtripKey, { status: 'success' });
   } catch (error) {
     // Clean up bitmap on error if not already transferred/closed
     try {
@@ -434,8 +421,12 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     } catch {
       // Already closed or transferred - ignore
     }
-    endSpanWithError(roundtripSpan, error);
-    log.error('inference.frame.send.failed', { videoUrl, sessionId, frameIndex, error }, parent);
+    endRoundtrip(roundtripKey, { status: 'error', error });
+    log.error(
+      'inference.frame.send.failed',
+      { videoUrl, [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, error },
+      parent,
+    );
     throw error;
   }
 }
@@ -445,7 +436,7 @@ export async function cancelVideoSessionInference(sessionId: string): Promise<vo
   try {
     await backgroundRpc.cancelVideoSessionInference(sessionId);
   } catch (error) {
-    log.debug('inference.frame.cancel.failed', { sessionId, error });
+    log.debug('inference.frame.cancel.failed', { [ATTR.sessionId]: sessionId, error });
   }
 }
 
@@ -520,7 +511,11 @@ export async function requestGifFrameInference(params: GifFrameParams): Promise<
       // Already closed or transferred - ignore
     }
     endSpanWithError(sendSpan, error);
-    log.error('inference.gif_frame.send.failed', { src, sessionId, frameIndex, error }, parent);
+    log.error(
+      'inference.gif_frame.send.failed',
+      { src, [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, error },
+      parent,
+    );
     throw error;
   }
 }
