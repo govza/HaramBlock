@@ -37,7 +37,7 @@ import {
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { generateNonce } from '@/utils/nonce';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { FrameInferenceResult, ForcedVisibility, IFramePrediction, IHostSettings } from '@/utils/types';
@@ -207,7 +207,7 @@ class VideoSessionRegistry {
       const pred = result.prediction;
       const handle = this.byId.get(pred.sessionId);
       if (!handle) {
-        log.debug('registry.prediction.unknown_session', { sessionId: pred.sessionId });
+        log.debug('registry.prediction.unknown_session', { [ATTR.sessionId]: pred.sessionId });
         continue;
       }
       // A playback frame without a timeline position means the background is

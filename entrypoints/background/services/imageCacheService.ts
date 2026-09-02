@@ -1,5 +1,5 @@
 import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger } from '@/utils/telemetry';
 import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
 const log = getLogger('imageCacheService');
@@ -74,7 +74,7 @@ export class ImageCacheService {
 
       return predictionsToReturn;
     } catch (error) {
-      log.error('cache.get_by_hostname_failed', { hostname, error });
+      log.error('cache.get_by_hostname_failed', { [ATTR.hostname]: hostname, error });
       throw error;
     }
   }

@@ -453,7 +453,7 @@ export class InferenceOrchestrationService {
         this.onImagePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      log.error('inference.result.emit.failed', { hostname, mediaKind: 'image', error });
+      log.error('inference.result.emit.failed', { [ATTR.hostname]: hostname, [ATTR.mediaKind]: 'image', error });
     }
   }
 
@@ -463,7 +463,7 @@ export class InferenceOrchestrationService {
         this.onFramePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      log.error('inference.result.emit.failed', { hostname, mediaKind: 'frame', error });
+      log.error('inference.result.emit.failed', { [ATTR.hostname]: hostname, [ATTR.mediaKind]: 'frame', error });
     }
   }
 
@@ -473,7 +473,7 @@ export class InferenceOrchestrationService {
         this.onGifFramePredictionsCallback(results, hostname);
       }
     } catch (error) {
-      log.error('inference.result.emit.failed', { hostname, mediaKind: 'gif', error });
+      log.error('inference.result.emit.failed', { [ATTR.hostname]: hostname, [ATTR.mediaKind]: 'gif', error });
     }
   }
 }
