@@ -173,7 +173,6 @@ export function ingestForwardedTelemetry(batch: TelemetryBatch, tabId?: number):
     const stamped =
       tabId === undefined ? record : { ...record, attributes: { ...record.attributes, [ATTR.tabId]: tabId } };
     ring?.push(stamped);
-    if (import.meta.env.DEV) consoleLogSink(stamped);
     emitToSdk(stamped);
   }
   if (!sdk || batch.spans.length === 0) return;

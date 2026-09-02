@@ -29,7 +29,7 @@ log.warn('capture.bitmap.failed', { src, fallback: 'url', error });
 
 | Context                   | Sinks                                                                                                |
 | ------------------------- | ---------------------------------------------------------------------------------------------------- |
-| background                | ring (warn+ in prod, all levels in dev, 500 records); dev console; OTLP when the export is enabled   |
+| background                | ring (warn+ in prod, all levels in dev, 500 records); dev console (own records only); OTLP export    |
 | content / popup / options | dev console; forwarded to the background (prod: warn+ logs only; dev: all logs and spans, 1 s batch) |
 
 Forwarding uses `backgroundRpc.pushTelemetry(batch)`; the background re-emits forwarded logs and
