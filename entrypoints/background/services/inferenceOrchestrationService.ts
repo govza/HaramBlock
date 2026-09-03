@@ -4,7 +4,15 @@ import { getCurrentModelId } from '@inference-runtime';
 
 import { BatchCollector } from '@/entrypoints/background/services/batchCollector';
 import { getBatchCap, getInferenceBackend, processInferenceBatch, processInferenceTask } from '@/utils/inference';
-import { ATTR, extractTraceparent, getLogger, getMeter, getTracer, requestIdFor } from '@/utils/telemetry';
+import {
+  ATTR,
+  extractTraceparent,
+  getLogger,
+  getMeter,
+  getTracer,
+  injectTraceparent,
+  requestIdFor,
+} from '@/utils/telemetry';
 import { SPAN } from '@/utils/telemetry/roundtrip';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
@@ -151,7 +159,8 @@ export class InferenceOrchestrationService {
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
     const { input, hostname, hostSettings, mediaMetadata } = args;
     const { imageSrc } = input;
-    const traceContext = extractTraceparent(args.traceparent);
+    const { traceparent } = args;
+    const traceContext = extractTraceparent(traceparent);
     const attributes = taskAttributes({ imageSrc, hostname, mediaMetadata });
 
     // Only check cache for images, not video frames
@@ -167,7 +176,7 @@ export class InferenceOrchestrationService {
           }));
           await this.imageCacheService.cachePredictions(predictionsWithHostname);
           this.sendImageResultsToContent(
-            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction })),
+            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction, traceparent })),
             hostname,
           );
           const detectionsCount = cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0);
@@ -347,13 +356,17 @@ export class InferenceOrchestrationService {
   }
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
+    const traceparent = injectTraceparent(task.traceContext);
     try {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction }], task.hostname);
+        this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction, traceparent }], task.hostname);
       } else if (task.mediaMetadata.kind === 'gifFrame') {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
-        this.sendGifFrameResultsToContent([{ status: 'ok', prediction: gifFramePrediction }], task.hostname);
+        this.sendGifFrameResultsToContent(
+          [{ status: 'ok', prediction: gifFramePrediction, traceparent }],
+          task.hostname,
+        );
       } else {
         // A cache write failure must not suppress the reply - the verdict is
         // already computed and content is waiting on it.
@@ -362,7 +375,7 @@ export class InferenceOrchestrationService {
         } catch (error) {
           log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
         }
-        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction }], task.hostname);
+        this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction, traceparent }], task.hostname);
       }
     } catch (error) {
       log.error('inference.result.dispatch.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
@@ -410,6 +423,7 @@ export class InferenceOrchestrationService {
    */
   private sendErrorToContent(task: InferenceTask, error: unknown): void {
     const reason = error instanceof Error ? error.message : String(error);
+    const traceparent = injectTraceparent(task.traceContext);
     const { mediaMetadata } = task;
     if (mediaMetadata.kind === 'frame') {
       this.sendFrameResultsToContent(
@@ -420,6 +434,7 @@ export class InferenceOrchestrationService {
             sessionId: mediaMetadata.sessionId,
             frameIndex: mediaMetadata.frameIndex,
             reason,
+            traceparent,
           },
         ],
         task.hostname,
@@ -433,13 +448,14 @@ export class InferenceOrchestrationService {
             src: mediaMetadata.src,
             sessionId: mediaMetadata.sessionId,
             reason,
+            traceparent,
           },
         ],
         task.hostname,
       );
     } else {
       this.sendImageResultsToContent(
-        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason }],
+        [{ status: 'error', src: task.imageSrc, hostname: task.hostname, reason, traceparent }],
         task.hostname,
       );
     }

@@ -41,5 +41,5 @@ web pages, applying AI predictions to filter or style content based on user pref
 - For debugging use `pnpm build --mode development` and than start the mcp server {"url":
   "https://govza.github.io/gallery?level=unsafe&size=large&count=1&isOverlay=false&isNatural=true" }
 - You can run browser build in development mode using `pnpm build --mode development` to check the
-  consola logs for debugging.
+  `getLogger` from `@/utils/telemetry` logs for debugging.
 - Use the `logger` utility for logging messages in the content scripts and background scripts.

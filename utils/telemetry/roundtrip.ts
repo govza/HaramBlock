@@ -15,7 +15,7 @@ import {
   type LooseAttributes,
   sanitizeAttributes,
 } from '@/utils/telemetry/attributes';
-import { contextWithSpan } from '@/utils/telemetry/propagation';
+import { contextWithSpan, extractTraceparent, spanIdsFromContext } from '@/utils/telemetry/propagation';
 import { getTracer } from '@/utils/telemetry/tracer';
 
 export const SPAN = {
@@ -112,6 +112,14 @@ function evictOldestRoundtrips(): void {
 
 export function getRoundtripContext(key: string): Context | undefined {
   return active.get(key)?.ctx;
+}
+
+export function roundtripMatches(key: string, traceparent: string | undefined): boolean {
+  const roundtrip = active.get(key);
+  if (!roundtrip) return false;
+  if (!traceparent) return true;
+  const replyTraceId = spanIdsFromContext(extractTraceparent(traceparent)).traceId;
+  return replyTraceId === roundtrip.span.spanContext().traceId;
 }
 
 export function startRoundtripChild(key: string, name: string, attributes?: LooseAttributes): Span | undefined {

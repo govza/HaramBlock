@@ -43,6 +43,7 @@ import {
   endRoundtrip,
   endRoundtripChild,
   getRoundtripContext,
+  roundtripMatches,
   SPAN,
   startRoundtrip,
   startRoundtripChild,
@@ -308,22 +309,24 @@ export class ImageProcessor {
   handleInferenceResults(results: ImageInferenceResult[]): void {
     for (const result of results) {
       if (result.status === 'error') {
-        this.handleInferenceFailure(result.src, result.reason);
+        this.handleInferenceFailure(result.src, result.reason, result.traceparent);
         continue;
       }
       const pred = result.prediction;
       this.cache.set(pred.src, pred);
       this.clearPendingInference(pred.src, undefined, true);
 
-      void this.applyPredictionToAllImages(pred);
+      void this.applyPredictionToAllImages(pred, result.traceparent);
     }
   }
 
-  private async applyPredictionToAllImages(prediction: IImagePrediction): Promise<void> {
-    startRoundtripChild(prediction.src, SPAN.apply);
+  private async applyPredictionToAllImages(prediction: IImagePrediction, traceparent?: string): Promise<void> {
+    const tracksRoundtrip = roundtripMatches(prediction.src, traceparent);
+    if (tracksRoundtrip) startRoundtripChild(prediction.src, SPAN.apply);
     const outcomes = await Promise.all(
       this.findImagesBySrc(prediction.src).map(img => this.applyPrediction(img, prediction)),
     );
+    if (!tracksRoundtrip) return;
     endRoundtripChild(prediction.src, SPAN.apply, { elementCount: outcomes.length });
 
     const applied = outcomes.find(outcome => outcome.kind === 'applied');
@@ -574,8 +577,9 @@ export class ImageProcessor {
    * watchdog fired with no reply). Retry with the best candidate element,
    * failing open once attempts are exhausted.
    */
-  private handleInferenceFailure(src: string, reason?: string): void {
+  private handleInferenceFailure(src: string, reason?: string, traceparent?: string): void {
     if (!this.pendingInference.has(src)) return;
+    const tracksRoundtrip = roundtripMatches(src, traceparent);
     this.clearPendingInference(src);
 
     const attempts = (this.inferenceAttempts.get(src) ?? 0) + 1;
@@ -583,11 +587,13 @@ export class ImageProcessor {
 
     if (attempts >= MAX_IMAGE_INFERENCE_ATTEMPTS) {
       this.inferenceAttempts.delete(src);
-      endRoundtrip(src, {
-        status: 'error',
-        error: new Error(`Image inference failed after ${attempts} attempts${reason ? `: ${reason}` : ''}`),
-        attributes: { attempts },
-      });
+      if (tracksRoundtrip) {
+        endRoundtrip(src, {
+          status: 'error',
+          error: new Error(`Image inference failed after ${attempts} attempts${reason ? `: ${reason}` : ''}`),
+          attributes: { attempts },
+        });
+      }
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;
     }
