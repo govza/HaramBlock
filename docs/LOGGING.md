@@ -56,6 +56,12 @@ Exporters (`@opentelemetry/exporter-*-otlp-http`) post cross-origin; the collect
 processors flush every 1 s, metrics export every 1 s, and a 5 s idle timer force-flushes everything
 (Firefox event pages have no `runtime.onSuspend`).
 
+## Attribute naming
+
+`hb.*` keys follow the OTel semantic-convention shape: dot-separated namespaces, `snake_case` only
+inside a segment (`hb.media.kind`, `hb.session.trace_id`, `hb.timing.queue_ms`). Every key is
+declared once in `ATTR` (`utils/telemetry/attributes.ts`); call sites never spell `hb.*` strings.
+
 ## Resource attributes
 
 `service.name = haramblock`, `service.version`, `hb.version`, `hb.context`
@@ -67,21 +73,23 @@ processors flush every 1 s, metrics export every 1 s, and a 5 s idle timer force
 One trace per **inference round-trip**:
 
 ```
-inference.roundtrip (content)            hb.req.id, hb.src, hb.hostname, hb.media.kind, hb.session.id
-├─ inference.capture (content)           fetch/decode of the bitmap, hb.transfer_kind
+inference.roundtrip (content)            hb.request.id, hb.media.src, hb.hostname, hb.media.kind, hb.session.id
+├─ inference.capture (content)           fetch/decode of the bitmap, hb.transfer.kind
 ├─ inference.send (content)              the RPC call
-├─ inference.cache (background)          cache lookup, hb.cache_hit
+├─ inference.cache (background)          cache lookup, hb.cache.hit
 ├─ inference.queue.wait (background)     enqueue → dequeue
-├─ inference.run (background)            decode/preprocess/session.run, timing attrs, hb.batch_size
-└─ inference.apply (content)             styling/overlay work, hb.overlay_type
+├─ inference.run (background)            decode/preprocess/session.run, timing attrs, hb.batch.size
+└─ inference.apply (content)             styling/overlay work, hb.overlay.type
 ```
 
 Propagation: the inference envelopes (`IImageTransfer`, `IVideoFrameTransfer`, `IGifFrameTransfer`)
-carry `traceparent` explicitly. comctx runs an async heartbeat before every RPC send, so the active
-context cannot be captured in the adapter; other RPC methods therefore carry no trace context yet.
-the background extracts it (`extractTraceparent`) and parents its spans under it. Results carry no
-trace context back: the content side keeps the open round-trip span keyed by `src` and ends it when
-the verdict is applied.
+carry `traceparent` explicitly; the background extracts it (`extractTraceparent`) and parents its
+spans under it. Every result (`ImageInferenceResult`, `FrameInferenceResult`,
+`GifFrameInferenceResult`) echoes the same `traceparent` back. The content side keeps open
+round-trip spans keyed by `src` and, before ending one, checks the reply's trace id against it
+(`roundtripMatches`) so a late reply for a superseded request cannot close the newer span. comctx
+runs an async heartbeat before every RPC send, so the active context cannot be captured in the
+adapter; other RPC methods therefore carry no trace context yet.
 
 Umbrella: the content script emits one zero-length `page.session` anchor span per document at init.
 Each round-trip links to it and carries `hb.session.trace_id`, so a page's traffic can be grouped
