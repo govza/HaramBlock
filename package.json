@@ -15,9 +15,11 @@
     "url": "https://github.com/govza/HaramBlock.git"
   },
   "scripts": {
-    "dev": "node scripts/assert-dev-port-free.mjs && wxt",
-    "dev:no-gpu": "node scripts/assert-dev-port-free.mjs && cross-env NO_GPU=true wxt",
-    "dev:firefox": "wxt -b firefox",
+    "dev": "node scripts/assert-dev-port-free.mjs && node scripts/ensure-otel-lgtm.mjs && wxt",
+    "dev:no-gpu": "node scripts/assert-dev-port-free.mjs && node scripts/ensure-otel-lgtm.mjs && cross-env NO_GPU=true wxt",
+    "dev:firefox": "node scripts/ensure-otel-lgtm.mjs && wxt -b firefox",
+    "otel:up": "node scripts/ensure-otel-lgtm.mjs --strict",
+    "otel:down": "node scripts/ensure-otel-lgtm.mjs --down",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
