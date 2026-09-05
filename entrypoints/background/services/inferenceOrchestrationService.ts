@@ -13,6 +13,7 @@ import {
   injectTraceparent,
   requestIdFor,
 } from '@/utils/telemetry';
+import { METRIC } from '@/utils/telemetry/metrics';
 import { SPAN } from '@/utils/telemetry/roundtrip';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
@@ -82,11 +83,11 @@ function getInstruments(): InferenceInstruments {
   if (instruments) return instruments;
   const meter = getMeter('inference');
   instruments = {
-    runDurationMs: meter.createHistogram('hb.inference.run.duration', {
+    runDurationMs: meter.createHistogram(METRIC.inferenceRunDurationMs, {
       unit: 'ms',
       description: 'Wall time of one inference task from dequeue to prediction',
     }),
-    requestCounter: meter.createCounter('hb.inference.requests', {
+    requestCounter: meter.createCounter(METRIC.inferenceRequests, {
       description: 'Inference requests by media kind and outcome',
     }),
   };
