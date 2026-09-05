@@ -5,13 +5,19 @@ import {
   type HbContext,
 } from '@/utils/telemetry/config';
 
-import type { SerializedSpan, TelemetryBatch, TelemetryLogRecord } from '@/utils/telemetry/records';
+import type {
+  SerializedSpan,
+  TelemetryBatch,
+  TelemetryLogRecord,
+  TelemetryMetricRecord,
+} from '@/utils/telemetry/records';
 
 export type SendBatch = (batch: TelemetryBatch) => Promise<void>;
 
 export class TelemetryForwarder {
   private logs: TelemetryLogRecord[] = [];
   private spans: SerializedSpan[] = [];
+  private metrics: TelemetryMetricRecord[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -33,15 +39,26 @@ export class TelemetryForwarder {
     this.schedule(this.delayMs);
   }
 
+  pushMetric = (record: TelemetryMetricRecord): void => {
+    this.metrics = this.bounded([...this.metrics, record]);
+    this.schedule(this.delayMs);
+  };
+
   async flush(): Promise<void> {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    if (this.logs.length === 0 && this.spans.length === 0) return;
-    const batch: TelemetryBatch = { context: this.hbContext, logs: this.logs, spans: this.spans };
+    if (this.logs.length === 0 && this.spans.length === 0 && this.metrics.length === 0) return;
+    const batch: TelemetryBatch = {
+      context: this.hbContext,
+      logs: this.logs,
+      spans: this.spans,
+      metrics: this.metrics,
+    };
     this.logs = [];
     this.spans = [];
+    this.metrics = [];
     try {
       await this.send(batch);
     } catch {
@@ -53,6 +70,7 @@ export class TelemetryForwarder {
   private requeue(batch: TelemetryBatch): void {
     this.logs = this.bounded([...batch.logs, ...this.logs]);
     this.spans = this.bounded([...batch.spans, ...this.spans]);
+    this.metrics = this.bounded([...(batch.metrics ?? []), ...this.metrics]);
   }
 
   private bounded<T>(items: T[]): T[] {

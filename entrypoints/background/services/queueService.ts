@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 
+import { getMeter, METRIC } from '@/utils/telemetry';
 import { type InferenceTask } from '@/utils/types';
 
 export class QueueService {
@@ -12,6 +13,9 @@ export class QueueService {
       interval: 0,
       intervalCap: 1,
     });
+    getMeter('inference')
+      .createObservableGauge(METRIC.inferenceQueueDepth)
+      .addCallback(result => result.observe(this.queue.size + this.queue.pending));
   }
 
   setTaskProcessingHandler(handler: (task: InferenceTask) => Promise<void>): void {

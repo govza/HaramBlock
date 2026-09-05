@@ -11,7 +11,13 @@ import {
 } from '@/utils/constants/environment';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 import { ATTR, getLogger, getTracer, injectTraceparent } from '@/utils/telemetry';
-import { endRoundtrip, endSpanWithError, SPAN, startRoundtrip } from '@/utils/telemetry/roundtrip';
+import {
+  endRoundtrip,
+  endSpanWithError,
+  SPAN,
+  startRoundtrip,
+  type UmbrellaSession,
+} from '@/utils/telemetry/roundtrip';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type {
@@ -351,6 +357,7 @@ export interface VideoFrameParams {
   sample: CapturedFrameSample;
   hostname: string;
   priority: number;
+  session?: UmbrellaSession;
 }
 
 /**
@@ -359,7 +366,7 @@ export interface VideoFrameParams {
  * Firefox: Compressed WebP blob via structured clone
  */
 export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
-  const { sample, hostname, priority } = params;
+  const { sample, hostname, priority, session } = params;
   const { bitmap, videoUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
   const roundtripKey = `${sessionId}:${frameIndex}`;
@@ -367,7 +374,13 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     src: videoUrl,
     hostname,
     mediaKind: 'frame',
-    attributes: { [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, [ATTR.priority]: priority },
+    session,
+    attributes: {
+      [ATTR.sessionId]: sessionId,
+      [ATTR.frameIndex]: frameIndex,
+      [ATTR.priority]: priority,
+      [ATTR.timestampSec]: timestampSec,
+    },
   });
 
   try {

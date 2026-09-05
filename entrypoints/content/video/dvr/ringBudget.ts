@@ -9,6 +9,10 @@
  * degradation and recovery are immediate instead of trailing eviction.
  */
 
+import { ATTR, getLogger } from '@/utils/telemetry';
+
+const log = getLogger('dvrRingBudget');
+
 export type InferenceBackend = 'webgpu' | 'wasm';
 
 export const WEBGPU_GLOBAL_BUDGET_BYTES = 1024 * 1024 * 1024;
@@ -146,10 +150,21 @@ export class DvrRingBudget {
 
   /** Lowest ladder level whose total projected demand fits the global budget. */
   private reevaluate(): void {
+    const previous = this.currentQuality;
     this.currentQuality =
       RING_QUALITY_LADDER.find(quality => this.projectAt(quality) <= this.backendBudget) ??
       RING_QUALITY_LADDER.at(-1) ??
       FULL_QUALITY;
+    if (this.currentQuality === previous) return;
+    const degraded = RING_QUALITY_LADDER.indexOf(this.currentQuality) > RING_QUALITY_LADDER.indexOf(previous);
+    log.info(degraded ? 'video.dvr.budget_degraded' : 'video.dvr.budget_recovered', {
+      [ATTR.budgetMaxWidth]: this.currentQuality.maxWidth,
+      [ATTR.budgetCaptureIntervalSec]: this.currentQuality.captureIntervalSec,
+      [ATTR.budgetHorizonScale]: this.currentQuality.horizonScale,
+      [ATTR.budgetProjectedBytes]: this.projectedBytes(),
+      [ATTR.budgetGlobalBytes]: this.backendBudget,
+      sessions: this.sessions.size,
+    });
   }
 
   private projectAt(quality: RingQuality): number {

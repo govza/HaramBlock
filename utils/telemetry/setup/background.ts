@@ -18,9 +18,11 @@ import {
   type HbContext,
 } from '@/utils/telemetry/config';
 import { consoleLogSink } from '@/utils/telemetry/exporters/consoleExporter';
+import { MetricInstruments } from '@/utils/telemetry/exporters/metricInstruments';
 import { RingLogSink } from '@/utils/telemetry/exporters/ringExporter';
 import { deserializeSpan } from '@/utils/telemetry/exporters/spanSerialization';
 import { getCommonAttributes, registerLogSink, setLogContext } from '@/utils/telemetry/logger';
+import { registerMetricSink } from '@/utils/telemetry/metrics';
 import { createResource, getExtensionVersion } from '@/utils/telemetry/resource';
 
 import type { TelemetryBatch, TelemetryExport, TelemetryLogRecord } from '@/utils/telemetry/records';
@@ -40,6 +42,7 @@ interface SdkPipeline {
   tracerProvider: BasicTracerProvider;
   meterProvider: MeterProvider;
   spanProcessor: BatchSpanProcessor;
+  instruments: MetricInstruments;
   forwardedResources: Map<string, Resource>;
   loggers: Map<string, OtelLogger>;
 }
@@ -154,6 +157,7 @@ function installSdk(): SdkPipeline {
     tracerProvider,
     meterProvider,
     spanProcessor,
+    instruments: new MetricInstruments(meterProvider.getMeter('haramblock')),
     forwardedResources: new Map(),
     loggers: new Map(),
   };
@@ -169,6 +173,7 @@ export function initBackgroundTelemetry(): void {
 
   sdk = installSdk();
   registerLogSink(record => emitToSdk(record));
+  registerMetricSink(record => sdk?.instruments.record(record));
 }
 
 export function ingestForwardedTelemetry(batch: TelemetryBatch, tabId?: number): void {
@@ -178,7 +183,9 @@ export function ingestForwardedTelemetry(batch: TelemetryBatch, tabId?: number):
     ring?.push(stamped);
     emitToSdk(stamped);
   }
-  if (!sdk || batch.spans.length === 0) return;
+  if (!sdk) return;
+  for (const metric of batch.metrics ?? []) sdk.instruments.record(metric);
+  if (batch.spans.length === 0) return;
   const resource = forwardedResource(batch.context, tabId);
   for (const serialized of batch.spans) {
     sdk.spanProcessor.onEnd(deserializeSpan(serialized, resource));

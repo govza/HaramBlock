@@ -2,6 +2,7 @@ import {
   isSpanContextValid,
   ROOT_CONTEXT,
   SpanStatusCode,
+  trace,
   type Context,
   type Span,
   type SpanContext,
@@ -27,6 +28,8 @@ export const SPAN = {
   cache: 'inference.cache',
   apply: 'inference.apply',
   pageSession: 'page.session',
+  videoSession: 'video.session',
+  dvrWarmup: 'video.dvr.warmup',
 } as const;
 
 export type MediaKind = 'image' | 'gif' | 'frame';
@@ -58,6 +61,10 @@ export function startUmbrellaSession(name: string, attributes: LooseAttributes =
   const spanContext = span.spanContext();
   span.end();
   return { sessionId, spanContext: isSpanContextValid(spanContext) ? spanContext : undefined };
+}
+
+export function umbrellaContext(session: UmbrellaSession): Context | undefined {
+  return session.spanContext ? trace.setSpanContext(ROOT_CONTEXT, session.spanContext) : undefined;
 }
 
 export function setPageSession(session: UmbrellaSession): void {
