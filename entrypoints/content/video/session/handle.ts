@@ -42,6 +42,8 @@ export interface SessionHandle {
   dvrStallFloorSec: number;
   /** A WebCodecs error happened once: this session stays on the raw ring for its lifetime. */
   dvrEncodedIneligible: boolean;
+  /** Session-wide anomaly cooldown survives seeks and DVR restarts. */
+  dvrLastAnomalyAt: number;
   /** Session-local Frame Samples awaiting verdicts; future caches must not persist routing identity. */
   pendingSamples: Map<number, PendingFrameSample>;
   /** Recent sample→verdict round-trips; sizes the adaptive DVR delay. */

@@ -97,6 +97,7 @@ export class VideoDvrPlayer {
   private hasPresentedFrame = false;
   private presentedFrameCount = 0;
   private lastPresentedMediaTime = Number.NEGATIVE_INFINITY;
+  private readonly presentedSample: PresentedSample | null;
   private lastDrawOutcome: PresentOutcome = 'miss';
   private presentedClockSec: number | null = null;
   private lastTickWallSec: number | null = null;
@@ -109,7 +110,22 @@ export class VideoDvrPlayer {
   private drainClock: DrainClock | null = null;
 
   constructor(private readonly opts: VideoDvrPlayerOptions) {
+    this.presentedSample = opts.onPresented
+      ? { mediaTime: 0, targetTime: 0, frameTimeServed: 0, outcome: 'miss', presentMs: 0 }
+      : null;
     this.rafId = requestAnimationFrame(this.tick);
+  }
+
+  isPlaybackActive(): boolean {
+    if (this.destroyed || !this.hasPresentedFrame || !this.surfaces) return false;
+    const { video, store } = this.opts;
+    if (!video.ended) return !video.paused;
+    const newest = store.newestTime();
+    return (
+      this.drainClock !== null &&
+      newest !== null &&
+      drainTargetTime(this.drainClock, performance.now() / 1000, newest) < newest
+    );
   }
 
   presenting(): boolean {
@@ -175,13 +191,14 @@ export class VideoDvrPlayer {
   private reportPresented(presentMs: number): void {
     const { onPresented, video } = this.opts;
     if (!onPresented || !this.hasPresentedFrame || this.presentedClockSec === null) return;
-    onPresented({
-      mediaTime: video.currentTime,
-      targetTime: this.presentedClockSec,
-      frameTimeServed: this.lastPresentedMediaTime,
-      outcome: this.lastDrawOutcome,
-      presentMs,
-    });
+    const sample = this.presentedSample;
+    if (!sample) return;
+    sample.mediaTime = video.currentTime;
+    sample.targetTime = this.presentedClockSec;
+    sample.frameTimeServed = this.lastPresentedMediaTime;
+    sample.outcome = this.lastDrawOutcome;
+    sample.presentMs = presentMs;
+    onPresented(sample);
   }
 
   /** First frame buffered: inject the overlay, hide the native element, report readiness. */

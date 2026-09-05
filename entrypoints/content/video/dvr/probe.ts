@@ -34,6 +34,8 @@ export interface DvrProbeOptions {
   store: SessionFrameStore;
   delaySec: () => number;
   now: () => number;
+  isPlaybackActive: () => boolean;
+  lastAnomalyAt?: number;
 }
 
 interface LongTaskListener {
@@ -68,31 +70,37 @@ function watchLongTasks(listener: LongTaskListener): () => void {
 
 export class DvrProbe {
   private readonly ring = new DvrTickRing(TICK_RING_CAPACITY);
-  private readonly detector = new DvrAnomalyDetector();
+  private readonly detector: DvrAnomalyDetector;
+  // Bounded scratch storage: no metric records or attribute objects in frame callbacks.
+  // Keep up to 1024 timings per one-second window; excess samples are dropped if flushing stalls.
+  private readonly captureSamples = new Float64Array(1024);
+  private readonly presentSamples = new Float64Array(1024);
+  private captureSampleCount = 0;
+  private presentSampleCount = 0;
   private windowCaptured = 0;
   private windowPresented = 0;
   private windowRepeats = 0;
   private lastCaptureMs = 0;
   private cachedAttributes: Record<string, string> | null = null;
-  private presenting = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private unwatchLongTasks: (() => void) | null = null;
 
   constructor(private readonly opts: DvrProbeOptions) {
+    this.detector = new DvrAnomalyDetector(opts.lastAnomalyAt);
+    this.unwatchLongTasks = watchLongTasks(this.onLongTask);
     this.timer = setInterval(this.flushWindow, PROBE_WINDOW_MS);
   }
 
   captured(captureMs: number): void {
     this.windowCaptured++;
     this.lastCaptureMs = captureMs;
-    recordHistogram(METRIC.dvrCaptureMs, captureMs, this.attributes());
+    if (this.captureSampleCount < this.captureSamples.length) {
+      this.captureSamples[this.captureSampleCount++] = captureMs;
+    }
   }
 
   presented(sample: PresentedSample): void {
-    if (!this.presenting) {
-      this.presenting = true;
-      this.unwatchLongTasks = watchLongTasks(this.onLongTask);
-    }
+    if (!this.opts.isPlaybackActive()) return;
     if (sample.outcome === 'new') this.windowPresented++;
     else if (sample.outcome === 'repeat') this.windowRepeats++;
     const record = this.ring.next();
@@ -104,14 +112,21 @@ export class DvrProbe {
     record.captureMs = this.lastCaptureMs;
     record.presentMs = sample.presentMs;
     record.storeCoveredMisses = this.opts.store.coveredMisses();
-    recordHistogram(METRIC.dvrPresentMs, sample.presentMs, this.attributes());
+    if (this.presentSampleCount < this.presentSamples.length) {
+      this.presentSamples[this.presentSampleCount++] = sample.presentMs;
+    }
   }
 
   signal(cause: Extract<DvrAnomalyCause, 'underrun' | 'store_stall'>): void {
     this.dump(this.detector.signal(cause, this.opts.now()));
   }
 
+  get lastAnomalyAt(): number {
+    return this.detector.lastDumpAt;
+  }
+
   stop(): void {
+    this.flushHistograms(this.attributes());
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.unwatchLongTasks?.();
@@ -119,7 +134,7 @@ export class DvrProbe {
   }
 
   private readonly onLongTask = (durationMs: number): void => {
-    if (!this.presenting) return;
+    if (!this.opts.isPlaybackActive()) return;
     recordHistogram(METRIC.mainThreadLongTaskMs, durationMs, this.attributes());
     if (durationMs <= ANOMALY_LONG_TASK_MS) return;
     this.dump(this.detector.observeLongTask(durationMs, this.opts.now()), {
@@ -129,6 +144,7 @@ export class DvrProbe {
 
   private readonly flushWindow = (): void => {
     const attributes = this.attributes();
+    this.flushHistograms(attributes);
     const captured = this.windowCaptured;
     const presented = this.windowPresented;
     const repeats = this.windowRepeats;
@@ -142,9 +158,25 @@ export class DvrProbe {
     recordGauge(METRIC.dvrDelaySec, this.opts.delaySec(), attributes);
     recordGauge(METRIC.dvrRingBytes, this.opts.store.bytes(), attributes);
     recordGauge(METRIC.dvrRingSpanSec, this.opts.store.spanSec(), attributes);
-    if (!this.presenting) return;
+    if (!this.opts.isPlaybackActive()) {
+      this.detector.resetWindows();
+      return;
+    }
     this.dump(this.detector.observeWindow({ captured, presented, nowMs: this.opts.now() }));
   };
+
+  private flushHistograms(attributes: Record<string, string>): void {
+    for (let i = 0; i < this.captureSampleCount; i++) {
+      const value = this.captureSamples[i];
+      if (value !== undefined) recordHistogram(METRIC.dvrCaptureMs, value, attributes);
+    }
+    for (let i = 0; i < this.presentSampleCount; i++) {
+      const value = this.presentSamples[i];
+      if (value !== undefined) recordHistogram(METRIC.dvrPresentMs, value, attributes);
+    }
+    this.captureSampleCount = 0;
+    this.presentSampleCount = 0;
+  }
 
   private attributes(): Record<string, string> {
     const store = this.opts.store.kind();
