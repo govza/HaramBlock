@@ -10,7 +10,7 @@ import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/v
 import { captureFrameBitmap, captureThumbnailBitmap } from '@/entrypoints/content/video/sampling/capture';
 import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger, METRIC, recordHistogram } from '@/utils/telemetry';
 
 import type { CapturedFrameSample, PendingFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
@@ -150,8 +150,13 @@ export class FrameSampler {
     const sample = handle.pendingSamples.get(frameIndex);
     if (!sample) return false;
     handle.pendingSamples.delete(frameIndex);
-    handle.latenciesMs.push(performance.now() - sample.capturedAt);
+    const latencyMs = performance.now() - sample.capturedAt;
+    handle.latenciesMs.push(latencyMs);
     if (handle.latenciesMs.length > LATENCY_SAMPLE_COUNT) handle.latenciesMs.shift();
+    recordHistogram(METRIC.inferenceRoundtripMs, latencyMs, {
+      [ATTR.sessionId]: handle.sessionId,
+      [ATTR.mediaKind]: 'frame',
+    });
     return true;
   }
 
@@ -251,12 +256,14 @@ export class FrameSampler {
       if (!bitmap || bitmap.width === 0 || bitmap.height === 0) {
         bitmap?.close();
         handle.pendingSamples.delete(frameIndex);
-        this.ports.dispatch(handle, {
-          type: 'sendFailed',
-          frameIndex,
-          at: performance.now(),
-          permanent: captured.failure === 'permanent',
+        const permanent = captured.failure === 'permanent';
+        log.warn('video.capture.failed', {
+          [ATTR.sessionId]: handle.sessionId,
+          [ATTR.frameIndex]: frameIndex,
+          [ATTR.captureStage]: 'capture',
+          [ATTR.capturePermanent]: permanent,
         });
+        this.ports.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now(), permanent });
         return;
       }
       const sample: CapturedFrameSample = {
@@ -271,6 +278,7 @@ export class FrameSampler {
       await withTimeout(
         requestVideoFrameInference({
           sample,
+          session: handle.trace,
           hostname: handle.hostSettings.hostname,
           priority: frameIndex === -1 ? INFERENCE_PRIORITY.videoThumbnail : INFERENCE_PRIORITY.videoFrame,
         }),
@@ -279,8 +287,15 @@ export class FrameSampler {
       this.ports.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
     } catch (error) {
       const permanent = error instanceof PermanentFrameTransferError;
-      if (permanent) log.warn('sampler.frame_sample.serialize_failed', { error });
-      else log.error('sampler.frame_sample.capture_send_failed', { error });
+      const attributes = {
+        [ATTR.sessionId]: handle.sessionId,
+        [ATTR.frameIndex]: frameIndex,
+        [ATTR.captureStage]: permanent ? 'serialize' : 'capture_send',
+        [ATTR.capturePermanent]: permanent,
+        error,
+      };
+      if (permanent) log.warn('video.capture.failed', attributes);
+      else log.error('video.capture.failed', attributes);
       handle.pendingSamples.delete(frameIndex);
       this.ports.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now(), permanent });
     }

@@ -20,12 +20,14 @@ import {
 import { defaultDvrRunPorts, startDvrRun } from '@/entrypoints/content/video/dvr/run';
 import { type AudioEngageOutcome, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { buildMaskingFilter } from '@/utils/masking';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger, getTracer } from '@/utils/telemetry';
+import { SPAN, umbrellaContext } from '@/utils/telemetry/roundtrip';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
 const log = getLogger('videoSession:presentation');
+const tracer = getTracer('video');
 
 /**
  * Whole-video blur is applied inline: the BLUR_CLASS stylesheet lives in the
@@ -62,11 +64,19 @@ export class PresentationAdapter {
 
   startDvr(handle: SessionHandle): void {
     if (handle.dvrRun) return;
+    handle.dvrWarmupSpan = tracer.startSpan(
+      SPAN.dvrWarmup,
+      { attributes: { [ATTR.sessionId]: handle.sessionId, [ATTR.hostname]: handle.hostSettings.hostname } },
+      umbrellaContext(handle.trace),
+    );
     handle.dvrRun = startDvrRun(
       defaultDvrRunPorts({
         video: handle.video,
         getMasking: () => handle.hostSettings.masking,
-        events: event => this.ports.dispatch(handle, event),
+        events: event => {
+          if (event.type === 'bufferReady') this.endWarmup(handle, 'ready');
+          this.ports.dispatch(handle, event);
+        },
         onDelayChanged: delaySec => updateAudioDelay(handle.video, delaySec),
       }),
       {
@@ -79,14 +89,23 @@ export class PresentationAdapter {
     );
   }
 
-  stopDvr(handle: SessionHandle): void {
+  stopDvr(handle: SessionHandle, reason: string): void {
     const run = handle.dvrRun;
     if (!run) return;
     handle.dvrRun = null;
+    this.endWarmup(handle, 'aborted');
     this.releaseAudioRoute(handle);
-    const carry = run.stop();
+    const carry = run.stop(reason);
     handle.dvrStallFloorSec = carry.stallFloorSec;
     handle.dvrEncodedIneligible = carry.encodedIneligible;
+  }
+
+  private endWarmup(handle: SessionHandle, outcome: 'ready' | 'aborted'): void {
+    const span = handle.dvrWarmupSpan;
+    if (!span) return;
+    handle.dvrWarmupSpan = null;
+    span.setAttribute(ATTR.status, outcome);
+    span.end();
   }
 
   /** Playback ended: the presenter consumes the ring tail in real time, then holds the final frame. */
@@ -114,8 +133,11 @@ export class PresentationAdapter {
     // Route state, not just run identity: a pause released the route but kept
     // the run — a late engage must not land audio over a frozen canvas.
     const stillWanted = () => handle.dvrRun === run && handle.state.audioRoute === 'pending';
-    const report = (result: AudioEngageOutcome) =>
+    const report = (result: AudioEngageOutcome) => {
+      log.info('video.audio.route', { [ATTR.sessionId]: handle.sessionId, [ATTR.audioRouteResult]: result });
       this.ports.dispatch(handle, { type: 'audioEngageResult', result, at: performance.now() });
+    };
+    log.debug('video.audio.route', { [ATTR.sessionId]: handle.sessionId, [ATTR.audioRouteResult]: 'attempt' });
     void engageAudioDelay(handle.video, this.ports.currentDelaySec(handle), stillWanted)
       .then(async result => {
         if (!stillWanted()) return;

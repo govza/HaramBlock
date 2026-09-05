@@ -38,6 +38,7 @@ import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/cont
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { generateNonce } from '@/utils/nonce';
 import { ATTR, getLogger } from '@/utils/telemetry';
+import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { FrameInferenceResult, ForcedVisibility, IFramePrediction, IHostSettings } from '@/utils/types';
@@ -147,6 +148,12 @@ class VideoSessionRegistry {
       // Object-backed streams lack a persistent media URL. A session-local
       // label preserves sample metadata without pretending it is cacheable.
       src: source.url || `srcobject:${sessionId}`,
+      trace: startUmbrellaSession(SPAN.videoSession, {
+        [ATTR.src]: source.url,
+        [ATTR.hostname]: hostSettings.hostname,
+        [ATTR.mediaKind]: 'video',
+      }),
+      dvrWarmupSpan: null,
       hostSettings,
       state: null as unknown as VideoSessionState, // set right below via createVideoSession
       lastPrediction: null,
@@ -355,9 +362,25 @@ class VideoSessionRegistry {
   }
 
   private dispatch(handle: SessionHandle, event: SessionEvent): void {
-    const { state, effects } = reduce(handle.state, event);
+    const previous = handle.state;
+    const { state, effects } = reduce(previous, event);
     handle.state = state;
-    this.execute(handle, effects);
+    this.logTransition(handle, previous, event);
+    this.execute(handle, effects, event.type);
+  }
+
+  private logTransition(handle: SessionHandle, previous: VideoSessionState, event: SessionEvent): void {
+    const next = handle.state;
+    if (previous.phase === next.phase && previous.dvr === next.dvr && previous.audioRoute === next.audioRoute) return;
+    log.info('video.session.transition', {
+      [ATTR.sessionId]: handle.sessionId,
+      [ATTR.hostname]: handle.hostSettings.hostname,
+      [ATTR.sessionFrom]: previous.phase,
+      [ATTR.sessionTo]: next.phase,
+      [ATTR.sessionEvent]: event.type,
+      [ATTR.sessionDvr]: next.dvr,
+      [ATTR.sessionAudioRoute]: next.audioRoute,
+    });
   }
 
   /** Commit adapter state only for verdicts accepted by the reducer's ordering rule. */
@@ -366,17 +389,19 @@ class VideoSessionRegistry {
     prediction: IFramePrediction,
     event: Extract<SessionEvent, { type: 'predictionReceived' }>,
   ): void {
-    const previousLastAppliedIndex = handle.state.lastAppliedIndex;
-    const { state, effects } = reduce(handle.state, event);
+    const previous = handle.state;
+    const previousLastAppliedIndex = previous.lastAppliedIndex;
+    const { state, effects } = reduce(previous, event);
     handle.state = state;
+    this.logTransition(handle, previous, event);
     if (event.unsafe && event.frameIndex > previousLastAppliedIndex && state.lastAppliedIndex === event.frameIndex) {
       // Set before executing effects: applyVerdict reads this synchronously.
       handle.lastUnsafePrediction = prediction;
     }
-    this.execute(handle, effects);
+    this.execute(handle, effects, event.type);
   }
 
-  private execute(handle: SessionHandle, effects: SessionEffect[]): void {
+  private execute(handle: SessionHandle, effects: SessionEffect[], eventType = 'attach'): void {
     const { video } = handle;
     for (const effect of effects) {
       switch (effect.kind) {
@@ -448,7 +473,7 @@ class VideoSessionRegistry {
           this.presentation.startDvr(handle);
           break;
         case 'stopDvr':
-          this.presentation.stopDvr(handle);
+          this.presentation.stopDvr(handle, eventType);
           break;
         case 'drainDvr':
           this.presentation.drainDvr(handle);
@@ -476,7 +501,7 @@ class VideoSessionRegistry {
     const { video } = handle;
     this.sampler.teardown(handle);
     this.suspension.clearGrace(handle);
-    this.presentation.stopDvr(handle);
+    this.presentation.stopDvr(handle, 'teardown');
     for (const pending of handle.timers.values()) clearTimeout(pending);
     handle.timers.clear();
     handle.removeListeners();

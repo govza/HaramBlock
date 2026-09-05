@@ -2,6 +2,7 @@ import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlaye
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
 import { startDvrCaptureTap } from '@/entrypoints/content/video/dvr/captureTap';
 import {
+  COVERED_DVR_DELAY_MS,
   deriveDvrDelayMs,
   isAnalysisUnderrun,
   MAX_DVR_DELAY_MS,
@@ -13,8 +14,9 @@ import {
   type CreateDvrFrameStoreOptions,
   type SessionFrameStore,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
+import { DvrProbe, type PresentedSample } from '@/entrypoints/content/video/dvr/probe';
 import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoints/content/video/dvr/ringBudget';
-import { getLogger } from '@/utils/telemetry';
+import { ATTR, getLogger, metricsEnabled } from '@/utils/telemetry';
 
 import type { DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
@@ -75,6 +77,7 @@ export interface PresenterPort {
     timeline: VerdictTimeline;
     getDelaySec: () => number;
     onReady: () => void;
+    onPresented?: (sample: PresentedSample) => void;
   }): DvrPresenter;
 }
 
@@ -106,7 +109,7 @@ export interface DvrRun {
   onVerdict(): void;
   onTick(mediaTime: number): void;
   drain(): void;
-  stop(): DvrRunCarry;
+  stop(reason?: string): DvrRunCarry;
 }
 
 export function defaultDvrRunPorts(options: {
@@ -135,8 +138,8 @@ export function defaultDvrRunPorts(options: {
     createStore: createDvrFrameStore,
     captureDriver: onFrame => startDvrCaptureTap(video, onFrame),
     presenter: {
-      create: ({ store, timeline, getDelaySec, onReady }) =>
-        new VideoDvrPlayer({ video, store, timeline, getDelaySec, getMasking, onReady }),
+      create: ({ store, timeline, getDelaySec, onReady, onPresented }) =>
+        new VideoDvrPlayer({ video, store, timeline, getDelaySec, getMasking, onReady, onPresented }),
     },
   };
 }
@@ -154,6 +157,8 @@ class Run implements DvrRun {
   private readonly store: SessionFrameStore;
   private readonly presenter: DvrPresenter;
   private readonly driver: CaptureDriver | null;
+  private readonly probe: DvrProbe | null;
+  private readonly covered: boolean;
 
   private lastCapturedMediaTime = Number.NEGATIVE_INFINITY;
   private lastTapMediaTime = Number.NEGATIVE_INFINITY;
@@ -172,10 +177,9 @@ class Run implements DvrRun {
     private readonly ctx: DvrRunContext,
   ) {
     const { surface, budget } = ports;
-    this.delay = Math.max(
-      deriveDvrDelayMs(ctx.latenciesMs, ctx.timeline.coverageAheadOf(surface.currentTime())) / 1000,
-      ctx.stallFloorSec,
-    );
+    const derivedDelayMs = deriveDvrDelayMs(ctx.latenciesMs, ctx.timeline.coverageAheadOf(surface.currentTime()));
+    this.covered = derivedDelayMs === COVERED_DVR_DELAY_MS;
+    this.delay = Math.max(derivedDelayMs / 1000, ctx.stallFloorSec);
     this.stallFloorSec = ctx.stallFloorSec;
     this.encodedIneligible = ctx.encodedIneligible;
 
@@ -196,6 +200,9 @@ class Run implements DvrRun {
       },
       onKindChange: kind => {
         if (this.stopped) return;
+        if (this.demandEncoded && kind === 'raw') {
+          log.info('video.dvr.store_demoted', { [ATTR.sessionId]: ctx.sessionId, [ATTR.dvrDelaySec]: this.delay });
+        }
         this.demandEncoded = kind === 'encoded';
         surface.markStoreKind(kind);
         this.registerDemand();
@@ -210,6 +217,7 @@ class Run implements DvrRun {
       timeline: ctx.timeline,
       getDelaySec: () => this.delay,
       onReady: () => ports.events({ type: 'bufferReady', at: surface.now() }),
+      onPresented: sample => this.probe?.presented(sample),
     });
 
     this.driver = ports.captureDriver((frame, mediaTime) => {
@@ -229,6 +237,29 @@ class Run implements DvrRun {
       this.lastTapWallMs = this.ports.surface.now();
       this.capture(frame, key);
     });
+    this.probe = metricsEnabled()
+      ? new DvrProbe({
+          sessionId: ctx.sessionId,
+          tap: this.driver ? 'tap' : 'rvfc',
+          storeKind: () => store.kind(),
+          storeBytes: () => store.bytes(),
+          storeSpanSec: () => store.spanSec(),
+          storeCoveredMisses: () => store.coveredMisses(),
+          delaySec: () => this.delay,
+          now: () => surface.now(),
+        })
+      : null;
+    log.info('video.dvr.start', this.lifecycleAttributes());
+  }
+
+  private lifecycleAttributes(): Record<string, string | number | boolean> {
+    return {
+      [ATTR.sessionId]: this.ctx.sessionId,
+      [ATTR.dvrDelaySec]: this.delay,
+      [ATTR.dvrCovered]: this.covered,
+      [ATTR.dvrStore]: this.store.kind(),
+      [ATTR.dvrTap]: this.driver ? 'tap' : 'rvfc',
+    };
   }
 
   get delaySec(): number {
@@ -251,9 +282,11 @@ class Run implements DvrRun {
     this.presenter.startDrain();
   }
 
-  stop(): DvrRunCarry {
+  stop(reason = 'stopped'): DvrRunCarry {
     if (!this.stopped) {
       this.stopped = true;
+      log.info('video.dvr.stop', { ...this.lifecycleAttributes(), [ATTR.dvrReason]: reason });
+      this.probe?.stop();
       this.driver?.stop();
       this.ports.budget.release(this.ctx.sessionId);
       this.presenter.destroy();
@@ -299,10 +332,18 @@ class Run implements DvrRun {
       : 0;
     const targetSec = Math.max(derivedSec, stallTargetSec);
     if (targetSec > this.delay) {
+      const stallDriven = stallTargetSec >= targetSec;
+      log.info('video.dvr.delay_raised', {
+        [ATTR.sessionId]: this.ctx.sessionId,
+        [ATTR.dvrFromSec]: this.delay,
+        [ATTR.dvrToSec]: targetSec,
+        [ATTR.dvrCause]: stallDriven ? 'store_stall' : 'verdict',
+      });
+      if (stallDriven) this.probe?.signal('store_stall');
       this.delay = targetSec;
       // Only stall-driven growth persists into the carry: latency-derived
       // growth re-derives correctly at the next run.
-      if (stallTargetSec >= targetSec) {
+      if (stallDriven) {
         this.stallFloorSec = Math.max(this.stallFloorSec, stallTargetSec);
       }
       this.stallHoldoff = true;
@@ -322,6 +363,12 @@ class Run implements DvrRun {
     if (this.underrunStreak < UNDERRUN_VERDICT_STREAK) return;
     // Reset so the post-relief window measures fresh verdicts before a second fire.
     this.underrunStreak = 0;
+    log.warn('video.dvr.underrun', {
+      [ATTR.sessionId]: this.ctx.sessionId,
+      [ATTR.dvrDelaySec]: this.delay,
+      coverageAheadSec,
+    });
+    this.probe?.signal('underrun');
     this.ports.events({ type: 'analysisUnderrun', at: this.ports.surface.now() });
   }
 
@@ -384,6 +431,7 @@ class Run implements DvrRun {
       tapFrame?.close();
       return;
     }
+    const startedAt = surface.now();
     try {
       this.store.setLimits(this.ringHorizonSec(quality), budget.sessionMaxBytes());
       const nativeWidth = surface.nativeWidth();
@@ -419,6 +467,7 @@ class Run implements DvrRun {
           });
           this.lastCapturedMediaTime = mediaTime;
           this.store.push(frame, mediaTime);
+          this.probe?.captured(surface.now() - startedAt);
         } catch (error) {
           // Typically SecurityError on a tainted source: VideoFrame needs
           // readable pixels, which the display-only canvas path does not.
@@ -456,6 +505,7 @@ class Run implements DvrRun {
       const bitmap = canvas.transferToImageBitmap();
       this.lastCapturedMediaTime = mediaTime;
       this.store.push(bitmap, mediaTime);
+      this.probe?.captured(surface.now() - startedAt);
     } catch (error) {
       log.debug('dvr.buffer_capture.failed', { error });
     } finally {

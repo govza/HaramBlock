@@ -12,7 +12,9 @@ import type { DvrRun } from '@/entrypoints/content/video/dvr/run';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { PendingFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
+import type { UmbrellaSession } from '@/utils/telemetry/roundtrip';
 import type { IFramePrediction, IHostSettings } from '@/utils/types';
+import type { Span } from '@opentelemetry/api';
 
 export interface SessionHandle {
   readonly sessionId: string;
@@ -20,6 +22,8 @@ export interface SessionHandle {
   /** Object-backed sources have no URL; retain their identity for source-change detection. */
   readonly srcObject: HTMLVideoElement['srcObject'];
   readonly src: string;
+  readonly trace: UmbrellaSession;
+  dvrWarmupSpan: Span | null;
   hostSettings: IHostSettings;
   state: VideoSessionState;
   lastPrediction: IFramePrediction | null;

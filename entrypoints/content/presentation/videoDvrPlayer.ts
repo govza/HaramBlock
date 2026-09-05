@@ -34,6 +34,7 @@ import { decodeMaskRLE } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';
 
 import type { DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
+import type { PresentedSample } from '@/entrypoints/content/video/dvr/probe';
 import type { IMaskingSettings } from '@/utils/types';
 
 const log = getLogger('videoDvrPlayer');
@@ -72,6 +73,7 @@ export interface VideoDvrPlayerOptions {
   getMasking: () => IMaskingSettings;
   /** Fired once, when the canvas takes over (first buffered frame, pinned until the buffer spans D). */
   onReady: () => void;
+  onPresented?: (sample: PresentedSample) => void;
 }
 
 interface DrawSurfaces {
@@ -95,6 +97,7 @@ export class VideoDvrPlayer {
   private hasPresentedFrame = false;
   private presentedFrameCount = 0;
   private lastPresentedMediaTime = Number.NEGATIVE_INFINITY;
+  private lastDrawRepeated = false;
   private presentedClockSec: number | null = null;
   private lastTickWallSec: number | null = null;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
@@ -157,11 +160,25 @@ export class VideoDvrPlayer {
         return;
       }
       if (!this.syncGeometry()) return;
+      const startedAt = performance.now();
       this.draw();
+      this.reportPresented(performance.now() - startedAt);
     } catch (error) {
       log.error('dvr.draw.failed', { error });
     }
   };
+
+  private reportPresented(presentMs: number): void {
+    const { onPresented, video } = this.opts;
+    if (!onPresented || !this.hasPresentedFrame || this.presentedClockSec === null) return;
+    onPresented({
+      mediaTime: video.currentTime,
+      targetTime: this.presentedClockSec,
+      frameTimeServed: this.lastPresentedMediaTime,
+      repeat: this.lastDrawRepeated,
+      presentMs,
+    });
+  }
 
   /** First frame buffered: inject the overlay, hide the native element, report readiness. */
   private beginPresentation(): void {
@@ -285,6 +302,7 @@ export class VideoDvrPlayer {
     }
     this.presentedClockSec = targetTime;
     const frame = store.frameAt(targetTime);
+    this.lastDrawRepeated = true;
     if (!frame && this.hasPresentedFrame) return;
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
@@ -351,6 +369,7 @@ export class VideoDvrPlayer {
 
     this.hasPresentedFrame = true;
     if (frame.mediaTime !== this.lastPresentedMediaTime) {
+      this.lastDrawRepeated = false;
       this.lastPresentedMediaTime = frame.mediaTime;
       this.presentedFrameCount++;
       surfaces.overlay.dataset.hbPresentedFrames = String(this.presentedFrameCount);

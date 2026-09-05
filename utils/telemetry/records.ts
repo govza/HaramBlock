@@ -46,10 +46,21 @@ export interface SerializedSpan {
   context: HbContext;
 }
 
+export type MetricKind = 'gauge' | 'histogram';
+
+export interface TelemetryMetricRecord {
+  timeMs: number;
+  kind: MetricKind;
+  name: string;
+  value: number;
+  attributes: Record<string, AttributeValue>;
+}
+
 export interface TelemetryBatch {
   context: HbContext;
   logs: TelemetryLogRecord[];
   spans: SerializedSpan[];
+  metrics?: TelemetryMetricRecord[];
 }
 
 export interface TelemetryExport {

@@ -7,6 +7,7 @@ import { consoleLogSink } from '@/utils/telemetry/exporters/consoleExporter';
 import { TelemetryForwarder, type SendBatch } from '@/utils/telemetry/exporters/forwarding';
 import { ForwardingSpanExporter } from '@/utils/telemetry/exporters/spanSerialization';
 import { registerLogSink, setLogContext } from '@/utils/telemetry/logger';
+import { registerMetricSink } from '@/utils/telemetry/metrics';
 import { createResource } from '@/utils/telemetry/resource';
 
 import type { TelemetryLogRecord } from '@/utils/telemetry/records';
@@ -29,6 +30,7 @@ export function initClientTelemetry(hbContext: HbContext, send: SendBatch): void
   }
 
   registerLogSink(forwarder.pushLog);
+  registerMetricSink(forwarder.pushMetric);
 
   const provider = new BasicTracerProvider({
     resource: createResource(hbContext),
