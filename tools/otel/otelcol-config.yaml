@@ -1,5 +1,5 @@
-# Mounted over the grafana/otel-lgtm image default. Same pipelines as upstream, plus CORS
-# origins for the extension: the background service worker posts OTLP/HTTP cross-origin from
+# Baked over the grafana/otel-lgtm image default (tools/otel/Dockerfile). Same pipelines as upstream,
+# plus CORS origins for the extension: the background service worker posts OTLP/HTTP cross-origin from
 # chrome-extension:// or moz-extension://, and the preflight must be answered for those.
 receivers:
   otlp:

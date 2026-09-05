@@ -9,12 +9,11 @@ import { METRIC } from '@/utils/telemetry/metrics';
 const dashboardPath = resolve(__dirname, '../../../tools/otel/dashboards/haramblock-dvr.json');
 const dashboard = JSON.parse(readFileSync(dashboardPath, 'utf8')) as { panels: Panel[] };
 
-const BACKGROUND_METRICS = ['hb.inference.run.duration', 'hb.inference.requests'];
 const KNOWN_DATASOURCES = ['prometheus', 'loki', 'tempo'];
 
 const toPrometheusName = (otelName: string): string => otelName.replaceAll('.', '_');
 
-const knownPrometheusMetrics = [...Object.values(METRIC), ...BACKGROUND_METRICS].map(toPrometheusName);
+const knownPrometheusMetrics = Object.values(METRIC).map(toPrometheusName);
 const knownPrometheusLabels = Object.values(ATTR).map(toPrometheusName);
 
 interface Target {

@@ -14,6 +14,8 @@ export const METRIC = {
   dvrPresentMs: 'hb.dvr.present_ms',
   inferenceRoundtripMs: 'hb.inference.roundtrip_ms',
   mainThreadLongTaskMs: 'hb.main_thread.long_task_ms',
+  inferenceRunDurationMs: 'hb.inference.run.duration',
+  inferenceRequests: 'hb.inference.requests',
 } as const;
 
 export type MetricName = (typeof METRIC)[keyof typeof METRIC];
