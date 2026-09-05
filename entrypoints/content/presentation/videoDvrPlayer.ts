@@ -34,7 +34,7 @@ import { decodeMaskRLE } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';
 
 import type { DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
-import type { PresentedSample } from '@/entrypoints/content/video/dvr/probe';
+import type { PresentedSample, PresentOutcome } from '@/entrypoints/content/video/dvr/probe';
 import type { IMaskingSettings } from '@/utils/types';
 
 const log = getLogger('videoDvrPlayer');
@@ -97,7 +97,7 @@ export class VideoDvrPlayer {
   private hasPresentedFrame = false;
   private presentedFrameCount = 0;
   private lastPresentedMediaTime = Number.NEGATIVE_INFINITY;
-  private lastDrawRepeated = false;
+  private lastDrawOutcome: PresentOutcome = 'miss';
   private presentedClockSec: number | null = null;
   private lastTickWallSec: number | null = null;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
@@ -160,6 +160,10 @@ export class VideoDvrPlayer {
         return;
       }
       if (!this.syncGeometry()) return;
+      if (!this.opts.onPresented) {
+        this.draw();
+        return;
+      }
       const startedAt = performance.now();
       this.draw();
       this.reportPresented(performance.now() - startedAt);
@@ -175,7 +179,7 @@ export class VideoDvrPlayer {
       mediaTime: video.currentTime,
       targetTime: this.presentedClockSec,
       frameTimeServed: this.lastPresentedMediaTime,
-      repeat: this.lastDrawRepeated,
+      outcome: this.lastDrawOutcome,
       presentMs,
     });
   }
@@ -302,7 +306,7 @@ export class VideoDvrPlayer {
     }
     this.presentedClockSec = targetTime;
     const frame = store.frameAt(targetTime);
-    this.lastDrawRepeated = true;
+    this.lastDrawOutcome = 'miss';
     if (!frame && this.hasPresentedFrame) return;
     const masking = getMasking();
     // When inference cannot keep up, stretch verdicts (inertia) further rather
@@ -368,8 +372,9 @@ export class VideoDvrPlayer {
     }
 
     this.hasPresentedFrame = true;
+    this.lastDrawOutcome = 'repeat';
     if (frame.mediaTime !== this.lastPresentedMediaTime) {
-      this.lastDrawRepeated = false;
+      this.lastDrawOutcome = 'new';
       this.lastPresentedMediaTime = frame.mediaTime;
       this.presentedFrameCount++;
       surfaces.overlay.dataset.hbPresentedFrames = String(this.presentedFrameCount);

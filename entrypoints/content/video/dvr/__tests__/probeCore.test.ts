@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  ANOMALY_FPS_RATIO,
   ANOMALY_LONG_TASK_MS,
   ANOMALY_RATE_LIMIT_MS,
   DvrAnomalyDetector,
@@ -15,11 +14,12 @@ describe('DvrAnomalyDetector', () => {
     expect(detector.observeWindow({ captured: 60, presented: 30, nowMs: 2000 })).toBe('fps_drop');
   });
 
-  it('does not fire when the ratio recovers between windows', () => {
+  it('judges the aggregate over the 2 s window, not each 1 s slice', () => {
     const detector = new DvrAnomalyDetector();
     expect(detector.observeWindow({ captured: 60, presented: 30, nowMs: 1000 })).toBeNull();
-    expect(detector.observeWindow({ captured: 60, presented: 60 * ANOMALY_FPS_RATIO, nowMs: 2000 })).toBeNull();
-    expect(detector.observeWindow({ captured: 60, presented: 30, nowMs: 3000 })).toBeNull();
+    expect(detector.observeWindow({ captured: 60, presented: 60, nowMs: 2000 })).toBeNull();
+    expect(detector.observeWindow({ captured: 60, presented: 42, nowMs: 3000 })).toBeNull();
+    expect(detector.observeWindow({ captured: 60, presented: 40, nowMs: 4000 })).toBe('fps_drop');
   });
 
   it('ignores windows with no captures', () => {

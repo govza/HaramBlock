@@ -163,7 +163,7 @@ export class DvrRingBudget {
       [ATTR.budgetHorizonScale]: this.currentQuality.horizonScale,
       [ATTR.budgetProjectedBytes]: this.projectedBytes(),
       [ATTR.budgetGlobalBytes]: this.backendBudget,
-      sessions: this.sessions.size,
+      [ATTR.budgetSessions]: this.sessions.size,
     });
   }
 
