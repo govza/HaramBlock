@@ -10,7 +10,15 @@ import {
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
-import { ATTR, getLogger, getTracer, injectTraceparent } from '@/utils/telemetry';
+import {
+  ATTR,
+  getLogger,
+  getTracer,
+  injectTraceparent,
+  METRIC,
+  recordCounter,
+  recordHistogram,
+} from '@/utils/telemetry';
 import {
   endRoundtrip,
   endSpanWithError,
@@ -409,7 +417,12 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       }
       case 'blob': {
         // Firefox: Compress to WebP and structured clone
+        const encodeStartedAt = performance.now();
         const blob = await bitmapToCompressedBlob(bitmap);
+        recordHistogram(METRIC.samplerEncodeMs, performance.now() - encodeStartedAt, {
+          [ATTR.sessionId]: sessionId,
+          [ATTR.transferKind]: transferKind,
+        });
         bitmap.close(); // Clean up original bitmap after compression
         payload = { ...base, kind: 'blob', blob };
         break;
@@ -417,6 +430,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       default:
         throw new Error(`Unsupported video frame transfer kind: ${transferKind as string}`);
     }
+    recordCounter(METRIC.samplerFramesSent, 1, { [ATTR.transferKind]: transferKind });
 
     const sendSpan = tracer.startSpan(SPAN.send, { attributes: { [ATTR.transferKind]: transferKind } }, parent);
     try {

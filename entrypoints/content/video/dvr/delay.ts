@@ -33,11 +33,15 @@ const COVERED_LOOKAHEAD_FACTOR = 2;
  * Deliberately quantile-based — one pathological outlier must not pin the
  * delay at the ceiling for the rest of the session.
  */
+export function latencyP90Ms(latenciesMs: readonly number[]): number {
+  if (!latenciesMs.length) return 0;
+  const sorted = [...latenciesMs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] ?? 0;
+}
+
 export function computeDvrDelayMs(latenciesMs: readonly number[]): number {
   if (!latenciesMs.length) return DEFAULT_DVR_DELAY_MS;
-  const sorted = [...latenciesMs].sort((a, b) => a - b);
-  const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] ?? DEFAULT_DVR_DELAY_MS;
-  const withHeadroom = p90 * LATENCY_HEADROOM_FACTOR + LATENCY_HEADROOM_MS;
+  const withHeadroom = latencyP90Ms(latenciesMs) * LATENCY_HEADROOM_FACTOR + LATENCY_HEADROOM_MS;
   return Math.min(MAX_DVR_DELAY_MS, Math.max(MIN_DVR_DELAY_MS, Math.round(withHeadroom)));
 }
 

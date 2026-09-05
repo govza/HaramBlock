@@ -23,10 +23,12 @@ interface Target {
 
 interface Panel {
   id: number;
+  type: string;
   title: string;
   datasource?: { uid?: string };
   targets?: Target[];
   panels?: Panel[];
+  options?: { noValue?: string };
 }
 
 const flattenPanels = (panels: Panel[]): Panel[] =>
@@ -86,6 +88,51 @@ describe('haramblock-dvr dashboard', () => {
   it('covers every DVR metric', () => {
     const referenced = new Set(exprs.flatMap(metricReferences).map(stripPrometheusSuffix));
     for (const name of Object.values(METRIC)) expect([...referenced], name).toContain(toPrometheusName(name));
+  });
+
+  it('has a health stat row whose tiles read "no data" when nothing plays', () => {
+    const stats = panels.filter(panel => panel.type === 'stat');
+    expect(stats.length).toBeGreaterThanOrEqual(6);
+    for (const stat of stats) {
+      expect(stat.options?.noValue, stat.title).toBe('no data');
+      expect((stat.targets ?? []).length, stat.title).toBeGreaterThan(0);
+    }
+    const titles = stats.map(stat => stat.title.toLowerCase());
+    for (const expected of ['health', 'freeze', 'drops', 'audio', 'anomal', 'warmup']) {
+      expect(
+        titles.some(title => title.includes(expected)),
+        expected,
+      ).toBe(true);
+    }
+  });
+
+  it('aggregates rollup counters without the session id', () => {
+    const rollups = [
+      METRIC.dvrActiveWindows,
+      METRIC.dvrHealthyWindows,
+      METRIC.dvrFreezeWindows,
+      METRIC.dvrFramesDropped,
+      METRIC.dvrRunsStarted,
+      METRIC.dvrRunsStopped,
+      METRIC.dvrAnomalies,
+      METRIC.audioRouteWindows,
+      METRIC.audioUnderruns,
+      METRIC.audioUnavailableWindows,
+    ].map(toPrometheusName);
+    for (const expr of exprs) {
+      if (!rollups.some(name => metricReferences(expr).map(stripPrometheusSuffix).includes(name))) continue;
+      expect(expr).not.toMatch(/hb_session_id/);
+      expect(expr).toMatch(/^sum\(/);
+    }
+  });
+
+  it('applies the $session variable to every Loki panel', () => {
+    const lokiTargets = panels.flatMap(p => p.targets ?? []).filter(t => t.datasource?.uid === 'loki');
+    expect(lokiTargets.length).toBeGreaterThan(0);
+    for (const target of lokiTargets) {
+      expect(target.expr).toMatch(/\| hb_session_id=~"\$session"/);
+      expect(target.expr).not.toMatch(/\{[^}]*hb_session_id[^}]*\}/);
+    }
   });
 
   it('has a Loki anomaly panel and a Tempo trace panel', () => {

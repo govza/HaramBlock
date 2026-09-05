@@ -56,9 +56,20 @@ export function selectStoreKind(input: {
   activeEncodedSessions: number;
   encodedIneligible: boolean;
 }): DvrStoreKind {
+  return selectStoreReason(input) === 'encoded' ? 'encoded' : 'raw';
+}
+
+export function selectStoreReason(input: {
+  enabled: boolean;
+  probeSupported: boolean;
+  activeEncodedSessions: number;
+  encodedIneligible: boolean;
+}): DvrStoreReason {
   const { enabled, probeSupported, activeEncodedSessions, encodedIneligible } = input;
-  if (!enabled || !probeSupported || encodedIneligible) return 'raw';
-  return activeEncodedSessions < ENCODED_SESSION_CAP ? 'encoded' : 'raw';
+  if (!enabled) return 'disabled';
+  if (encodedIneligible) return 'ineligible';
+  if (!probeSupported) return 'webcodecs_unsupported';
+  return activeEncodedSessions < ENCODED_SESSION_CAP ? 'encoded' : 'session_cap';
 }
 
 /** Global counter of live encoded sessions; injectable for factory tests. */
@@ -120,9 +131,21 @@ function cachedProbe(probe: EncodedSupportProbe, width: number, height: number):
   return result;
 }
 
+export type DvrStoreReason =
+  | 'encoded'
+  | 'probing'
+  | 'disabled'
+  | 'ineligible'
+  | 'session_cap'
+  | 'webcodecs_unsupported'
+  | 'released_before_probe'
+  | 'codec_error';
+
 export interface SessionFrameStore extends DvrFrameStore {
   /** Which implementation currently backs the store (budget demand, debug attribute). */
   kind(): DvrStoreKind;
+  /** Why the store is on its current backing (lifecycle log attribute). */
+  selectionReason(): DvrStoreReason;
   /**
    * Force the raw fallback mid-run for failures the store cannot see itself —
    * e.g. `new VideoFrame(video)` throwing SecurityError on a tainted source
@@ -160,16 +183,28 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
     options.onKindChange,
   );
 
-  const preSelection = selectStoreKind({
+  const preSelection = selectStoreReason({
     enabled: encodedRingEnabled,
     probeSupported: true, // probe result pending; re-checked below
     activeEncodedSessions: slots.active(),
     encodedIneligible: options.encodedIneligible,
   });
+  store.setSelectionReason(preSelection === 'encoded' ? 'probing' : preSelection);
   if (preSelection === 'encoded') {
     void cachedProbe(probe, options.probeWidth, options.probeHeight)
       .then(supported => {
-        if (!supported || store.isReleased() || !slots.acquire()) return;
+        if (!supported) {
+          store.setSelectionReason('webcodecs_unsupported');
+          return;
+        }
+        if (store.isReleased()) {
+          store.setSelectionReason('released_before_probe');
+          return;
+        }
+        if (!slots.acquire()) {
+          store.setSelectionReason('session_cap');
+          return;
+        }
         const encoded = new EncodedFrameRing({
           maxDurationSec: store.currentMaxDurationSec(),
           maxBytes: store.currentMaxBytes(),
@@ -177,13 +212,18 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
           onFatalError: () => {
             options.onEncodedError();
             if (!store.isReleased() && store.kind() === 'encoded') {
+              store.setSelectionReason('codec_error');
               store.swapTo(new RawFrameRing(store.currentMaxDurationSec(), store.currentMaxBytes()), null);
             }
           },
         });
+        store.setSelectionReason('encoded');
         store.swapTo(encoded, () => slots.release());
       })
-      .catch((error: unknown) => log.debug('dvr.encoded_ring_probe.failed', { error }));
+      .catch((error: unknown) => {
+        store.setSelectionReason('webcodecs_unsupported');
+        log.debug('dvr.encoded_ring_probe.failed', { error });
+      });
   }
   return store;
 }
@@ -199,6 +239,7 @@ class SwappableFrameStore implements SessionFrameStore {
   /** Misses accumulated by earlier backings, so the counter stays monotonic across swaps. */
   private coveredMissBase = 0;
   private released = false;
+  private reason: DvrStoreReason = 'probing';
   private maxDurationSec: number;
   private maxBytes: number;
 
@@ -217,12 +258,21 @@ class SwappableFrameStore implements SessionFrameStore {
     return this.current.captureMode === 'video-frame' ? 'encoded' : 'raw';
   }
 
+  selectionReason(): DvrStoreReason {
+    return this.reason;
+  }
+
+  setSelectionReason(reason: DvrStoreReason): void {
+    this.reason = reason;
+  }
+
   isReleased(): boolean {
     return this.released;
   }
 
   demoteToRaw(): void {
     if (this.released || this.kind() === 'raw') return;
+    this.reason = 'ineligible';
     this.swapTo(new RawFrameRing(this.maxDurationSec, this.maxBytes), null);
   }
 

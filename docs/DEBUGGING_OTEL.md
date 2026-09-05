@@ -94,14 +94,52 @@ force-flushes on a 5 s idle timer - the last records of a session show up a few 
 
 ## Reading the DVR dashboard
 
-Dashboard variable **VideoSession** (`hb_session_id`) filters every DVR panel; "All" overlays
-sessions. Time range defaults to the last 15 minutes with 5 s refresh.
+Dashboard variable **VideoSession** (`hb_session_id`) filters every per-session DVR panel and every
+Loki panel (as a structured-metadata filter after the line filters); "All" overlays sessions. The
+rollup tiles and "(all sessions)" panels ignore it on purpose. Time range defaults to the last 15
+minutes with 5 s refresh.
+
+**Playback health** (stat row, all sessions, over the dashboard range)
+
+The one-glance answer to "is playback healthy right now". Every tile reads "no data" while nothing
+plays (zero active windows), so an idle dashboard is never green.
+
+- _Health %_ - healthy windows / active windows. Green >= 97 %, orange >= 90 %, red below. The
+  definition is the `HEALTHY_*` constants in `probeCore.ts`: active, presented (new + repeat)
+  > = 0.9 x captured, no long task > 100 ms, no freeze, no audio underrun.
+- _Freeze seconds_ - active windows without a new frame. A paused video is inactive and never
+  counts; a non-zero value with fps at 0 is a frozen presenter, not a pause.
+- _Drops per minute_ - `captured - presented - repeated` per active minute. This is where the ~10 %
+  loss of a 60 fps `tap` session shows up although it never trips the 0.75 anomaly ratio.
+- _Audio fallback %_ - windows on relay or with audio unavailable, over all routed windows.
+- _Anomalies per 10 min_ - `video.dvr.anomaly` dumps per 10 active minutes, comparable across
+  sessions of any length.
+- _Warmup p90_ - `hb.dvr.warmup_ms` with status `ready`: how long a viewer stares at the warm-up
+  blur before the first filtered frame.
 
 **DVR (per VideoSession)**
 
 - _Captured vs presented fps_ - the DVR's two 1 s-window rates. Presented tracking captured means
   the delay line keeps up. Presented < 0.75 x captured for 2 consecutive windows is the fps anomaly
   trigger.
+- _Source vs captured fps_ - `hb.dvr.source_fps` is what the browser delivered (distinct
+  mediaTimes); captured below it is the capture throttle (raw ring cadence ~30 fps) or a capture
+  that failed. Source below the media's frame rate is the browser skipping frames - see the skipped
+  / late panel.
+- _Capture size (px)_ - the ring capture geometry actually applied (ladder tier).
+- _Capture draw / Capture transfer_ - the raw-store capture cost split into drawImage and
+  transferToImageBitmap (both 0 on the encoded store). Firefox is raw-only, so this is where its
+  per-frame main-thread cost shows.
+- _Frame delivery gap (ms)_ - wall gap between new-frame deliveries. Bands above the frame interval
+  are callbacks held back by main-thread work; Firefox has no `longtask` observer, so this panel
+  stands in for _Main-thread long tasks_ there.
+- _Deduped ticks_ - deliveries that repeated the previous mediaTime. Firefox fires rVFC at the
+  compositor rate, so a 25 fps source reads ~35/s here; anything non-zero on Chrome is a tap
+  reporting a stale currentTime.
+- _Source frames skipped / late ticks_ - rollup by browser / store / tap: how many source frames
+  never reached us, and how often a delivery was late.
+- _Sampler encode / frames sent_ - `bitmapToCompressedBlob` cost (Firefox blob transport) and the
+  inference sampling rate; the other main-thread consumer next to the DVR capture.
 - _Frame repeat ratio_ - share of presented ticks that re-served the previous frame. Rises when the
   store is behind (see `video.dvr.underrun` / `store_stall`).
 - _D (delay) over time_ - the DVR delay in seconds. Steps coincide with `video.dvr.delay_raised`
@@ -112,12 +150,23 @@ sessions. Time range defaults to the last 15 minutes with 5 s refresh.
   `hb.dvr.present_ms`). Bands drifting upwards point at main-thread pressure.
 - _Main-thread long tasks_ - count of `longtask` entries per interval and their p90 duration. Any
   task > 100 ms during playback triggers an anomaly dump.
+- _Playback active / verdict margin_ - `hb.dvr.playback_active` (1/0) resolves whether a 0 fps
+  session is paused or frozen; verdict margin = D - observed round-trip p90 (right axis), the
+  headroom before the DVR presents an unjudged frame.
+- _A/V drift (ms)_ - `hb.audio.drift_ms` by route. Relay drifts past +-250 ms are corrected by a
+  seek (counted as an underrun); the delay line shows the DelayNode ramp catching up with D.
+- _Frame drops / freezes per second_, _Healthy vs active windows per second_, _Audio route windows /
+  underruns_, _DVR runs started / stopped by reason, anomalies by cause_ - the rollup counters
+  behind the stat row, by `hb_dvr_store` / `hb_dvr_tap` (and `hb_audio_route`, `hb_dvr_reason`,
+  `hb_dvr_cause`), never by session.
 - _DVR anomaly dumps_ - Loki: `video.dvr.anomaly` headers and their `video.dvr.tick` rows (last 5 s
   of per-tick records, one dump per 10 s per session, grouped by `hb_dvr_anomaly_id`). Expand a row
   for the `hb_dvr_tick_*` fields; the `trace_id` field links into Tempo.
 - _Session + DVR events_ - every other `video.*` event: `video.session.transition` (phase, DVR
-  sub-state, audio route), `video.dvr.start` / `stop` / `store_demoted` / `underrun` /
-  `budget_degraded` / `budget_recovered`, `video.audio.route`, `video.capture.failed`.
+  sub-state, audio route), `video.dvr.start` / `stop` / `tap_changed` / `store_demoted` / `underrun`
+  / `budget_degraded` / `budget_recovered`, `video.audio.route`, `video.capture.failed`.
+  `video.dvr.start` says why the push tap is not in use (`hb_dvr_tap_reason`) and every lifecycle
+  record why the store is raw or encoded (`hb_dvr_store_reason`).
 
 Red annotations across all panels mark `video.dvr.anomaly` events.
 
@@ -143,20 +192,36 @@ field opens the trace.
 
 The extension emits OTel names; the stores rename them.
 
-| In code (`ATTR` / `METRIC`)             | Prometheus                                     | Loki                                |
-| --------------------------------------- | ---------------------------------------------- | ----------------------------------- |
-| `hb.dvr.captured_fps` (gauge)           | `hb_dvr_captured_fps`                          | -                                   |
-| `hb.dvr.capture_ms` (histogram)         | `hb_dvr_capture_ms_bucket` / `_sum` / `_count` | -                                   |
-| `hb.inference.run.duration` (unit `ms`) | `hb_inference_run_duration_milliseconds_*`     | -                                   |
-| `hb.inference.requests` (counter)       | `hb_inference_requests_total`                  | -                                   |
-| attribute `hb.session.id`               | label `hb_session_id`                          | structured metadata `hb_session_id` |
-| resource `service.name`                 | `service_name` (also `job`)                    | stream label `service_name`         |
-| event name (log body)                   | -                                              | the line; filter with `             | =`/` | ~`  |
-| `hb.context`, `browser.name`            | `target_info` only                             | `hb_context`, `browser_name`        |
+| In code (`ATTR` / `METRIC`)              | Prometheus                                     | Loki                                |
+| ---------------------------------------- | ---------------------------------------------- | ----------------------------------- |
+| `hb.dvr.captured_fps` (gauge)            | `hb_dvr_captured_fps`                          | -                                   |
+| `hb.dvr.playback_active` (gauge)         | `hb_dvr_playback_active`                       | -                                   |
+| `hb.dvr.verdict_margin_sec` (gauge)      | `hb_dvr_verdict_margin_sec`                    | -                                   |
+| `hb.audio.drift_ms` (gauge)              | `hb_audio_drift_ms`                            | -                                   |
+| `hb.dvr.capture_ms` (histogram)          | `hb_dvr_capture_ms_bucket` / `_sum` / `_count` | -                                   |
+| `hb.dvr.warmup_ms` (histogram)           | `hb_dvr_warmup_ms_bucket` / `_sum` / `_count`  | -                                   |
+| `hb.dvr.active_windows` (counter)        | `hb_dvr_active_windows_total`                  | -                                   |
+| `hb.dvr.healthy_windows` (counter)       | `hb_dvr_healthy_windows_total`                 | -                                   |
+| `hb.dvr.freeze_windows` (counter)        | `hb_dvr_freeze_windows_total`                  | -                                   |
+| `hb.dvr.frames_dropped` (counter)        | `hb_dvr_frames_dropped_total`                  | -                                   |
+| `hb.dvr.runs_started` (counter)          | `hb_dvr_runs_started_total`                    | -                                   |
+| `hb.dvr.runs_stopped` (counter)          | `hb_dvr_runs_stopped_total`                    | -                                   |
+| `hb.dvr.anomalies` (counter)             | `hb_dvr_anomalies_total`                       | -                                   |
+| `hb.audio.route_windows` (counter)       | `hb_audio_route_windows_total`                 | -                                   |
+| `hb.audio.underruns` (counter)           | `hb_audio_underruns_total`                     | -                                   |
+| `hb.audio.unavailable_windows` (counter) | `hb_audio_unavailable_windows_total`           | -                                   |
+| `hb.inference.run.duration` (unit `ms`)  | `hb_inference_run_duration_milliseconds_*`     | -                                   |
+| `hb.inference.requests` (counter)        | `hb_inference_requests_total`                  | -                                   |
+| attribute `hb.session.id`                | label `hb_session_id`                          | structured metadata `hb_session_id` |
+| resource `service.name`                  | `service_name` (also `job`)                    | stream label `service_name`         |
+| event name (log body)                    | -                                              | the line; filter with `             | =`/` | ~`  |
+| `hb.context`, `browser.name`             | `target_info` only                             | `hb_context`, `browser_name`        |
 
 Prometheus appends the unit only when the instrument declares one, which is why the DVR histograms
-keep their `_ms` name and the background duration gains `_milliseconds`. Dots become underscores
-everywhere. The dashboard's queries are checked against `ATTR` and `METRIC` by
+keep their `_ms` name and the background duration gains `_milliseconds`; counters gain `_total`.
+Dots become underscores everywhere. `hb_session_id` in Loki is structured metadata, so the
+dashboard's `=~ "$session"` filter sits after the stream selector (`| hb_session_id=~"..."`), not
+inside it. The dashboard's queries are checked against `ATTR` and `METRIC` by
 `utils/telemetry/__tests__/dvrDashboard.test.ts`, so renaming a metric or attribute fails the unit
 suite until the JSON follows.
 

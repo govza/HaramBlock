@@ -4,6 +4,31 @@ export const ANOMALY_FPS_RATIO = 0.75;
 export const ANOMALY_LONG_TASK_MS = 100;
 export const ANOMALY_RATE_LIMIT_MS = 10_000;
 export const ANOMALY_FPS_WINDOWS = 2;
+export const HEALTHY_PRESENTED_RATIO = 0.9;
+export const HEALTHY_LONG_TASK_MS = ANOMALY_LONG_TASK_MS;
+
+export interface HealthWindow {
+  captured: number;
+  presented: number;
+  repeats: number;
+  longestTaskMs: number;
+  audioUnderruns: number;
+}
+
+export function droppedFrames(window: HealthWindow): number {
+  return Math.max(0, window.captured - window.presented - window.repeats);
+}
+
+export function isFrozen(window: HealthWindow): boolean {
+  return window.presented === 0;
+}
+
+export function isHealthy(window: HealthWindow): boolean {
+  if (isFrozen(window)) return false;
+  if (window.longestTaskMs > HEALTHY_LONG_TASK_MS) return false;
+  if (window.audioUnderruns > 0) return false;
+  return window.presented + window.repeats >= window.captured * HEALTHY_PRESENTED_RATIO;
+}
 
 export interface FpsWindow {
   captured: number;
@@ -48,7 +73,9 @@ export class DvrAnomalyDetector {
 
 export interface DvrTickRecord {
   wallTs: number;
+  wallGapMs: number;
   mediaTime: number;
+  mediaDelta: number;
   targetTime: number;
   frameTimeServed: number;
   repeat: boolean;
@@ -59,7 +86,9 @@ export interface DvrTickRecord {
 
 const emptyRecord = (): DvrTickRecord => ({
   wallTs: 0,
+  wallGapMs: 0,
   mediaTime: 0,
+  mediaDelta: 0,
   targetTime: 0,
   frameTimeServed: 0,
   repeat: false,
@@ -67,6 +96,52 @@ const emptyRecord = (): DvrTickRecord => ({
   presentMs: 0,
   storeCoveredMisses: 0,
 });
+
+export const SOURCE_SKIP_RATIO = 1.5;
+export const LATE_TICK_RATIO = 1.5;
+const MIN_FRAME_INTERVAL_SEC = 1 / 120;
+
+export type SourceDeliveryKind = 'new' | 'duplicate' | 'seek';
+
+export interface SourceDelivery {
+  kind: SourceDeliveryKind;
+  mediaDelta: number;
+  wallGapMs: number;
+  framesSkipped: number;
+  late: boolean;
+}
+
+export class SourceClock {
+  private lastMediaTime = Number.NEGATIVE_INFINITY;
+  private lastWallMs = Number.NEGATIVE_INFINITY;
+  private frameIntervalSec = Number.POSITIVE_INFINITY;
+
+  observe(mediaTime: number, wallMs: number): SourceDelivery {
+    const first = !Number.isFinite(this.lastMediaTime);
+    const mediaDelta = first ? 0 : mediaTime - this.lastMediaTime;
+    const wallGapMs = Number.isFinite(this.lastWallMs) ? wallMs - this.lastWallMs : 0;
+    this.lastWallMs = wallMs;
+    if (!first && mediaDelta === 0) {
+      return { kind: 'duplicate', mediaDelta, wallGapMs, framesSkipped: 0, late: false };
+    }
+    this.lastMediaTime = mediaTime;
+    if (first) return { kind: 'new', mediaDelta, wallGapMs, framesSkipped: 0, late: false };
+    if (mediaDelta < 0) {
+      this.frameIntervalSec = Number.POSITIVE_INFINITY;
+      return { kind: 'seek', mediaDelta, wallGapMs, framesSkipped: 0, late: false };
+    }
+    if (mediaDelta < this.frameIntervalSec) this.frameIntervalSec = Math.max(mediaDelta, MIN_FRAME_INTERVAL_SEC);
+    const intervalSec = this.frameIntervalSec;
+    const framesSkipped =
+      mediaDelta > intervalSec * SOURCE_SKIP_RATIO ? Math.max(0, Math.round(mediaDelta / intervalSec) - 1) : 0;
+    const late = wallGapMs > intervalSec * 1000 * LATE_TICK_RATIO;
+    return { kind: 'new', mediaDelta, wallGapMs, framesSkipped, late };
+  }
+
+  estimatedFps(): number {
+    return Number.isFinite(this.frameIntervalSec) ? 1 / this.frameIntervalSec : 0;
+  }
+}
 
 export class DvrTickRing {
   private readonly records: DvrTickRecord[];

@@ -1,5 +1,5 @@
 import type { TelemetryMetricRecord } from '@/utils/telemetry/records';
-import type { Attributes, Histogram, Meter, ObservableGauge } from '@opentelemetry/api';
+import type { Attributes, Counter, Histogram, Meter, ObservableGauge } from '@opentelemetry/api';
 
 export const GAUGE_STALE_AFTER_MS = 5000;
 
@@ -19,6 +19,7 @@ const attributeKey = (attributes: Attributes): string => JSON.stringify(Object.e
 export class MetricInstruments {
   private readonly gauges = new Map<string, GaugeEntry>();
   private readonly histograms = new Map<string, Histogram>();
+  private readonly counters = new Map<string, Counter>();
 
   constructor(
     private readonly meter: Meter,
@@ -28,6 +29,10 @@ export class MetricInstruments {
   record(record: TelemetryMetricRecord): void {
     if (record.kind === 'histogram') {
       this.histogram(record.name).record(record.value, record.attributes);
+      return;
+    }
+    if (record.kind === 'counter') {
+      this.counter(record.name).add(record.value, record.attributes);
       return;
     }
     this.gaugeSamples(record.name).set(attributeKey(record.attributes), {
@@ -42,6 +47,15 @@ export class MetricInstruments {
     if (!instrument) {
       instrument = this.meter.createHistogram(name);
       this.histograms.set(name, instrument);
+    }
+    return instrument;
+  }
+
+  private counter(name: string): Counter {
+    let instrument = this.counters.get(name);
+    if (!instrument) {
+      instrument = this.meter.createCounter(name);
+      this.counters.set(name, instrument);
     }
     return instrument;
   }

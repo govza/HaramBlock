@@ -9,20 +9,27 @@
 
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import { engageAudioDelay, releaseAudioDelay, updateAudioDelay } from '@/entrypoints/content/video/dvr/audioDelay';
+import {
+  audioDelayHealth,
+  engageAudioDelay,
+  releaseAudioDelay,
+  updateAudioDelay,
+} from '@/entrypoints/content/video/dvr/audioDelay';
 import {
   drainRelayAudio,
   engageRelayAudio,
   holdPageMute,
+  relayAudioHealth,
   releaseMuteHold,
   releaseRelayAudio,
 } from '@/entrypoints/content/video/dvr/relayAudio';
 import { defaultDvrRunPorts, startDvrRun } from '@/entrypoints/content/video/dvr/run';
 import { type AudioEngageOutcome, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import { buildMaskingFilter } from '@/utils/masking';
-import { ATTR, getLogger, getTracer } from '@/utils/telemetry';
+import { ATTR, getLogger, getTracer, METRIC, recordHistogram } from '@/utils/telemetry';
 import { SPAN, umbrellaContext } from '@/utils/telemetry/roundtrip';
 
+import type { AudioHealthRoute, AudioHealthSample } from '@/entrypoints/content/video/dvr/probe';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { IFramePrediction, IHostSettings, IImagePrediction } from '@/utils/types';
 
@@ -60,10 +67,13 @@ export interface PresentationPorts {
 }
 
 export class PresentationAdapter {
+  private readonly lastAudioOutcome = new WeakMap<SessionHandle, AudioEngageOutcome>();
+
   constructor(private readonly ports: PresentationPorts) {}
 
   startDvr(handle: SessionHandle): void {
     if (handle.dvrRun) return;
+    handle.dvrWarmupStartedAt = performance.now();
     handle.dvrWarmupSpan = tracer.startSpan(
       SPAN.dvrWarmup,
       { attributes: { [ATTR.sessionId]: handle.sessionId, [ATTR.hostname]: handle.hostSettings.hostname } },
@@ -78,6 +88,7 @@ export class PresentationAdapter {
           this.ports.dispatch(handle, event);
         },
         onDelayChanged: delaySec => updateAudioDelay(handle.video, delaySec),
+        audioHealth: () => this.audioHealth(handle),
       }),
       {
         sessionId: handle.sessionId,
@@ -108,6 +119,27 @@ export class PresentationAdapter {
     handle.dvrWarmupSpan = null;
     span.setAttribute(ATTR.status, outcome);
     span.end();
+    recordHistogram(METRIC.dvrWarmupMs, performance.now() - handle.dvrWarmupStartedAt, { [ATTR.status]: outcome });
+  }
+
+  private audioHealth(handle: SessionHandle): AudioHealthSample {
+    const route = this.audioHealthRoute(handle);
+    const delayLine = audioDelayHealth(handle.video, this.ports.currentDelaySec(handle));
+    const relay = relayAudioHealth(handle.video);
+    return {
+      route,
+      underruns: delayLine.underruns + relay.underruns,
+      driftMs: route === 'relay' ? relay.driftMs : delayLine.driftMs,
+      unavailable: route === 'unavailable',
+    };
+  }
+
+  private audioHealthRoute(handle: SessionHandle): AudioHealthRoute {
+    const { audioRoute } = handle.state;
+    const lastOutcome = this.lastAudioOutcome.get(handle);
+    if (audioRoute === 'pending') return lastOutcome === 'deferred' ? 'deferred' : 'pending';
+    if (audioRoute === 'none') return lastOutcome === 'unavailable' ? 'unavailable' : 'none';
+    return audioRoute;
   }
 
   /** Playback ended: the presenter consumes the ring tail in real time, then holds the final frame. */
@@ -136,6 +168,7 @@ export class PresentationAdapter {
     // the run — a late engage must not land audio over a frozen canvas.
     const stillWanted = () => handle.dvrRun === run && handle.state.audioRoute === 'pending';
     const report = (result: AudioEngageOutcome) => {
+      this.lastAudioOutcome.set(handle, result);
       log.info('video.audio.route', { [ATTR.sessionId]: handle.sessionId, [ATTR.audioRouteResult]: result });
       this.ports.dispatch(handle, { type: 'audioEngageResult', result, at: performance.now() });
     };

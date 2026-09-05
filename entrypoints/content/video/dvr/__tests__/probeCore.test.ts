@@ -5,6 +5,7 @@ import {
   ANOMALY_RATE_LIMIT_MS,
   DvrAnomalyDetector,
   DvrTickRing,
+  SourceClock,
 } from '@/entrypoints/content/video/dvr/probeCore';
 
 describe('DvrAnomalyDetector', () => {
@@ -61,5 +62,46 @@ describe('DvrTickRing', () => {
     const ring = new DvrTickRing(10);
     for (const wallTs of [0, 1000, 6000, 6500]) ring.next().wallTs = wallTs;
     expect(ring.snapshot(6500, 5000).map(record => record.wallTs)).toEqual([6000, 6500]);
+  });
+});
+
+describe('SourceClock', () => {
+  it('counts a repeated mediaTime as a duplicate delivery without touching the frame interval', () => {
+    const clock = new SourceClock();
+    clock.observe(1.0, 0);
+    clock.observe(1.04, 16);
+    const duplicate = clock.observe(1.04, 32);
+    expect(duplicate.kind).toBe('duplicate');
+    expect(duplicate.wallGapMs).toBe(16);
+    expect(clock.estimatedFps()).toBeCloseTo(25);
+  });
+
+  it('derives skipped source frames from a mediaTime jump beyond 1.5 intervals', () => {
+    const clock = new SourceClock();
+    clock.observe(1.0, 0);
+    clock.observe(1.04, 40);
+    const skipped = clock.observe(1.12, 80);
+    expect(skipped.kind).toBe('new');
+    expect(skipped.framesSkipped).toBe(1);
+    expect(skipped.mediaDelta).toBeCloseTo(0.08);
+  });
+
+  it('flags a delivery as late when its wall gap exceeds 1.5 frame intervals', () => {
+    const clock = new SourceClock();
+    clock.observe(1.0, 0);
+    clock.observe(1.04, 40);
+    expect(clock.observe(1.08, 80).late).toBe(false);
+    expect(clock.observe(1.12, 150).late).toBe(true);
+  });
+
+  it('treats a backwards mediaTime as a seek and re-learns the frame interval', () => {
+    const clock = new SourceClock();
+    clock.observe(1.0, 0);
+    clock.observe(1.04, 40);
+    const seek = clock.observe(0.5, 80);
+    expect(seek.kind).toBe('seek');
+    expect(clock.estimatedFps()).toBe(0);
+    expect(clock.observe(0.5333, 120).framesSkipped).toBe(0);
+    expect(clock.estimatedFps()).toBeCloseTo(30, 0);
   });
 });

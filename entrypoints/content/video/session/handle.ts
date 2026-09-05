@@ -24,6 +24,7 @@ export interface SessionHandle {
   readonly src: string;
   readonly trace: UmbrellaSession;
   dvrWarmupSpan: Span | null;
+  dvrWarmupStartedAt: number;
   hostSettings: IHostSettings;
   state: VideoSessionState;
   lastPrediction: IFramePrediction | null;
