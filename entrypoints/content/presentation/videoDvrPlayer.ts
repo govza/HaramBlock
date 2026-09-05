@@ -99,6 +99,7 @@ export class VideoDvrPlayer {
   private lastPresentedMediaTime = Number.NEGATIVE_INFINITY;
   private readonly presentedSample: PresentedSample | null;
   private lastDrawOutcome: PresentOutcome = 'miss';
+  private lastDrawPinned = false;
   private presentedClockSec: number | null = null;
   private lastTickWallSec: number | null = null;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
@@ -111,7 +112,7 @@ export class VideoDvrPlayer {
 
   constructor(private readonly opts: VideoDvrPlayerOptions) {
     this.presentedSample = opts.onPresented
-      ? { mediaTime: 0, targetTime: 0, frameTimeServed: 0, outcome: 'miss', presentMs: 0 }
+      ? { mediaTime: 0, targetTime: 0, frameTimeServed: 0, outcome: 'miss', pinned: false, presentMs: 0 }
       : null;
     this.rafId = requestAnimationFrame(this.tick);
   }
@@ -197,6 +198,7 @@ export class VideoDvrPlayer {
     sample.targetTime = this.presentedClockSec;
     sample.frameTimeServed = this.lastPresentedMediaTime;
     sample.outcome = this.lastDrawOutcome;
+    sample.pinned = this.lastDrawPinned;
     sample.presentMs = presentMs;
     onPresented(sample);
   }
@@ -316,6 +318,7 @@ export class VideoDvrPlayer {
       this.drainClock && newest !== null
         ? drainTargetTime(this.drainClock, nowSec, newest)
         : clampToOldest(video.currentTime - delaySec, oldest);
+    this.lastDrawPinned = !this.drainClock && oldest !== null && video.currentTime - delaySec < oldest;
     let targetTime = idealTarget;
     if (this.hasPresentedFrame && !this.drainClock && this.presentedClockSec !== null) {
       const maxAdvance = video.paused ? 0 : wallDt * video.playbackRate * PRESENTED_CATCH_UP_RATE;

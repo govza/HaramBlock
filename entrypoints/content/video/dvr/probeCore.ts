@@ -71,6 +71,8 @@ export class DvrAnomalyDetector {
   }
 }
 
+export type PresentOutcome = 'new' | 'repeat' | 'miss';
+
 export interface DvrTickRecord {
   wallTs: number;
   wallGapMs: number;
@@ -78,7 +80,9 @@ export interface DvrTickRecord {
   mediaDelta: number;
   targetTime: number;
   frameTimeServed: number;
-  repeat: boolean;
+  outcome: PresentOutcome;
+  pinned: boolean;
+  ringSpanSec: number;
   captureMs: number;
   presentMs: number;
   storeCoveredMisses: number;
@@ -91,7 +95,9 @@ const emptyRecord = (): DvrTickRecord => ({
   mediaDelta: 0,
   targetTime: 0,
   frameTimeServed: 0,
-  repeat: false,
+  outcome: 'miss',
+  pinned: false,
+  ringSpanSec: 0,
   captureMs: 0,
   presentMs: 0,
   storeCoveredMisses: 0,
@@ -100,8 +106,11 @@ const emptyRecord = (): DvrTickRecord => ({
 export const SOURCE_SKIP_RATIO = 1.5;
 export const LATE_TICK_RATIO = 1.5;
 const MIN_FRAME_INTERVAL_SEC = 1 / 120;
+export const BACKSTEP_SEEK_FRAMES = 12;
 
 export type SourceDeliveryKind = 'new' | 'duplicate' | 'seek';
+export type BackstepBucket = '1' | '2' | '3+' | 'seek';
+export const BACKSTEP_BUCKETS: readonly BackstepBucket[] = ['1', '2', '3+', 'seek'];
 
 export interface SourceDelivery {
   kind: SourceDeliveryKind;
@@ -109,6 +118,16 @@ export interface SourceDelivery {
   wallGapMs: number;
   framesSkipped: number;
   late: boolean;
+  backstep: BackstepBucket | null;
+}
+
+export function backstepBucket(mediaDelta: number, frameIntervalSec: number): BackstepBucket {
+  if (!Number.isFinite(frameIntervalSec)) return 'seek';
+  const frames = Math.round(-mediaDelta / frameIntervalSec);
+  if (frames <= 1) return '1';
+  if (frames === 2) return '2';
+  if (frames <= BACKSTEP_SEEK_FRAMES) return '3+';
+  return 'seek';
 }
 
 export class SourceClock {
@@ -122,20 +141,21 @@ export class SourceClock {
     const wallGapMs = Number.isFinite(this.lastWallMs) ? wallMs - this.lastWallMs : 0;
     this.lastWallMs = wallMs;
     if (!first && mediaDelta === 0) {
-      return { kind: 'duplicate', mediaDelta, wallGapMs, framesSkipped: 0, late: false };
+      return { kind: 'duplicate', mediaDelta, wallGapMs, framesSkipped: 0, late: false, backstep: null };
     }
     this.lastMediaTime = mediaTime;
-    if (first) return { kind: 'new', mediaDelta, wallGapMs, framesSkipped: 0, late: false };
+    if (first) return { kind: 'new', mediaDelta, wallGapMs, framesSkipped: 0, late: false, backstep: null };
     if (mediaDelta < 0) {
+      const backstep = backstepBucket(mediaDelta, this.frameIntervalSec);
       this.frameIntervalSec = Number.POSITIVE_INFINITY;
-      return { kind: 'seek', mediaDelta, wallGapMs, framesSkipped: 0, late: false };
+      return { kind: 'seek', mediaDelta, wallGapMs, framesSkipped: 0, late: false, backstep };
     }
     if (mediaDelta < this.frameIntervalSec) this.frameIntervalSec = Math.max(mediaDelta, MIN_FRAME_INTERVAL_SEC);
     const intervalSec = this.frameIntervalSec;
     const framesSkipped =
       mediaDelta > intervalSec * SOURCE_SKIP_RATIO ? Math.max(0, Math.round(mediaDelta / intervalSec) - 1) : 0;
     const late = wallGapMs > intervalSec * 1000 * LATE_TICK_RATIO;
-    return { kind: 'new', mediaDelta, wallGapMs, framesSkipped, late };
+    return { kind: 'new', mediaDelta, wallGapMs, framesSkipped, late, backstep: null };
   }
 
   estimatedFps(): number {

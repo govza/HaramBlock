@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ANOMALY_LONG_TASK_MS,
   ANOMALY_RATE_LIMIT_MS,
+  BACKSTEP_SEEK_FRAMES,
+  backstepBucket,
   DvrAnomalyDetector,
   DvrTickRing,
   SourceClock,
@@ -100,8 +102,33 @@ describe('SourceClock', () => {
     clock.observe(1.04, 40);
     const seek = clock.observe(0.5, 80);
     expect(seek.kind).toBe('seek');
+    expect(seek.backstep).toBe('seek');
     expect(clock.estimatedFps()).toBe(0);
     expect(clock.observe(0.5333, 120).framesSkipped).toBe(0);
     expect(clock.estimatedFps()).toBeCloseTo(30, 0);
+  });
+
+  it('sizes a backwards delivery in frame intervals (Firefox rVFC re-delivering an older frame)', () => {
+    const clock = new SourceClock();
+    clock.observe(1.0, 0);
+    clock.observe(1.04, 40);
+    clock.observe(1.08, 80);
+    expect(clock.observe(1.04, 120).backstep).toBe('1');
+    expect(clock.observe(1.0, 0).backstep).toBe('seek');
+    expect(clock.observe(1.04, 40).backstep).toBeNull();
+    expect(clock.observe(1.08, 80).backstep).toBeNull();
+    expect(clock.observe(1.0, 120).backstep).toBe('2');
+  });
+});
+
+describe('backstepBucket', () => {
+  it('buckets by whole frame intervals and treats anything past the seek bound or an unknown interval as a seek', () => {
+    expect(backstepBucket(-0.04, 0.04)).toBe('1');
+    expect(backstepBucket(-0.0417, 0.0417)).toBe('1');
+    expect(backstepBucket(-0.08, 0.04)).toBe('2');
+    expect(backstepBucket(-0.12, 0.04)).toBe('3+');
+    expect(backstepBucket(-0.04 * BACKSTEP_SEEK_FRAMES, 0.04)).toBe('3+');
+    expect(backstepBucket(-0.04 * (BACKSTEP_SEEK_FRAMES + 1), 0.04)).toBe('seek');
+    expect(backstepBucket(-0.04, Number.POSITIVE_INFINITY)).toBe('seek');
   });
 });

@@ -122,6 +122,11 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   every DVR record reflects the effective path, not just whether a tap driver exists.
 - `video.dvr.store_demoted`, `video.dvr.underrun`, `video.dvr.budget_degraded` /
   `video.dvr.budget_recovered` (ladder step, `hb.budget.*`).
+- `video.dvr.ring_flushed` - the frame store emptied itself mid-run: `hb.dvr.cause` (backstep: the
+  capture key went backwards past `BACKWARDS_JITTER_TOLERANCE_SEC`; store: codec reconfiguration;
+  swap: raw <-> encoded exchange), `hb.dvr.from_sec` / `hb.dvr.to_sec` (previous and offending
+  capture key) and `hb.dvr.span_lost_sec` (buffered media the flush discarded). Every flush costs a
+  pinned refill of `D` seconds, so this is the first thing to check behind a freeze.
 - `video.audio.route` - `hb.audio.route.result` (attempt|delayLine|relay|deferred|unavailable).
 - `video.capture.failed` - `hb.capture.stage`, `hb.capture.permanent`.
 - `video.dvr.anomaly` + `video.dvr.tick` - the last 5 s of per-tick records (`hb.dvr.tick.*`),
@@ -130,8 +135,11 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   session. Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`. Each tick also records
   `hb.dvr.tick.wall_gap_ms` (wall time since the previous frame delivery) and
   `hb.dvr.tick.media_delta` (mediaTime advance of that delivery): a delta of two frame intervals is
-  a source frame the browser never delivered, a wall gap well above the frame interval is a late
-  callback.
+  a source frame the browser never delivered, a negative delta is a backstep (see
+  `hb.dvr.source_backsteps`), a wall gap well above the frame interval is a late callback. The
+  presenter side carries `hb.dvr.tick.outcome` (new | repeat | miss - a miss is a target the store
+  could not serve, invisible in the old boolean), `hb.dvr.tick.pinned` (held on the earliest frame
+  because the ring does not yet span `D`) and `hb.dvr.tick.ring_span_sec`.
 
 ## Metrics
 
@@ -149,9 +157,12 @@ raw/rVFC) can be compared in one query.
 **Per-session gauges** (attrs `hb.session.id`, `hb.dvr.store`, `hb.dvr.tap`): `hb.dvr.captured_fps`,
 `hb.dvr.source_fps` (distinct mediaTime deliveries per window - the rate the browser actually handed
 frames to us, before the capture throttle), `hb.dvr.ticks_deduped` (deliveries that repeated the
-previous mediaTime; Firefox fires rVFC on every composited frame, so this is ~35/s on a 25 fps
-source there and ~0 on Chrome), `hb.dvr.capture_width` / `hb.dvr.capture_height` (the ring capture
-size actually applied - budget ladder tier or native on the encoded store), `hb.dvr.presented_fps`,
+previous mediaTime; observed ~0 on both browsers - Firefox's rVFC also fires only for new frames),
+`hb.dvr.capture_width` / `hb.dvr.capture_height` (the ring capture size actually applied - budget
+ladder tier or native on the encoded store) next to `hb.dvr.native_width` / `hb.dvr.native_height`
+(the element's `videoWidth` / `videoHeight` at the window flush; capture above native is an
+upscale), `hb.dvr.main_thread_ms` (capture + present time the DVR spent on the main thread inside
+the 1 s window - the DVR's own share of the frame budget), `hb.dvr.presented_fps`,
 `hb.dvr.frame_repeat_ratio`, `hb.dvr.delay_sec`, `hb.dvr.ring_bytes`, `hb.dvr.ring_span_sec`,
 `hb.dvr.playback_active` (1 while the presenter advances, 0 while paused / ended / warming - every
 window, so 0 fps is never ambiguous), `hb.dvr.verdict_margin_sec` (D minus the observed round-trip
@@ -159,8 +170,11 @@ p90; only while active) and `hb.audio.drift_ms` (+ `hb.audio.route`; relay: audi
 `currentTime - D`, delay line: DelayNode ramp vs wanted D). Histograms `hb.dvr.capture_ms` (split
 into `hb.dvr.capture_draw_ms` + `hb.dvr.capture_transfer_ms` on the raw store: drawImage vs
 transferToImageBitmap; both 0 on the encoded store), `hb.dvr.present_ms`, `hb.dvr.tick_gap_ms` (wall
-gap between consecutive new-frame deliveries - the main-thread pressure signal on Firefox, which has
-no `longtask` observer) and `hb.main_thread.long_task_ms` (while any DVR presents).
+gap between consecutive new-frame deliveries), `hb.main_thread.long_task_ms` (while any DVR
+presents) and `hb.main_thread.loop_lag_ms` (drift of a 250 ms `setTimeout` sampled while any DVR
+presents and the tab is visible; one timer shared by all sessions). Firefox has no `longtask`
+observer, so there the loop lag stands in for it: a lag > 100 ms counts as the window's longest task
+for the health definition and trips the `long_task` anomaly.
 
 **Rollup counters** (attrs `hb.dvr.store`, `hb.dvr.tap` - never `hb.session.id`, so fleet panels
 stay readable at 25+ sessions). Emitted only for active windows unless noted:
@@ -173,6 +187,16 @@ stay readable at 25+ sessions). Emitted only for active windows unless noted:
   = smallest positive mediaTime delta seen since the last seek.
 - `hb.dvr.ticks_late` - a new-frame delivery arrived more than 1.5 frame intervals of wall time
   after the previous one (callback held back by main-thread work).
+- `hb.dvr.source_backsteps{hb.dvr.backstep_frames}` - deliveries whose mediaTime went backwards, by
+  size in frame intervals (`1` | `2` | `3+` | `seek`; seek = more than `BACKSTEP_SEEK_FRAMES` or no
+  interval learnt yet). One- and two-frame backsteps are the browser re-delivering an older frame
+  (Firefox rVFC does this every 15-40 s); anything the store's tolerance does not absorb becomes a
+  `video.dvr.ring_flushed`.
+- `hb.dvr.pinned_windows` - active windows in which the presenter held the earliest buffered frame
+  because the ring did not yet span `D` (warm-up, seek re-warm, or a flush refilling). A frozen
+  window that is also pinned is a ring refill; a frozen window that is not is a decode / present
+  problem.
+- `hb.dvr.ring_flushes{hb.dvr.cause}` - one per `video.dvr.ring_flushed`.
 - `hb.audio.route_windows`, `hb.audio.underruns`, `hb.audio.unavailable_windows` - all with
   `hb.audio.route` (none|pending|delayLine|relay|deferred|unavailable). Underruns are delay-line
   AudioContext interruptions plus relay `waiting` events and hard resync seeks.

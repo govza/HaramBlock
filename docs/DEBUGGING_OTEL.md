@@ -126,20 +126,34 @@ plays (zero active windows), so an idle dashboard is never green.
   mediaTimes); captured below it is the capture throttle (raw ring cadence ~30 fps) or a capture
   that failed. Source below the media's frame rate is the browser skipping frames - see the skipped
   / late panel.
-- _Capture size (px)_ - the ring capture geometry actually applied (ladder tier).
+- _Capture vs native size (px)_ - the ring capture geometry actually applied (ladder tier) against
+  the element's `videoWidth` / `videoHeight`. Capture above native is an upscale: wasted capture
+  cost and ring bytes. Native at 0 means the DVR started before metadata.
 - _Capture draw / Capture transfer_ - the raw-store capture cost split into drawImage and
   transferToImageBitmap (both 0 on the encoded store). Firefox is raw-only, so this is where its
   per-frame main-thread cost shows.
 - _Frame delivery gap (ms)_ - wall gap between new-frame deliveries. Bands above the frame interval
   are callbacks held back by main-thread work; Firefox has no `longtask` observer, so this panel
   stands in for _Main-thread long tasks_ there.
-- _Deduped ticks_ - deliveries that repeated the previous mediaTime. Firefox fires rVFC at the
-  compositor rate, so a 25 fps source reads ~35/s here; anything non-zero on Chrome is a tap
-  reporting a stale currentTime.
+- _Deduped ticks_ - deliveries that repeated the previous mediaTime. Observed ~0 on both browsers
+  under rVFC; anything non-zero on Chrome is a tap reporting a stale currentTime.
 - _Source frames skipped / late ticks_ - rollup by browser / store / tap: how many source frames
   never reached us, and how often a delivery was late.
 - _Sampler encode / frames sent_ - `bitmapToCompressedBlob` cost (Firefox blob transport) and the
   inference sampling rate; the other main-thread consumer next to the DVR capture.
+- _Ring flushes / source backsteps_ - `hb.dvr.ring_flushes` by cause and `hb.dvr.source_backsteps`
+  by size in frame intervals (rollups). A backstep bar without a flush bar is absorbed jitter; a
+  flush bar means the ring emptied and the session is about to pin for `D`. On Firefox a 1-frame
+  backstep every 15-40 s is the rVFC re-delivering an older frame, not a seek.
+- _Pinned vs frozen windows_ - `hb.dvr.pinned_windows` (presenter waiting for the ring to span `D`)
+  next to `hb.dvr.freeze_windows`. Frozen and pinned = ring refill (after a flush or seek); frozen
+  and not pinned = decode or present problem.
+- _DVR main-thread ms per second_ - `hb.dvr.main_thread_ms`: capture + present time per 1 s window.
+  1000 is the whole budget; above ~400 the rVFC callbacks start arriving late and _Source frames
+  skipped_ climbs. Firefox raw capture at 1916 px wide spends ~600 ms/s here.
+- _Main-thread loop lag_ - heatmap of `hb.main_thread.loop_lag_ms`, the 250 ms `setTimeout` drift
+  while a DVR presents in a visible tab. The Firefox stand-in for _Main-thread long tasks_: a lag >
+  100 ms is treated as a long task there (health definition and `long_task` anomaly).
 - _Frame repeat ratio_ - share of presented ticks that re-served the previous frame. Rises when the
   store is behind (see `video.dvr.underrun` / `store_stall`).
 - _D (delay) over time_ - the DVR delay in seconds. Steps coincide with `video.dvr.delay_raised`
@@ -161,12 +175,17 @@ plays (zero active windows), so an idle dashboard is never green.
   `hb_dvr_cause`), never by session.
 - _DVR anomaly dumps_ - Loki: `video.dvr.anomaly` headers and their `video.dvr.tick` rows (last 5 s
   of per-tick records, one dump per 10 s per session, grouped by `hb_dvr_anomaly_id`). Expand a row
-  for the `hb_dvr_tick_*` fields; the `trace_id` field links into Tempo.
+  for the `hb_dvr_tick_*` fields (`outcome` new|repeat|miss, `pinned`, `ring_span_sec`; a negative
+  `media_delta` is a backstep); the `trace_id` field links into Tempo. Structured-metadata filters
+  work on them: `| hb_dvr_tick_media_delta < 0` lists every backstep, `| hb_dvr_tick_outcome="miss"`
+  every unserved target.
 - _Session + DVR events_ - every other `video.*` event: `video.session.transition` (phase, DVR
   sub-state, audio route), `video.dvr.start` / `stop` / `tap_changed` / `store_demoted` / `underrun`
   / `budget_degraded` / `budget_recovered`, `video.audio.route`, `video.capture.failed`.
   `video.dvr.start` says why the push tap is not in use (`hb_dvr_tap_reason`) and every lifecycle
-  record why the store is raw or encoded (`hb_dvr_store_reason`).
+  record why the store is raw or encoded (`hb_dvr_store_reason`). `video.dvr.ring_flushed` carries
+  the cause (backstep | store | swap), the previous and offending capture keys and the buffered
+  seconds the flush discarded.
 
 Red annotations across all panels mark `video.dvr.anomaly` events.
 
@@ -207,6 +226,10 @@ The extension emits OTel names; the stores rename them.
 | `hb.dvr.runs_started` (counter)          | `hb_dvr_runs_started_total`                    | -                                   |
 | `hb.dvr.runs_stopped` (counter)          | `hb_dvr_runs_stopped_total`                    | -                                   |
 | `hb.dvr.anomalies` (counter)             | `hb_dvr_anomalies_total`                       | -                                   |
+| `hb.dvr.ring_flushes` (counter)          | `hb_dvr_ring_flushes_total`                    | -                                   |
+| `hb.dvr.source_backsteps` (counter)      | `hb_dvr_source_backsteps_total`                | -                                   |
+| `hb.dvr.pinned_windows` (counter)        | `hb_dvr_pinned_windows_total`                  | -                                   |
+| `hb.main_thread.loop_lag_ms` (histogram) | `hb_main_thread_loop_lag_ms_bucket` / ...      | -                                   |
 | `hb.audio.route_windows` (counter)       | `hb_audio_route_windows_total`                 | -                                   |
 | `hb.audio.underruns` (counter)           | `hb_audio_underruns_total`                     | -                                   |
 | `hb.audio.unavailable_windows` (counter) | `hb_audio_unavailable_windows_total`           | -                                   |

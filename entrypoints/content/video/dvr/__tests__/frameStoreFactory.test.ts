@@ -75,6 +75,16 @@ describe('selectStoreKind matrix', () => {
 });
 
 describe('createDvrFrameStore', () => {
+  it('counts a backing swap as one flush on top of the backings own flushes', async () => {
+    setEncodedDvrRingEnabled(true);
+    const store = createDvrFrameStore(storeOptions({ slots: fakeSlots() }));
+    expect(store.flushes()).toBe(0);
+    await settle();
+    expect(store.kind()).toBe('encoded');
+    expect(store.flushes()).toBe(1);
+    store.release();
+  });
+
   it('starts raw and upgrades to encoded when the probe passes', async () => {
     setEncodedDvrRingEnabled(true);
     const onKindChange = vi.fn();

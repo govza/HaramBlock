@@ -125,6 +125,24 @@ export function runDvrFrameStoreContract(label: string, harness: FrameStoreHarne
       store.release();
     });
 
+    it('counts discontinuity flushes monotonically, never jitter drops or release', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 1);
+      expect(store.flushes()).toBe(0);
+      const newest = store.newestTime()!;
+
+      store.push(harness.frame(newest - 0.0005), newest - 0.0005);
+      expect(store.flushes()).toBe(0);
+
+      store.push(harness.frame(0.1), 0.1);
+      expect(store.flushes()).toBe(1);
+      fill(harness, store, 0.2, 1);
+      store.push(harness.frame(0.5), 0.5);
+      expect(store.flushes()).toBe(2);
+
+      store.release();
+      expect(store.flushes()).toBe(2);
+    });
     it('never counts a before-oldest miss as a covered miss', () => {
       const store = harness.create(10, BIG);
       fill(harness, store, 2, 3);

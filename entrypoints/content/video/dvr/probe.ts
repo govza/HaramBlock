@@ -1,5 +1,6 @@
 import {
   ANOMALY_LONG_TASK_MS,
+  BACKSTEP_BUCKETS,
   droppedFrames,
   DvrAnomalyDetector,
   DvrTickRing,
@@ -9,6 +10,7 @@ import {
   type DvrAnomalyCause,
   type DvrTickRecord,
   type HealthWindow,
+  type PresentOutcome,
 } from '@/entrypoints/content/video/dvr/probeCore';
 import { IS_CHROME } from '@/utils/constants/environment';
 import { generateNonce } from '@/utils/nonce';
@@ -23,9 +25,10 @@ export const TICK_RING_RETENTION_MS = 5000;
 const TICK_RING_CAPACITY = 400;
 
 export type DvrTapKind = 'tap' | 'rvfc';
-
-export type PresentOutcome = 'new' | 'repeat' | 'miss';
-
+export type { PresentOutcome } from '@/entrypoints/content/video/dvr/probeCore';
+export type DvrRingFlushCause = 'backstep' | 'store' | 'swap';
+export const LOOP_LAG_SAMPLE_MS = 250;
+const LOOP_LAG_SAMPLES_PER_WINDOW = 8;
 export interface CaptureSample {
   totalMs: number;
   drawMs: number;
@@ -41,6 +44,7 @@ export interface PresentedSample {
   targetTime: number;
   frameTimeServed: number;
   outcome: PresentOutcome;
+  pinned: boolean;
   presentMs: number;
 }
 
@@ -61,6 +65,8 @@ export interface DvrProbeOptions {
   latencyP90Ms: () => number;
   audio: () => AudioHealthSample;
   now: () => number;
+  nativeWidth: () => number;
+  nativeHeight: () => number;
   isPlaybackActive: () => boolean;
   lastAnomalyAt?: number;
 }
@@ -95,6 +101,41 @@ function watchLongTasks(listener: LongTaskListener): () => void {
   };
 }
 
+function hasLongTaskObserver(): boolean {
+  return longTaskObserver !== null;
+}
+
+interface LoopLagListener {
+  (lagMs: number): void;
+}
+
+const loopLagListeners = new Set<LoopLagListener>();
+let loopLagTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleLoopLagSample(): void {
+  const expectedAt = performance.now() + LOOP_LAG_SAMPLE_MS;
+  loopLagTimer = setTimeout(() => {
+    loopLagTimer = null;
+    if (loopLagListeners.size === 0) return;
+    const lagMs = Math.max(0, performance.now() - expectedAt);
+    if (typeof document === 'undefined' || !document.hidden) {
+      for (const listener of loopLagListeners) listener(lagMs);
+    }
+    scheduleLoopLagSample();
+  }, LOOP_LAG_SAMPLE_MS);
+}
+
+function watchLoopLag(listener: LoopLagListener): () => void {
+  loopLagListeners.add(listener);
+  if (loopLagTimer === null) scheduleLoopLagSample();
+  return () => {
+    loopLagListeners.delete(listener);
+    if (loopLagListeners.size === 0 && loopLagTimer !== null) {
+      clearTimeout(loopLagTimer);
+      loopLagTimer = null;
+    }
+  };
+}
 export class DvrProbe {
   private readonly ring = new DvrTickRing(TICK_RING_CAPACITY);
   private readonly detector: DvrAnomalyDetector;
@@ -105,9 +146,13 @@ export class DvrProbe {
   private readonly captureTransferSamples = new Float64Array(1024);
   private readonly presentSamples = new Float64Array(1024);
   private readonly tickGapSamples = new Float64Array(1024);
+  private readonly loopLagSamples = new Float64Array(LOOP_LAG_SAMPLES_PER_WINDOW);
+  private readonly windowBacksteps = new Uint32Array(BACKSTEP_BUCKETS.length);
   private captureSampleCount = 0;
   private presentSampleCount = 0;
   private tickGapSampleCount = 0;
+  private loopLagSampleCount = 0;
+  private windowPinned = false;
   private readonly sourceClock = new SourceClock();
   private windowSourceFrames = 0;
   private windowTicksDeduped = 0;
@@ -134,10 +179,11 @@ export class DvrProbe {
   };
   private timer: ReturnType<typeof setInterval> | null = null;
   private unwatchLongTasks: (() => void) | null = null;
-
+  private unwatchLoopLag: (() => void) | null = null;
   constructor(private readonly opts: DvrProbeOptions) {
     this.detector = new DvrAnomalyDetector(opts.lastAnomalyAt);
     this.unwatchLongTasks = watchLongTasks(this.onLongTask);
+    this.unwatchLoopLag = watchLoopLag(this.onLoopLag);
     this.timer = setInterval(this.flushWindow, PROBE_WINDOW_MS);
   }
 
@@ -162,7 +208,13 @@ export class DvrProbe {
       this.windowTicksDeduped++;
       return;
     }
-    if (delivery.kind === 'seek') return;
+    if (delivery.kind === 'seek') {
+      if (delivery.backstep !== null) {
+        const bucket = BACKSTEP_BUCKETS.indexOf(delivery.backstep);
+        this.windowBacksteps[bucket] = (this.windowBacksteps[bucket] ?? 0) + 1;
+      }
+      return;
+    }
     this.windowSourceFrames++;
     this.windowSourceFramesSkipped += delivery.framesSkipped;
     if (delivery.late) this.windowTicksLate++;
@@ -175,6 +227,7 @@ export class DvrProbe {
     if (!this.opts.isPlaybackActive()) return;
     if (sample.outcome === 'new') this.windowPresented++;
     else if (sample.outcome === 'repeat') this.windowRepeats++;
+    if (sample.pinned) this.windowPinned = true;
     const record = this.ring.next();
     record.wallTs = this.opts.now();
     record.wallGapMs = this.lastWallGapMs;
@@ -182,7 +235,9 @@ export class DvrProbe {
     record.mediaDelta = this.lastMediaDelta;
     record.targetTime = sample.targetTime;
     record.frameTimeServed = sample.frameTimeServed;
-    record.repeat = sample.outcome === 'repeat';
+    record.outcome = sample.outcome;
+    record.pinned = sample.pinned;
+    record.ringSpanSec = this.opts.store.spanSec();
     record.captureMs = this.lastCaptureMs;
     record.presentMs = sample.presentMs;
     record.storeCoveredMisses = this.opts.store.coveredMisses();
@@ -194,7 +249,16 @@ export class DvrProbe {
   signal(cause: Extract<DvrAnomalyCause, 'underrun' | 'store_stall'>): void {
     this.dump(this.detector.signal(cause, this.opts.now()));
   }
-
+  ringFlushed(cause: DvrRingFlushCause, fromSec: number, toSec: number, spanLostSec: number): void {
+    recordCounter(METRIC.dvrRingFlushes, 1, { ...this.rollupAttributes(), [ATTR.dvrCause]: cause });
+    log.info('video.dvr.ring_flushed', {
+      ...this.attributes(),
+      [ATTR.dvrCause]: cause,
+      [ATTR.dvrFromSec]: fromSec,
+      [ATTR.dvrToSec]: toSec,
+      [ATTR.dvrSpanLostSec]: spanLostSec,
+    });
+  }
   get lastAnomalyAt(): number {
     return this.detector.lastDumpAt;
   }
@@ -205,21 +269,30 @@ export class DvrProbe {
     this.timer = null;
     this.unwatchLongTasks?.();
     this.unwatchLongTasks = null;
+    this.unwatchLoopLag?.();
+    this.unwatchLoopLag = null;
   }
-
   private readonly onLongTask = (durationMs: number): void => {
     if (!this.opts.isPlaybackActive()) return;
-    if (durationMs > this.windowLongestTaskMs) this.windowLongestTaskMs = durationMs;
     recordHistogram(METRIC.mainThreadLongTaskMs, durationMs, this.attributes());
+    this.observeBlocking(durationMs);
+  };
+  private readonly onLoopLag = (lagMs: number): void => {
+    if (!this.opts.isPlaybackActive()) return;
+    if (this.loopLagSampleCount < this.loopLagSamples.length) this.loopLagSamples[this.loopLagSampleCount++] = lagMs;
+    if (!hasLongTaskObserver()) this.observeBlocking(lagMs);
+  };
+  private observeBlocking(durationMs: number): void {
+    if (durationMs > this.windowLongestTaskMs) this.windowLongestTaskMs = durationMs;
     if (durationMs <= ANOMALY_LONG_TASK_MS) return;
     this.dump(this.detector.observeLongTask(durationMs, this.opts.now()), {
       [ATTR.dvrAnomalyLongTaskMs]: durationMs,
     });
-  };
+  }
 
   private readonly flushWindow = (): void => {
     const attributes = this.attributes();
-    this.flushHistograms(attributes);
+    const mainThreadMs = this.flushHistograms(attributes);
     const captured = this.windowCaptured;
     const presented = this.windowPresented;
     const repeats = this.windowRepeats;
@@ -228,7 +301,9 @@ export class DvrProbe {
     const ticksDeduped = this.windowTicksDeduped;
     const sourceFramesSkipped = this.windowSourceFramesSkipped;
     const ticksLate = this.windowTicksLate;
+    const pinned = this.windowPinned;
     this.windowCaptured = 0;
+    this.windowPinned = false;
     this.windowPresented = 0;
     this.windowRepeats = 0;
     this.windowLongestTaskMs = 0;
@@ -245,6 +320,9 @@ export class DvrProbe {
     recordGauge(METRIC.dvrTicksDeduped, ticksDeduped, attributes);
     recordGauge(METRIC.dvrCaptureWidth, this.lastCaptureWidth, attributes);
     recordGauge(METRIC.dvrCaptureHeight, this.lastCaptureHeight, attributes);
+    recordGauge(METRIC.dvrNativeWidth, this.opts.nativeWidth(), attributes);
+    recordGauge(METRIC.dvrNativeHeight, this.opts.nativeHeight(), attributes);
+    recordGauge(METRIC.dvrMainThreadMs, mainThreadMs, attributes);
     recordGauge(METRIC.dvrFrameRepeatRatio, ticks === 0 ? 0 : repeats / ticks, attributes);
     recordGauge(METRIC.dvrDelaySec, delaySec, attributes);
     recordGauge(METRIC.dvrRingBytes, this.opts.store.bytes(), attributes);
@@ -269,6 +347,8 @@ export class DvrProbe {
     recordCounter(METRIC.dvrFramesDropped, droppedFrames(health), rollup);
     recordCounter(METRIC.dvrSourceFramesSkipped, sourceFramesSkipped, rollup);
     recordCounter(METRIC.dvrTicksLate, ticksLate, rollup);
+    recordCounter(METRIC.dvrPinnedWindows, pinned ? 1 : 0, rollup);
+    this.flushBacksteps(rollup);
     this.dump(this.detector.observeWindow({ captured, presented, nowMs: this.opts.now() }));
   };
 
@@ -284,14 +364,31 @@ export class DvrProbe {
     return underruns;
   }
 
-  private flushHistograms(attributes: Record<string, string>): void {
+  private flushBacksteps(rollup: Record<string, string>): void {
+    for (let i = 0; i < BACKSTEP_BUCKETS.length; i++) {
+      const count = this.windowBacksteps[i] ?? 0;
+      if (count === 0) continue;
+      this.windowBacksteps[i] = 0;
+      recordCounter(METRIC.dvrSourceBacksteps, count, {
+        ...rollup,
+        [ATTR.dvrBackstepFrames]: BACKSTEP_BUCKETS[i] as string,
+      });
+    }
+  }
+  private flushHistograms(attributes: Record<string, string>): number {
+    let mainThreadMs = 0;
     for (let i = 0; i < this.captureSampleCount; i++) {
+      mainThreadMs += this.captureSamples[i] ?? 0;
       recordHistogram(METRIC.dvrCaptureMs, this.captureSamples[i] ?? 0, attributes);
       recordHistogram(METRIC.dvrCaptureDrawMs, this.captureDrawSamples[i] ?? 0, attributes);
       recordHistogram(METRIC.dvrCaptureTransferMs, this.captureTransferSamples[i] ?? 0, attributes);
     }
     for (let i = 0; i < this.presentSampleCount; i++) {
+      mainThreadMs += this.presentSamples[i] ?? 0;
       recordHistogram(METRIC.dvrPresentMs, this.presentSamples[i] ?? 0, attributes);
+    }
+    for (let i = 0; i < this.loopLagSampleCount; i++) {
+      recordHistogram(METRIC.mainThreadLoopLagMs, this.loopLagSamples[i] ?? 0, attributes);
     }
     for (let i = 0; i < this.tickGapSampleCount; i++) {
       recordHistogram(METRIC.dvrTickGapMs, this.tickGapSamples[i] ?? 0, attributes);
@@ -299,6 +396,8 @@ export class DvrProbe {
     this.captureSampleCount = 0;
     this.presentSampleCount = 0;
     this.tickGapSampleCount = 0;
+    this.loopLagSampleCount = 0;
+    return mainThreadMs;
   }
 
   private attributes(): Record<string, string> {
@@ -342,7 +441,7 @@ export class DvrProbe {
   }
 }
 
-function tickAttributes(tick: DvrTickRecord): Record<string, number | boolean> {
+function tickAttributes(tick: DvrTickRecord): Record<string, number | boolean | string> {
   return {
     [ATTR.tickWallTs]: tick.wallTs,
     [ATTR.tickWallGapMs]: tick.wallGapMs,
@@ -350,7 +449,9 @@ function tickAttributes(tick: DvrTickRecord): Record<string, number | boolean> {
     [ATTR.tickMediaDelta]: tick.mediaDelta,
     [ATTR.tickTargetTime]: tick.targetTime,
     [ATTR.tickFrameTimeServed]: tick.frameTimeServed,
-    [ATTR.tickRepeat]: tick.repeat,
+    [ATTR.tickOutcome]: tick.outcome,
+    [ATTR.tickPinned]: tick.pinned,
+    [ATTR.tickRingSpanSec]: tick.ringSpanSec,
     [ATTR.tickCaptureMs]: tick.captureMs,
     [ATTR.tickPresentMs]: tick.presentMs,
     [ATTR.tickStoreCoveredMisses]: tick.storeCoveredMisses,

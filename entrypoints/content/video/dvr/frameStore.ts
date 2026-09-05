@@ -70,6 +70,12 @@ export interface DvrFrameStore {
    * ring never advances it). Never resets — readers diff successive values.
    */
   coveredMisses(): number;
+  /**
+   * Monotonic count of discontinuity flushes (backwards media time beyond the
+   * jitter tolerance, or a codec reconfiguration). Release does not count.
+   * Never resets — readers diff successive values.
+   */
+  flushes(): number;
   /** Media-time span currently buffered (0 with fewer than two frames). */
   spanSec(): number;
   /** Media time of the earliest buffered frame; null while empty. */

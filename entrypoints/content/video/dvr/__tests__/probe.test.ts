@@ -21,6 +21,7 @@ const sample: PresentedSample = {
   targetTime: 9,
   frameTimeServed: 9,
   outcome: 'new',
+  pinned: false,
   presentMs: 3,
 };
 
@@ -83,6 +84,7 @@ describe('DVR probe lifecycle', () => {
       push() {},
       frameAt: () => null,
       coveredMisses: () => 0,
+      flushes: () => 0,
       spanSec: () => 2,
       oldestTime: () => 8,
       newestTime: () => 10,
@@ -98,6 +100,8 @@ describe('DVR probe lifecycle', () => {
       latencyP90Ms: () => latencyP90Ms,
       audio: () => audio,
       now: Date.now,
+      nativeWidth: () => 1280,
+      nativeHeight: () => 720,
       isPlaybackActive: () => active,
       lastAnomalyAt,
     });
@@ -153,6 +157,83 @@ describe('DVR probe lifecycle', () => {
     expect(tick?.attributes[ATTR.tickMediaDelta]).toBeCloseTo(0.04);
   });
 
+  it('records outcome, pinned and ring span on the tick dump', () => {
+    const probe = start();
+    probe.presented({ ...sample, outcome: 'miss', pinned: true });
+    probe.signal('underrun');
+    const tick = logs.find(record => record.event === 'video.dvr.tick');
+    expect(tick?.attributes[ATTR.tickOutcome]).toBe('miss');
+    expect(tick?.attributes[ATTR.tickPinned]).toBe(true);
+    expect(tick?.attributes[ATTR.tickRingSpanSec]).toBe(2);
+  });
+
+  it('counts source backsteps by size as rollup counters, only for windows that saw one', () => {
+    const probe = start();
+    probe.delivered(1.0);
+    probe.delivered(1.04);
+    probe.delivered(1.08);
+    probe.delivered(1.04);
+    probe.delivered(1.08);
+    probe.delivered(1.12);
+    probe.delivered(0.2);
+    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1000);
+    const backsteps = named(METRIC.dvrSourceBacksteps);
+    expect(backsteps.map(record => [record.attributes[ATTR.dvrBackstepFrames], record.value])).toEqual([
+      ['1', 1],
+      ['seek', 1],
+    ]);
+    expect(backsteps[0]!.attributes[ATTR.sessionId]).toBeUndefined();
+  });
+
+  it('counts a pinned window and reports the DVR main-thread time per window', () => {
+    const probe = start();
+    probe.captured(captureSample(20));
+    probe.captured(captureSample(10));
+    probe.presented({ ...sample, presentMs: 5, pinned: true });
+    probe.presented({ ...sample, presentMs: 5 });
+    vi.advanceTimersByTime(1000);
+    probe.captured(captureSample(1));
+    probe.presented(sample);
+    vi.advanceTimersByTime(1000);
+    expect(values(METRIC.dvrPinnedWindows)).toEqual([1]);
+    expect(values(METRIC.dvrMainThreadMs)).toEqual([40, 4]);
+    expect(values(METRIC.dvrNativeWidth)).toEqual([1280, 1280]);
+    expect(values(METRIC.dvrNativeHeight)).toEqual([720, 720]);
+  });
+
+  it('logs a ring flush with its cause and span lost and counts it by cause', () => {
+    const probe = start();
+    probe.ringFlushed('backstep', 21.32, 21.28, 4.9);
+    const flush = logs.find(record => record.event === 'video.dvr.ring_flushed');
+    expect(flush?.attributes[ATTR.dvrCause]).toBe('backstep');
+    expect(flush?.attributes[ATTR.dvrFromSec]).toBe(21.32);
+    expect(flush?.attributes[ATTR.dvrToSec]).toBe(21.28);
+    expect(flush?.attributes[ATTR.dvrSpanLostSec]).toBe(4.9);
+    expect(flush?.attributes[ATTR.sessionId]).toBe('video-1');
+    const counter = named(METRIC.dvrRingFlushes)[0]!;
+    expect(counter.attributes[ATTR.dvrCause]).toBe('backstep');
+    expect(counter.attributes[ATTR.sessionId]).toBeUndefined();
+  });
+
+  it('samples event-loop lag while presenting and uses it as the long-task stand-in without a longtask observer', () => {
+    vi.stubGlobal('PerformanceObserver', undefined);
+    let nowMs = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+    const probe = start();
+    captureMany(probe, 30);
+    presentMany(probe, 30);
+    nowMs = 400;
+    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(1000);
+    expect(values(METRIC.mainThreadLoopLagMs)[0]).toBe(150);
+    expect(values(METRIC.mainThreadLongTaskMs)).toEqual([]);
+    expect(values(METRIC.dvrActiveWindows)).toEqual([1]);
+    expect(values(METRIC.dvrHealthyWindows)).toEqual([]);
+    expect(logs.filter(record => record.event === 'video.dvr.anomaly').map(r => r.attributes[ATTR.dvrCause])).toEqual([
+      'long_task',
+    ]);
+  });
   it('keeps the same session cooldown when a run is stopped and restarted', () => {
     const first = start();
     first.signal('underrun');

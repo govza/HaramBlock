@@ -33,6 +33,7 @@ const BYTES_PER_PIXEL = 4;
 export class FrameRing<B extends RingBitmap = ImageBitmap> {
   private frames: RingFrame<B>[] = [];
   private totalBytes = 0;
+  private flushCount = 0;
 
   constructor(
     private maxDurationSec: number,
@@ -61,6 +62,7 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
         return;
       }
       this.flush();
+      this.flushCount++;
     }
     this.frames.push(frame);
     this.totalBytes += frame.bitmap.width * frame.bitmap.height * BYTES_PER_PIXEL;
@@ -95,6 +97,10 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
 
   bytes(): number {
     return this.totalBytes;
+  }
+
+  flushes(): number {
+    return this.flushCount;
   }
 
   release(): void {
@@ -166,6 +172,10 @@ export class RawFrameRing implements DvrFrameStore {
   /** A covered `frameAt` always hits on the raw ring: the counter never advances. */
   coveredMisses(): number {
     return 0;
+  }
+
+  flushes(): number {
+    return this.ring.flushes();
   }
 
   spanSec(): number {
