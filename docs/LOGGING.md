@@ -4,8 +4,8 @@ HaramBlock instruments itself with OpenTelemetry. One structured logging API rep
 consola logger and the WideEvent pipeline; traces describe every inference round-trip; a few metrics
 summarise throughput. All of it lives in `utils/telemetry/`.
 
-Series: part 1 (infra + migration) and part 2 (video session + DVR instrumentation, below) have
-landed; part 3 adds the Grafana dashboard and collector setup.
+The local collector + Grafana stack and the DVR dashboard are documented in
+[DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 ## Logging API
 
@@ -52,7 +52,7 @@ The flag is a build-time define (`__HB_TELEMETRY_ENABLED__`), so production bund
 `@opentelemetry/api` (no-op tracer / meter) and the ring.
 
 Exporters (`@opentelemetry/exporter-*-otlp-http`) post cross-origin; the collector must allow
-`chrome-extension://*` and `moz-extension://*` origins (part 3 ships the `otel-lgtm` config). Batch
+`chrome-extension://*` and `moz-extension://*` origins (`tools/otel/otelcol-config.yaml`). Batch
 processors flush every 1 s, metrics export every 1 s, and a 5 s idle timer force-flushes everything
 (Firefox event pages have no `runtime.onSuspend`).
 

@@ -5,7 +5,9 @@ up. The primary setup is the **chrome-devtools MCP attached to the WXT dev brows
 remote debugging port 9222) — server configuration lives in [AI_DEVELOPMENT.md](AI_DEVELOPMENT.md).
 The alternative setup is the **Playwright MCP with a static build** — see
 [PLAYWRIGHT.md](PLAYWRIGHT.md). The techniques in this playbook apply to either; tool names below
-are the chrome-devtools ones.
+are the chrome-devtools ones. For what the extension reports about itself while you drive it (DVR
+fps, inference latency, anomaly dumps, traces) open the local Grafana stack -
+[DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 ## The Debug Loop
 

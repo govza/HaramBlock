@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: "HaramBlock"
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /otel-lgtm/dashboards/haramblock
+      foldersFromFilesStructure: false
