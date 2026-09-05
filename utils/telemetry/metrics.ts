@@ -16,6 +16,31 @@ export const METRIC = {
   mainThreadLongTaskMs: 'hb.main_thread.long_task_ms',
   inferenceRunDurationMs: 'hb.inference.run.duration',
   inferenceRequests: 'hb.inference.requests',
+  dvrPlaybackActive: 'hb.dvr.playback_active',
+  dvrActiveWindows: 'hb.dvr.active_windows',
+  dvrHealthyWindows: 'hb.dvr.healthy_windows',
+  dvrFreezeWindows: 'hb.dvr.freeze_windows',
+  dvrFramesDropped: 'hb.dvr.frames_dropped',
+  dvrVerdictMarginSec: 'hb.dvr.verdict_margin_sec',
+  dvrWarmupMs: 'hb.dvr.warmup_ms',
+  dvrRunsStarted: 'hb.dvr.runs_started',
+  dvrRunsStopped: 'hb.dvr.runs_stopped',
+  dvrAnomalies: 'hb.dvr.anomalies',
+  audioDriftMs: 'hb.audio.drift_ms',
+  audioUnderruns: 'hb.audio.underruns',
+  audioUnavailableWindows: 'hb.audio.unavailable_windows',
+  audioRouteWindows: 'hb.audio.route_windows',
+  dvrTickGapMs: 'hb.dvr.tick_gap_ms',
+  dvrSourceFps: 'hb.dvr.source_fps',
+  dvrTicksDeduped: 'hb.dvr.ticks_deduped',
+  dvrSourceFramesSkipped: 'hb.dvr.source_frames_skipped',
+  dvrTicksLate: 'hb.dvr.ticks_late',
+  dvrCaptureDrawMs: 'hb.dvr.capture_draw_ms',
+  dvrCaptureTransferMs: 'hb.dvr.capture_transfer_ms',
+  dvrCaptureWidth: 'hb.dvr.capture_width',
+  dvrCaptureHeight: 'hb.dvr.capture_height',
+  samplerEncodeMs: 'hb.sampler.encode_ms',
+  samplerFramesSent: 'hb.sampler.frames_sent',
 } as const;
 
 export type MetricName = (typeof METRIC)[keyof typeof METRIC];
@@ -57,4 +82,9 @@ export function recordGauge(name: MetricName, value: number, attributes?: LooseA
 
 export function recordHistogram(name: MetricName, value: number, attributes?: LooseAttributes): void {
   emit('histogram', name, value, attributes);
+}
+
+export function recordCounter(name: MetricName, value: number, attributes?: LooseAttributes): void {
+  if (value <= 0) return;
+  emit('counter', name, value, attributes);
 }

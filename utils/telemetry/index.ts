@@ -9,4 +9,4 @@ export type {
   TelemetryLogRecord,
   TelemetryMetricRecord,
 } from '@/utils/telemetry/records';
-export { METRIC, metricsEnabled, recordGauge, recordHistogram } from '@/utils/telemetry/metrics';
+export { METRIC, metricsEnabled, recordCounter, recordGauge, recordHistogram } from '@/utils/telemetry/metrics';

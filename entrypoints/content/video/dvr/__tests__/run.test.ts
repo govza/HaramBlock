@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DVR_DELAY_MS, MAX_DVR_DELAY_MS, UNDERRUN_VERDICT_STREAK } from '@/entrypoints/content/video/dvr/delay';
 import {
@@ -8,9 +8,13 @@ import {
   type DvrRunPorts,
 } from '@/entrypoints/content/video/dvr/run';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { ATTR } from '@/utils/telemetry/attributes';
+import { registerLogSink } from '@/utils/telemetry/logger';
+import { METRIC, registerMetricSink } from '@/utils/telemetry/metrics';
 
 import type { SessionFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import type { RingQuality } from '@/entrypoints/content/video/dvr/ringBudget';
+import type { TelemetryLogRecord, TelemetryMetricRecord } from '@/utils/telemetry/records';
 
 const FULL_QUALITY: RingQuality = {
   maxWidth: Number.POSITIVE_INFINITY,
@@ -24,6 +28,7 @@ function makeStore(): SessionFrameStore & { misses: number } {
     misses: 0,
     captureMode: 'video-frame' as const,
     kind: () => 'encoded' as const,
+    selectionReason: () => 'encoded' as const,
     demoteToRaw: () => {},
     push: () => {},
     frameAt: () => null,
@@ -57,6 +62,7 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
   const ports: DvrRunPorts = {
     events: event => dispatched.push(event),
     onDelayChanged,
+    audioHealth: () => ({ route: 'none' as const, underruns: 0, driftMs: 0, unavailable: false }),
     surface: {
       now: () => nowMs,
       currentTime: () => currentTime,
@@ -69,9 +75,9 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     budget,
     createStore: () => store,
     captureDriver: onFrame => {
-      if (!options.withTapDriver) return null;
+      if (!options.withTapDriver) return { driver: null, reason: 'no_track_processor' };
       tapDeliver = onFrame;
-      return { stop: driverStop };
+      return { driver: { stop: driverStop }, reason: null };
     },
     presenter: { create: () => presenter },
   };
@@ -92,6 +98,7 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     store,
     dispatched,
     onDelayChanged,
+    audioHealth: () => ({ route: 'none' as const, underruns: 0, driftMs: 0, unavailable: false }),
     budget,
     presenter,
     driverStop,
@@ -119,6 +126,57 @@ function addCoverage(timeline: VerdictTimeline, fromSec: number, toSec: number) 
     });
   }
 }
+
+describe('DvrRun telemetry rollups', () => {
+  let logs: TelemetryLogRecord[];
+  let metrics: TelemetryMetricRecord[];
+  const cleanup: (() => void)[] = [];
+
+  beforeEach(() => {
+    logs = [];
+    metrics = [];
+    cleanup.push(registerLogSink(record => logs.push(record)));
+    cleanup.push(registerMetricSink(record => metrics.push(record)));
+  });
+
+  afterEach(() => {
+    for (const dispose of cleanup.splice(0)) dispose();
+  });
+
+  it('counts runs started and stopped by reason without a session id', () => {
+    const { run } = makeHarness();
+    run.stop('seek');
+    const started = metrics.filter(record => record.name === METRIC.dvrRunsStarted);
+    const stopped = metrics.filter(record => record.name === METRIC.dvrRunsStopped);
+    expect(started.map(record => record.kind)).toEqual(['counter']);
+    expect(stopped.map(record => record.attributes[ATTR.dvrReason])).toEqual(['seek']);
+    for (const record of [...started, ...stopped]) {
+      expect(record.attributes[ATTR.sessionId]).toBeUndefined();
+      expect(record.attributes[ATTR.dvrStore]).toBe('encoded');
+    }
+  });
+
+  it('logs video.dvr.tap_changed when rVFC takes over a dead tap and when the tap comes back', () => {
+    const { run, deliverTapFrame, setNow } = makeHarness({ withTapDriver: true });
+    deliverTapFrame(10);
+    setNow(1000);
+    run.onTick(10.1);
+    setNow(1010);
+    deliverTapFrame(10.2);
+    const changes = logs.filter(record => record.event === 'video.dvr.tap_changed');
+    expect(changes.map(record => [record.attributes[ATTR.dvrFrom], record.attributes[ATTR.dvrTo]])).toEqual([
+      ['tap', 'rvfc'],
+      ['rvfc', 'tap'],
+    ]);
+    expect(changes[0]?.attributes[ATTR.dvrTap]).toBe('rvfc');
+  });
+
+  it('does not report a tap switch before the tap has ever delivered', () => {
+    const { run } = makeHarness({ withTapDriver: true });
+    run.onTick(10.1);
+    expect(logs.filter(record => record.event === 'video.dvr.tap_changed')).toEqual([]);
+  });
+});
 
 describe('DvrRun.onTick', () => {
   it('rVFC captures stand down while the push driver delivers, and resume once it stalls', () => {
@@ -292,6 +350,7 @@ function makeHarnessWithTimeline(timeline: VerdictTimeline, stallFloorSec: numbe
   const ports: DvrRunPorts = {
     events: () => {},
     onDelayChanged: () => {},
+    audioHealth: () => ({ route: 'none' as const, underruns: 0, driftMs: 0, unavailable: false }),
     surface: {
       now: () => 0,
       currentTime: () => 10,
@@ -308,7 +367,7 @@ function makeHarnessWithTimeline(timeline: VerdictTimeline, stallFloorSec: numbe
       release: () => {},
     },
     createStore: () => store,
-    captureDriver: () => null,
+    captureDriver: () => ({ driver: null, reason: 'no_track_processor' }),
     presenter: { create: () => ({ isPlaybackActive: () => true, startDrain: () => {}, destroy: () => {} }) },
   };
   const run = startDvrRun(ports, {

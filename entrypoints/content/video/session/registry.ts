@@ -155,6 +155,7 @@ class VideoSessionRegistry {
         [ATTR.mediaKind]: 'video',
       }),
       dvrWarmupSpan: null,
+      dvrWarmupStartedAt: 0,
       hostSettings,
       state: null as unknown as VideoSessionState, // set right below via createVideoSession
       lastPrediction: null,

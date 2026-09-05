@@ -27,6 +27,15 @@ class FakeDelayNode extends FakeNode {
 class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
   state = 'running';
+  private listeners = new Map<string, Set<() => void>>();
+  addEventListener = (type: string, listener: () => void) => {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type)?.add(listener);
+  };
+  setState(state: string) {
+    this.state = state;
+    this.listeners.get('statechange')?.forEach(listener => listener());
+  }
   currentTime = 0;
   destination = new FakeNode();
   createdDelays: FakeDelayNode[] = [];
@@ -99,6 +108,20 @@ describe('audioDelay routing', () => {
     mod.updateAudioDelay(video, 2.5);
     const delay = context().createdDelays.at(-1)!;
     expect(delay.delayTime.setTargetAtTime).toHaveBeenCalledWith(2.5, 0, expect.any(Number));
+  });
+
+  it('reports drift against the wanted delay and counts context interruptions as underruns', async () => {
+    const video = makeVideo();
+    expect(mod.audioDelayHealth(video, 2)).toEqual({ underruns: 0, driftMs: 0 });
+    await mod.engageAudioDelay(video, 2, () => true);
+    const ctx = context();
+    expect(mod.audioDelayHealth(video, 2.5)).toEqual({ underruns: 0, driftMs: -500 });
+    ctx.setState('interrupted');
+    ctx.setState('running');
+    ctx.setState('suspended');
+    expect(mod.audioDelayHealth(video, 2).underruns).toBe(2);
+    mod.releaseAudioDelay(video);
+    expect(mod.audioDelayHealth(video, 2)).toEqual({ underruns: 0, driftMs: 0 });
   });
 
   it('abandons an engage whose DVR was torn down mid-resume', async () => {

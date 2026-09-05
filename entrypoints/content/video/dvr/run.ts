@@ -1,10 +1,11 @@
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
-import { startDvrCaptureTap } from '@/entrypoints/content/video/dvr/captureTap';
+import { startDvrCaptureTap, type DvrTapUnavailableReason } from '@/entrypoints/content/video/dvr/captureTap';
 import {
   COVERED_DVR_DELAY_MS,
   deriveDvrDelayMs,
   isAnalysisUnderrun,
+  latencyP90Ms,
   MAX_DVR_DELAY_MS,
   UNDERRUN_VERDICT_STREAK,
 } from '@/entrypoints/content/video/dvr/delay';
@@ -14,9 +15,14 @@ import {
   type CreateDvrFrameStoreOptions,
   type SessionFrameStore,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
-import { DvrProbe, type DvrTapKind, type PresentedSample } from '@/entrypoints/content/video/dvr/probe';
+import {
+  DvrProbe,
+  type AudioHealthSample,
+  type DvrTapKind,
+  type PresentedSample,
+} from '@/entrypoints/content/video/dvr/probe';
 import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoints/content/video/dvr/ringBudget';
-import { ATTR, getLogger, metricsEnabled } from '@/utils/telemetry';
+import { ATTR, getLogger, METRIC, metricsEnabled, recordCounter } from '@/utils/telemetry';
 
 import type { DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
@@ -66,7 +72,10 @@ export interface CaptureDriver {
   stop(): void;
 }
 
-export type CaptureDriverPort = (onFrame: (frame: VideoFrame, mediaTime: number) => void) => CaptureDriver | null;
+export type CaptureDriverResult =
+  { driver: CaptureDriver; reason: null } | { driver: null; reason: DvrTapUnavailableReason };
+
+export type CaptureDriverPort = (onFrame: (frame: VideoFrame, mediaTime: number) => void) => CaptureDriverResult;
 
 export interface DvrPresenter {
   isPlaybackActive(): boolean;
@@ -87,6 +96,7 @@ export interface PresenterPort {
 export interface DvrRunPorts {
   events: (event: DvrRunEvent) => void;
   onDelayChanged: (delaySec: number) => void;
+  audioHealth: () => AudioHealthSample;
   surface: VideoSurface;
   budget: RingBudgetPort;
   createStore: (options: CreateDvrFrameStoreOptions) => SessionFrameStore;
@@ -122,11 +132,13 @@ export function defaultDvrRunPorts(options: {
   getMasking: () => IMaskingSettings;
   events: (event: DvrRunEvent) => void;
   onDelayChanged: (delaySec: number) => void;
+  audioHealth: () => AudioHealthSample;
 }): DvrRunPorts {
-  const { video, getMasking, events, onDelayChanged } = options;
+  const { video, getMasking, events, onDelayChanged, audioHealth } = options;
   return {
     events,
     onDelayChanged,
+    audioHealth,
     surface: {
       now: () => performance.now(),
       currentTime: () => video.currentTime,
@@ -141,7 +153,10 @@ export function defaultDvrRunPorts(options: {
     },
     budget: dvrRingBudget,
     createStore: createDvrFrameStore,
-    captureDriver: onFrame => startDvrCaptureTap(video, onFrame),
+    captureDriver: onFrame => {
+      const { tap, reason } = startDvrCaptureTap(video, onFrame);
+      return tap ? { driver: tap, reason: null } : { driver: null, reason };
+    },
     presenter: {
       create: ({ store, timeline, getDelaySec, onReady, onPresented }) =>
         new VideoDvrPlayer({ video, store, timeline, getDelaySec, getMasking, onReady, onPresented }),
@@ -162,6 +177,7 @@ class Run implements DvrRun {
   private readonly store: SessionFrameStore;
   private readonly presenter: DvrPresenter;
   private readonly driver: CaptureDriver | null;
+  private readonly tapReason: DvrTapUnavailableReason | 'tap';
   private readonly probe: DvrProbe | null;
   private readonly covered: boolean;
 
@@ -176,6 +192,7 @@ class Run implements DvrRun {
   private stallHoldoff = true;
   private underrunStreak = 0;
   private demandEncoded = false;
+  private effectiveTap: DvrTapKind = 'rvfc';
 
   constructor(
     private readonly ports: DvrRunPorts,
@@ -231,6 +248,8 @@ class Run implements DvrRun {
             tap: () => this.tapKind(),
             store,
             delaySec: () => this.delay,
+            latencyP90Ms: () => latencyP90Ms(ctx.latenciesMs),
+            audio: ports.audioHealth,
             now: () => surface.now(),
           })
         : null;
@@ -243,7 +262,7 @@ class Run implements DvrRun {
       ...(probe ? { onPresented: (sample: PresentedSample) => probe.presented(sample) } : {}),
     });
 
-    this.driver = ports.captureDriver((frame, mediaTime) => {
+    const { driver, reason: tapReason } = ports.captureDriver((frame, mediaTime) => {
       // The push driver can outlive its run by a frame or two (async reader).
       if (this.stopped) {
         frame.close();
@@ -258,13 +277,36 @@ class Run implements DvrRun {
           : mediaTime;
       this.lastTapMediaTime = mediaTime;
       this.lastTapWallMs = this.ports.surface.now();
+      this.switchTap('tap');
+      this.probe?.delivered(key);
       this.capture(frame, key);
     });
-    log.info('video.dvr.start', this.lifecycleAttributes());
+    this.driver = driver;
+    this.tapReason = tapReason ?? 'tap';
+    this.effectiveTap = this.driver ? 'tap' : 'rvfc';
+    log.info('video.dvr.start', {
+      ...this.lifecycleAttributes(),
+      [ATTR.dvrTapReason]: this.tapReason,
+      [ATTR.mediaNativeWidth]: this.registeredWidth,
+      [ATTR.mediaNativeHeight]: this.registeredHeight,
+      [ATTR.mediaDisplayWidth]: surface.displayWidth(),
+    });
+    recordCounter(METRIC.dvrRunsStarted, 1, this.rollupAttributes());
   }
 
   private tapKind(): DvrTapKind {
-    return this.driver ? 'tap' : 'rvfc';
+    return this.effectiveTap;
+  }
+
+  private switchTap(to: DvrTapKind): void {
+    const from = this.effectiveTap;
+    if (from === to) return;
+    this.effectiveTap = to;
+    log.info('video.dvr.tap_changed', { ...this.lifecycleAttributes(), [ATTR.dvrFrom]: from, [ATTR.dvrTo]: to });
+  }
+
+  private rollupAttributes(): Record<string, string> {
+    return { [ATTR.dvrStore]: this.store.kind(), [ATTR.dvrTap]: this.tapKind() };
   }
 
   private lifecycleAttributes(): Record<string, string | number | boolean> {
@@ -273,6 +315,7 @@ class Run implements DvrRun {
       [ATTR.dvrDelaySec]: this.delay,
       [ATTR.dvrCovered]: this.covered,
       [ATTR.dvrStore]: this.store.kind(),
+      [ATTR.dvrStoreReason]: this.store.selectionReason(),
       [ATTR.dvrTap]: this.tapKind(),
     };
   }
@@ -289,6 +332,8 @@ class Run implements DvrRun {
       Math.abs(mediaTime - this.lastTapMediaTime) < TAP_LIVENESS_WINDOW_SEC &&
       this.ports.surface.now() - this.lastTapWallMs < TAP_LIVENESS_WALL_MS;
     if (this.driver && tapLive) return;
+    if (this.driver && Number.isFinite(this.lastTapWallMs)) this.switchTap('rvfc');
+    this.probe?.delivered(mediaTime);
     this.capture(null, mediaTime);
   }
 
@@ -301,6 +346,7 @@ class Run implements DvrRun {
     if (!this.stopped) {
       this.stopped = true;
       log.info('video.dvr.stop', { ...this.lifecycleAttributes(), [ATTR.dvrReason]: reason });
+      recordCounter(METRIC.dvrRunsStopped, 1, { ...this.rollupAttributes(), [ATTR.dvrReason]: reason });
       this.probe?.stop();
       this.driver?.stop();
       this.ports.budget.release(this.ctx.sessionId);
@@ -486,7 +532,13 @@ class Run implements DvrRun {
           });
           this.lastCapturedMediaTime = mediaTime;
           this.store.push(frame, mediaTime);
-          this.probe?.captured(surface.now() - startedAt);
+          this.probe?.captured({
+            totalMs: surface.now() - startedAt,
+            drawMs: 0,
+            transferMs: 0,
+            width: nativeWidth,
+            height: nativeHeight,
+          });
         } catch (error) {
           // Typically SecurityError on a tainted source: VideoFrame needs
           // readable pixels, which the display-only canvas path does not.
@@ -518,13 +570,22 @@ class Run implements DvrRun {
       }
       const canvasCtx = canvas.getContext('2d');
       if (!canvasCtx) return;
+      const drawStartedAt = surface.now();
       canvasCtx.drawImage(tapFrame ?? surface.drawSource(), 0, 0, width, height);
+      const drawEndedAt = surface.now();
       // transferToImageBitmap needs no readback, so this works (display-only,
       // taint carried along) even for sources whose pixels we may not read.
       const bitmap = canvas.transferToImageBitmap();
+      const transferEndedAt = surface.now();
       this.lastCapturedMediaTime = mediaTime;
       this.store.push(bitmap, mediaTime);
-      this.probe?.captured(surface.now() - startedAt);
+      this.probe?.captured({
+        totalMs: surface.now() - startedAt,
+        drawMs: drawEndedAt - drawStartedAt,
+        transferMs: transferEndedAt - drawEndedAt,
+        width,
+        height,
+      });
     } catch (error) {
       log.debug('dvr.buffer_capture.failed', { error });
     } finally {

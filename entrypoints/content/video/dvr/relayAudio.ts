@@ -55,7 +55,14 @@ interface RelayAudioEntry {
   /** DVR drain: the element free-runs the D-second tail on the wall clock. */
   draining: boolean;
   drainTimer: ReturnType<typeof setTimeout> | null;
+  underruns: number;
+  driftMs: number;
   teardown: () => void;
+}
+
+export interface RelayAudioHealth {
+  underruns: number;
+  driftMs: number;
 }
 
 const entries = new WeakMap<HTMLVideoElement, RelayAudioEntry>();
@@ -65,6 +72,12 @@ const terminalSrcs = new WeakMap<HTMLVideoElement, string>();
 
 export function isRelayAudioEngaged(video: HTMLVideoElement): boolean {
   return entries.has(video);
+}
+
+export function relayAudioHealth(video: HTMLVideoElement): RelayAudioHealth {
+  const entry = entries.get(video);
+  if (!entry) return { underruns: 0, driftMs: 0 };
+  return { underruns: entry.underruns, driftMs: entry.driftMs };
 }
 
 /** The extension currently owns the page element's audio output (hold or relay). */
@@ -193,6 +206,8 @@ async function doEngage(
     looped: false,
     draining: false,
     drainTimer: null,
+    underruns: 0,
+    driftMs: 0,
     teardown: () => {},
   };
   audio.muted = intent.siteMuted;
@@ -209,6 +224,10 @@ async function doEngage(
   const onPause = () => {
     if (!entry.draining) audio.pause();
   };
+  const onWaiting = () => {
+    entry.underruns++;
+  };
+  audio.addEventListener('waiting', onWaiting);
   video.addEventListener('volumechange', onVolumeChange);
   video.addEventListener('play', onPlay);
   video.addEventListener('pause', onPause);
@@ -216,6 +235,7 @@ async function doEngage(
   entry.teardown = () => {
     clearInterval(timer);
     if (entry.drainTimer) clearTimeout(entry.drainTimer);
+    audio.removeEventListener('waiting', onWaiting);
     video.removeEventListener('volumechange', onVolumeChange);
     video.removeEventListener('play', onPlay);
     video.removeEventListener('pause', onPause);
@@ -306,7 +326,10 @@ function sync(video: HTMLVideoElement, entry: RelayAudioEntry): void {
     }
   }
   const drift = audio.currentTime - target;
+  entry.driftMs = drift * 1000;
   if (Math.abs(drift) > HARD_RESYNC_DRIFT_SEC) {
+    if (!audio.paused) entry.underruns++;
+    entry.driftMs = 0;
     audio.currentTime = target;
     audio.playbackRate = video.playbackRate;
   } else if (Math.abs(drift) > RATE_NUDGE_DRIFT_SEC) {

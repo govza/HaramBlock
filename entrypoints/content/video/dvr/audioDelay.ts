@@ -26,12 +26,27 @@ interface AudioDelayEntry {
   source: MediaElementAudioSourceNode;
   /** Present only while engaged; a DelayNode is single-use so its buffered tail dies with it. */
   delay: DelayNode | null;
+  interruptionsAtEngage: number;
+}
+
+export interface AudioDelayHealth {
+  underruns: number;
+  driftMs: number;
 }
 
 /** null = permanently unavailable for this element (already captured by the site). */
 const entries = new WeakMap<HTMLVideoElement, AudioDelayEntry | null>();
 
 let sharedContext: AudioContext | null = null;
+let contextInterruptions = 0;
+
+function createSharedContext(): AudioContext {
+  const context = new AudioContext();
+  context.addEventListener('statechange', () => {
+    if (context.state !== 'running') contextInterruptions++;
+  });
+  return context;
+}
 
 /**
  * WebAudio outputs zeros for origin-tainted media — routing such audio through
@@ -52,7 +67,7 @@ export function isAudioDelayable(video: HTMLVideoElement): boolean {
 }
 
 async function ensureRunningContext(): Promise<AudioContext | null> {
-  sharedContext ??= new AudioContext();
+  sharedContext ??= createSharedContext();
   if (sharedContext.state !== 'running') {
     try {
       await sharedContext.resume();
@@ -120,7 +135,7 @@ async function doEngage(
     try {
       const source = context.createMediaElementSource(video);
       source.connect(context.destination);
-      entry = { source, delay: null };
+      entry = { source, delay: null, interruptionsAtEngage: contextInterruptions };
       entries.set(video, entry);
     } catch (error) {
       // The site already captured this element into its own graph; its audio
@@ -141,6 +156,7 @@ async function doEngage(
   entry.source.disconnect();
   entry.source.connect(delay);
   entry.delay = delay;
+  entry.interruptionsAtEngage = contextInterruptions;
   log.debug('audio_delay.engaged', { delaySec });
   return 'engaged';
 }
@@ -148,6 +164,15 @@ async function doEngage(
 /** Whether this element's audio is currently riding the delay line. */
 export function isAudioDelayEngaged(video: HTMLVideoElement): boolean {
   return Boolean(entries.get(video)?.delay);
+}
+
+export function audioDelayHealth(video: HTMLVideoElement, wantedDelaySec: number): AudioDelayHealth {
+  const entry = entries.get(video);
+  if (!entry?.delay) return { underruns: 0, driftMs: 0 };
+  return {
+    underruns: contextInterruptions - entry.interruptionsAtEngage,
+    driftMs: (entry.delay.delayTime.value - wantedDelaySec) * 1000,
+  };
 }
 
 /** Follow the adaptive presentation delay while engaged. */

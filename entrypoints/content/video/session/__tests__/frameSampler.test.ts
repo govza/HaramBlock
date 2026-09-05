@@ -44,6 +44,7 @@ function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
     src: 'https://example.test/clip.mp4',
     trace: { sessionId: 'session-1' },
     dvrWarmupSpan: null,
+    dvrWarmupStartedAt: 0,
     hostSettings: { hostname: 'example.test' } as SessionHandle['hostSettings'],
     state: createVideoSession().state,
     lastPrediction: null,

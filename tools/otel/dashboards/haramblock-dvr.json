@@ -6,7 +6,7 @@
   "editable": true,
   "graphTooltip": 1,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "time": {
     "from": "now-15m",
     "to": "now"
@@ -51,7 +51,7 @@
         },
         "enable": true,
         "iconColor": "red",
-        "expr": "{service_name=\"haramblock\"} |= \"video.dvr.anomaly\"",
+        "expr": "{service_name=\"haramblock\"} |= \"video.dvr.anomaly\" | hb_session_id=~\"$session\"",
         "titleFormat": "video.dvr.anomaly",
         "textFormat": "{{hb_dvr_anomaly_id}}"
       },
@@ -63,7 +63,7 @@
         },
         "enable": true,
         "iconColor": "orange",
-        "expr": "{service_name=\"haramblock\"} |= \"video.dvr.delay_raised\"",
+        "expr": "{service_name=\"haramblock\"} |= \"video.dvr.delay_raised\" | hb_session_id=~\"$session\"",
         "titleFormat": "video.dvr.delay_raised",
         "textFormat": "{{hb_dvr_from_sec}} -> {{hb_dvr_to_sec}} ({{hb_dvr_cause}})"
       }
@@ -71,13 +71,434 @@
   },
   "panels": [
     {
+      "id": 19,
+      "type": "row",
+      "title": "Playback health (all sessions, dashboard range)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Health %",
+      "description": "Healthy windows / active windows. A 1 s window is healthy when playback is active, presented >= 0.9 x captured, no long task > 100 ms, no freeze and no audio underrun (probeCore.ts).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "no data",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.97
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "noValue": "no data"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_healthy_windows_total[$__range])) / (sum(increase(hb_dvr_active_windows_total[$__range])) > 0)",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Freeze seconds",
+      "description": "Active windows in which no new frame was presented (a paused video is not active, so never counts).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "noValue": "no data"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_freeze_windows_total[$__range]))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Drops per minute",
+      "description": "captured - presented - repeated frames, per active playback minute. Catches sub-threshold skips the anomaly detector ignores.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "noValue": "no data"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_frames_dropped_total[$__range])) / ((sum(increase(hb_dvr_active_windows_total[$__range])) > 0) / 60)",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Audio fallback %",
+      "description": "Windows routed through relay or with audio unavailable, over all routed windows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "no data",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "noValue": "no data"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_audio_route_windows_total{hb_audio_route=~\"relay|unavailable\"}[$__range])) / (sum(increase(hb_audio_route_windows_total[$__range])) > 0)",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Anomalies per 10 min",
+      "description": "video.dvr.anomaly dumps per 10 active playback minutes, comparable across sessions of any length.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "noValue": "no data"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_anomalies_total[$__range])) / ((sum(increase(hb_dvr_active_windows_total[$__range])) > 0) / 600)",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Warmup p90",
+      "description": "Time from DVR start to the first filtered frame (hb.dvr.warmup_ms, status ready).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "no data",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3000
+              },
+              {
+                "color": "red",
+                "value": 6000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "noValue": "no data"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.9, sum(increase(hb_dvr_warmup_ms_bucket{hb_status=\"ready\"}[$__range])) by (le))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
       "id": 1,
       "type": "row",
       "title": "DVR (per VideoSession)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 5,
         "w": 24,
         "h": 1
       },
@@ -94,7 +515,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 1,
+        "y": 6,
         "w": 12,
         "h": 8
       },
@@ -156,7 +577,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 1,
+        "y": 6,
         "w": 12,
         "h": 8
       },
@@ -209,7 +630,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 9,
+        "y": 14,
         "w": 12,
         "h": 8
       },
@@ -260,7 +681,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 9,
+        "y": 14,
         "w": 12,
         "h": 8
       },
@@ -339,7 +760,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -388,7 +809,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 17,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -437,7 +858,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -516,7 +937,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 25,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -535,8 +956,915 @@
             "uid": "loki"
           },
           "refId": "A",
-          "expr": "{service_name=\"haramblock\"} |~ \"video\\\\.dvr\\\\.(anomaly|tick)\"",
+          "expr": "{service_name=\"haramblock\"} |~ \"video\\\\.dvr\\\\.(anomaly|tick)\" | hb_session_id=~\"$session\"",
           "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Playback active / verdict margin",
+      "description": "hb.dvr.playback_active is 1 while the presenter advances (0 = paused, ended or not yet warm). Verdict margin = D - observed round-trip p90: how far a presented frame's verdict lands ahead of its presentation; near 0 means unjudged frames are imminent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "hb_dvr_playback_active{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} active",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "hb_dvr_verdict_margin_sec{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} margin (s)",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "A/V drift (ms)",
+      "description": "hb.audio.drift_ms by route: relay = audio element vs currentTime - D (seeks past +-250 ms), delay line = DelayNode ramp vs wanted D.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "hb_audio_drift_ms{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} {{hb_audio_route}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Frame drops / freezes per second (all sessions)",
+      "description": "Rollup counters by store/tap: dropped frames (captured - presented - repeated) and frozen windows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(hb_dvr_frames_dropped_total[$__rate_interval])) by (hb_dvr_store, hb_dvr_tap)",
+          "legendFormat": "dropped {{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(rate(hb_dvr_freeze_windows_total[$__rate_interval])) by (hb_dvr_store, hb_dvr_tap)",
+          "legendFormat": "frozen {{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Healthy vs active windows per second (all sessions)",
+      "description": "Health % over time: healthy windows over active windows (hb.dvr.healthy_windows / hb.dvr.active_windows).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(hb_dvr_active_windows_total[$__rate_interval]))",
+          "legendFormat": "active",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(rate(hb_dvr_healthy_windows_total[$__rate_interval]))",
+          "legendFormat": "healthy",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "sum(rate(hb_dvr_healthy_windows_total[$__rate_interval])) / (sum(rate(hb_dvr_active_windows_total[$__rate_interval])) > 0)",
+          "legendFormat": "health ratio",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Audio route windows / underruns (all sessions)",
+      "description": "Route distribution per period (hb.audio.route_windows by hb.audio.route) plus delay-line/relay underruns and unavailable windows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(hb_audio_route_windows_total[$__rate_interval])) by (hb_audio_route)",
+          "legendFormat": "{{hb_audio_route}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(rate(hb_audio_underruns_total[$__rate_interval])) by (hb_audio_route)",
+          "legendFormat": "underruns {{hb_audio_route}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "sum(rate(hb_audio_unavailable_windows_total[$__rate_interval]))",
+          "legendFormat": "unavailable",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "DVR runs started / stopped by reason, anomalies by cause (all sessions)",
+      "description": "Churn: hb.dvr.runs_started, hb.dvr.runs_stopped by hb.dvr.reason (seek, tap switch, source change...), hb.dvr.anomalies by hb.dvr.cause.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_runs_started_total[$__rate_interval]))",
+          "legendFormat": "started",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(increase(hb_dvr_runs_stopped_total[$__rate_interval])) by (hb_dvr_reason)",
+          "legendFormat": "stopped {{hb_dvr_reason}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "sum(increase(hb_dvr_anomalies_total[$__rate_interval])) by (hb_dvr_cause)",
+          "legendFormat": "anomaly {{hb_dvr_cause}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Source vs captured fps",
+      "description": "Source fps = distinct mediaTime deliveries per 1 s window (rVFC callbacks or tap frames, duplicates excluded). Captured below source means the capture throttle or a skipped callback dropped frames before the ring.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "hb_dvr_source_fps{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} source ({{hb_browser}})",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "hb_dvr_captured_fps{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} captured ({{hb_browser}})",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Capture size (px)",
+      "description": "Width / height of the frame the DVR captures into the ring (hb.dvr.capture_width/height): the budget ladder tier actually applied. Native resolution on the encoded store.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 62,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "hb_dvr_capture_width{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} width",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "hb_dvr_capture_height{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} height",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "heatmap",
+      "title": "Capture draw (ms)",
+      "description": "drawImage into the capture canvas, raw store only (hb.dvr.capture_draw_ms).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "steps": 64
+        },
+        "yAxis": {
+          "unit": "ms",
+          "axisPlacement": "left"
+        },
+        "cellGap": 1,
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_capture_draw_ms_bucket{hb_session_id=~\"$session\"}[$__rate_interval])) by (le)",
+          "legendFormat": "{{le}}",
+          "range": true,
+          "format": "heatmap"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "heatmap",
+      "title": "Capture transfer (ms)",
+      "description": "transferToImageBitmap after the draw, raw store only (hb.dvr.capture_transfer_ms).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 70,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "steps": 64
+        },
+        "yAxis": {
+          "unit": "ms",
+          "axisPlacement": "left"
+        },
+        "cellGap": 1,
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_capture_transfer_ms_bucket{hb_session_id=~\"$session\"}[$__rate_interval])) by (le)",
+          "legendFormat": "{{le}}",
+          "range": true,
+          "format": "heatmap"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "heatmap",
+      "title": "Frame delivery gap (ms)",
+      "description": "Wall-clock gap between consecutive new-frame deliveries (hb.dvr.tick_gap_ms). Bands above the source frame interval mean the main thread delayed the callback; the Firefox substitute for the longtask observer.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 78,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "steps": 64
+        },
+        "yAxis": {
+          "unit": "ms",
+          "axisPlacement": "left"
+        },
+        "cellGap": 1,
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_dvr_tick_gap_ms_bucket{hb_session_id=~\"$session\"}[$__rate_interval])) by (le)",
+          "legendFormat": "{{le}}",
+          "range": true,
+          "format": "heatmap"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "timeseries",
+      "title": "Deduped ticks (Firefox 60 Hz rVFC)",
+      "description": "Deliveries per 1 s window whose mediaTime equalled the previous one (hb.dvr.ticks_deduped). Firefox fires rVFC on every composited frame, so a 25 fps source shows ~35/s here; Chrome should be ~0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 78,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "hb_dvr_ticks_deduped{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} deduped ({{hb_browser}})",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "Source frames skipped / late ticks per second (all sessions)",
+      "description": "Skipped = mediaTime jumped more than 1.5 frame intervals between deliveries (the source advanced but no callback fired). Late = a delivery arrived more than 1.5 frame intervals after the previous one. By browser / store / tap.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(hb_dvr_source_frames_skipped_total[$__rate_interval])) by (hb_browser, hb_dvr_store, hb_dvr_tap)",
+          "legendFormat": "skipped {{hb_browser}} {{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(rate(hb_dvr_ticks_late_total[$__rate_interval])) by (hb_browser, hb_dvr_store, hb_dvr_tap)",
+          "legendFormat": "late {{hb_browser}} {{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "Sampler encode p50 / p90 and frames sent (content)",
+      "description": "Cost of bitmapToCompressedBlob (WebP) on the content main thread for the Firefox blob transport (hb.sampler.encode_ms), and inference frames sent per second by transfer kind (hb.sampler.frames_sent).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 86,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum(rate(hb_sampler_encode_ms_bucket[$__rate_interval])) by (le, hb_transfer_kind))",
+          "legendFormat": "encode p50 {{hb_transfer_kind}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum(rate(hb_sampler_encode_ms_bucket[$__rate_interval])) by (le, hb_transfer_kind))",
+          "legendFormat": "encode p90 {{hb_transfer_kind}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "sum(rate(hb_sampler_frames_sent_total[$__rate_interval])) by (hb_transfer_kind)",
+          "legendFormat": "frames/s {{hb_transfer_kind}}",
+          "range": true
         }
       ]
     },
@@ -544,14 +1872,14 @@
       "id": 10,
       "type": "logs",
       "title": "Session + DVR events",
-      "description": "video.session.transition, video.dvr.start/stop/delay_raised/underrun/store_demoted/budget_*, video.audio.route, video.capture.failed.",
+      "description": "video.session.transition, video.dvr.start/stop/tap_changed/delay_raised/underrun/store_demoted/budget_*, video.audio.route, video.capture.failed.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
       },
       "gridPos": {
         "x": 0,
-        "y": 33,
+        "y": 94,
         "w": 24,
         "h": 9
       },
@@ -570,7 +1898,7 @@
             "uid": "loki"
           },
           "refId": "A",
-          "expr": "{service_name=\"haramblock\"} |~ \"video\\\\.(session|dvr|audio|capture)\\\\.\" != \"video.dvr.tick\"",
+          "expr": "{service_name=\"haramblock\"} |~ \"video\\\\.(session|dvr|audio|capture)\\\\.\" != \"video.dvr.tick\" | hb_session_id=~\"$session\"",
           "queryType": "range"
         }
       ]
@@ -582,7 +1910,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 103,
         "w": 24,
         "h": 1
       },
@@ -599,7 +1927,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 43,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -661,7 +1989,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 43,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -722,7 +2050,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -773,7 +2101,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 51,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -821,7 +2149,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 120,
         "w": 24,
         "h": 1
       },
@@ -838,7 +2166,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 121,
         "w": 12,
         "h": 9
       },
@@ -871,7 +2199,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 60,
+        "y": 121,
         "w": 12,
         "h": 9
       },

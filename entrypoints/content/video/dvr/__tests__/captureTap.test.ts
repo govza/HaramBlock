@@ -46,18 +46,24 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 describe('startDvrCaptureTap', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('returns null when MediaStreamTrackProcessor is unavailable', () => {
+  it('reports no_track_processor when MediaStreamTrackProcessor is unavailable', () => {
     vi.stubGlobal('MediaStreamTrackProcessor', undefined);
-    expect(startDvrCaptureTap(makeVideo([makeTrack()]), () => {})).toBeNull();
+    expect(startDvrCaptureTap(makeVideo([makeTrack()]), () => {})).toEqual({
+      tap: null,
+      reason: 'no_track_processor',
+    });
   });
 
-  it('returns null when the element has no captureStream or no video track', () => {
+  it('reports the missing piece when the element has no captureStream or no video track', () => {
     installProcessor({ controller: null });
-    expect(startDvrCaptureTap({ currentTime: 0 } as unknown as HTMLVideoElement, () => {})).toBeNull();
-    expect(startDvrCaptureTap(makeVideo([]), () => {})).toBeNull();
+    expect(startDvrCaptureTap({ currentTime: 0 } as unknown as HTMLVideoElement, () => {})).toEqual({
+      tap: null,
+      reason: 'no_capture_stream',
+    });
+    expect(startDvrCaptureTap(makeVideo([]), () => {})).toEqual({ tap: null, reason: 'no_video_track' });
   });
 
-  it('returns null and stays fallback-safe when captureStream throws', () => {
+  it('reports capture_stream_failed and stays fallback-safe when captureStream throws', () => {
     installProcessor({ controller: null });
     const video = {
       currentTime: 0,
@@ -65,7 +71,7 @@ describe('startDvrCaptureTap', () => {
         throw new DOMException('blocked', 'SecurityError');
       },
     } as unknown as HTMLVideoElement;
-    expect(startDvrCaptureTap(video, () => {})).toBeNull();
+    expect(startDvrCaptureTap(video, () => {})).toEqual({ tap: null, reason: 'capture_stream_failed' });
   });
 
   it('delivers every decoded frame keyed by the media clock at delivery time', async () => {
@@ -73,7 +79,7 @@ describe('startDvrCaptureTap', () => {
     installProcessor(out);
     const video = makeVideo([makeTrack()], 1.5);
     const received: Array<{ frame: FakeFrame; mediaTime: number }> = [];
-    const tap = startDvrCaptureTap(video, (frame, mediaTime) =>
+    const { tap } = startDvrCaptureTap(video, (frame, mediaTime) =>
       received.push({ frame: frame as unknown as FakeFrame, mediaTime }),
     );
     expect(tap).not.toBeNull();
@@ -95,7 +101,7 @@ describe('startDvrCaptureTap', () => {
     const stop = vi.fn();
     const track = { stop } as unknown as MediaStreamTrack;
     const received: FakeFrame[] = [];
-    const tap = startDvrCaptureTap(makeVideo([track]), frame => received.push(frame as unknown as FakeFrame));
+    const { tap } = startDvrCaptureTap(makeVideo([track]), frame => received.push(frame as unknown as FakeFrame));
 
     tap!.stop();
     const late = makeFrame();

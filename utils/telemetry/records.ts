@@ -46,7 +46,7 @@ export interface SerializedSpan {
   context: HbContext;
 }
 
-export type MetricKind = 'gauge' | 'histogram';
+export type MetricKind = 'gauge' | 'histogram' | 'counter';
 
 export interface TelemetryMetricRecord {
   timeMs: number;

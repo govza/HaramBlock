@@ -148,6 +148,25 @@ describe('relayAudio', () => {
     expect(mod.isRelayAudioEngaged(video)).toBe(true);
   });
 
+  it('exposes the sync drift and counts hard resyncs and element stalls as underruns', async () => {
+    const video = makeVideo({ currentTime: 10 });
+    await engage(video);
+    const audio = audioEl();
+    expect(mod.relayAudioHealth(video)).toEqual({ underruns: 0, driftMs: 0 });
+    audio.currentTime = 8.1;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mod.relayAudioHealth(video).underruns).toBe(0);
+    expect(mod.relayAudioHealth(video).driftMs).toBeCloseTo(100, 6);
+    audio.currentTime = 9;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mod.relayAudioHealth(video).underruns).toBe(1);
+    expect(audio.currentTime).toBe(8);
+    audio.dispatchEvent(new Event('waiting'));
+    expect(mod.relayAudioHealth(video).underruns).toBe(2);
+    mod.releaseRelayAudio(video);
+    expect(mod.relayAudioHealth(video)).toEqual({ underruns: 0, driftMs: 0 });
+  });
+
   it('a buffering timeout reports transient and a later engage retries', async () => {
     const video = makeVideo();
     const first = mod.engageRelayAudio(video, () => 2);
