@@ -39,6 +39,13 @@ export const METRIC = {
   dvrCaptureTransferMs: 'hb.dvr.capture_transfer_ms',
   dvrCaptureWidth: 'hb.dvr.capture_width',
   dvrCaptureHeight: 'hb.dvr.capture_height',
+  dvrNativeWidth: 'hb.dvr.native_width',
+  dvrNativeHeight: 'hb.dvr.native_height',
+  dvrRingFlushes: 'hb.dvr.ring_flushes',
+  dvrSourceBacksteps: 'hb.dvr.source_backsteps',
+  dvrPinnedWindows: 'hb.dvr.pinned_windows',
+  dvrMainThreadMs: 'hb.dvr.main_thread_ms',
+  mainThreadLoopLagMs: 'hb.main_thread.loop_lag_ms',
   samplerEncodeMs: 'hb.sampler.encode_ms',
   samplerFramesSent: 'hb.sampler.frames_sent',
 } as const;

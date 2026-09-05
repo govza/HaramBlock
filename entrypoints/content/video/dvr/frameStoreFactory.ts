@@ -238,6 +238,7 @@ class SwappableFrameStore implements SessionFrameStore {
   private currentDispose: (() => void) | null = null;
   /** Misses accumulated by earlier backings, so the counter stays monotonic across swaps. */
   private coveredMissBase = 0;
+  private flushBase = 0;
   private released = false;
   private reason: DvrStoreReason = 'probing';
   private maxDurationSec: number;
@@ -291,6 +292,7 @@ class SwappableFrameStore implements SessionFrameStore {
       return;
     }
     this.coveredMissBase += this.current.coveredMisses();
+    this.flushBase += this.current.flushes() + 1;
     this.current.release();
     this.currentDispose?.();
     this.current = next;
@@ -313,6 +315,10 @@ class SwappableFrameStore implements SessionFrameStore {
 
   coveredMisses(): number {
     return this.coveredMissBase + this.current.coveredMisses();
+  }
+
+  flushes(): number {
+    return this.flushBase + this.current.flushes();
   }
 
   spanSec(): number {

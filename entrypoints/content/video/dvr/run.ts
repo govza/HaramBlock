@@ -18,13 +18,14 @@ import {
 import {
   DvrProbe,
   type AudioHealthSample,
+  type DvrRingFlushCause,
   type DvrTapKind,
   type PresentedSample,
 } from '@/entrypoints/content/video/dvr/probe';
 import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoints/content/video/dvr/ringBudget';
 import { ATTR, getLogger, METRIC, metricsEnabled, recordCounter } from '@/utils/telemetry';
 
-import type { DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
+import type { DvrCaptureFrame, DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { IMaskingSettings } from '@/utils/types';
 
@@ -182,6 +183,7 @@ class Run implements DvrRun {
   private readonly covered: boolean;
 
   private lastCapturedMediaTime = Number.NEGATIVE_INFINITY;
+  private lastKnownSpanSec = 0;
   private lastTapMediaTime = Number.NEGATIVE_INFINITY;
   private lastTapWallMs = Number.NEGATIVE_INFINITY;
   private captureSurface: OffscreenCanvas | null = null;
@@ -233,6 +235,7 @@ class Run implements DvrRun {
         this.demandEncoded = kind === 'encoded';
         surface.markStoreKind(kind);
         this.registerDemand();
+        this.probe?.ringFlushed('swap', this.lastCapturedMediaTime, this.lastCapturedMediaTime, this.lastKnownSpanSec);
       },
     });
     this.store = store;
@@ -251,6 +254,8 @@ class Run implements DvrRun {
             latencyP90Ms: () => latencyP90Ms(ctx.latenciesMs),
             audio: ports.audioHealth,
             now: () => surface.now(),
+            nativeWidth: () => surface.nativeWidth(),
+            nativeHeight: () => surface.nativeHeight(),
           })
         : null;
     const { probe } = this;
@@ -530,8 +535,7 @@ class Run implements DvrRun {
           const frame = new VideoFrame(tapFrame ?? surface.drawSource(), {
             timestamp: Math.round(mediaTime * 1_000_000),
           });
-          this.lastCapturedMediaTime = mediaTime;
-          this.store.push(frame, mediaTime);
+          this.pushToStore(frame, mediaTime);
           this.probe?.captured({
             totalMs: surface.now() - startedAt,
             drawMs: 0,
@@ -577,8 +581,7 @@ class Run implements DvrRun {
       // taint carried along) even for sources whose pixels we may not read.
       const bitmap = canvas.transferToImageBitmap();
       const transferEndedAt = surface.now();
-      this.lastCapturedMediaTime = mediaTime;
-      this.store.push(bitmap, mediaTime);
+      this.pushToStore(bitmap, mediaTime);
       this.probe?.captured({
         totalMs: surface.now() - startedAt,
         drawMs: drawEndedAt - drawStartedAt,
@@ -592,6 +595,27 @@ class Run implements DvrRun {
       tapFrame?.close();
     }
   }
+
+  private pushToStore(frame: DvrCaptureFrame, mediaTime: number): void {
+    const previousMediaTime = this.lastCapturedMediaTime;
+    this.lastCapturedMediaTime = mediaTime;
+    const { probe, store } = this;
+    if (!probe) {
+      store.push(frame, mediaTime);
+      return;
+    }
+    const flushesBefore = store.flushes();
+    const spanBefore = store.spanSec();
+    store.push(frame, mediaTime);
+    if (store.flushes() !== flushesBefore) {
+      probe.ringFlushed(flushCause(previousMediaTime, mediaTime), previousMediaTime, mediaTime, spanBefore);
+    }
+    this.lastKnownSpanSec = store.spanSec();
+  }
+}
+
+function flushCause(previousMediaTime: number, mediaTime: number): DvrRingFlushCause {
+  return mediaTime < previousMediaTime ? 'backstep' : 'store';
 }
 
 function capChangedMaterially(nextCap: number, registeredCap: number): boolean {

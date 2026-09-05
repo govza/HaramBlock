@@ -6,7 +6,7 @@
   "editable": true,
   "graphTooltip": 1,
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "time": {
     "from": "now-15m",
     "to": "now"
@@ -930,7 +930,7 @@
       "id": 9,
       "type": "logs",
       "title": "DVR anomaly dumps",
-      "description": "video.dvr.anomaly headers plus their video.dvr.tick records (last 5 s per dump, one dump per 10 s per session). Expand a line for hb.dvr.tick.* and the trace_id link.",
+      "description": "video.dvr.anomaly headers plus their video.dvr.tick records (last 5 s per dump, one dump per 10 s per session). Expand a line for hb.dvr.tick.* (outcome new|repeat|miss, pinned, ring_span_sec, media_delta - negative is a source backstep) and the trace_id link.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -1463,8 +1463,8 @@
     {
       "id": 33,
       "type": "timeseries",
-      "title": "Capture size (px)",
-      "description": "Width / height of the frame the DVR captures into the ring (hb.dvr.capture_width/height): the budget ladder tier actually applied. Native resolution on the encoded store.",
+      "title": "Capture vs native size (px)",
+      "description": "Width / height of the frame the DVR captures into the ring (hb.dvr.capture_width/height, the budget ladder tier actually applied) against the source geometry (hb.dvr.native_width/height). Capture above native is an upscale: wasted capture cost and ring bytes.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1518,6 +1518,26 @@
           "refId": "B",
           "expr": "hb_dvr_capture_height{hb_session_id=~\"$session\"}",
           "legendFormat": "{{hb_session_id}} height",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "hb_dvr_native_width{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} native width",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "D",
+          "expr": "hb_dvr_native_height{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} native height",
           "range": true
         }
       ]
@@ -1869,6 +1889,248 @@
       ]
     },
     {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Ring flushes / source backsteps per second (all sessions)",
+      "description": "hb.dvr.ring_flushes by cause (backstep: media time went backwards past the jitter tolerance; store: codec reconfiguration; swap: raw <-> encoded exchange) and hb.dvr.source_backsteps by size in frame intervals. A flush empties the ring: presentation pins until it spans D again (see pinned windows). Backsteps of 1-2 frames are the browser re-delivering an older frame, not a seek.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 94,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(hb_dvr_ring_flushes_total[$__rate_interval])) by (hb_browser, hb_dvr_store, hb_dvr_cause)",
+          "legendFormat": "flush {{hb_browser}}/{{hb_dvr_store}} {{hb_dvr_cause}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(rate(hb_dvr_source_backsteps_total[$__rate_interval])) by (hb_browser, hb_dvr_tap, hb_dvr_backstep_frames)",
+          "legendFormat": "backstep {{hb_browser}}/{{hb_dvr_tap}} {{hb_dvr_backstep_frames}} frames",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Pinned vs frozen windows per second (all sessions)",
+      "description": "hb.dvr.pinned_windows: active windows in which the presenter held the earliest buffered frame because the ring did not yet span D (warm-up, re-warm, or a mid-run flush refilling). hb.dvr.freeze_windows for comparison: a freeze that is not pinned is a decode / present problem, a pinned freeze is a ring refill.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 94,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(hb_dvr_pinned_windows_total[$__rate_interval])) by (hb_browser, hb_dvr_store, hb_dvr_tap)",
+          "legendFormat": "pinned {{hb_browser}}/{{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(rate(hb_dvr_freeze_windows_total[$__rate_interval])) by (hb_browser, hb_dvr_store, hb_dvr_tap)",
+          "legendFormat": "frozen {{hb_browser}}/{{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "DVR main-thread ms per second",
+      "description": "hb.dvr.main_thread_ms: capture + present time the DVR itself spent on the main thread per 1 s window (sum of the per-tick timings). 1000 is the whole budget; above ~400 the rVFC callbacks start arriving late and source frames are skipped. Sampler encode (Firefox WebP) is separate - see the sampler panel.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 102,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "hb_dvr_main_thread_ms{hb_session_id=~\"$session\"}",
+          "legendFormat": "{{hb_session_id}} {{hb_dvr_store}}/{{hb_dvr_tap}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "heatmap",
+      "title": "Main-thread loop lag (ms)",
+      "description": "hb.main_thread.loop_lag_ms: drift of a 250 ms setTimeout while any DVR presents, sampled in the foreground tab only. Works on Firefox, which has no longtask observer; there a lag > 100 ms also trips the long_task anomaly and the health definition.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 102,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "steps": 64
+        },
+        "yAxis": {
+          "unit": "ms",
+          "axisPlacement": "left"
+        },
+        "cellGap": 1,
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_main_thread_loop_lag_ms_bucket{hb_session_id=~\"$session\"}[$__rate_interval])) by (le)",
+          "legendFormat": "{{le}}",
+          "range": true,
+          "format": "heatmap"
+        }
+      ]
+    },
+    {
       "id": 10,
       "type": "logs",
       "title": "Session + DVR events",
@@ -1879,7 +2141,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 94,
+        "y": 110,
         "w": 24,
         "h": 9
       },
@@ -1910,7 +2172,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 103,
+        "y": 119,
         "w": 24,
         "h": 1
       },
@@ -1927,7 +2189,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 104,
+        "y": 120,
         "w": 12,
         "h": 8
       },
@@ -1989,7 +2251,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 104,
+        "y": 120,
         "w": 12,
         "h": 8
       },
@@ -2050,7 +2312,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 112,
+        "y": 128,
         "w": 12,
         "h": 8
       },
@@ -2101,7 +2363,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 112,
+        "y": 128,
         "w": 12,
         "h": 8
       },
@@ -2149,7 +2411,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 120,
+        "y": 136,
         "w": 24,
         "h": 1
       },
@@ -2166,7 +2428,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 121,
+        "y": 137,
         "w": 12,
         "h": 9
       },
@@ -2199,7 +2461,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 121,
+        "y": 137,
         "w": 12,
         "h": 9
       },

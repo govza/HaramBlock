@@ -193,6 +193,7 @@ export class EncodedFrameRing implements DvrFrameStore {
   private keyframeTimes: number[] = [];
   private chunkBytes = 0;
   private coveredMissCount = 0;
+  private flushCount = 0;
   private lastPushedMediaTime = Number.NEGATIVE_INFINITY;
   private lastKeyframeMediaTime = Number.NEGATIVE_INFINITY;
   private needKeyframe = true;
@@ -305,6 +306,10 @@ export class EncodedFrameRing implements DvrFrameStore {
 
   coveredMisses(): number {
     return this.coveredMissCount;
+  }
+
+  flushes(): number {
+    return this.flushCount;
   }
 
   spanSec(): number {
@@ -492,6 +497,7 @@ export class EncodedFrameRing implements DvrFrameStore {
    * keyframe.
    */
   private discontinuity(): void {
+    this.flushCount++;
     if (this.encoder && this.encoderConfig) {
       this.encoder.reset();
       this.encoder.configure(this.encoderConfig);
