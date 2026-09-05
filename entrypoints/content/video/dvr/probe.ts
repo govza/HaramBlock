@@ -8,7 +8,7 @@ import {
 import { generateNonce } from '@/utils/nonce';
 import { ATTR, getLogger, METRIC, recordGauge, recordHistogram } from '@/utils/telemetry';
 
-import type { DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
+import type { SessionFrameStore } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 
 const log = getLogger('dvrProbe');
 
@@ -18,21 +18,20 @@ const TICK_RING_CAPACITY = 400;
 
 export type DvrTapKind = 'tap' | 'rvfc';
 
+export type PresentOutcome = 'new' | 'repeat' | 'miss';
+
 export interface PresentedSample {
   mediaTime: number;
   targetTime: number;
   frameTimeServed: number;
-  repeat: boolean;
+  outcome: PresentOutcome;
   presentMs: number;
 }
 
 export interface DvrProbeOptions {
   sessionId: string;
-  tap: DvrTapKind;
-  storeKind: () => DvrStoreKind;
-  storeBytes: () => number;
-  storeSpanSec: () => number;
-  storeCoveredMisses: () => number;
+  tap: () => DvrTapKind;
+  store: SessionFrameStore;
   delaySec: () => number;
   now: () => number;
 }
@@ -74,6 +73,7 @@ export class DvrProbe {
   private windowPresented = 0;
   private windowRepeats = 0;
   private lastCaptureMs = 0;
+  private cachedAttributes: Record<string, string> | null = null;
   private presenting = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private unwatchLongTasks: (() => void) | null = null;
@@ -93,17 +93,17 @@ export class DvrProbe {
       this.presenting = true;
       this.unwatchLongTasks = watchLongTasks(this.onLongTask);
     }
-    if (!sample.repeat) this.windowPresented++;
-    else this.windowRepeats++;
+    if (sample.outcome === 'new') this.windowPresented++;
+    else if (sample.outcome === 'repeat') this.windowRepeats++;
     const record = this.ring.next();
     record.wallTs = this.opts.now();
     record.mediaTime = sample.mediaTime;
     record.targetTime = sample.targetTime;
     record.frameTimeServed = sample.frameTimeServed;
-    record.repeat = sample.repeat;
+    record.repeat = sample.outcome === 'repeat';
     record.captureMs = this.lastCaptureMs;
     record.presentMs = sample.presentMs;
-    record.storeCoveredMisses = this.opts.storeCoveredMisses();
+    record.storeCoveredMisses = this.opts.store.coveredMisses();
     recordHistogram(METRIC.dvrPresentMs, sample.presentMs, this.attributes());
   }
 
@@ -122,7 +122,9 @@ export class DvrProbe {
     if (!this.presenting) return;
     recordHistogram(METRIC.mainThreadLongTaskMs, durationMs, this.attributes());
     if (durationMs <= ANOMALY_LONG_TASK_MS) return;
-    this.dump(this.detector.observeLongTask(durationMs, this.opts.now()), { [ATTR.longTaskMs]: durationMs });
+    this.dump(this.detector.observeLongTask(durationMs, this.opts.now()), {
+      [ATTR.dvrAnomalyLongTaskMs]: durationMs,
+    });
   };
 
   private readonly flushWindow = (): void => {
@@ -138,18 +140,19 @@ export class DvrProbe {
     recordGauge(METRIC.dvrPresentedFps, presented, attributes);
     recordGauge(METRIC.dvrFrameRepeatRatio, ticks === 0 ? 0 : repeats / ticks, attributes);
     recordGauge(METRIC.dvrDelaySec, this.opts.delaySec(), attributes);
-    recordGauge(METRIC.dvrRingBytes, this.opts.storeBytes(), attributes);
-    recordGauge(METRIC.dvrRingSpanSec, this.opts.storeSpanSec(), attributes);
+    recordGauge(METRIC.dvrRingBytes, this.opts.store.bytes(), attributes);
+    recordGauge(METRIC.dvrRingSpanSec, this.opts.store.spanSec(), attributes);
     if (!this.presenting) return;
     this.dump(this.detector.observeWindow({ captured, presented, nowMs: this.opts.now() }));
   };
 
   private attributes(): Record<string, string> {
-    return {
-      [ATTR.sessionId]: this.opts.sessionId,
-      [ATTR.dvrStore]: this.opts.storeKind(),
-      [ATTR.dvrTap]: this.opts.tap,
-    };
+    const store = this.opts.store.kind();
+    const tap = this.opts.tap();
+    const cached = this.cachedAttributes;
+    if (cached && cached[ATTR.dvrStore] === store && cached[ATTR.dvrTap] === tap) return cached;
+    this.cachedAttributes = { [ATTR.sessionId]: this.opts.sessionId, [ATTR.dvrStore]: store, [ATTR.dvrTap]: tap };
+    return this.cachedAttributes;
   }
 
   private dump(cause: DvrAnomalyCause | null, extra: Record<string, number> = {}): void {

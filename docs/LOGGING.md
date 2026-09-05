@@ -4,8 +4,8 @@ HaramBlock instruments itself with OpenTelemetry. One structured logging API rep
 consola logger and the WideEvent pipeline; traces describe every inference round-trip; a few metrics
 summarise throughput. All of it lives in `utils/telemetry/`.
 
-Series: this is part 1 of 3 (infra + migration). Part 2 adds DVR instrumentation, part 3 the Grafana
-dashboard and collector setup.
+Series: part 1 (infra + migration) and part 2 (video session + DVR instrumentation, below) have
+landed; part 3 adds the Grafana dashboard and collector setup.
 
 ## Logging API
 
@@ -95,10 +95,42 @@ Umbrella: the content script emits one zero-length `page.session` anchor span pe
 Each round-trip links to it and carries `hb.session.trace_id`, so a page's traffic can be grouped
 without nesting.
 
-Video frames currently get a round-trip span with a single `inference.send` child (part 2 extends it
-to the DVR pipeline).
+Video frames get a round-trip span with a single `inference.send` child, plus
+`hb.media.timestamp_sec`. Every VideoSession also opens a `video.session` umbrella trace: its
+round-trips link to it (same `hb.session.trace_id` + span link shape as `page.session`) and each DVR
+start opens a `video.dvr.warmup` span under it that ends at `bufferReady` (`hb.status` =
+ready|aborted).
+
+## Video session + DVR events
+
+All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.dvr.tap` (tap|rvfc).
+
+- `video.session.transition` - every phase / DVR sub-state / audio-route change (`hb.session.from`,
+  `hb.session.to`, `hb.session.event`, `hb.session.dvr`, `hb.session.audio_route`).
+- `video.dvr.start` / `video.dvr.stop` - `hb.dvr.delay_sec`, `hb.dvr.covered`, `hb.dvr.reason` on
+  stop (the machine event that stopped it).
+- `video.dvr.delay_raised` - `hb.dvr.from_sec`, `hb.dvr.to_sec`, `hb.dvr.cause`
+  (verdict|store_stall).
+- `video.dvr.store_demoted`, `video.dvr.underrun`, `video.dvr.budget_degraded` /
+  `video.dvr.budget_recovered` (ladder step, `hb.budget.*`).
+- `video.audio.route` - `hb.audio.route.result` (attempt|delayLine|relay|deferred|unavailable).
+- `video.capture.failed` - `hb.capture.stage`, `hb.capture.permanent`.
+- `video.dvr.anomaly` + `video.dvr.tick` - the last 5 s of per-tick records (`hb.dvr.tick.*`),
+  dumped under one `hb.dvr.anomaly.id` when presented fps < 0.75 x captured over 2 s, a long task >
+  100 ms during playback, an analysis underrun, or a stall-driven D raise. One dump per 10 s per
+  session. Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`.
 
 ## Metrics
+
+Content scripts have no meter provider: `recordGauge` / `recordHistogram`
+(`utils/telemetry/metrics.ts`) forward metric records over the same RPC batch and the background
+owns the instruments (`exporters/metricInstruments.ts`; gauge samples expire 5 s after their last
+update). Metric names are declared once in `METRIC`. DVR metrics (per 1 s window, attrs
+`hb.session.id`, `hb.dvr.store`, `hb.dvr.tap`): gauges `hb.dvr.captured_fps`,
+`hb.dvr.presented_fps`, `hb.dvr.frame_repeat_ratio`, `hb.dvr.delay_sec`, `hb.dvr.ring_bytes`,
+`hb.dvr.ring_span_sec`; histograms `hb.dvr.capture_ms`, `hb.dvr.present_ms`,
+`hb.main_thread.long_task_ms` (while any DVR presents). `hb.inference.roundtrip_ms` (histogram,
+content) and `hb.inference.queue_depth` (gauge, background) cover the inference side.
 
 - `hb.inference.run.duration` (histogram, ms) - per task, by `hb.media.kind` / `hb.status`.
 - `hb.inference.requests` (counter) - by `hb.media.kind` / `hb.status` (success|error|cached).

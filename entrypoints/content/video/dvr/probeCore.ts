@@ -13,17 +13,20 @@ export interface FpsWindow {
 
 export class DvrAnomalyDetector {
   private lastDumpAt = Number.NEGATIVE_INFINITY;
-  private droppedWindows = 0;
+  private readonly recentWindows: FpsWindow[] = [];
 
   observeWindow(window: FpsWindow): DvrAnomalyCause | null {
-    if (window.captured <= 0) {
-      this.droppedWindows = 0;
-      return null;
+    this.recentWindows.push(window);
+    if (this.recentWindows.length < ANOMALY_FPS_WINDOWS) return null;
+    if (this.recentWindows.length > ANOMALY_FPS_WINDOWS) this.recentWindows.shift();
+    let captured = 0;
+    let presented = 0;
+    for (const recent of this.recentWindows) {
+      captured += recent.captured;
+      presented += recent.presented;
     }
-    const dropped = window.presented < window.captured * ANOMALY_FPS_RATIO;
-    this.droppedWindows = dropped ? this.droppedWindows + 1 : 0;
-    if (this.droppedWindows < ANOMALY_FPS_WINDOWS) return null;
-    this.droppedWindows = 0;
+    if (captured <= 0 || presented >= captured * ANOMALY_FPS_RATIO) return null;
+    this.recentWindows.length = 0;
     return this.signal('fps_drop', window.nowMs);
   }
 

@@ -22,6 +22,7 @@ import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPr
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
 import {
   createVideoSession,
+  type ReduceResult,
   reduce,
   type SessionEffect,
   type SessionEvent,
@@ -362,15 +363,24 @@ class VideoSessionRegistry {
   }
 
   private dispatch(handle: SessionHandle, event: SessionEvent): void {
-    const previous = handle.state;
-    const { state, effects } = reduce(previous, event);
-    handle.state = state;
-    this.logTransition(handle, previous, event);
+    const { effects } = this.reduceAndLog(handle, event);
     this.execute(handle, effects, event.type);
   }
 
-  private logTransition(handle: SessionHandle, previous: VideoSessionState, event: SessionEvent): void {
-    const next = handle.state;
+  private reduceAndLog(handle: SessionHandle, event: SessionEvent): ReduceResult & { previous: VideoSessionState } {
+    const previous = handle.state;
+    const { state, effects } = reduce(previous, event);
+    handle.state = state;
+    this.logTransition(handle, previous, state, event);
+    return { previous, state, effects };
+  }
+
+  private logTransition(
+    handle: SessionHandle,
+    previous: VideoSessionState,
+    next: VideoSessionState,
+    event: SessionEvent,
+  ): void {
     if (previous.phase === next.phase && previous.dvr === next.dvr && previous.audioRoute === next.audioRoute) return;
     log.info('video.session.transition', {
       [ATTR.sessionId]: handle.sessionId,
@@ -389,11 +399,8 @@ class VideoSessionRegistry {
     prediction: IFramePrediction,
     event: Extract<SessionEvent, { type: 'predictionReceived' }>,
   ): void {
-    const previous = handle.state;
+    const { previous, state, effects } = this.reduceAndLog(handle, event);
     const previousLastAppliedIndex = previous.lastAppliedIndex;
-    const { state, effects } = reduce(previous, event);
-    handle.state = state;
-    this.logTransition(handle, previous, event);
     if (event.unsafe && event.frameIndex > previousLastAppliedIndex && state.lastAppliedIndex === event.frameIndex) {
       // Set before executing effects: applyVerdict reads this synchronously.
       handle.lastUnsafePrediction = prediction;

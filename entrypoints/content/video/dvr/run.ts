@@ -14,13 +14,15 @@ import {
   type CreateDvrFrameStoreOptions,
   type SessionFrameStore,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
-import { DvrProbe, type PresentedSample } from '@/entrypoints/content/video/dvr/probe';
+import { DvrProbe, type DvrTapKind, type PresentedSample } from '@/entrypoints/content/video/dvr/probe';
 import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoints/content/video/dvr/ringBudget';
 import { ATTR, getLogger, metricsEnabled } from '@/utils/telemetry';
 
 import type { DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
 import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { IMaskingSettings } from '@/utils/types';
+
+declare const __HB_TELEMETRY_ENABLED__: boolean;
 
 const log = getLogger('dvrRun');
 
@@ -212,12 +214,23 @@ class Run implements DvrRun {
     this.demandEncoded = store.kind() === 'encoded';
     surface.markStoreKind(store.kind());
 
+    this.probe =
+      __HB_TELEMETRY_ENABLED__ && metricsEnabled()
+        ? new DvrProbe({
+            sessionId: ctx.sessionId,
+            tap: () => this.tapKind(),
+            store,
+            delaySec: () => this.delay,
+            now: () => surface.now(),
+          })
+        : null;
+    const { probe } = this;
     this.presenter = ports.presenter.create({
       store,
       timeline: ctx.timeline,
       getDelaySec: () => this.delay,
       onReady: () => ports.events({ type: 'bufferReady', at: surface.now() }),
-      onPresented: sample => this.probe?.presented(sample),
+      ...(probe ? { onPresented: (sample: PresentedSample) => probe.presented(sample) } : {}),
     });
 
     this.driver = ports.captureDriver((frame, mediaTime) => {
@@ -237,19 +250,11 @@ class Run implements DvrRun {
       this.lastTapWallMs = this.ports.surface.now();
       this.capture(frame, key);
     });
-    this.probe = metricsEnabled()
-      ? new DvrProbe({
-          sessionId: ctx.sessionId,
-          tap: this.driver ? 'tap' : 'rvfc',
-          storeKind: () => store.kind(),
-          storeBytes: () => store.bytes(),
-          storeSpanSec: () => store.spanSec(),
-          storeCoveredMisses: () => store.coveredMisses(),
-          delaySec: () => this.delay,
-          now: () => surface.now(),
-        })
-      : null;
     log.info('video.dvr.start', this.lifecycleAttributes());
+  }
+
+  private tapKind(): DvrTapKind {
+    return this.driver ? 'tap' : 'rvfc';
   }
 
   private lifecycleAttributes(): Record<string, string | number | boolean> {
@@ -258,7 +263,7 @@ class Run implements DvrRun {
       [ATTR.dvrDelaySec]: this.delay,
       [ATTR.dvrCovered]: this.covered,
       [ATTR.dvrStore]: this.store.kind(),
-      [ATTR.dvrTap]: this.driver ? 'tap' : 'rvfc',
+      [ATTR.dvrTap]: this.tapKind(),
     };
   }
 
@@ -366,7 +371,7 @@ class Run implements DvrRun {
     log.warn('video.dvr.underrun', {
       [ATTR.sessionId]: this.ctx.sessionId,
       [ATTR.dvrDelaySec]: this.delay,
-      coverageAheadSec,
+      [ATTR.dvrCoverageAheadSec]: coverageAheadSec,
     });
     this.probe?.signal('underrun');
     this.ports.events({ type: 'analysisUnderrun', at: this.ports.surface.now() });

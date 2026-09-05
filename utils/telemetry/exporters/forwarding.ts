@@ -40,7 +40,8 @@ export class TelemetryForwarder {
   }
 
   pushMetric = (record: TelemetryMetricRecord): void => {
-    this.metrics = this.bounded([...this.metrics, record]);
+    this.metrics.push(record);
+    if (this.metrics.length > this.maxBuffered) this.metrics.splice(0, this.metrics.length - this.maxBuffered);
     this.schedule(this.delayMs);
   };
 
