@@ -44,8 +44,14 @@ async function collectorReady() {
   }
 }
 
+const shell = process.platform === 'win32';
+
 function run(command, args) {
-  return spawnSync(command, args, { stdio: ['ignore', 'ignore', 'pipe'], shell: process.platform === 'win32' });
+  return spawnSync(command, args, { stdio: ['ignore', 'ignore', 'pipe'], shell });
+}
+
+function compose(args) {
+  return spawnSync(composeCommand, [...composePrefix, '-f', composeFile, ...args], { stdio: 'inherit', shell });
 }
 
 function resolveCompose() {
@@ -64,18 +70,14 @@ if (daemon.error || daemon.status !== 0) {
   fail('Docker is not available.');
 }
 
-const compose = resolveCompose();
-if (!compose) {
+const resolved = resolveCompose();
+if (!resolved) {
   fail('Neither `docker compose` nor `docker-compose` found.');
 }
-const [composeCommand, composePrefix] = compose;
+const [composeCommand, composePrefix] = resolved;
 
 if (down) {
-  const result = spawnSync(composeCommand, [...composePrefix, '-f', composeFile, 'down'], {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  });
-  process.exit(result.status ?? 1);
+  process.exit(compose(['down']).status ?? 1);
 }
 
 const up = run(composeCommand, [...composePrefix, '-f', composeFile, 'up', '-d', '--build']);
