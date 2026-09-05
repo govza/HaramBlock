@@ -46,7 +46,7 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
   let nowMs = 0;
   let tapDeliver: ((frame: VideoFrame, mediaTime: number) => void) | null = null;
   const driverStop = vi.fn();
-  const presenter = { startDrain: vi.fn(), destroy: vi.fn() };
+  const presenter = { isPlaybackActive: () => true, startDrain: vi.fn(), destroy: vi.fn() };
   const budget = {
     quality: () => FULL_QUALITY,
     sessionMaxBytes: () => 1024 * 1024 * 1024,
@@ -276,7 +276,7 @@ describe('DvrRun lifecycle', () => {
     expect(presenter.destroy).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(markStoreKind).toHaveBeenLastCalledWith(null);
-    expect(carry).toEqual({ stallFloorSec: 0, encodedIneligible: false });
+    expect(carry).toEqual({ stallFloorSec: 0, encodedIneligible: false, lastAnomalyAt: Number.NEGATIVE_INFINITY });
   });
 
   it('a covered range derives a small D and the stall floor from the context floors it', () => {
@@ -309,7 +309,7 @@ function makeHarnessWithTimeline(timeline: VerdictTimeline, stallFloorSec: numbe
     },
     createStore: () => store,
     captureDriver: () => null,
-    presenter: { create: () => ({ startDrain: () => {}, destroy: () => {} }) },
+    presenter: { create: () => ({ isPlaybackActive: () => true, startDrain: () => {}, destroy: () => {} }) },
   };
   const run = startDvrRun(ports, {
     sessionId: 'session-1',

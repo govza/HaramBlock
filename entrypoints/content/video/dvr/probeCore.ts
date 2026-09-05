@@ -12,7 +12,11 @@ export interface FpsWindow {
 }
 
 export class DvrAnomalyDetector {
-  private lastDumpAt = Number.NEGATIVE_INFINITY;
+  constructor(public lastDumpAt = Number.NEGATIVE_INFINITY) {}
+
+  resetWindows(): void {
+    this.recentWindows.length = 0;
+  }
   private readonly recentWindows: FpsWindow[] = [];
 
   observeWindow(window: FpsWindow): DvrAnomalyCause | null {

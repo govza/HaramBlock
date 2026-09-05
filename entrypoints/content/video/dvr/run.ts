@@ -69,6 +69,7 @@ export interface CaptureDriver {
 export type CaptureDriverPort = (onFrame: (frame: VideoFrame, mediaTime: number) => void) => CaptureDriver | null;
 
 export interface DvrPresenter {
+  isPlaybackActive(): boolean;
   startDrain(): void;
   destroy(): void;
 }
@@ -99,9 +100,11 @@ export interface DvrRunContext {
   readonly latenciesMs: readonly number[];
   readonly stallFloorSec: number;
   readonly encodedIneligible: boolean;
+  readonly lastAnomalyAt?: number;
 }
 
 export interface DvrRunCarry {
+  lastAnomalyAt: number;
   stallFloorSec: number;
   encodedIneligible: boolean;
 }
@@ -203,7 +206,12 @@ class Run implements DvrRun {
       onKindChange: kind => {
         if (this.stopped) return;
         if (this.demandEncoded && kind === 'raw') {
-          log.info('video.dvr.store_demoted', { [ATTR.sessionId]: ctx.sessionId, [ATTR.dvrDelaySec]: this.delay });
+          log.info('video.dvr.store_demoted', {
+            [ATTR.sessionId]: ctx.sessionId,
+            [ATTR.dvrDelaySec]: this.delay,
+            [ATTR.dvrStore]: kind,
+            [ATTR.dvrTap]: this.tapKind(),
+          });
         }
         this.demandEncoded = kind === 'encoded';
         surface.markStoreKind(kind);
@@ -218,6 +226,8 @@ class Run implements DvrRun {
       __HB_TELEMETRY_ENABLED__ && metricsEnabled()
         ? new DvrProbe({
             sessionId: ctx.sessionId,
+            lastAnomalyAt: ctx.lastAnomalyAt,
+            isPlaybackActive: () => this.presenter.isPlaybackActive(),
             tap: () => this.tapKind(),
             store,
             delaySec: () => this.delay,
@@ -298,7 +308,11 @@ class Run implements DvrRun {
       this.store.release();
       this.ports.surface.markStoreKind(null);
     }
-    return { stallFloorSec: this.stallFloorSec, encodedIneligible: this.encodedIneligible };
+    return {
+      stallFloorSec: this.stallFloorSec,
+      encodedIneligible: this.encodedIneligible,
+      lastAnomalyAt: this.probe?.lastAnomalyAt ?? this.ctx.lastAnomalyAt ?? Number.NEGATIVE_INFINITY,
+    };
   }
 
   /**
@@ -339,7 +353,7 @@ class Run implements DvrRun {
     if (targetSec > this.delay) {
       const stallDriven = stallTargetSec >= targetSec;
       log.info('video.dvr.delay_raised', {
-        [ATTR.sessionId]: this.ctx.sessionId,
+        ...this.lifecycleAttributes(),
         [ATTR.dvrFromSec]: this.delay,
         [ATTR.dvrToSec]: targetSec,
         [ATTR.dvrCause]: stallDriven ? 'store_stall' : 'verdict',
@@ -369,7 +383,7 @@ class Run implements DvrRun {
     // Reset so the post-relief window measures fresh verdicts before a second fire.
     this.underrunStreak = 0;
     log.warn('video.dvr.underrun', {
-      [ATTR.sessionId]: this.ctx.sessionId,
+      ...this.lifecycleAttributes(),
       [ATTR.dvrDelaySec]: this.delay,
       [ATTR.dvrCoverageAheadSec]: coverageAheadSec,
     });

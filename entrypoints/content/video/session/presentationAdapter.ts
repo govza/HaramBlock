@@ -85,6 +85,7 @@ export class PresentationAdapter {
         latenciesMs: handle.latenciesMs,
         stallFloorSec: handle.dvrStallFloorSec,
         encodedIneligible: handle.dvrEncodedIneligible,
+        lastAnomalyAt: handle.dvrLastAnomalyAt,
       },
     );
   }
@@ -98,6 +99,7 @@ export class PresentationAdapter {
     const carry = run.stop(reason);
     handle.dvrStallFloorSec = carry.stallFloorSec;
     handle.dvrEncodedIneligible = carry.encodedIneligible;
+    handle.dvrLastAnomalyAt = carry.lastAnomalyAt;
   }
 
   private endWarmup(handle: SessionHandle, outcome: 'ready' | 'aborted'): void {

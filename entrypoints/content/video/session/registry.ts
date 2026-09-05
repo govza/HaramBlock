@@ -167,6 +167,7 @@ class VideoSessionRegistry {
       timeline: new VerdictTimeline(),
       dvrStallFloorSec: 0,
       dvrEncodedIneligible: false,
+      dvrLastAnomalyAt: Number.NEGATIVE_INFINITY,
       pendingSamples: new Map(),
       latenciesMs: [],
       suspended: !isVideoNearViewport(video),
