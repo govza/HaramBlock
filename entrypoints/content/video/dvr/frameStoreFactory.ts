@@ -316,8 +316,8 @@ class SwappableFrameStore implements SessionFrameStore {
     return this.current.captureMode;
   }
 
-  push(frame: DvrCaptureFrame, mediaTime: number): void {
-    this.current.push(frame, mediaTime);
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean {
+    return this.current.push(frame, mediaTime);
   }
 
   frameAt(mediaTime: number): PresentableFrame | null {

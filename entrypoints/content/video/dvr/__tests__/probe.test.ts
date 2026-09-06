@@ -81,7 +81,9 @@ describe('DVR probe lifecycle', () => {
       kind: () => 'encoded',
       selectionReason: () => 'encoded' as const,
       demoteToRaw() {},
-      push() {},
+      push() {
+        return true;
+      },
       frameAt: () => null,
       coveredMisses: () => 0,
       flushes: () => 0,

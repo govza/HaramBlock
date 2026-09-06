@@ -600,17 +600,21 @@ class Run implements DvrRun {
     }
   }
 
+  /**
+   * The capture position only moves on an accepted frame: a stale-dropped
+   * frame that advanced it would seed the tap's forward nudge from a stale
+   * key, creeping duplicate pictures into the ring while currentTime stalls.
+   */
   private pushToStore(frame: DvrCaptureFrame, mediaTime: number): void {
     const previousMediaTime = this.lastCapturedMediaTime;
-    this.lastCapturedMediaTime = mediaTime;
     const { probe, store } = this;
     if (!probe) {
-      store.push(frame, mediaTime);
+      if (store.push(frame, mediaTime)) this.lastCapturedMediaTime = mediaTime;
       return;
     }
     const flushesBefore = store.flushes();
     const spanBefore = store.spanSec();
-    store.push(frame, mediaTime);
+    if (store.push(frame, mediaTime)) this.lastCapturedMediaTime = mediaTime;
     if (store.flushes() !== flushesBefore) {
       probe.ringFlushed(flushCause(previousMediaTime, mediaTime), previousMediaTime, mediaTime, spanBefore);
     }
