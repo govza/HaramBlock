@@ -80,6 +80,21 @@ describe('EncodedFrameRing', () => {
     ring.release();
   });
 
+  it('configures the decoder with the requested hardware preference', () => {
+    const codecs = createMockCodecs();
+    const ring = new EncodedFrameRing({
+      maxDurationSec: 5,
+      maxBytes: BIG,
+      codecs,
+      onFatalError: vi.fn(),
+      decoderHardwareAcceleration: 'prefer-software',
+    });
+    fill(ring, 0, 1);
+    ring.frameAt(0.5);
+    expect(codecs.decoders[0]?.lastConfig?.hardwareAcceleration).toBe('prefer-software');
+    ring.release();
+  });
+
   it('opens each GOP with a keyframe about every keyframe interval', () => {
     const { ring, codecs } = makeRing(10);
     fill(ring, 0, 3);

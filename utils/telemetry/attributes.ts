@@ -46,6 +46,7 @@ export const ATTR = {
   tickPresentMs: 'hb.dvr.tick.present_ms',
   tickPresentBaseMs: 'hb.dvr.tick.present_base_ms',
   tickPresentMaskMs: 'hb.dvr.tick.present_mask_ms',
+  tickPresentSource: 'hb.dvr.tick.present_source',
   tickStoreLookahead: 'hb.dvr.tick.store_lookahead',
   tickStoreCoveredMisses: 'hb.dvr.tick.store_covered_misses',
   tickWallTs: 'hb.dvr.tick.wall_ts',

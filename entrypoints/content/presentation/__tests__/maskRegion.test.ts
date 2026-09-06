@@ -5,6 +5,7 @@ import {
   maskCellBounds,
   padAndClampRect,
   rectCovers,
+  toDevicePixels,
   unionRects,
 } from '@/entrypoints/content/presentation/maskRegion';
 
@@ -67,5 +68,18 @@ describe('unionRects / rectCovers', () => {
   it('reports whether the content rect covers the whole canvas', () => {
     expect(rectCovers({ offsetX: 0, offsetY: 0, width: 640, height: 360 }, 640, 360)).toBe(true);
     expect(rectCovers({ offsetX: 0, offsetY: 40, width: 640, height: 280 }, 640, 360)).toBe(false);
+  });
+});
+
+describe('toDevicePixels', () => {
+  it('snaps a CSS rect to whole device pixels without drifting its far edge', () => {
+    const device = toDevicePixels({ offsetX: 0.3, offsetY: 10.7, width: 864.5, height: 486.2 }, 2.22);
+    expect(device).toEqual({ offsetX: 1, offsetY: 24, width: 1919, height: 1079 });
+    expect(device.offsetX + device.width).toBe(Math.round((0.3 + 864.5) * 2.22));
+  });
+
+  it('is the identity at dpr 1 on whole pixels', () => {
+    const rect = { offsetX: 0, offsetY: 40, width: 640, height: 280 };
+    expect(toDevicePixels(rect, 1)).toEqual(rect);
   });
 });

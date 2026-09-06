@@ -5,6 +5,7 @@ import {
   ENCODED_SESSION_CAP,
   createDvrFrameStore,
   isEncodedDvrRingEnabled,
+  decoderHardwarePreference,
   probeHardwarePreference,
   selectStoreKind,
   setEncodedDvrRingEnabled,
@@ -65,6 +66,16 @@ describe('probeHardwarePreference', () => {
 
   it('accepts the off-main-thread software encoder on Firefox, where prefer-hardware means require', () => {
     expect(probeHardwarePreference(true)).toBe('no-preference');
+  });
+});
+
+describe('decoderHardwarePreference', () => {
+  it('asks Firefox for software decoding so drawn frames skip the GPU readback', () => {
+    expect(decoderHardwarePreference(true)).toBe('prefer-software');
+  });
+
+  it('leaves the decoder choice to browsers with a GPU draw path', () => {
+    expect(decoderHardwarePreference(false)).toBeUndefined();
   });
 });
 

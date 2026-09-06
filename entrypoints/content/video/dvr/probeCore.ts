@@ -80,6 +80,8 @@ export class DvrAnomalyDetector {
 
 export type PresentOutcome = 'new' | 'repeat' | 'miss';
 
+export type PresentSource = 'none' | 'live' | 'bitmap' | 'video-frame' | 'other';
+
 export interface DvrTickRecord {
   wallTs: number;
   wallGapMs: number;
@@ -94,6 +96,7 @@ export interface DvrTickRecord {
   presentMs: number;
   presentBaseMs: number;
   presentMaskMs: number;
+  presentSource: PresentSource;
   storeCoveredMisses: number;
   storeLookahead: number;
 }
@@ -112,6 +115,7 @@ const emptyRecord = (): DvrTickRecord => ({
   presentMs: 0,
   presentBaseMs: 0,
   presentMaskMs: 0,
+  presentSource: 'none',
   storeCoveredMisses: 0,
   storeLookahead: 0,
 });

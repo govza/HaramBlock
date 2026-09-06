@@ -79,7 +79,7 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
     scriptUrl = URL.createObjectURL(new Blob([CONVERTER_WORKER_SOURCE], { type: 'text/javascript' }));
     worker = new Worker(scriptUrl);
   } catch (error) {
-    log.debug('dvr.frame_converter.unavailable', { error });
+    log.warn('dvr.frame_converter.unavailable', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
   const pending = new Map<number, PendingConversion>();

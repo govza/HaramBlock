@@ -81,3 +81,14 @@ export function rectCovers(rect: ContentRect, width: number, height: number): bo
     rect.offsetX <= 0 && rect.offsetY <= 0 && rect.offsetX + rect.width >= width && rect.offsetY + rect.height >= height
   );
 }
+
+export function toDevicePixels(rect: ContentRect, dpr: number): ContentRect {
+  const offsetX = Math.round(rect.offsetX * dpr);
+  const offsetY = Math.round(rect.offsetY * dpr);
+  return {
+    offsetX,
+    offsetY,
+    width: Math.round((rect.offsetX + rect.width) * dpr) - offsetX,
+    height: Math.round((rect.offsetY + rect.height) * dpr) - offsetY,
+  };
+}

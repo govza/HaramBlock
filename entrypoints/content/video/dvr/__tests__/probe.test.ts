@@ -25,6 +25,7 @@ const sample: PresentedSample = {
   presentMs: 3,
   presentBaseMs: 2,
   presentMaskMs: 1,
+  presentSource: 'bitmap',
 };
 
 describe('DVR probe lifecycle', () => {
