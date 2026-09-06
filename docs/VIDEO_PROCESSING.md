@@ -177,8 +177,9 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
 - **Frame ticker**: `requestVideoFrameCallback` — fires only when a new frame is actually presented
   (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
   `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
-  later `video.currentTime`. An rAF loop gated on playback state is the fallback for engines without
-  rVFC.
+  later `video.currentTime`. Firefox keeps counting `mediaTime` across a native loop (past the
+  duration), so the ticker folds it back by whole durations (`foldLoopedMediaTime`) before the DVR
+  ring keys on it. An rAF loop gated on playback state is the fallback for engines without rVFC.
 - **Viewport lifecycle**: a shared `IntersectionObserver` keeps sessions within 400 px of the
   viewport active. Scrolled-away videos retain their verdict state but stop their frame ticker and
   release any DVR player, audio delay, and frame ring. Leaving the margin only suspends after a 1 s
