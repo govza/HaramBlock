@@ -5,6 +5,7 @@ import {
   ENCODED_SESSION_CAP,
   createDvrFrameStore,
   isEncodedDvrRingEnabled,
+  probeHardwarePreference,
   selectStoreKind,
   setEncodedDvrRingEnabled,
   type EncodedSessionSlots,
@@ -54,6 +55,16 @@ function storeOptions(overrides: Partial<Parameters<typeof createDvrFrameStore>[
 async function settle(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0));
 }
+
+describe('probeHardwarePreference', () => {
+  it('requires hardware on browsers where prefer-hardware is a soft preference', () => {
+    expect(probeHardwarePreference(false)).toBe('prefer-hardware');
+  });
+
+  it('accepts the off-main-thread software encoder on Firefox, where prefer-hardware means require', () => {
+    expect(probeHardwarePreference(true)).toBe('no-preference');
+  });
+});
 
 describe('selectStoreKind matrix', () => {
   it.each([

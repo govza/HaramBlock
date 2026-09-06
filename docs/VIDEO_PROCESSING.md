@@ -307,25 +307,27 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
 - **`play`** → `startDvr`: the presentation adapter derives and latches `D`, registers the session's
   demand with the global ring budget, and creates a `DvrFrameStore` via the frame-store factory: a
   raw ImageBitmap ring immediately (capped at ~30 fps by the budget ladder's tier), upgraded
-  in-place to the WebCodecs-encoded ring when the async hardware probe passes (native-resolution
-  `VideoFrame` captures at the source's **native frame rate**, bitrate-shaped demand, ~50-100x
-  smaller; the upgrade flush re-warms like a seek). Ring capture is driven by a full-rate **capture
-  tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame,
-  keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — rVFC alone
-  misses frames on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever
-  the tap is absent or stalls (media-time liveness window, no explicit health protocol). The intent
-  split: **inference samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while
-  **presented frames are full video frames at the native rate** when the encoded store carries the
-  ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
-  codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
-  is whole-blurred: the DOM overlay of an already-masked session would lag the moving content, a
-  verdict-less session simply keeps its attachment blur, and a safe-verdicted session is covered too
-  because the pinned earliest frame is no cover until the player has captured a frame and injected
-  its canvas — the native element renders live for those first ticks. `bufferReady` lifts it as soon
-  as the canvas takes over, and a clean playback verdict is the escape when capture never succeeds.
-  The one uncovered case is a deliberately allowed session (status `skipped`), whose finalize
-  cleared the blur on purpose. The session's Verdict Timeline (every playback verdict, keyed by
-  `timestampSec`) already exists on the handle and is shared with the player read-only.
+  in-place to the WebCodecs-encoded ring when the async WebCodecs probe passes (`prefer-hardware` on
+  Chrome; `no-preference` on Firefox, whose release builds expose no hardware encoder and run the
+  software encoder off the main thread in a media process) (native-resolution `VideoFrame` captures
+  at the source's **native frame rate**, bitrate-shaped demand, ~50-100x smaller; the upgrade flush
+  re-warms like a seek). Ring capture is driven by a full-rate **capture tap** (`dvr/captureTap.ts`:
+  `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame, keyed by `video.currentTime`
+  at delivery) with the rVFC tick as the standing fallback — rVFC alone misses frames on 60 fps
+  sources (~43/60 observed), and it resumes capturing automatically whenever the tap is absent or
+  stalls (media-time liveness window, no explicit health protocol). The intent split: **inference
+  samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while **presented frames
+  are full video frames at the native rate** when the encoded store carries the ring. The active
+  path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a codec error swaps
+  back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up is whole-blurred:
+  the DOM overlay of an already-masked session would lag the moving content, a verdict-less session
+  simply keeps its attachment blur, and a safe-verdicted session is covered too because the pinned
+  earliest frame is no cover until the player has captured a frame and injected its canvas — the
+  native element renders live for those first ticks. `bufferReady` lifts it as soon as the canvas
+  takes over, and a clean playback verdict is the escape when capture never succeeds. The one
+  uncovered case is a deliberately allowed session (status `skipped`), whose finalize cleared the
+  blur on purpose. The session's Verdict Timeline (every playback verdict, keyed by `timestampSec`)
+  already exists on the handle and is shared with the player read-only.
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out. While the buffer is
   still shorter than `D`, presentation pins on the earliest buffered frame — whole-blurred until a

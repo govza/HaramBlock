@@ -130,8 +130,8 @@ plays (zero active windows), so an idle dashboard is never green.
   the element's `videoWidth` / `videoHeight`. Capture above native is an upscale: wasted capture
   cost and ring bytes. Native at 0 means the DVR started before metadata.
 - _Capture draw / Capture transfer_ - the raw-store capture cost split into drawImage and
-  transferToImageBitmap (both 0 on the encoded store). Firefox is raw-only, so this is where its
-  per-frame main-thread cost shows.
+  transferToImageBitmap (both 0 on the encoded store). On Firefox the raw store is the fallback when
+  the software-encoder probe fails, and this is where its per-frame main-thread cost shows.
 - _Frame delivery gap (ms)_ - wall gap between new-frame deliveries. Bands above the frame interval
   are callbacks held back by main-thread work; Firefox has no `longtask` observer, so this panel
   stands in for _Main-thread long tasks_ there.
