@@ -65,10 +65,10 @@ export function decodedFrameConverterFactoryFor(isFirefox: boolean): DecodedFram
 export function createWorkerFrameConverter(): DecodedFrameConverter | null {
   if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
   let worker: Worker;
+  let scriptUrl: string;
   try {
-    const url = URL.createObjectURL(new Blob([CONVERTER_WORKER_SOURCE], { type: 'text/javascript' }));
-    worker = new Worker(url);
-    URL.revokeObjectURL(url);
+    scriptUrl = URL.createObjectURL(new Blob([CONVERTER_WORKER_SOURCE], { type: 'text/javascript' }));
+    worker = new Worker(scriptUrl);
   } catch (error) {
     log.debug('dvr.frame_converter.unavailable', { error });
     return null;
@@ -78,6 +78,10 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
   let failed = false;
   let released = false;
 
+  const shutDown = () => {
+    worker.terminate();
+    URL.revokeObjectURL(scriptUrl);
+  };
   const failAllPending = () => {
     const stranded = [...pending.values()];
     pending.clear();
@@ -97,7 +101,7 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
     if (failed) return;
     failed = true;
     log.debug('dvr.frame_converter.failed', { detail: event.message });
-    worker.terminate();
+    shutDown();
     failAllPending();
   };
 
@@ -120,7 +124,7 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
     release: () => {
       if (released) return;
       released = true;
-      worker.terminate();
+      if (!failed) shutDown();
       failAllPending();
     },
   };
