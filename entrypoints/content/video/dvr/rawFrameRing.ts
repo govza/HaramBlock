@@ -183,6 +183,10 @@ export class RawFrameRing implements DvrFrameStore {
     return this.ring.flushes();
   }
 
+  lookaheadFrames(): number {
+    return 0;
+  }
+
   spanSec(): number {
     return this.ring.spanSec();
   }

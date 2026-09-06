@@ -33,6 +33,7 @@ function makeStore(): SessionFrameStore & { misses: number } {
     push: () => true,
     frameAt: () => null,
     coveredMisses: () => store.misses,
+    lookaheadFrames: () => 0,
     flushes: () => 0,
     spanSec: () => 0,
     oldestTime: () => null,

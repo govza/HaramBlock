@@ -97,6 +97,11 @@ export interface DvrFrameStore {
    * Never resets — readers diff successive values.
    */
   flushes(): number;
+  /**
+   * Frames decoded (or being converted) but not yet presented: how far the
+   * presentation pipeline runs ahead of the cursor. Always 0 on the raw ring.
+   */
+  lookaheadFrames(): number;
   /** Media-time span currently buffered (0 with fewer than two frames). */
   spanSec(): number;
   /** Media time of the earliest buffered frame; null while empty. */

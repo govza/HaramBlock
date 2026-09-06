@@ -347,6 +347,10 @@ class SwappableFrameStore implements SessionFrameStore {
     return this.flushBase + this.current.flushes();
   }
 
+  lookaheadFrames(): number {
+    return this.current.lookaheadFrames();
+  }
+
   spanSec(): number {
     return this.current.spanSec();
   }
