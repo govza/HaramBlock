@@ -62,12 +62,6 @@ const NONE_REDRAWS_PER_SEC = 30;
 const PRESENTED_CATCH_UP_RATE = 1.05;
 
 /**
- * The base canvas scales smoothly: buffered frames below display resolution
- * (budget degradation) must interpolate, not nearest-neighbour into visible
- * blocks. The mask canvas keeps pixelated scaling — its blockiness is the
- * masking effect itself.
- */
-/**
  * Firefox accelerates displayed canvases by default, which turns every draw
  * of the converter worker's CPU bitmap into a full-frame texture upload on the
  * main thread; a software canvas copies it instead.
@@ -76,6 +70,12 @@ const PRESENT_CONTEXT_OPTIONS: CanvasRenderingContext2DSettings | undefined = im
   ? { willReadFrequently: true }
   : undefined;
 
+/**
+ * The base canvas scales smoothly: buffered frames below display resolution
+ * (budget degradation) must interpolate, not nearest-neighbour into visible
+ * blocks. The mask canvas keeps pixelated scaling — its blockiness is the
+ * masking effect itself.
+ */
 const CANVAS_STYLE = ['position: absolute', 'top: 0', 'left: 0', 'pointer-events: none'].join('; ');
 const MASK_CANVAS_STYLE = [CANVAS_STYLE, 'image-rendering: pixelated', 'image-rendering: crisp-edges'].join('; ');
 
@@ -686,6 +686,12 @@ function clampToOldest(mediaTime: number, oldest: number | null): number {
   return oldest === null ? mediaTime : Math.max(mediaTime, oldest);
 }
 
+function presentSourceKind(source: CanvasImageSource): PresentSource {
+  if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) return 'bitmap';
+  if (typeof VideoFrame !== 'undefined' && source instanceof VideoFrame) return 'video-frame';
+  return 'other';
+}
+
 /**
  * Device-pixel ratio to back the presentation canvases with, capped so the
  * backing store never exceeds the buffered frame's own resolution: past that
@@ -693,12 +699,6 @@ function clampToOldest(mediaTime: number, oldest: number | null): number {
  * rates. Never below 1 (a CSS-pixel store stays the floor), and the live
  * fallback keeps the true ratio — its source is the native element.
  */
-function presentSourceKind(source: CanvasImageSource): PresentSource {
-  if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) return 'bitmap';
-  if (typeof VideoFrame !== 'undefined' && source instanceof VideoFrame) return 'video-frame';
-  return 'other';
-}
-
 function frameCappedDpr(frame: PresentableFrame | null, contentWidth: number): number {
   const dpr = globalThis.devicePixelRatio || 1;
   if (!frame || contentWidth <= 0) return dpr;
