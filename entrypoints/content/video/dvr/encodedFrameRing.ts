@@ -19,6 +19,8 @@ import {
 } from '@/entrypoints/content/video/dvr/frameStore';
 import { getLogger } from '@/utils/telemetry';
 
+import type { DecodedFrameConverter } from '@/entrypoints/content/video/dvr/decodedFrameConverter';
+
 const log = getLogger('encodedFrameRing');
 
 /** Force a keyframe about once a second: the eviction and warm-start granularity. */
@@ -173,8 +175,13 @@ export interface EncodedFrameRingOptions {
    * marks it webcodecs-ineligible for its lifetime.
    */
   onFatalError: (error: unknown) => void;
+  convertDecoded?: DecodedFrameConverter | null;
 }
 
+function presentableSource(frame: DecodedRingFrame): CanvasImageSource {
+  if ('source' in frame) return (frame as { source: CanvasImageSource }).source;
+  return frame as unknown as CanvasImageSource;
+}
 export class EncodedFrameRing implements DvrFrameStore {
   readonly captureMode = 'video-frame';
 
@@ -182,6 +189,7 @@ export class EncodedFrameRing implements DvrFrameStore {
   private maxBytes: number;
   private readonly codecs: EncodedRingCodecs;
   private readonly onFatalError: (error: unknown) => void;
+  private readonly convertDecoded: DecodedFrameConverter | null;
 
   private encoder: RingEncoder | null = null;
   private encoderConfig: VideoEncoderConfig | null = null;
@@ -201,6 +209,10 @@ export class EncodedFrameRing implements DvrFrameStore {
 
   /** Decoded lookahead, ordered by timestamp; [0] is the presentation candidate after trimming. */
   private decoded: DecodedRingFrame[] = [];
+  /** Conversions in flight between the decoder and `decoded`: lookahead budget already spent. */
+  private converting = 0;
+  /** Bumped whenever `decoded` is cleared, so a conversion from before the clear is discarded on landing. */
+  private decodedGeneration = 0;
   private cursor: DecodeCursor | null = null;
   /** Media time of the last chunk fed to the decoder; gauges how far decode trails the target. */
   private lastQueuedMediaTime: number | null = null;
@@ -213,6 +225,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     this.maxBytes = options.maxBytes;
     this.codecs = options.codecs;
     this.onFatalError = options.onFatalError;
+    this.convertDecoded = options.convertDecoded ?? null;
   }
 
   push(frame: DvrCaptureFrame, mediaTime: number): boolean {
@@ -304,7 +317,7 @@ export class EncodedFrameRing implements DvrFrameStore {
       return null;
     }
     return {
-      source: candidate as unknown as CanvasImageSource,
+      source: presentableSource(candidate),
       width: candidate.displayWidth,
       height: candidate.displayHeight,
       mediaTime: candidate.timestamp / MICROS_PER_SEC,
@@ -353,6 +366,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     this.released = true;
     this.teardownCodecs();
     this.clearStorage();
+    this.convertDecoded?.release();
   }
 
   private ensureEncoder(width: number, height: number): RingEncoder {
@@ -418,7 +432,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     const decoder = this.ensureDecoder();
     if (!decoder) return;
     const aheadDecoded = this.decoded.filter(frame => frame.timestamp > targetMicros).length;
-    let inFlightBudget = DECODE_LOOKAHEAD_FRAMES - aheadDecoded - decoder.decodeQueueSize;
+    let inFlightBudget = DECODE_LOOKAHEAD_FRAMES - aheadDecoded - decoder.decodeQueueSize - this.converting;
     while (inFlightBudget > 0 && decoder.decodeQueueSize < DECODE_QUEUE_CAP) {
       const entry = cursor.gop.chunks[cursor.chunkIndex];
       if (!entry) {
@@ -487,6 +501,24 @@ export class EncodedFrameRing implements DvrFrameStore {
       frame.close();
       return;
     }
+    if (!this.convertDecoded) {
+      this.admitDecoded(frame);
+      return;
+    }
+    const generation = this.decodedGeneration;
+    this.converting++;
+    this.convertDecoded.convert(frame, converted => {
+      this.converting--;
+      if (!converted) return;
+      if (this.released || this.failed || generation !== this.decodedGeneration) {
+        converted.close();
+        return;
+      }
+      this.admitDecoded(converted);
+    });
+  }
+
+  private admitDecoded(frame: DecodedRingFrame): void {
     // Outputs arrive in decode (= presentation, no B-frames in realtime avc)
     // order; a stale frame racing a rewarm reset would break the ordering
     // invariant, so drop anything not newer than the current tail.
@@ -560,6 +592,7 @@ export class EncodedFrameRing implements DvrFrameStore {
       frame.close();
     }
     this.decoded = [];
+    this.decodedGeneration++;
   }
 
   private fail(error: unknown): void {
