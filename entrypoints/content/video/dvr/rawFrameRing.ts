@@ -54,15 +54,15 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
    * content no longer precedes the live edge, so the ring flushes. A
    * sub-tolerance backwards step or duplicate timestamp is a re-delivered
    * stale frame (Firefox rVFC re-ordering), not a seek: the frame is dropped
-   * and the buffer retained.
+   * and the buffer retained. Returns whether the frame was stored.
    */
-  push(frame: RingFrame<B>): void {
+  push(frame: RingFrame<B>): boolean {
     const newest = this.frames.at(-1);
     if (newest && frame.mediaTime <= newest.mediaTime) {
       if (isStaleBackstep(newest.mediaTime, frame.mediaTime, this.consecutiveStaleDrops)) {
         this.consecutiveStaleDrops++;
         frame.bitmap.close();
-        return;
+        return false;
       }
       this.flush();
       this.flushCount++;
@@ -71,6 +71,7 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
     this.frames.push(frame);
     this.totalBytes += frame.bitmap.width * frame.bitmap.height * BYTES_PER_PIXEL;
     this.evict();
+    return true;
   }
 
   /** Latest frame at or before `mediaTime`; null when the buffer does not reach back that far. */
@@ -154,12 +155,12 @@ export class RawFrameRing implements DvrFrameStore {
     this.ring = new FrameRing(maxDurationSec, maxBytes);
   }
 
-  push(frame: DvrCaptureFrame, mediaTime: number): void {
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean {
     if ('displayWidth' in frame) {
       frame.close();
-      return;
+      return false;
     }
-    this.ring.push({ bitmap: frame, mediaTime });
+    return this.ring.push({ bitmap: frame, mediaTime });
   }
 
   frameAt(mediaTime: number): PresentableFrame | null {

@@ -215,12 +215,12 @@ export class EncodedFrameRing implements DvrFrameStore {
     this.onFatalError = options.onFatalError;
   }
 
-  push(frame: DvrCaptureFrame, mediaTime: number): void {
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean {
     if (this.released || this.failed || !('displayWidth' in frame)) {
       // An ImageBitmap here is a swap-race tick (the factory just exchanged a
       // raw store for this one); one dropped capture is harmless.
       frame.close();
-      return;
+      return false;
     }
     try {
       // A backwards jump (seek/loop restart) or a mid-run resolution change
@@ -236,7 +236,7 @@ export class EncodedFrameRing implements DvrFrameStore {
       if (mediaTime <= this.lastPushedMediaTime) {
         if (isStaleBackstep(this.lastPushedMediaTime, mediaTime, this.consecutiveStaleDrops)) {
           this.consecutiveStaleDrops++;
-          return;
+          return false;
         }
         this.discontinuity();
       }
@@ -245,7 +245,7 @@ export class EncodedFrameRing implements DvrFrameStore {
       if (encoder.encodeQueueSize > ENCODE_QUEUE_CAP) {
         // Backpressure: drop the tick rather than queueing behind a slow encoder.
         frame.close();
-        return;
+        return false;
       }
       const keyFrame = this.needKeyframe || mediaTime - this.lastKeyframeMediaTime >= ENCODED_KEYFRAME_INTERVAL_SEC;
       if (keyFrame) {
@@ -254,8 +254,10 @@ export class EncodedFrameRing implements DvrFrameStore {
       }
       encoder.encode(frame, { keyFrame });
       this.lastPushedMediaTime = mediaTime;
+      return true;
     } catch (error) {
       this.fail(error);
+      return false;
     } finally {
       frame.close();
     }

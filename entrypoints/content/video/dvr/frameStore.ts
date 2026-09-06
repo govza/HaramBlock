@@ -70,9 +70,11 @@ export interface DvrFrameStore {
    * backwards jump in media time beyond STALE_FRAME_TOLERANCE_SEC is a
    * discontinuity — the store flushes its buffer and any codec state; a
    * sub-tolerance backwards or duplicate frame is a re-delivered stale frame,
-   * dropped with the buffer retained.
+   * dropped with the buffer retained. Returns whether the frame was accepted;
+   * a dropped frame (stale, backpressure, swap race) must not advance the
+   * caller's capture position.
    */
-  push(frame: DvrCaptureFrame, mediaTime: number): void;
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean;
   /**
    * Latest decodable frame at or before `mediaTime`, or null when not (yet)
    * available. Synchronous: the encoded store serves it from its decode-ahead
