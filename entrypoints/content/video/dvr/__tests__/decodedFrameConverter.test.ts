@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CONVERSION_TIMEOUT_MS,
   createWorkerFrameConverter,
   decodedFrameConverterFactoryFor,
 } from '@/entrypoints/content/video/dvr/decodedFrameConverter';
@@ -147,5 +148,52 @@ describe('createWorkerFrameConverter', () => {
     const late = fakeBitmap();
     worker.reply(0, late);
     expect(late.closed).toBe(true);
+  });
+});
+
+describe('createWorkerFrameConverter watchdog', () => {
+  it('a worker that stops answering fails over: stranded frames are nulled, later frames pass through', () => {
+    vi.useFakeTimers();
+    try {
+      installFakeWorker();
+      const converter = createWorkerFrameConverter()!;
+      const worker = FakeWorker.instances[0]!;
+      const stranded = [vi.fn(), vi.fn()];
+      converter.convert(decodedFrame(1), stranded[0]!);
+      vi.advanceTimersByTime(CONVERSION_TIMEOUT_MS / 2);
+      converter.convert(decodedFrame(2), stranded[1]!);
+      vi.advanceTimersByTime(CONVERSION_TIMEOUT_MS / 2 - 1);
+      expect(worker.terminated).toBe(false);
+
+      vi.advanceTimersByTime(2);
+      expect(worker.terminated).toBe(true);
+      expect(stranded[0]).toHaveBeenCalledWith(null);
+      expect(stranded[1]).toHaveBeenCalledWith(null);
+
+      const later = decodedFrame(3);
+      const passedThrough = vi.fn();
+      converter.convert(later, passedThrough);
+      expect(passedThrough).toHaveBeenCalledWith(later);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a worker that keeps answering never trips the watchdog', () => {
+    vi.useFakeTimers();
+    try {
+      installFakeWorker();
+      const converter = createWorkerFrameConverter()!;
+      const worker = FakeWorker.instances[0]!;
+      for (let i = 0; i < 5; i++) {
+        converter.convert(decodedFrame(i), vi.fn());
+        vi.advanceTimersByTime(CONVERSION_TIMEOUT_MS / 2);
+        worker.reply(worker.posted[i]!.id, fakeBitmap());
+      }
+      vi.advanceTimersByTime(CONVERSION_TIMEOUT_MS * 2);
+      expect(worker.terminated).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

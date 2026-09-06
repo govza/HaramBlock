@@ -17,6 +17,14 @@ export interface DecodedFrameConverter {
 
 export type DecodedFrameConverterFactory = () => DecodedFrameConverter | null;
 
+/**
+ * A worker that stops answering (a GPU-backed frame's readback wedging on
+ * the worker thread fires no error event) would hold the ring's whole decode
+ * lookahead in flight forever; past this, the converter gives up on the
+ * worker and the ring draws decoded frames on the main thread instead.
+ */
+export const CONVERSION_TIMEOUT_MS = 1000;
+
 const CONVERTER_WORKER_SOURCE = [
   'let canvas = null;',
   'let ctx = null;',
@@ -40,6 +48,7 @@ const CONVERTER_WORKER_SOURCE = [
 
 interface PendingConversion {
   readonly timestamp: number;
+  readonly sentAt: number;
   readonly onConverted: ConvertedFrameHandler;
 }
 
@@ -77,8 +86,11 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
   let nextId = 0;
   let failed = false;
   let released = false;
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
 
   const shutDown = () => {
+    if (watchdog !== null) clearTimeout(watchdog);
+    watchdog = null;
     worker.terminate();
     URL.revokeObjectURL(scriptUrl);
   };
@@ -87,23 +99,39 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
     pending.clear();
     for (const conversion of stranded) conversion.onConverted(null);
   };
+  const fail = (detail: string) => {
+    if (failed) return;
+    failed = true;
+    log.warn('dvr.frame_converter.failed', { detail, pending: pending.size });
+    shutDown();
+    failAllPending();
+  };
+  const armWatchdog = () => {
+    if (watchdog !== null) clearTimeout(watchdog);
+    watchdog = null;
+    const oldest = pending.values().next().value;
+    if (!oldest) return;
+    const remainingMs = Math.max(0, oldest.sentAt + CONVERSION_TIMEOUT_MS - performance.now());
+    watchdog = setTimeout(() => {
+      watchdog = null;
+      const stillOldest = pending.values().next().value;
+      if (!stillOldest) return;
+      if (performance.now() - stillOldest.sentAt >= CONVERSION_TIMEOUT_MS) fail('timeout');
+      else armWatchdog();
+    }, remainingMs);
+  };
 
   worker.onmessage = ({ data }: MessageEvent<ConverterWorkerMessage>) => {
     const conversion = pending.get(data.id);
     pending.delete(data.id);
+    armWatchdog();
     if (!conversion) {
       data.bitmap?.close();
       return;
     }
     conversion.onConverted(data.bitmap ? bitmapRingFrame(data.bitmap, conversion.timestamp) : null);
   };
-  worker.onerror = event => {
-    if (failed) return;
-    failed = true;
-    log.debug('dvr.frame_converter.failed', { detail: event.message });
-    shutDown();
-    failAllPending();
-  };
+  worker.onerror = event => fail(event.message);
 
   return {
     convert: (frame, onConverted) => {
@@ -112,9 +140,10 @@ export function createWorkerFrameConverter(): DecodedFrameConverter | null {
         return;
       }
       const id = nextId++;
-      pending.set(id, { timestamp: frame.timestamp, onConverted });
+      pending.set(id, { timestamp: frame.timestamp, sentAt: performance.now(), onConverted });
       try {
         worker.postMessage({ id, frame }, [frame as Transferable]);
+        if (watchdog === null) armWatchdog();
       } catch (error) {
         pending.delete(id);
         log.debug('dvr.frame_converter.transfer_failed', { error });

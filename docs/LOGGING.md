@@ -122,6 +122,9 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   every DVR record reflects the effective path, not just whether a tap driver exists.
 - `video.dvr.store_demoted`, `video.dvr.underrun`, `video.dvr.budget_degraded` /
   `video.dvr.budget_recovered` (ladder step, `hb.budget.*`).
+- `dvr.frame_converter.failed` (warn) - the Firefox decoded-frame worker died or stopped answering
+  (`detail`: the worker error, or `timeout` after `CONVERSION_TIMEOUT_MS`; `pending`: frames it
+  stranded). The ring keeps running with main-thread draws for the rest of that run.
 - `video.dvr.ring_flushed` - the frame store emptied itself mid-run: `hb.dvr.cause` (backstep: the
   capture key went backwards past `STALE_FRAME_TOLERANCE_SEC` (0.5 s, a loop restart or a seek
   without a `seeked` event); store: codec reconfiguration; swap: raw <-> encoded exchange),
