@@ -20,6 +20,7 @@
     "dev:firefox": "node scripts/ensure-otel-lgtm.mjs && wxt -b firefox",
     "otel:up": "node scripts/ensure-otel-lgtm.mjs --strict",
     "otel:down": "node scripts/ensure-otel-lgtm.mjs --down",
+    "otel:clear": "node scripts/ensure-otel-lgtm.mjs --clear",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",

@@ -1,7 +1,8 @@
 // Brings up the local grafana/otel-lgtm stack (tools/otel/) so the dev build's OTLP export has
 // somewhere to land. As a `pnpm dev` pre-step it never blocks: a missing Docker or a failed
 // compose only prints a warning. `pnpm otel:up` runs it with --strict, where those become errors;
-// `pnpm otel:down` runs it with --down to stop the stack through the same compose resolver.
+// `pnpm otel:down` runs it with --down to stop the stack through the same compose resolver;
+// `pnpm otel:clear` runs it with --clear to drop the data volume and bring the stack back empty.
 // Skipped when WXT_OTEL_ENDPOINT='' (telemetry disabled anyway) or SKIP_OTEL_STACK=1.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -11,8 +12,9 @@ const COLLECTOR_URL = 'http://localhost:4318/v1/traces';
 const GRAFANA_URL = 'http://localhost:3001';
 const DASHBOARD_URL = `${GRAFANA_URL}/d/haramblock-dvr`;
 const WAIT_TIMEOUT_MS = 90_000;
-const strict = process.argv.includes('--strict');
+const strict = process.argv.includes('--strict') || process.argv.includes('--clear');
 const down = process.argv.includes('--down');
+const clear = process.argv.includes('--clear');
 const composeFile = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
@@ -60,7 +62,7 @@ function resolveCompose() {
   return null;
 }
 
-if (!down && (await collectorReady())) {
+if (!down && !clear && (await collectorReady())) {
   console.log(`[otel-lgtm] collector already up. Dashboard: ${DASHBOARD_URL}`);
   process.exit(0);
 }
@@ -78,6 +80,12 @@ const [composeCommand, composePrefix] = resolved;
 
 if (down) {
   process.exit(compose(['down']).status ?? 1);
+}
+
+if (clear) {
+  const cleared = compose(['down', '-v']);
+  if (cleared.status !== 0) fail('compose down -v failed.');
+  console.log('[otel-lgtm] data volume dropped, starting an empty stack');
 }
 
 const up = run(composeCommand, [...composePrefix, '-f', composeFile, 'up', '-d', '--build']);
