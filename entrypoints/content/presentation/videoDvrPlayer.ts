@@ -17,6 +17,16 @@
 import { DVR_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
+  cellBoundsToContentRect,
+  maskCellBounds,
+  padAndClampRect,
+  rectCovers,
+  unionRects,
+  type CellBounds,
+  type ContentRect,
+  type PixelRect,
+} from '@/entrypoints/content/presentation/maskRegion';
+import {
   ensurePositionContext,
   homeOverlay,
   overlayHomed,
@@ -84,6 +94,21 @@ interface DrawSurfaces {
   maskCtx: CanvasRenderingContext2D;
 }
 
+interface RasterizedGrid {
+  canvas: HTMLCanvasElement;
+  bounds: CellBounds;
+}
+
+/**
+ * The union stencil of all in-window mask grids, rasterized once per distinct
+ * verdict set and content geometry (~4 verdicts/s) instead of once per
+ * presented frame, together with the region it touches.
+ */
+interface MaskStencil {
+  key: string;
+  rect: PixelRect | null;
+}
+
 export class VideoDvrPlayer {
   private rafId: number | null = null;
   private destroyed = false;
@@ -103,10 +128,14 @@ export class VideoDvrPlayer {
   private presentedClockSec: number | null = null;
   private lastTickWallSec: number | null = null;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
-  private readonly gridCache = new WeakMap<VerdictEntry, HTMLCanvasElement | null>();
+  private readonly gridCache = new WeakMap<VerdictEntry, RasterizedGrid | null>();
   /** Scratch canvases for renderMasks, reused across draws instead of allocated per frame. */
   private readonly pixelateScratch = document.createElement('canvas');
   private readonly unionScratch = document.createElement('canvas');
+  private stencil: MaskStencil = { key: '', rect: null };
+  /** Region of the mask canvas the previous draw painted: the only part the next draw must clear. */
+  private paintedMaskRect: PixelRect | null = null;
+  private baseCovered = false;
   /** Set once playback ends: the presented clock runs on wall time through the ring tail. */
   private drainClock: DrainClock | null = null;
 
@@ -364,13 +393,25 @@ export class VideoDvrPlayer {
     this.lastDrawKey = drawKey;
 
     const { baseCanvas, baseCtx, maskCanvas, maskCtx } = surfaces;
-    resizeCanvas(baseCanvas, width, height, dpr);
-    resizeCanvas(maskCanvas, width, height, dpr);
+    const baseResized = resizeCanvas(baseCanvas, width, height, dpr);
+    const maskResized = resizeCanvas(maskCanvas, width, height, dpr);
     baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
-    maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+    // Every full-canvas pass costs milliseconds at device resolution on a
+    // software canvas: a frame that covers the canvas overwrites it, so only a
+    // letterboxed frame (or a resize) needs the clear.
+    const covers = rectCovers(content, width, height);
+    if (baseResized || !(covers && this.baseCovered)) {
+      baseCtx.clearRect(0, 0, width, height);
+    }
+    this.baseCovered = covers;
+    if (maskResized) {
+      this.paintedMaskRect = null;
+      this.stencil = { key: '', rect: null };
+    } else {
+      this.clearPaintedMask(maskCtx);
+    }
 
     if (!frame) {
       // Drawing a cross-origin video only taints the canvas — display still works.
@@ -437,14 +478,23 @@ export class VideoDvrPlayer {
     }
   }
 
+  private clearPaintedMask(maskCtx: CanvasRenderingContext2D): void {
+    const painted = this.paintedMaskRect;
+    if (!painted) return;
+    maskCtx.clearRect(painted.x, painted.y, painted.width, painted.height);
+    this.paintedMaskRect = null;
+  }
+
   /**
-   * Same technique as the GIF player: pixelate the frame into the content
-   * rect, then destination-in with the union of all in-window mask grids.
+   * Same technique as the GIF player — pixelate the frame, then destination-in
+   * with the union of all in-window mask grids — but every pass is clipped to
+   * the masks' bounding box: masks cover a fraction of the frame, and the
+   * full-canvas passes were the presenter's dominant per-frame cost.
    */
   private renderMasks(
     frame: PresentableFrame,
     entries: VerdictEntry[],
-    content: { offsetX: number; offsetY: number; width: number; height: number },
+    content: ContentRect,
     masking: IMaskingSettings,
   ): void {
     const { surfaces } = this;
@@ -452,6 +502,12 @@ export class VideoDvrPlayer {
     const { maskCanvas, maskCtx } = surfaces;
 
     const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
+    const region = this.ensureStencil(entries, content, blockSize);
+    if (!region) {
+      maskCanvas.style.filter = '';
+      return;
+    }
+
     const smallW = Math.max(1, Math.floor(content.width / blockSize));
     const smallH = Math.max(1, Math.floor(content.height / blockSize));
     const tmp = this.pixelateScratch;
@@ -459,47 +515,99 @@ export class VideoDvrPlayer {
     if (tmp.height !== smallH) tmp.height = smallH;
     const tmpCtx = tmp.getContext('2d');
     if (!tmpCtx) return;
-    tmpCtx.clearRect(0, 0, smallW, smallH);
     tmpCtx.imageSmoothingEnabled = true;
     tmpCtx.drawImage(frame.source, 0, 0, frame.width, frame.height, 0, 0, smallW, smallH);
 
+    const smallScaleX = smallW / content.width;
+    const smallScaleY = smallH / content.height;
+    maskCtx.save();
+    maskCtx.beginPath();
+    maskCtx.rect(region.x, region.y, region.width, region.height);
+    maskCtx.clip();
     maskCtx.imageSmoothingEnabled = false;
-    maskCtx.drawImage(tmp, content.offsetX, content.offsetY, content.width, content.height);
-
+    maskCtx.drawImage(
+      tmp,
+      (region.x - content.offsetX) * smallScaleX,
+      (region.y - content.offsetY) * smallScaleY,
+      region.width * smallScaleX,
+      region.height * smallScaleY,
+      region.x,
+      region.y,
+      region.width,
+      region.height,
+    );
     // The union stencil lives in CSS coordinates: maskCtx carries the dpr
-    // transform, so drawImage(union, 0, 0) at natural size spans the canvas.
-    // Mask grids are far coarser than CSS resolution, so the stencil needs no
-    // device-pixel backing of its own.
+    // transform, so a same-rect drawImage of the stencil lands in place.
+    maskCtx.globalCompositeOperation = 'destination-in';
+    maskCtx.drawImage(
+      this.unionScratch,
+      region.x,
+      region.y,
+      region.width,
+      region.height,
+      region.x,
+      region.y,
+      region.width,
+      region.height,
+    );
+    maskCtx.restore();
+    this.paintedMaskRect = region;
+    maskCanvas.style.filter = buildCanvasTintFilter(masking);
+  }
+
+  /**
+   * Rasterize the union stencil for this verdict set and geometry once; later
+   * frames under the same verdicts reuse it. Returns the padded region the
+   * masks touch (null when no entry carries a mask).
+   */
+  private ensureStencil(entries: VerdictEntry[], content: ContentRect, blockSize: number): PixelRect | null {
+    const key = [
+      entries.map(entry => entry.timestampSec).join(','),
+      content.offsetX,
+      content.offsetY,
+      content.width,
+      content.height,
+      this.lastSize.width,
+      this.lastSize.height,
+      blockSize,
+    ].join('|');
+    if (key === this.stencil.key) return this.stencil.rect;
+
     const union = this.unionScratch;
     const unionWidth = Math.max(1, Math.round(this.lastSize.width));
     const unionHeight = Math.max(1, Math.round(this.lastSize.height));
     if (union.width !== unionWidth) union.width = unionWidth;
     if (union.height !== unionHeight) union.height = unionHeight;
     const unionCtx = union.getContext('2d');
-    if (!unionCtx) return;
+    if (!unionCtx) return null;
     unionCtx.clearRect(0, 0, union.width, union.height);
     unionCtx.imageSmoothingEnabled = false;
 
-    let anyMask = false;
+    let rect: PixelRect | null = null;
     for (const entry of entries) {
       const grid = this.gridFor(entry);
       if (!grid) continue;
-      anyMask = true;
-      const { srcX, srcY, srcW, srcH } = maskGridSrcRect(entry.maskTransform, entry.width, entry.height);
-      unionCtx.drawImage(grid, srcX, srcY, srcW, srcH, content.offsetX, content.offsetY, content.width, content.height);
+      const src = maskGridSrcRect(entry.maskTransform, entry.width, entry.height);
+      const { srcX, srcY, srcW, srcH } = src;
+      unionCtx.drawImage(
+        grid.canvas,
+        srcX,
+        srcY,
+        srcW,
+        srcH,
+        content.offsetX,
+        content.offsetY,
+        content.width,
+        content.height,
+      );
+      rect = unionRects(rect, cellBoundsToContentRect(grid.bounds, src, content));
     }
-    if (!anyMask) {
-      maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-      return;
-    }
-
-    maskCtx.globalCompositeOperation = 'destination-in';
-    maskCtx.drawImage(union, 0, 0);
-    maskCtx.globalCompositeOperation = 'source-over';
-    maskCanvas.style.filter = buildCanvasTintFilter(masking);
+    const region = rect ? padAndClampRect(rect, blockSize, content) : null;
+    this.stencil = { key, rect: region };
+    return region;
   }
 
-  private gridFor(entry: VerdictEntry): HTMLCanvasElement | null {
+  private gridFor(entry: VerdictEntry): RasterizedGrid | null {
     if (this.gridCache.has(entry)) return this.gridCache.get(entry) ?? null;
     const grid = rasterizeMaskGrid(entry);
     this.gridCache.set(entry, grid);
@@ -508,7 +616,7 @@ export class VideoDvrPlayer {
 }
 
 /** Decode an entry's RLE masks once into a grid-resolution canvas of opaque pixels. */
-function rasterizeMaskGrid(entry: VerdictEntry): HTMLCanvasElement | null {
+function rasterizeMaskGrid(entry: VerdictEntry): RasterizedGrid | null {
   const decoded = entry.predictions
     .filter(prediction => prediction.masks?.runs?.length)
     .map(prediction => decodeMaskRLE(prediction.masks));
@@ -516,6 +624,9 @@ function rasterizeMaskGrid(entry: VerdictEntry): HTMLCanvasElement | null {
   const gridH = first?.length ?? 0;
   const gridW = first?.[0]?.length ?? 0;
   if (!gridW || !gridH) return null;
+  const aligned = decoded.filter(masks => masks.length === gridH && masks[0]?.length === gridW);
+  const bounds = maskCellBounds(aligned);
+  if (!bounds) return null;
 
   const grid = document.createElement('canvas');
   grid.width = gridW;
@@ -523,8 +634,7 @@ function rasterizeMaskGrid(entry: VerdictEntry): HTMLCanvasElement | null {
   const ctx = grid.getContext('2d');
   if (!ctx) return null;
   ctx.fillStyle = 'rgba(0,0,0,1)';
-  for (const masks of decoded) {
-    if (masks.length !== gridH || masks[0]?.length !== gridW) continue;
+  for (const masks of aligned) {
     for (let y = 0; y < gridH; y++) {
       const row = masks[y];
       if (!row) continue;
@@ -536,7 +646,7 @@ function rasterizeMaskGrid(entry: VerdictEntry): HTMLCanvasElement | null {
       }
     }
   }
-  return grid;
+  return { canvas: grid, bounds };
 }
 
 /** A presented position can never reach behind the ring's earliest buffered frame. */
@@ -557,16 +667,24 @@ function frameCappedDpr(frame: PresentableFrame | null, contentWidth: number): n
   return Math.min(dpr, Math.max(1, frame.width / contentWidth));
 }
 
-/** Backing store in device pixels, CSS size in layout pixels. */
-function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number, dpr: number): void {
+/** Backing store in device pixels, CSS size in layout pixels. Returns whether the backing store (and so its content) was reset. */
+function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number, dpr: number): boolean {
   const canvasWidth = Math.max(1, Math.round(width * dpr));
   const canvasHeight = Math.max(1, Math.round(height * dpr));
-  if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
-  if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
+  let resized = false;
+  if (canvas.width !== canvasWidth) {
+    canvas.width = canvasWidth;
+    resized = true;
+  }
+  if (canvas.height !== canvasHeight) {
+    canvas.height = canvasHeight;
+    resized = true;
+  }
   const cssWidth = `${width}px`;
   const cssHeight = `${height}px`;
   if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
   if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight;
+  return resized;
 }
 
 function restoreOpacity(video: HTMLVideoElement, originalOpacity: string | undefined): void {
