@@ -124,6 +124,16 @@ export function probeHardwarePreference(isFirefox: boolean): HardwareAcceleratio
   return isFirefox ? 'no-preference' : 'prefer-hardware';
 }
 
+/**
+ * Firefox has no GPU path from a decoded frame to a canvas: a hardware-decoded
+ * frame is read back from the GPU and colour-converted on the drawing thread
+ * (~15 ms per 1080p draw), a software-decoded one only colour-converted
+ * (~7 ms). Chrome keeps the frame on the GPU either way.
+ */
+export function decoderHardwarePreference(isFirefox: boolean): HardwareAcceleration | undefined {
+  return isFirefox ? 'prefer-software' : undefined;
+}
+
 const webCodecsProbe: EncodedSupportProbe = async (width, height) => {
   if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') return false;
   try {
@@ -133,7 +143,7 @@ const webCodecsProbe: EncodedSupportProbe = async (width, height) => {
     if (!encoderSupport.supported) return false;
     const decoderSupport = await VideoDecoder.isConfigSupported({
       codec: config.codec,
-      hardwareAcceleration,
+      hardwareAcceleration: decoderHardwarePreference(import.meta.env.FIREFOX) ?? hardwareAcceleration,
     });
     return decoderSupport.supported === true;
   } catch {
@@ -235,6 +245,7 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
           maxBytes: store.currentMaxBytes(),
           codecs: options.codecs ?? createWebCodecsPair(),
           convertDecoded: createConverter?.() ?? null,
+          decoderHardwareAcceleration: decoderHardwarePreference(import.meta.env.FIREFOX),
           onFatalError: () => {
             options.onEncodedError();
             if (!store.isReleased() && store.kind() === 'encoded') {

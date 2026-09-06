@@ -176,6 +176,7 @@ export interface EncodedFrameRingOptions {
    */
   onFatalError: (error: unknown) => void;
   convertDecoded?: DecodedFrameConverter | null;
+  decoderHardwareAcceleration?: HardwareAcceleration;
 }
 
 function presentableSource(frame: DecodedRingFrame): CanvasImageSource {
@@ -190,6 +191,7 @@ export class EncodedFrameRing implements DvrFrameStore {
   private readonly codecs: EncodedRingCodecs;
   private readonly onFatalError: (error: unknown) => void;
   private readonly convertDecoded: DecodedFrameConverter | null;
+  private readonly decoderHardwareAcceleration: HardwareAcceleration | undefined;
 
   private encoder: RingEncoder | null = null;
   private encoderConfig: VideoEncoderConfig | null = null;
@@ -226,6 +228,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     this.codecs = options.codecs;
     this.onFatalError = options.onFatalError;
     this.convertDecoded = options.convertDecoded ?? null;
+    this.decoderHardwareAcceleration = options.decoderHardwareAcceleration;
   }
 
   push(frame: DvrCaptureFrame, mediaTime: number): boolean {
@@ -497,7 +500,12 @@ export class EncodedFrameRing implements DvrFrameStore {
 
   private configureDecoder(decoder: RingDecoder): void {
     const config = this.decoderConfig ?? (this.encoderConfig ? { codec: this.encoderConfig.codec } : null);
-    if (config) decoder.configure(config);
+    if (!config) return;
+    if (this.decoderHardwareAcceleration) {
+      decoder.configure({ ...config, hardwareAcceleration: this.decoderHardwareAcceleration });
+    } else {
+      decoder.configure(config);
+    }
   }
 
   private onDecoderOutput(frame: DecodedRingFrame): void {

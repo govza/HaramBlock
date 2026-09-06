@@ -11,6 +11,7 @@ import {
   type DvrTickRecord,
   type HealthWindow,
   type PresentOutcome,
+  type PresentSource,
 } from '@/entrypoints/content/video/dvr/probeCore';
 import { IS_CHROME } from '@/utils/constants/environment';
 import { generateNonce } from '@/utils/nonce';
@@ -25,7 +26,7 @@ export const TICK_RING_RETENTION_MS = 5000;
 const TICK_RING_CAPACITY = 400;
 
 export type DvrTapKind = 'tap' | 'rvfc';
-export type { PresentOutcome } from '@/entrypoints/content/video/dvr/probeCore';
+export type { PresentOutcome, PresentSource } from '@/entrypoints/content/video/dvr/probeCore';
 export type DvrRingFlushCause = 'backstep' | 'store' | 'swap';
 export const LOOP_LAG_SAMPLE_MS = 250;
 const LOOP_LAG_SAMPLES_PER_WINDOW = 8;
@@ -48,6 +49,7 @@ export interface PresentedSample {
   presentMs: number;
   presentBaseMs: number;
   presentMaskMs: number;
+  presentSource: PresentSource;
 }
 
 export type AudioHealthRoute = 'none' | 'pending' | 'delayLine' | 'relay' | 'deferred' | 'unavailable';
@@ -244,6 +246,7 @@ export class DvrProbe {
     record.presentMs = sample.presentMs;
     record.presentBaseMs = sample.presentBaseMs;
     record.presentMaskMs = sample.presentMaskMs;
+    record.presentSource = sample.presentSource;
     record.storeCoveredMisses = this.opts.store.coveredMisses();
     record.storeLookahead = this.opts.store.lookaheadFrames();
     if (this.presentSampleCount < this.presentSamples.length) {
@@ -461,6 +464,7 @@ function tickAttributes(tick: DvrTickRecord): Record<string, number | boolean | 
     [ATTR.tickPresentMs]: tick.presentMs,
     [ATTR.tickPresentBaseMs]: tick.presentBaseMs,
     [ATTR.tickPresentMaskMs]: tick.presentMaskMs,
+    [ATTR.tickPresentSource]: tick.presentSource,
     [ATTR.tickStoreCoveredMisses]: tick.storeCoveredMisses,
     [ATTR.tickStoreLookahead]: tick.storeLookahead,
   };

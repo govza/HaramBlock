@@ -94,6 +94,7 @@ export class MockEncoder implements RingEncoder {
 export class MockDecoder implements RingDecoder {
   decodeQueueSize = 0;
   configureCalls = 0;
+  lastConfig: VideoDecoderConfig | null = null;
   resetCalls = 0;
   decodeCalls = 0;
   closed = false;
@@ -104,8 +105,9 @@ export class MockDecoder implements RingDecoder {
     private readonly failAtDecodeCall?: number,
   ) {}
 
-  configure(_config: VideoDecoderConfig): void {
+  configure(config: VideoDecoderConfig): void {
     this.configureCalls++;
+    this.lastConfig = config;
   }
 
   decode(chunk: { timestamp: number }): void {

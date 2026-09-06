@@ -21,6 +21,7 @@ import {
   maskCellBounds,
   padAndClampRect,
   rectCovers,
+  toDevicePixels,
   unionRects,
   type CellBounds,
   type ContentRect,
@@ -45,6 +46,7 @@ import { getLogger } from '@/utils/telemetry';
 
 import type { DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
 import type { PresentedSample, PresentOutcome } from '@/entrypoints/content/video/dvr/probe';
+import type { PresentSource } from '@/entrypoints/content/video/dvr/probeCore';
 import type { IMaskingSettings } from '@/utils/types';
 
 const log = getLogger('videoDvrPlayer');
@@ -65,6 +67,15 @@ const PRESENTED_CATCH_UP_RATE = 1.05;
  * blocks. The mask canvas keeps pixelated scaling — its blockiness is the
  * masking effect itself.
  */
+/**
+ * Firefox accelerates displayed canvases by default, which turns every draw
+ * of the converter worker's CPU bitmap into a full-frame texture upload on the
+ * main thread; a software canvas copies it instead.
+ */
+const PRESENT_CONTEXT_OPTIONS: CanvasRenderingContext2DSettings | undefined = import.meta.env.FIREFOX
+  ? { willReadFrequently: true }
+  : undefined;
+
 const CANVAS_STYLE = ['position: absolute', 'top: 0', 'left: 0', 'pointer-events: none'].join('; ');
 const MASK_CANVAS_STYLE = [CANVAS_STYLE, 'image-rendering: pixelated', 'image-rendering: crisp-edges'].join('; ');
 
@@ -127,6 +138,7 @@ export class VideoDvrPlayer {
   private lastDrawPinned = false;
   private lastBaseDrawMs = 0;
   private lastMaskDrawMs = 0;
+  private lastPresentSource: PresentSource = 'none';
   private presentedClockSec: number | null = null;
   private lastTickWallSec: number | null = null;
   /** RLE decode is expensive; each verdict entry's grid is rasterized once. */
@@ -152,6 +164,7 @@ export class VideoDvrPlayer {
           presentMs: 0,
           presentBaseMs: 0,
           presentMaskMs: 0,
+          presentSource: 'none',
         }
       : null;
     this.rafId = requestAnimationFrame(this.tick);
@@ -242,8 +255,10 @@ export class VideoDvrPlayer {
     sample.presentMs = presentMs;
     sample.presentBaseMs = this.lastBaseDrawMs;
     sample.presentMaskMs = this.lastMaskDrawMs;
+    sample.presentSource = this.lastPresentSource;
     this.lastBaseDrawMs = 0;
     this.lastMaskDrawMs = 0;
+    this.lastPresentSource = 'none';
     onPresented(sample);
   }
 
@@ -257,8 +272,8 @@ export class VideoDvrPlayer {
     baseCanvas.style.cssText = CANVAS_STYLE;
     const maskCanvas = document.createElement('canvas');
     maskCanvas.style.cssText = MASK_CANVAS_STYLE;
-    const baseCtx = baseCanvas.getContext('2d');
-    const maskCtx = maskCanvas.getContext('2d');
+    const baseCtx = baseCanvas.getContext('2d', PRESENT_CONTEXT_OPTIONS);
+    const maskCtx = maskCanvas.getContext('2d', PRESENT_CONTEXT_OPTIONS);
     if (!baseCtx || !maskCtx) {
       // Unrecoverable (2D context exhaustion): latch off, or every subsequent
       // tick would re-enter here and allocate two canvases per frame. The
@@ -386,13 +401,17 @@ export class VideoDvrPlayer {
     // keyed at the capture cadence. Everything else redraws only when the
     // frame, verdict, or size moved (position never forces a redraw).
     const content = computeRenderedContentRect(video, this.lastSize);
-    // Device-pixel backing stores, CSS-pixel draw coordinates: without the dpr
-    // scale a HiDPI display presents at CSS resolution and every frame looks
-    // soft no matter how large the capture is. But a backing store finer than
-    // the buffered frame only spends fill rate upscaling pixels the ring never
-    // captured — which is exactly what fullscreen does (the layout grows, the
-    // ring frame does not), so cap the ratio at the source's own resolution.
+    // Device-pixel backing stores and device-pixel draw coordinates: without
+    // the dpr scale a HiDPI display presents at CSS resolution and every frame
+    // looks soft no matter how large the capture is. But a backing store finer
+    // than the buffered frame only spends fill rate upscaling pixels the ring
+    // never captured — which is exactly what fullscreen does (the layout
+    // grows, the ring frame does not), so cap the ratio at the source's own
+    // resolution. Every draw then lands on whole device pixels through the
+    // identity transform: a fractional dpr transform turned the 1:1 bitmap
+    // blit into a resample (24 ms instead of 2 on Firefox's software canvas).
     const dpr = frameCappedDpr(frame, content.width);
+    const device = toDevicePixels(content, dpr);
     const drawKey = [
       frame ? frame.mediaTime : `live:${Math.floor(video.currentTime * NONE_REDRAWS_PER_SEC)}`,
       verdict.kind,
@@ -410,15 +429,13 @@ export class VideoDvrPlayer {
     const { baseCanvas, baseCtx, maskCanvas, maskCtx } = surfaces;
     const baseResized = resizeCanvas(baseCanvas, width, height, dpr);
     const maskResized = resizeCanvas(maskCanvas, width, height, dpr);
-    baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Every full-canvas pass costs milliseconds at device resolution on a
     // software canvas: a frame that covers the canvas overwrites it, so only a
     // letterboxed frame (or a resize) needs the clear.
-    const covers = rectCovers(content, width, height);
+    const covers = rectCovers(device, baseCanvas.width, baseCanvas.height);
     if (baseResized || !(covers && this.baseCovered)) {
-      baseCtx.clearRect(0, 0, width, height);
+      baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     }
     this.baseCovered = covers;
     if (maskResized) {
@@ -430,17 +447,13 @@ export class VideoDvrPlayer {
 
     if (!frame) {
       // Drawing a cross-origin video only taints the canvas — display still works.
-      const liveFrame: PresentableFrame = {
-        source: video,
-        width: video.videoWidth,
-        height: video.videoHeight,
-        mediaTime: video.currentTime,
-      };
+      const liveWidth = video.videoWidth;
       maskCanvas.style.filter = '';
-      baseCtx.drawImage(video, content.offsetX, content.offsetY, content.width, content.height);
-      if (verdict.kind === 'unsafe' && liveFrame.width > 0) {
+      this.lastPresentSource = 'live';
+      baseCtx.drawImage(video, device.offsetX, device.offsetY, device.width, device.height);
+      if (verdict.kind === 'unsafe' && liveWidth > 0) {
         baseCanvas.style.filter = '';
-        this.renderMasks(liveFrame, verdict.entries, content, masking);
+        this.renderMasks(verdict.entries, device, dpr, masking);
       } else {
         baseCanvas.style.filter = verdict.kind === 'clean' ? '' : buildMaskingFilter(masking);
       }
@@ -449,6 +462,7 @@ export class VideoDvrPlayer {
 
     this.hasPresentedFrame = true;
     this.lastDrawOutcome = 'repeat';
+    this.lastPresentSource = presentSourceKind(frame.source);
     if (frame.mediaTime !== this.lastPresentedMediaTime) {
       this.lastDrawOutcome = 'new';
       this.lastPresentedMediaTime = frame.mediaTime;
@@ -465,10 +479,10 @@ export class VideoDvrPlayer {
         0,
         frame.width,
         frame.height,
-        content.offsetX,
-        content.offsetY,
-        content.width,
-        content.height,
+        device.offsetX,
+        device.offsetY,
+        device.width,
+        device.height,
       );
       baseCanvas.style.filter = buildMaskingFilter(masking);
       return;
@@ -481,16 +495,16 @@ export class VideoDvrPlayer {
       0,
       frame.width,
       frame.height,
-      content.offsetX,
-      content.offsetY,
-      content.width,
-      content.height,
+      device.offsetX,
+      device.offsetY,
+      device.width,
+      device.height,
     );
     const baseEndedAt = performance.now();
     this.lastBaseDrawMs = baseEndedAt - baseStartedAt;
 
     if (verdict.kind === 'unsafe') {
-      this.renderMasks(frame, verdict.entries, content, masking);
+      this.renderMasks(verdict.entries, device, dpr, masking);
       this.lastMaskDrawMs = performance.now() - baseEndedAt;
     } else {
       maskCanvas.style.filter = '';
@@ -508,19 +522,18 @@ export class VideoDvrPlayer {
    * Same technique as the GIF player — pixelate the frame, then destination-in
    * with the union of all in-window mask grids — but every pass is clipped to
    * the masks' bounding box: masks cover a fraction of the frame, and the
-   * full-canvas passes were the presenter's dominant per-frame cost.
+   * full-canvas passes were the presenter's dominant per-frame cost. All
+   * geometry is in device pixels; the block size scales with dpr so the
+   * pixelation looks the same at every ratio. The pixelated copy is taken
+   * from the base canvas, never the frame: on Firefox a VideoFrame source
+   * pays its YUV conversion again per draw (~10 ms), the canvas is RGB.
    */
-  private renderMasks(
-    frame: PresentableFrame,
-    entries: VerdictEntry[],
-    content: ContentRect,
-    masking: IMaskingSettings,
-  ): void {
+  private renderMasks(entries: VerdictEntry[], content: ContentRect, dpr: number, masking: IMaskingSettings): void {
     const { surfaces } = this;
     if (!surfaces || content.width <= 0 || content.height <= 0) return;
-    const { maskCanvas, maskCtx } = surfaces;
+    const { baseCanvas, maskCanvas, maskCtx } = surfaces;
 
-    const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
+    const blockSize = Math.max(1, Math.round(calculatePixelationBlockSize(masking.pixelationScale) * dpr));
     const region = this.ensureStencil(entries, content, blockSize);
     if (!region) {
       maskCanvas.style.filter = '';
@@ -535,7 +548,7 @@ export class VideoDvrPlayer {
     const tmpCtx = tmp.getContext('2d');
     if (!tmpCtx) return;
     tmpCtx.imageSmoothingEnabled = true;
-    tmpCtx.drawImage(frame.source, 0, 0, frame.width, frame.height, 0, 0, smallW, smallH);
+    tmpCtx.drawImage(baseCanvas, content.offsetX, content.offsetY, content.width, content.height, 0, 0, smallW, smallH);
 
     const smallScaleX = smallW / content.width;
     const smallScaleY = smallH / content.height;
@@ -555,8 +568,6 @@ export class VideoDvrPlayer {
       region.width,
       region.height,
     );
-    // The union stencil lives in CSS coordinates: maskCtx carries the dpr
-    // transform, so a same-rect drawImage of the stencil lands in place.
     maskCtx.globalCompositeOperation = 'destination-in';
     maskCtx.drawImage(
       this.unionScratch,
@@ -580,21 +591,23 @@ export class VideoDvrPlayer {
    * masks touch (null when no entry carries a mask).
    */
   private ensureStencil(entries: VerdictEntry[], content: ContentRect, blockSize: number): PixelRect | null {
+    const { surfaces } = this;
+    if (!surfaces) return null;
     const key = [
       entries.map(entry => entry.timestampSec).join(','),
       content.offsetX,
       content.offsetY,
       content.width,
       content.height,
-      this.lastSize.width,
-      this.lastSize.height,
+      surfaces.maskCanvas.width,
+      surfaces.maskCanvas.height,
       blockSize,
     ].join('|');
     if (key === this.stencil.key) return this.stencil.rect;
 
     const union = this.unionScratch;
-    const unionWidth = Math.max(1, Math.round(this.lastSize.width));
-    const unionHeight = Math.max(1, Math.round(this.lastSize.height));
+    const unionWidth = surfaces.maskCanvas.width;
+    const unionHeight = surfaces.maskCanvas.height;
     if (union.width !== unionWidth) union.width = unionWidth;
     if (union.height !== unionHeight) union.height = unionHeight;
     const unionCtx = union.getContext('2d');
@@ -680,6 +693,12 @@ function clampToOldest(mediaTime: number, oldest: number | null): number {
  * rates. Never below 1 (a CSS-pixel store stays the floor), and the live
  * fallback keeps the true ratio — its source is the native element.
  */
+function presentSourceKind(source: CanvasImageSource): PresentSource {
+  if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) return 'bitmap';
+  if (typeof VideoFrame !== 'undefined' && source instanceof VideoFrame) return 'video-frame';
+  return 'other';
+}
+
 function frameCappedDpr(frame: PresentableFrame | null, contentWidth: number): number {
   const dpr = globalThis.devicePixelRatio || 1;
   if (!frame || contentWidth <= 0) return dpr;

@@ -319,27 +319,34 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   calling thread (~16 ms per 1080p frame on the presenter's rAF tick, ~2 ms once it draws the
   worker's bitmap instead; the conversion costs ~30 ms of extra decode-ahead latency). Conversions
   in flight count against the decode lookahead, and a conversion landing after a rewarm or
-  discontinuity is discarded. Content scripts can only spawn blob/data workers, which a page CSP
-  `worker-src` may block: the converter then strands the frames in flight and passes later frames
-  through unconverted, so the ring keeps working at the main-thread cost. Chrome draws a decoded
-  frame in well under a millisecond and runs without a converter. Ring capture is driven by a
-  full-rate **capture tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`,
-  every decoded frame, keyed by `video.currentTime` at delivery) with the rVFC tick as the standing
-  fallback — rVFC alone misses frames on 60 fps sources (~43/60 observed), and it resumes capturing
-  automatically whenever the tap is absent or stalls (media-time liveness window, no explicit health
-  protocol). The intent split: **inference samples stay small** (model-input-sized, ~4 fps,
-  `sampling/capture.ts`), while **presented frames are full video frames at the native rate** when
-  the encoded store carries the ring. The active path is exposed as
-  `data-hb-dvr-store="raw|encoded"` on the video element; a codec error swaps back to a fresh raw
-  ring and marks the session webcodecs-ineligible. The warm-up is whole-blurred: the DOM overlay of
-  an already-masked session would lag the moving content, a verdict-less session simply keeps its
-  attachment blur, and a safe-verdicted session is covered too because the pinned earliest frame is
-  no cover until the player has captured a frame and injected its canvas — the native element
-  renders live for those first ticks. `bufferReady` lifts it as soon as the canvas takes over, and a
-  clean playback verdict is the escape when capture never succeeds. The one uncovered case is a
-  deliberately allowed session (status `skipped`), whose finalize cleared the blur on purpose. The
-  session's Verdict Timeline (every playback verdict, keyed by `timestampSec`) already exists on the
-  handle and is shared with the player read-only.
+  discontinuity is discarded. Content scripts can only spawn blob/data workers, which a page CSP may
+  block — a `worker-src`/`script-src` without `blob:` fails the worker asynchronously (the converter
+  strands the frames in flight and passes later frames through), and Trusted Types enforcement
+  (YouTube: `require-trusted-types-for 'script'`) makes the `Worker` constructor throw outright, so
+  the ring runs without a converter (`dvr.frame_converter.unavailable`). No workaround exists on
+  such pages: a `moz-extension:` worker URL never loads from a content script, an extension-origin
+  iframe (which can host workers) never receives a transferred `VideoFrame`, and `VideoFrame.copyTo`
+  does the same readback on the calling thread as a draw. Firefox therefore also asks the decoder
+  for `prefer-software`: a hardware-decoded frame is read back from the GPU before its colour
+  conversion (~15 ms per 1080p draw), a software-decoded one only converted (~7 ms), and the
+  software H.264 decoder runs off the main thread either way. Chrome draws a decoded frame in well
+  under a millisecond and runs without a converter. Ring capture is driven by a full-rate **capture
+  tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame,
+  keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — rVFC alone
+  misses frames on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever
+  the tap is absent or stalls (media-time liveness window, no explicit health protocol). The intent
+  split: **inference samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while
+  **presented frames are full video frames at the native rate** when the encoded store carries the
+  ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
+  codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
+  is whole-blurred: the DOM overlay of an already-masked session would lag the moving content, a
+  verdict-less session simply keeps its attachment blur, and a safe-verdicted session is covered too
+  because the pinned earliest frame is no cover until the player has captured a frame and injected
+  its canvas — the native element renders live for those first ticks. `bufferReady` lifts it as soon
+  as the canvas takes over, and a clean playback verdict is the escape when capture never succeeds.
+  The one uncovered case is a deliberately allowed session (status `skipped`), whose finalize
+  cleared the blur on purpose. The session's Verdict Timeline (every playback verdict, keyed by
+  `timestampSec`) already exists on the handle and is shared with the player read-only.
 - **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
   element) → `presenting`: blur and any leftover DOM overlay are swapped out. While the buffer is
   still shorter than `D`, presentation pins on the earliest buffered frame — whole-blurred until a
@@ -358,20 +365,22 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   already arrived by the time the clean frame is presented, so the streak costs no extra trail. An
   unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right after) does not cut —
   the mask holds, fail closed. Frames between two unsafe samples composite the union of both
-  bounding masks (RLE-decoded once, pixelated content + destination-in) — inertia over the unknown
-  motion in between; an upcoming unsafe verdict beyond the Bridge Horizon contributes no geometry.
-  **Any verdict behind covers forward at any distance** (closest verdict wins): a clean one presents
-  clean (no mask geometry to go stale), an unsafe one keeps masking with its own geometry — masked
-  content beats hiding the whole frame — so a paused frame or a coverage hole after a seek presents
-  instead of whole-blurring. There is no fail-open exception for a session the machine already
-  cleared: the clearing verdict there is the Thumbnail, which describes the poster and carries no
-  media time, so it must never present playback frames it does not describe — that let Shorts'
-  unsafe first frame show unmasked for a full round-trip. Only genuine verdict silence — no verdict
-  behind at all, including frames that precede an upcoming unsafe sample (never pre-rolled) —
-  whole-blurs (the cost is a short blur over the pinned frame on a clean video's first play;
-  re-warms into covered ranges present clean immediately). Lookups binary-search the
-  timestamp-ordered timeline and read the bounding neighbors, so per-tick cost stays constant rather
-  than growing with the session. Sampling continues at the live edge throughout.
+  bounding masks (RLE-decoded once, pixelated content + destination-in; the pixelated copy is
+  sampled from the already-drawn base canvas, never from the frame, which on Firefox would pay its
+  YUV conversion a second time) — inertia over the unknown motion in between; an upcoming unsafe
+  verdict beyond the Bridge Horizon contributes no geometry. **Any verdict behind covers forward at
+  any distance** (closest verdict wins): a clean one presents clean (no mask geometry to go stale),
+  an unsafe one keeps masking with its own geometry — masked content beats hiding the whole frame —
+  so a paused frame or a coverage hole after a seek presents instead of whole-blurring. There is no
+  fail-open exception for a session the machine already cleared: the clearing verdict there is the
+  Thumbnail, which describes the poster and carries no media time, so it must never present playback
+  frames it does not describe — that let Shorts' unsafe first frame show unmasked for a full
+  round-trip. Only genuine verdict silence — no verdict behind at all, including frames that precede
+  an upcoming unsafe sample (never pre-rolled) — whole-blurs (the cost is a short blur over the
+  pinned frame on a clean video's first play; re-warms into covered ranges present clean
+  immediately). Lookups binary-search the timestamp-ordered timeline and read the bounding
+  neighbors, so per-tick cost stays constant rather than growing with the session. Sampling
+  continues at the live edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
   permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
@@ -466,9 +475,12 @@ process (200 MB at 960 px), and Firefox's `drawImage` from a video is source-bou
 at either width), so the ceiling buys memory headroom rather than main-thread time; the encoded ring
 captures at native resolution regardless (its present cost is moved off the main thread by the
 decoded-frame converter instead). A live ring never shrinks below its latched `D`, or presentation
-would strand on the warm-up frame. The presenter's base canvas backs at device-pixel resolution and
-scales buffered frames smoothly; only the mask canvas keeps `image-rendering: pixelated` (its
-blockiness is the masking effect itself).
+would strand on the warm-up frame. The presenter's base canvas backs at device-pixel resolution
+(capped at the buffered frame's own width) and draws in whole device pixels through the identity
+transform (`toDevicePixels`), so a frame that matches the backing store is a 1:1 blit; on Firefox
+both presenter canvases are created with `willReadFrequently` so that blit stays a memcpy into a
+software canvas instead of a texture upload. Only the mask canvas keeps `image-rendering: pixelated`
+(its blockiness is the masking effect itself).
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
 the video's next sibling with the video's own z-index (see
