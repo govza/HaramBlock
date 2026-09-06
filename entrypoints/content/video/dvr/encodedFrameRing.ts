@@ -12,7 +12,7 @@
  */
 
 import {
-  BACKWARDS_JITTER_TOLERANCE_SEC,
+  isStaleBackstep,
   type DvrCaptureFrame,
   type DvrFrameStore,
   type PresentableFrame,
@@ -195,6 +195,7 @@ export class EncodedFrameRing implements DvrFrameStore {
   private coveredMissCount = 0;
   private flushCount = 0;
   private lastPushedMediaTime = Number.NEGATIVE_INFINITY;
+  private consecutiveStaleDrops = 0;
   private lastKeyframeMediaTime = Number.NEGATIVE_INFINITY;
   private needKeyframe = true;
 
@@ -225,17 +226,21 @@ export class EncodedFrameRing implements DvrFrameStore {
       // A backwards jump (seek/loop restart) or a mid-run resolution change
       // (MSE rendition switch) is a discontinuity: buffered chunks no longer
       // precede the live edge / match the codec config, so everything flushes.
-      // A sub-tolerance backwards step or duplicate timestamp is playback
-      // jitter, not a seek: drop the tick, keep the buffer and codec state.
-      if (mediaTime <= this.lastPushedMediaTime) {
-        if (this.lastPushedMediaTime - mediaTime <= BACKWARDS_JITTER_TOLERANCE_SEC) return;
-        this.discontinuity();
-      }
+      // A sub-tolerance backwards step or duplicate timestamp is a re-delivered
+      // stale frame, not a seek: drop the tick, keep the buffer and codec state.
       const config = this.encoderConfig;
       if (config && (config.width !== frame.displayWidth || config.height !== frame.displayHeight)) {
         this.discontinuity();
         this.encoderConfig = null;
       }
+      if (mediaTime <= this.lastPushedMediaTime) {
+        if (isStaleBackstep(this.lastPushedMediaTime, mediaTime, this.consecutiveStaleDrops)) {
+          this.consecutiveStaleDrops++;
+          return;
+        }
+        this.discontinuity();
+      }
+      this.consecutiveStaleDrops = 0;
       const encoder = this.ensureEncoder(frame.displayWidth, frame.displayHeight);
       if (encoder.encodeQueueSize > ENCODE_QUEUE_CAP) {
         // Backpressure: drop the tick rather than queueing behind a slow encoder.
@@ -498,6 +503,7 @@ export class EncodedFrameRing implements DvrFrameStore {
    */
   private discontinuity(): void {
     this.flushCount++;
+    this.lastPushedMediaTime = Number.NEGATIVE_INFINITY;
     if (this.encoder && this.encoderConfig) {
       this.encoder.reset();
       this.encoder.configure(this.encoderConfig);

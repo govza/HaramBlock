@@ -123,10 +123,11 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
 - `video.dvr.store_demoted`, `video.dvr.underrun`, `video.dvr.budget_degraded` /
   `video.dvr.budget_recovered` (ladder step, `hb.budget.*`).
 - `video.dvr.ring_flushed` - the frame store emptied itself mid-run: `hb.dvr.cause` (backstep: the
-  capture key went backwards past `BACKWARDS_JITTER_TOLERANCE_SEC`; store: codec reconfiguration;
-  swap: raw <-> encoded exchange), `hb.dvr.from_sec` / `hb.dvr.to_sec` (previous and offending
-  capture key) and `hb.dvr.span_lost_sec` (buffered media the flush discarded). Every flush costs a
-  pinned refill of `D` seconds, so this is the first thing to check behind a freeze.
+  capture key went backwards past `STALE_FRAME_TOLERANCE_SEC` (0.5 s, a loop restart or a seek
+  without a `seeked` event); store: codec reconfiguration; swap: raw <-> encoded exchange),
+  `hb.dvr.from_sec` / `hb.dvr.to_sec` (previous and offending capture key) and
+  `hb.dvr.span_lost_sec` (buffered media the flush discarded). Every flush costs a pinned refill of
+  `D` seconds, so this is the first thing to check behind a freeze.
 - `video.audio.route` - `hb.audio.route.result` (attempt|delayLine|relay|deferred|unavailable).
 - `video.capture.failed` - `hb.capture.stage`, `hb.capture.permanent`.
 - `video.dvr.anomaly` + `video.dvr.tick` - the last 5 s of per-tick records (`hb.dvr.tick.*`),
@@ -190,8 +191,11 @@ stay readable at 25+ sessions). Emitted only for active windows unless noted:
 - `hb.dvr.source_backsteps{hb.dvr.backstep_frames}` - deliveries whose mediaTime went backwards, by
   size in frame intervals (`1` | `2` | `3+` | `seek`; seek = more than `BACKSTEP_SEEK_FRAMES` or no
   interval learnt yet). One- and two-frame backsteps are the browser re-delivering an older frame
-  (Firefox rVFC does this every 15-40 s); anything the store's tolerance does not absorb becomes a
-  `video.dvr.ring_flushed`.
+  (Firefox rVFC does this every 15-40 s) and are absorbed by the store's `STALE_FRAME_TOLERANCE_SEC`
+  (0.5 s absolute; the `3+` bucket's upper bound at 24 fps, so the two only coincide at that rate) -
+  they count here but do not flush. A backstep beyond the tolerance, or more than
+  `MAX_CONSECUTIVE_STALE_FRAMES` sub-tolerance backsteps in a row (a natively looping clip shorter
+  than the tolerance), becomes a `video.dvr.ring_flushed`.
 - `hb.dvr.pinned_windows` - active windows in which the presenter held the earliest buffered frame
   because the ring did not yet span `D` (warm-up, seek re-warm, or a flush refilling). A frozen
   window that is also pinned is a ring refill; a frozen window that is not is a decode / present

@@ -11,14 +11,32 @@
  */
 
 /**
- * Firefox's `currentTime` jitters backwards by microseconds during normal
- * playback; treating that as a discontinuity would flush the whole buffer
- * several times a second. A backwards step within this tolerance drops the
- * frame but retains the buffer; a genuine seek is orders of magnitude larger.
- * Deliberately far above the read path's 1 µs quantization slack and far below
- * a capture tick (~33 ms).
+ * A backwards step in capture media time within this tolerance is a
+ * re-delivered stale frame, not a seek: the frame is dropped, the buffer and
+ * codec state retained. Covers Firefox's `currentTime` microsecond jitter and
+ * its rVFC re-ordering (one or two frame intervals, ≤ 0.083 s, every 15-40 s)
+ * that would otherwise flush the ring and freeze the delay line. Sized in
+ * absolute media seconds so the store needs no learnt frame rate; it equals
+ * the probe's frame-relative non-seek bucket (BACKSTEP_SEEK_FRAMES) at 24 fps
+ * and diverges from it at other rates. A loop restart or a real seek without
+ * a `seeked` event is usually far larger; a sub-tolerance seek is harmless
+ * because the ring still holds frames at and before the new position.
  */
-export const BACKWARDS_JITTER_TOLERANCE_SEC = 0.001;
+export const STALE_FRAME_TOLERANCE_SEC = 0.5;
+
+/**
+ * A re-delivered stale frame is one delivery, at most two; a clip shorter than
+ * STALE_FRAME_TOLERANCE_SEC looping natively would otherwise have every frame
+ * of its next iteration dropped as stale. More consecutive sub-tolerance
+ * backsteps than this is a discontinuity after all.
+ */
+export const MAX_CONSECUTIVE_STALE_FRAMES = 3;
+
+export function isStaleBackstep(newestMediaTime: number, mediaTime: number, consecutiveStaleDrops: number): boolean {
+  return (
+    newestMediaTime - mediaTime <= STALE_FRAME_TOLERANCE_SEC && consecutiveStaleDrops < MAX_CONSECUTIVE_STALE_FRAMES
+  );
+}
 
 /** How the capture tick must hand frames to this store. */
 export type DvrCaptureMode = 'bitmap' | 'video-frame';
@@ -49,9 +67,10 @@ export interface DvrFrameStore {
   /**
    * Ingest one live frame at the capture tick. Takes ownership of the frame:
    * the store closes it on eviction, flush, or rejection (backpressure). A
-   * backwards jump in media time beyond BACKWARDS_JITTER_TOLERANCE_SEC is a
+   * backwards jump in media time beyond STALE_FRAME_TOLERANCE_SEC is a
    * discontinuity — the store flushes its buffer and any codec state; a
-   * sub-tolerance backwards or duplicate frame is dropped, buffer retained.
+   * sub-tolerance backwards or duplicate frame is a re-delivered stale frame,
+   * dropped with the buffer retained.
    */
   push(frame: DvrCaptureFrame, mediaTime: number): void;
   /**

@@ -377,9 +377,11 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   DVR still `warming` at `ended` has no tail to drain and `bufferReady` can never fire, so it hands
   back to the DOM overlay instead of latching its warm-up blur forever.
 - **Seek**: ring discontinuity → flush and re-warm (stopDvr/startDvr) with a freshly derived `D` —
-  small when the seek lands in a range the timeline already covers, so re-visited content barely
-  pauses. The warm-up cover is re-established under the same fail-closed rule: whole-blur while
-  masked or verdict-pending; a resumed skipped session stays deliberately uncovered.
+  the store itself treats a backwards capture key within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a
+  re-delivered stale frame (dropped, buffer kept) and only flushes on a larger step — small when the
+  seek lands in a range the timeline already covers, so re-visited content barely pauses. The
+  warm-up cover is re-established under the same fail-closed rule: whole-blur while masked or
+  verdict-pending; a resumed skipped session stays deliberately uncovered.
 - **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
   hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
   ERROR, source change, and the undelayable-audio demotion. Pause, `ended`, and clean streaks are

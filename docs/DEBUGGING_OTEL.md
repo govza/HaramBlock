@@ -142,9 +142,12 @@ plays (zero active windows), so an idle dashboard is never green.
 - _Sampler encode / frames sent_ - `bitmapToCompressedBlob` cost (Firefox blob transport) and the
   inference sampling rate; the other main-thread consumer next to the DVR capture.
 - _Ring flushes / source backsteps_ - `hb.dvr.ring_flushes` by cause and `hb.dvr.source_backsteps`
-  by size in frame intervals (rollups). A backstep bar without a flush bar is absorbed jitter; a
-  flush bar means the ring emptied and the session is about to pin for `D`. On Firefox a 1-frame
-  backstep every 15-40 s is the rVFC re-delivering an older frame, not a seek.
+  by size in frame intervals (rollups). A backstep bar without a flush bar is a re-delivered stale
+  frame the store absorbed (anything under `STALE_FRAME_TOLERANCE_SEC`, 0.5 s absolute - the size
+  buckets are frame-relative, so a `seek` bucket at 60 fps can still be absorbed); a flush bar means
+  the ring emptied and the session is about to pin for `D`. On Firefox a 1-frame backstep every
+  15-40 s is the rVFC re-delivering an older frame, not a seek - expect backstep bars with no
+  matching flush bars.
 - _Pinned vs frozen windows_ - `hb.dvr.pinned_windows` (presenter waiting for the ring to span `D`)
   next to `hb.dvr.freeze_windows`. Frozen and pinned = ring refill (after a flush or seek); frozen
   and not pinned = decode or present problem.

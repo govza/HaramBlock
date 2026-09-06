@@ -47,7 +47,7 @@ const TAP_LIVENESS_WINDOW_SEC = 0.5;
 const TAP_LIVENESS_WALL_MS = 500;
 /** Backwards steps smaller than this are currentTime quantization, not a seek. */
 const TAP_KEY_JITTER_SEC = 0.02;
-/** Forward nudge for a quantization-stalled key; must clear the ring's 1 ms jitter tolerance. */
+/** Forward nudge for a quantization-stalled key; the ring drops any key at or before its newest frame. */
 const TAP_KEY_NUDGE_SEC = 0.002;
 
 export type DvrRunEvent = { type: 'bufferReady'; at: number } | { type: 'analysisUnderrun'; at: number };
