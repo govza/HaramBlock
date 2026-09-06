@@ -206,6 +206,23 @@ describe('EncodedFrameRing', () => {
     ring.release();
   });
 
+  it('drops (and closes) a frame-scale re-delivered backstep without resetting the codecs', () => {
+    const { ring, codecs } = makeRing(10);
+    fill(ring, 0, 2);
+    const encoder = codecs.encoders[0]!;
+    const encodesBefore = encoder.encodeCalls;
+
+    const stale = fakeVideoFrame(2 - 0.042);
+    ring.push(asCaptureFrame(stale), 2 - 0.042);
+
+    expect(stale.closed).toBe(true);
+    expect(encoder.encodeCalls).toBe(encodesBefore);
+    expect(encoder.resetCalls).toBe(0);
+    expect(codecs.decoders[0]?.resetCalls ?? 0).toBe(0);
+    expect(ring.oldestTime()).toBe(0);
+    ring.release();
+  });
+
   it('resets encoder and decoder state on a discontinuity', () => {
     const { ring, codecs } = makeRing(10);
     fill(ring, 4, 5);

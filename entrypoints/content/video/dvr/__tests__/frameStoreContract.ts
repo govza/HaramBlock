@@ -6,7 +6,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { DvrCaptureFrame, DvrFrameStore, PresentableFrame } from '@/entrypoints/content/video/dvr/frameStore';
+import {
+  type DvrCaptureFrame,
+  type DvrFrameStore,
+  type PresentableFrame,
+  STALE_FRAME_TOLERANCE_SEC,
+} from '@/entrypoints/content/video/dvr/frameStore';
 
 export interface FrameStoreHarness {
   create(maxDurationSec: number, maxBytes?: number): DvrFrameStore;
@@ -113,19 +118,92 @@ export function runDvrFrameStoreContract(label: string, harness: FrameStoreHarne
       store.release();
     });
 
-    it('still flushes on a backwards step beyond the jitter tolerance', () => {
+    it('absorbs a one-frame re-delivered backstep (Firefox rVFC) without flushing', () => {
       const store = harness.create(10, BIG);
       fill(harness, store, 0, 2);
       const newest = store.newestTime()!;
 
-      store.push(harness.frame(newest - 0.05), newest - 0.05);
+      store.push(harness.frame(newest - 0.042), newest - 0.042);
 
-      expect(store.oldestTime()).toBeCloseTo(newest - 0.05, 5);
-      expect(store.spanSec()).toBeCloseTo(0, 5);
+      expect(store.oldestTime()).toBeCloseTo(0, 5);
+      expect(store.spanSec()).toBeGreaterThan(1.5);
+      expect(store.newestTime()).toBeCloseTo(newest, 5);
+      expect(store.flushes()).toBe(0);
       store.release();
     });
 
-    it('counts discontinuity flushes monotonically, never jitter drops or release', () => {
+    it('absorbs a two-frame re-delivered backstep without flushing', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 2);
+      const newest = store.newestTime()!;
+
+      store.push(harness.frame(newest - 0.083), newest - 0.083);
+
+      expect(store.oldestTime()).toBeCloseTo(0, 5);
+      expect(store.spanSec()).toBeGreaterThan(1.5);
+      expect(store.flushes()).toBe(0);
+      store.release();
+    });
+
+    it('absorbs a backstep just inside the frame-scale tolerance', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 2);
+      const newest = store.newestTime()!;
+
+      store.push(
+        harness.frame(newest - (STALE_FRAME_TOLERANCE_SEC - 0.05)),
+        newest - (STALE_FRAME_TOLERANCE_SEC - 0.05),
+      );
+
+      expect(store.oldestTime()).toBeCloseTo(0, 5);
+      expect(store.flushes()).toBe(0);
+      store.release();
+    });
+
+    it('still flushes on a backwards step beyond the frame-scale tolerance', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 2);
+      const newest = store.newestTime()!;
+
+      store.push(harness.frame(newest - (STALE_FRAME_TOLERANCE_SEC + 0.1)), newest - (STALE_FRAME_TOLERANCE_SEC + 0.1));
+
+      expect(store.oldestTime()).toBeCloseTo(newest - (STALE_FRAME_TOLERANCE_SEC + 0.1), 5);
+      expect(store.spanSec()).toBeCloseTo(0, 5);
+      expect(store.flushes()).toBe(1);
+      store.release();
+    });
+
+    it('extends the buffer normally after an absorbed backstep', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 2);
+      const newest = store.newestTime()!;
+      store.push(harness.frame(newest - 0.042), newest - 0.042);
+
+      const next = newest + CAPTURE_INTERVAL_SEC;
+      store.push(harness.frame(next), next);
+
+      expect(store.newestTime()).toBeCloseTo(next, 5);
+      expect(store.oldestTime()).toBeCloseTo(0, 5);
+      const frame = settledFrameAt(store, next);
+      expect(frame?.mediaTime).toBeCloseTo(next, 5);
+      store.release();
+    });
+
+    it('flushes on a native loop restart of a clip shorter than the tolerance', () => {
+      const store = harness.create(10, BIG);
+      fill(harness, store, 0, 0.4);
+      const flushesBefore = store.flushes();
+
+      fill(harness, store, 0, 0.4);
+
+      expect(store.flushes()).toBe(flushesBefore + 1);
+      expect(store.newestTime()).toBeCloseTo(0.4, 1);
+      const frame = settledFrameAt(store, 0.4);
+      expect(frame?.mediaTime).toBeGreaterThan(0.1);
+      store.release();
+    });
+
+    it('counts discontinuity flushes monotonically, never stale-frame drops or release', () => {
       const store = harness.create(10, BIG);
       fill(harness, store, 0, 1);
       expect(store.flushes()).toBe(0);
@@ -137,7 +215,7 @@ export function runDvrFrameStoreContract(label: string, harness: FrameStoreHarne
       store.push(harness.frame(0.1), 0.1);
       expect(store.flushes()).toBe(1);
       fill(harness, store, 0.2, 1);
-      store.push(harness.frame(0.5), 0.5);
+      store.push(harness.frame(0.2), 0.2);
       expect(store.flushes()).toBe(2);
 
       store.release();
