@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DVR_DELAY_MS, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
 import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
-import { FrameSampler, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
+import { FrameSampler, foldLoopedMediaTime, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
 import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
@@ -23,6 +23,7 @@ class FakeVideo {
   paused = true;
   ended = false;
   currentTime = 0;
+  duration = Number.NaN;
   videoWidth = 640;
   videoHeight = 360;
   readonly cancelled: number[] = [];
@@ -206,6 +207,43 @@ describe('FrameSampler ticker', () => {
 
     expect(dispatched).toEqual([{ type: 'frameAvailable', at: 500, timestampSec: 8.25 }]);
     expect(ringCaptures).toEqual([8.25]);
+  });
+
+  it('folds a media time that ran past the loop back onto the timeline (Firefox rVFC)', () => {
+    const { sampler, dispatched, ringCaptures } = makeSampler();
+    const handle = makeHandle();
+    const video = handle.video as unknown as FakeVideo;
+    video.duration = 10;
+    video.currentTime = 1.35;
+
+    sampler.startTicker(handle);
+    video.lastFrameCallback?.(500, { mediaTime: 11.333 });
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({ type: 'frameAvailable', at: 500 });
+    expect((dispatched[0] as { timestampSec: number }).timestampSec).toBeCloseTo(1.333, 6);
+    expect(ringCaptures).toHaveLength(1);
+    expect(ringCaptures[0]).toBeCloseTo(1.333, 6);
+  });
+});
+
+describe('foldLoopedMediaTime', () => {
+  it('returns a media time inside the duration unchanged', () => {
+    expect(foldLoopedMediaTime(8.25, 10)).toBe(8.25);
+    expect(foldLoopedMediaTime(9.9, 10)).toBe(9.9);
+    expect(foldLoopedMediaTime(0, 10)).toBe(0);
+  });
+
+  it('subtracts whole loops when the frame clock ran past the duration', () => {
+    expect(foldLoopedMediaTime(11.333, 10)).toBeCloseTo(1.333, 6);
+    expect(foldLoopedMediaTime(19.9, 10)).toBeCloseTo(9.9, 6);
+    expect(foldLoopedMediaTime(190.033, 10)).toBeCloseTo(0.033, 6);
+  });
+
+  it('leaves the media time alone without a finite positive duration', () => {
+    expect(foldLoopedMediaTime(11.333, Number.NaN)).toBe(11.333);
+    expect(foldLoopedMediaTime(11.333, Number.POSITIVE_INFINITY)).toBe(11.333);
+    expect(foldLoopedMediaTime(11.333, 0)).toBe(11.333);
   });
 });
 

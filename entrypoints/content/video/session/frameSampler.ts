@@ -303,6 +303,19 @@ export class FrameSampler {
 }
 
 /**
+ * Firefox's rVFC `mediaTime` keeps counting across a native loop (11.3 s on a
+ * 10 s clip while `currentTime` reads 1.3 s), so a looping video would key the
+ * DVR ring on a timeline the presenter never targets and pin forever. A frame
+ * clock past the duration is whole loops ahead and is folded back onto the
+ * media timeline; `currentTime` is deliberately not consulted, since it wraps
+ * a frame or two before the last frames of a loop are presented.
+ */
+export function foldLoopedMediaTime(mediaTime: number, duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0 || mediaTime < duration) return mediaTime;
+  return mediaTime - Math.floor(mediaTime / duration) * duration;
+}
+
+/**
  * Drive frameAvailable events from actual frame presentation. rVFC fires only
  * when a new video frame is presented (never for a stalled/paused video); the
  * rAF fallback is gated on playback state instead. `mediaTime` is the
@@ -315,7 +328,7 @@ function startFrameTicker(video: HTMLVideoElement, onFrame: (at: number, mediaTi
     const loop = () => {
       callbackId = video.requestVideoFrameCallback((now, metadata) => {
         if (stopped) return;
-        onFrame(now, metadata.mediaTime);
+        onFrame(now, foldLoopedMediaTime(metadata.mediaTime, video.duration));
         loop();
       });
     };
