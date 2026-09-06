@@ -99,18 +99,29 @@ const globalSlots = createSlots(ENCODED_SESSION_CAP);
 export type EncodedSupportProbe = (width: number, height: number) => Promise<boolean>;
 
 /**
- * Hardware-only probe: `prefer-hardware` rejects configs that would fall back
- * to software — the encoded ring must never software-encode silently.
+ * Chrome treats `prefer-hardware` as a preference, so probing with it rejects
+ * only configs that would silently software-encode on the main thread.
+ * Firefox maps `prefer-hardware` to require-hardware and its release builds
+ * expose no hardware encoder at all (about:support lists every codec as
+ * "Hardware Encoding: Unsupported"), so the same probe fails unconditionally.
+ * Its software encoder runs off the main thread in a media process at ~5 ms
+ * wall per 1080p frame, far cheaper than the raw ring's ~21 ms main-thread
+ * canvas capture, so Firefox probes with no preference.
  */
+export function probeHardwarePreference(isFirefox: boolean): HardwareAcceleration {
+  return isFirefox ? 'no-preference' : 'prefer-hardware';
+}
+
 const webCodecsProbe: EncodedSupportProbe = async (width, height) => {
   if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') return false;
   try {
-    const config = { ...encoderConfigFor(width, height), hardwareAcceleration: 'prefer-hardware' as const };
+    const hardwareAcceleration = probeHardwarePreference(import.meta.env.FIREFOX);
+    const config = { ...encoderConfigFor(width, height), hardwareAcceleration };
     const encoderSupport = await VideoEncoder.isConfigSupported(config);
     if (!encoderSupport.supported) return false;
     const decoderSupport = await VideoDecoder.isConfigSupported({
       codec: config.codec,
-      hardwareAcceleration: 'prefer-hardware',
+      hardwareAcceleration,
     });
     return decoderSupport.supported === true;
   } catch {
