@@ -13,6 +13,18 @@
 
 /** Never capture blurrier than this — unless the ladder ceiling is already below it. */
 export const DVR_CAPTURE_MIN_WIDTH = 640;
+/**
+ * Firefox's raw ring at native 1080p holds ~570 MB of RGBA in the content
+ * process (measured: 565 MB at 1493 px vs 200 MB at 960 px) — enough to take
+ * the tab down — so its raw capture is ceilinged at 960 px regardless of the
+ * ladder tier. Its drawImage cost is source-bound (~18 ms per frame at either
+ * width), so the ceiling buys memory headroom, not main-thread time.
+ */
+export const FIREFOX_RAW_CAPTURE_MAX_WIDTH = 960;
+
+export function rawCaptureCeilingPx(isFirefox: boolean): number {
+  return isFirefox ? FIREFOX_RAW_CAPTURE_MAX_WIDTH : Number.POSITIVE_INFINITY;
+}
 /** RGBA. */
 const BYTES_PER_PIXEL = 4;
 /** Ring slack past D, so a growing buffer still finds frames (matches the ring horizon slack). */
