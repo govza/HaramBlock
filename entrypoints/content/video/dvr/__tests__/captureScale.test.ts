@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { DVR_CAPTURE_MIN_WIDTH, dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
+import {
+  DVR_CAPTURE_MIN_WIDTH,
+  FIREFOX_RAW_CAPTURE_MAX_WIDTH,
+  dvrCaptureScale,
+  rawCaptureCeilingPx,
+} from '@/entrypoints/content/video/dvr/captureScale';
 
 const base = {
   nativeWidth: 1920,
@@ -63,5 +68,22 @@ describe('dvrCaptureScale', () => {
     });
     expect(scale).toBeLessThan(1);
     expect(scale * base.nativeWidth).toBeGreaterThanOrEqual(DVR_CAPTURE_MIN_WIDTH);
+  });
+});
+
+describe('rawCaptureCeilingPx', () => {
+  it('ceilings Firefox raw capture below the unbounded full tier', () => {
+    expect(rawCaptureCeilingPx(true)).toBe(FIREFOX_RAW_CAPTURE_MAX_WIDTH);
+    expect(rawCaptureCeilingPx(false)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('applied as the ladder ceiling, holds a 1080p Firefox capture at 960 px', () => {
+    const scale = dvrCaptureScale({
+      ...base,
+      maxWidth: Math.min(Number.POSITIVE_INFINITY, rawCaptureCeilingPx(true)),
+      maxBytes: 768 * 1024 * 1024,
+      delaySec: 1.5,
+    });
+    expect(Math.round(1920 * scale)).toBe(FIREFOX_RAW_CAPTURE_MAX_WIDTH);
   });
 });

@@ -449,10 +449,14 @@ resized player (embedded → fullscreen crosses the 1.25× hysteresis) re-regist
 cap the same way. Per-session, the ring stays bounded by `D`+slack, the backend-tiered session cap,
 and the budget-derived capture scale (`dvr/captureScale.ts`): the largest capture size — up to
 min(display size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack
-inside the byte cap. A live ring never shrinks below its latched `D`, or presentation would strand
-on the warm-up frame. The presenter's base canvas backs at device-pixel resolution and scales
-buffered frames smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is
-the masking effect itself).
+inside the byte cap. On Firefox the raw ring's ceiling is additionally held at 960 px
+(`FIREFOX_RAW_CAPTURE_MAX_WIDTH`): a native-width raw ring holds ~570 MB of RGBA in the content
+process (200 MB at 960 px), and Firefox's `drawImage` from a video is source-bound (~18 ms per frame
+at either width), so the ceiling buys memory headroom rather than main-thread time; the encoded ring
+is unaffected. A live ring never shrinks below its latched `D`, or presentation would strand on the
+warm-up frame. The presenter's base canvas backs at device-pixel resolution and scales buffered
+frames smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is the
+masking effect itself).
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
 the video's next sibling with the video's own z-index (see

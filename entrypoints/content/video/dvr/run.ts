@@ -1,5 +1,5 @@
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
-import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
+import { dvrCaptureScale, rawCaptureCeilingPx } from '@/entrypoints/content/video/dvr/captureScale';
 import { startDvrCaptureTap, type DvrTapUnavailableReason } from '@/entrypoints/content/video/dvr/captureTap';
 import {
   COVERED_DVR_DELAY_MS,
@@ -37,6 +37,7 @@ const log = getLogger('dvrRun');
 const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
 /** Projection cap when neither display nor native size is known yet: assume 1080p rather than under-budget. */
 const FALLBACK_CAPTURE_CAP_PX = 1920;
+const RAW_CAPTURE_CEILING_PX = rawCaptureCeilingPx(import.meta.env.FIREFOX);
 /** Re-register only on a material display resize (embedded → fullscreen), not layout jitter. */
 const CAP_REREGISTER_RATIO = 1.25;
 /** Per-verdict D growth when the store reports a decode stall (covered miss). */
@@ -450,8 +451,11 @@ class Run implements DvrRun {
   private captureWidthCap(): number {
     const displayWidth = this.ports.surface.displayWidth();
     const nativeWidth = this.registeredWidth;
-    if (displayWidth > 0 && nativeWidth > 0) return Math.min(displayWidth, nativeWidth);
-    return displayWidth || nativeWidth || FALLBACK_CAPTURE_CAP_PX;
+    const visibleCap =
+      displayWidth > 0 && nativeWidth > 0
+        ? Math.min(displayWidth, nativeWidth)
+        : displayWidth || nativeWidth || FALLBACK_CAPTURE_CAP_PX;
+    return this.demandEncoded ? visibleCap : Math.min(visibleCap, RAW_CAPTURE_CEILING_PX);
   }
 
   private registerDemand(): void {
@@ -560,7 +564,7 @@ class Run implements DvrRun {
         nativeWidth,
         nativeHeight,
         displayWidth: surface.displayWidth(),
-        maxWidth: quality.maxWidth,
+        maxWidth: Math.min(quality.maxWidth, RAW_CAPTURE_CEILING_PX),
         delaySec: this.delay,
         captureIntervalSec: quality.captureIntervalSec,
         maxBytes: budget.sessionMaxBytes(),
