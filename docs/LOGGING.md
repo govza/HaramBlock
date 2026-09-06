@@ -128,6 +128,8 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
 - `dvr.frame_converter.unavailable` (warn) - the worker could not be constructed at all (`error`:
   the message; on Trusted-Types pages such as YouTube it is a CSP sink violation). The run draws on
   the main thread from the start.
+- `dvr.frame_converter.transfer_failed` (debug) - posting one decoded frame to the worker threw
+  (`error`); that frame is drawn on the main thread and the worker keeps serving the rest.
 - `video.dvr.ring_flushed` - the frame store emptied itself mid-run: `hb.dvr.cause` (backstep: the
   capture key went backwards past `STALE_FRAME_TOLERANCE_SEC` (0.5 s, a loop restart or a seek
   without a `seeked` event); store: codec reconfiguration; swap: raw <-> encoded exchange),
@@ -153,8 +155,8 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   decoded (or converting) frames the encoded store holds ahead of the cursor - 0 means the presenter
   is eating frames the moment they land. `hb.dvr.tick.present_source` names what the base draw
   consumed (`bitmap` from the converter worker, `video-frame` straight from the decoder, `live` from
-  the element, `none` on a tick that drew nothing), so a slow base draw can be tied to the source
-  kind rather than guessed.
+  the element, `none` on a tick that drew nothing, `other` for any other canvas source), so a slow
+  base draw can be tied to the source kind rather than guessed.
 
 ## Metrics
 
