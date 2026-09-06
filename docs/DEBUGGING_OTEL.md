@@ -121,7 +121,7 @@ plays (zero active windows), so an idle dashboard is never green.
 
 - _Captured vs presented fps_ - the DVR's two 1 s-window rates. Presented tracking captured means
   the delay line keeps up. Presented < 0.75 x captured for 2 consecutive windows is the fps anomaly
-  trigger.
+  trigger; the first 2 windows after a run start or playback resume are warm-up and are skipped.
 - _Source vs captured fps_ - `hb.dvr.source_fps` is what the browser delivered (distinct
   mediaTimes); captured below it is the capture throttle (raw ring cadence ~30 fps) or a capture
   that failed. Source below the media's frame rate is the browser skipping frames - see the skipped

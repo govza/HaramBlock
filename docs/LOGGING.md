@@ -131,9 +131,10 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
 - `video.audio.route` - `hb.audio.route.result` (attempt|delayLine|relay|deferred|unavailable).
 - `video.capture.failed` - `hb.capture.stage`, `hb.capture.permanent`.
 - `video.dvr.anomaly` + `video.dvr.tick` - the last 5 s of per-tick records (`hb.dvr.tick.*`),
-  dumped under one `hb.dvr.anomaly.id` when presented fps < 0.75 x captured over 2 s, a long task >
-  100 ms during playback, an analysis underrun, or a stall-driven D raise. One dump per 10 s per
-  session. Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`. Each tick also records
+  dumped under one `hb.dvr.anomaly.id` when presented fps < 0.75 x captured over 2 s (the first 2 s
+  after a run starts or playback resumes are warm-up and never trip it), a long task > 100 ms during
+  playback, an analysis underrun, or a stall-driven D raise. One dump per 10 s per session.
+  Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`. Each tick also records
   `hb.dvr.tick.wall_gap_ms` (wall time since the previous frame delivery) and
   `hb.dvr.tick.media_delta` (mediaTime advance of that delivery): a delta of two frame intervals is
   a source frame the browser never delivered, a negative delta is a backstep (see
