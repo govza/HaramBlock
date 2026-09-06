@@ -9,6 +9,10 @@
  */
 
 import {
+  decodedFrameConverterFactoryFor,
+  type DecodedFrameConverterFactory,
+} from '@/entrypoints/content/video/dvr/decodedFrameConverter';
+import {
   EncodedFrameRing,
   createWebCodecsPair,
   encoderConfigFor,
@@ -26,6 +30,14 @@ import type {
 } from '@/entrypoints/content/video/dvr/frameStore';
 
 const log = getLogger('frameStoreFactory');
+
+/**
+ * Firefox has no GPU path from a decoded VideoFrame to a canvas: every draw
+ * converts the frame's YUV planes to RGB on the calling thread (~16 ms per
+ * 1080p frame, docs/VIDEO_PROCESSING.md). Converting in a worker moves that
+ * off the presenter's rAF tick. Chrome's draw is ~0.5 ms, so nothing to move.
+ */
+const platformConverterFactory = decodedFrameConverterFactoryFor(import.meta.env.FIREFOX);
 
 /**
  * Conservative cap on concurrent hardware encoder sessions; sessions beyond it
@@ -99,18 +111,39 @@ const globalSlots = createSlots(ENCODED_SESSION_CAP);
 export type EncodedSupportProbe = (width: number, height: number) => Promise<boolean>;
 
 /**
- * Hardware-only probe: `prefer-hardware` rejects configs that would fall back
- * to software — the encoded ring must never software-encode silently.
+ * Chrome treats `prefer-hardware` as a preference, so probing with it rejects
+ * only configs that would silently software-encode on the main thread.
+ * Firefox maps `prefer-hardware` to require-hardware and its release builds
+ * expose no hardware encoder at all (about:support lists every codec as
+ * "Hardware Encoding: Unsupported"), so the same probe fails unconditionally.
+ * Its software encoder runs off the main thread in a media process at ~5 ms
+ * wall per 1080p frame, far cheaper than the raw ring's ~21 ms main-thread
+ * canvas capture, so Firefox probes with no preference.
  */
+export function probeHardwarePreference(isFirefox: boolean): HardwareAcceleration {
+  return isFirefox ? 'no-preference' : 'prefer-hardware';
+}
+
+/**
+ * Firefox has no GPU path from a decoded frame to a canvas: a hardware-decoded
+ * frame is read back from the GPU and colour-converted on the drawing thread
+ * (~15 ms per 1080p draw), a software-decoded one only colour-converted
+ * (~7 ms). Chrome keeps the frame on the GPU either way.
+ */
+export function decoderHardwarePreference(isFirefox: boolean): HardwareAcceleration | undefined {
+  return isFirefox ? 'prefer-software' : undefined;
+}
+
 const webCodecsProbe: EncodedSupportProbe = async (width, height) => {
   if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') return false;
   try {
-    const config = { ...encoderConfigFor(width, height), hardwareAcceleration: 'prefer-hardware' as const };
+    const hardwareAcceleration = probeHardwarePreference(import.meta.env.FIREFOX);
+    const config = { ...encoderConfigFor(width, height), hardwareAcceleration };
     const encoderSupport = await VideoEncoder.isConfigSupported(config);
     if (!encoderSupport.supported) return false;
     const decoderSupport = await VideoDecoder.isConfigSupported({
       codec: config.codec,
-      hardwareAcceleration: 'prefer-hardware',
+      hardwareAcceleration: decoderHardwarePreference(import.meta.env.FIREFOX) ?? hardwareAcceleration,
     });
     return decoderSupport.supported === true;
   } catch {
@@ -171,11 +204,13 @@ export interface CreateDvrFrameStoreOptions {
   codecs?: EncodedRingCodecs;
   probe?: EncodedSupportProbe;
   slots?: EncodedSessionSlots;
+  createConverter?: DecodedFrameConverterFactory | null;
 }
 
 export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): SessionFrameStore {
   const slots = options.slots ?? globalSlots;
   const probe = options.probe ?? webCodecsProbe;
+  const createConverter = options.createConverter === undefined ? platformConverterFactory : options.createConverter;
   const store = new SwappableFrameStore(
     new RawFrameRing(options.maxDurationSec, options.maxBytes),
     options.maxDurationSec,
@@ -209,6 +244,8 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
           maxDurationSec: store.currentMaxDurationSec(),
           maxBytes: store.currentMaxBytes(),
           codecs: options.codecs ?? createWebCodecsPair(),
+          convertDecoded: createConverter?.() ?? null,
+          decoderHardwareAcceleration: decoderHardwarePreference(import.meta.env.FIREFOX),
           onFatalError: () => {
             options.onEncodedError();
             if (!store.isReleased() && store.kind() === 'encoded') {
@@ -305,8 +342,8 @@ class SwappableFrameStore implements SessionFrameStore {
     return this.current.captureMode;
   }
 
-  push(frame: DvrCaptureFrame, mediaTime: number): void {
-    this.current.push(frame, mediaTime);
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean {
+    return this.current.push(frame, mediaTime);
   }
 
   frameAt(mediaTime: number): PresentableFrame | null {
@@ -319,6 +356,10 @@ class SwappableFrameStore implements SessionFrameStore {
 
   flushes(): number {
     return this.flushBase + this.current.flushes();
+  }
+
+  lookaheadFrames(): number {
+    return this.current.lookaheadFrames();
   }
 
   spanSec(): number {

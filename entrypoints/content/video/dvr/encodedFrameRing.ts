@@ -12,12 +12,14 @@
  */
 
 import {
-  BACKWARDS_JITTER_TOLERANCE_SEC,
+  isStaleBackstep,
   type DvrCaptureFrame,
   type DvrFrameStore,
   type PresentableFrame,
 } from '@/entrypoints/content/video/dvr/frameStore';
 import { getLogger } from '@/utils/telemetry';
+
+import type { DecodedFrameConverter } from '@/entrypoints/content/video/dvr/decodedFrameConverter';
 
 const log = getLogger('encodedFrameRing');
 
@@ -173,8 +175,14 @@ export interface EncodedFrameRingOptions {
    * marks it webcodecs-ineligible for its lifetime.
    */
   onFatalError: (error: unknown) => void;
+  convertDecoded?: DecodedFrameConverter | null;
+  decoderHardwareAcceleration?: HardwareAcceleration;
 }
 
+function presentableSource(frame: DecodedRingFrame): CanvasImageSource {
+  if ('source' in frame) return (frame as { source: CanvasImageSource }).source;
+  return frame as unknown as CanvasImageSource;
+}
 export class EncodedFrameRing implements DvrFrameStore {
   readonly captureMode = 'video-frame';
 
@@ -182,6 +190,8 @@ export class EncodedFrameRing implements DvrFrameStore {
   private maxBytes: number;
   private readonly codecs: EncodedRingCodecs;
   private readonly onFatalError: (error: unknown) => void;
+  private readonly convertDecoded: DecodedFrameConverter | null;
+  private readonly decoderHardwareAcceleration: HardwareAcceleration | undefined;
 
   private encoder: RingEncoder | null = null;
   private encoderConfig: VideoEncoderConfig | null = null;
@@ -195,11 +205,16 @@ export class EncodedFrameRing implements DvrFrameStore {
   private coveredMissCount = 0;
   private flushCount = 0;
   private lastPushedMediaTime = Number.NEGATIVE_INFINITY;
+  private consecutiveStaleDrops = 0;
   private lastKeyframeMediaTime = Number.NEGATIVE_INFINITY;
   private needKeyframe = true;
 
   /** Decoded lookahead, ordered by timestamp; [0] is the presentation candidate after trimming. */
   private decoded: DecodedRingFrame[] = [];
+  /** Conversions in flight between the decoder and `decoded`: lookahead budget already spent. */
+  private converting = 0;
+  /** Bumped whenever `decoded` is cleared, so a conversion from before the clear is discarded on landing. */
+  private decodedGeneration = 0;
   private cursor: DecodeCursor | null = null;
   /** Media time of the last chunk fed to the decoder; gauges how far decode trails the target. */
   private lastQueuedMediaTime: number | null = null;
@@ -212,35 +227,41 @@ export class EncodedFrameRing implements DvrFrameStore {
     this.maxBytes = options.maxBytes;
     this.codecs = options.codecs;
     this.onFatalError = options.onFatalError;
+    this.convertDecoded = options.convertDecoded ?? null;
+    this.decoderHardwareAcceleration = options.decoderHardwareAcceleration;
   }
 
-  push(frame: DvrCaptureFrame, mediaTime: number): void {
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean {
     if (this.released || this.failed || !('displayWidth' in frame)) {
       // An ImageBitmap here is a swap-race tick (the factory just exchanged a
       // raw store for this one); one dropped capture is harmless.
       frame.close();
-      return;
+      return false;
     }
     try {
       // A backwards jump (seek/loop restart) or a mid-run resolution change
       // (MSE rendition switch) is a discontinuity: buffered chunks no longer
       // precede the live edge / match the codec config, so everything flushes.
-      // A sub-tolerance backwards step or duplicate timestamp is playback
-      // jitter, not a seek: drop the tick, keep the buffer and codec state.
-      if (mediaTime <= this.lastPushedMediaTime) {
-        if (this.lastPushedMediaTime - mediaTime <= BACKWARDS_JITTER_TOLERANCE_SEC) return;
-        this.discontinuity();
-      }
+      // A sub-tolerance backwards step or duplicate timestamp is a re-delivered
+      // stale frame, not a seek: drop the tick, keep the buffer and codec state.
       const config = this.encoderConfig;
       if (config && (config.width !== frame.displayWidth || config.height !== frame.displayHeight)) {
         this.discontinuity();
         this.encoderConfig = null;
       }
+      if (mediaTime <= this.lastPushedMediaTime) {
+        if (isStaleBackstep(this.lastPushedMediaTime, mediaTime, this.consecutiveStaleDrops)) {
+          this.consecutiveStaleDrops++;
+          return false;
+        }
+        this.discontinuity();
+      }
+      this.consecutiveStaleDrops = 0;
       const encoder = this.ensureEncoder(frame.displayWidth, frame.displayHeight);
       if (encoder.encodeQueueSize > ENCODE_QUEUE_CAP) {
         // Backpressure: drop the tick rather than queueing behind a slow encoder.
         frame.close();
-        return;
+        return false;
       }
       const keyFrame = this.needKeyframe || mediaTime - this.lastKeyframeMediaTime >= ENCODED_KEYFRAME_INTERVAL_SEC;
       if (keyFrame) {
@@ -249,8 +270,10 @@ export class EncodedFrameRing implements DvrFrameStore {
       }
       encoder.encode(frame, { keyFrame });
       this.lastPushedMediaTime = mediaTime;
+      return true;
     } catch (error) {
       this.fail(error);
+      return false;
     } finally {
       frame.close();
     }
@@ -297,7 +320,7 @@ export class EncodedFrameRing implements DvrFrameStore {
       return null;
     }
     return {
-      source: candidate as unknown as CanvasImageSource,
+      source: presentableSource(candidate),
       width: candidate.displayWidth,
       height: candidate.displayHeight,
       mediaTime: candidate.timestamp / MICROS_PER_SEC,
@@ -310,6 +333,10 @@ export class EncodedFrameRing implements DvrFrameStore {
 
   flushes(): number {
     return this.flushCount;
+  }
+
+  lookaheadFrames(): number {
+    return this.decoded.length + this.converting;
   }
 
   spanSec(): number {
@@ -346,6 +373,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     this.released = true;
     this.teardownCodecs();
     this.clearStorage();
+    this.convertDecoded?.release();
   }
 
   private ensureEncoder(width: number, height: number): RingEncoder {
@@ -411,7 +439,7 @@ export class EncodedFrameRing implements DvrFrameStore {
     const decoder = this.ensureDecoder();
     if (!decoder) return;
     const aheadDecoded = this.decoded.filter(frame => frame.timestamp > targetMicros).length;
-    let inFlightBudget = DECODE_LOOKAHEAD_FRAMES - aheadDecoded - decoder.decodeQueueSize;
+    let inFlightBudget = DECODE_LOOKAHEAD_FRAMES - aheadDecoded - decoder.decodeQueueSize - this.converting;
     while (inFlightBudget > 0 && decoder.decodeQueueSize < DECODE_QUEUE_CAP) {
       const entry = cursor.gop.chunks[cursor.chunkIndex];
       if (!entry) {
@@ -472,7 +500,12 @@ export class EncodedFrameRing implements DvrFrameStore {
 
   private configureDecoder(decoder: RingDecoder): void {
     const config = this.decoderConfig ?? (this.encoderConfig ? { codec: this.encoderConfig.codec } : null);
-    if (config) decoder.configure(config);
+    if (!config) return;
+    if (this.decoderHardwareAcceleration) {
+      decoder.configure({ ...config, hardwareAcceleration: this.decoderHardwareAcceleration });
+    } else {
+      decoder.configure(config);
+    }
   }
 
   private onDecoderOutput(frame: DecodedRingFrame): void {
@@ -480,6 +513,24 @@ export class EncodedFrameRing implements DvrFrameStore {
       frame.close();
       return;
     }
+    if (!this.convertDecoded) {
+      this.admitDecoded(frame);
+      return;
+    }
+    const generation = this.decodedGeneration;
+    this.converting++;
+    this.convertDecoded.convert(frame, converted => {
+      this.converting--;
+      if (!converted) return;
+      if (this.released || this.failed || generation !== this.decodedGeneration) {
+        converted.close();
+        return;
+      }
+      this.admitDecoded(converted);
+    });
+  }
+
+  private admitDecoded(frame: DecodedRingFrame): void {
     // Outputs arrive in decode (= presentation, no B-frames in realtime avc)
     // order; a stale frame racing a rewarm reset would break the ordering
     // invariant, so drop anything not newer than the current tail.
@@ -498,6 +549,7 @@ export class EncodedFrameRing implements DvrFrameStore {
    */
   private discontinuity(): void {
     this.flushCount++;
+    this.lastPushedMediaTime = Number.NEGATIVE_INFINITY;
     if (this.encoder && this.encoderConfig) {
       this.encoder.reset();
       this.encoder.configure(this.encoderConfig);
@@ -552,6 +604,7 @@ export class EncodedFrameRing implements DvrFrameStore {
       frame.close();
     }
     this.decoded = [];
+    this.decodedGeneration++;
   }
 
   private fail(error: unknown): void {

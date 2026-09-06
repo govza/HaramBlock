@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ANOMALY_FPS_WINDOWS,
   ANOMALY_LONG_TASK_MS,
   ANOMALY_RATE_LIMIT_MS,
+  ANOMALY_WARMUP_WINDOWS,
   BACKSTEP_SEEK_FRAMES,
   backstepBucket,
   DvrAnomalyDetector,
@@ -10,15 +12,42 @@ import {
   SourceClock,
 } from '@/entrypoints/content/video/dvr/probeCore';
 
+const warmedDetector = (): DvrAnomalyDetector => {
+  const detector = new DvrAnomalyDetector();
+  for (let i = 0; i < ANOMALY_WARMUP_WINDOWS; i++) {
+    detector.observeWindow({ captured: 60, presented: 60, nowMs: -1000 * (ANOMALY_WARMUP_WINDOWS - i) });
+  }
+  return detector;
+};
+
 describe('DvrAnomalyDetector', () => {
   it('fires fps_drop only when presented trails captured over two consecutive windows', () => {
-    const detector = new DvrAnomalyDetector();
+    const detector = warmedDetector();
     expect(detector.observeWindow({ captured: 60, presented: 30, nowMs: 1000 })).toBeNull();
     expect(detector.observeWindow({ captured: 60, presented: 30, nowMs: 2000 })).toBe('fps_drop');
   });
 
-  it('judges the aggregate over the 2 s window, not each 1 s slice', () => {
+  it('ignores the warm-up windows right after a run starts, where the presenter is still filling', () => {
     const detector = new DvrAnomalyDetector();
+    for (let i = 0; i < ANOMALY_WARMUP_WINDOWS + ANOMALY_FPS_WINDOWS - 1; i++) {
+      expect(detector.observeWindow({ captured: 60, presented: 10, nowMs: 1000 * (i + 1) })).toBeNull();
+    }
+    const nowMs = 1000 * (ANOMALY_WARMUP_WINDOWS + ANOMALY_FPS_WINDOWS);
+    expect(detector.observeWindow({ captured: 60, presented: 10, nowMs })).toBe('fps_drop');
+  });
+
+  it('re-enters warm-up after playback goes inactive', () => {
+    const detector = warmedDetector();
+    detector.resetWindows();
+    for (let i = 0; i < ANOMALY_WARMUP_WINDOWS + ANOMALY_FPS_WINDOWS - 1; i++) {
+      expect(detector.observeWindow({ captured: 60, presented: 10, nowMs: 1000 * (i + 1) })).toBeNull();
+    }
+    const nowMs = 1000 * (ANOMALY_WARMUP_WINDOWS + ANOMALY_FPS_WINDOWS);
+    expect(detector.observeWindow({ captured: 60, presented: 10, nowMs })).toBe('fps_drop');
+  });
+
+  it('judges the aggregate over the 2 s window, not each 1 s slice', () => {
+    const detector = warmedDetector();
     expect(detector.observeWindow({ captured: 60, presented: 30, nowMs: 1000 })).toBeNull();
     expect(detector.observeWindow({ captured: 60, presented: 60, nowMs: 2000 })).toBeNull();
     expect(detector.observeWindow({ captured: 60, presented: 42, nowMs: 3000 })).toBeNull();
@@ -26,7 +55,7 @@ describe('DvrAnomalyDetector', () => {
   });
 
   it('ignores windows with no captures', () => {
-    const detector = new DvrAnomalyDetector();
+    const detector = warmedDetector();
     expect(detector.observeWindow({ captured: 0, presented: 0, nowMs: 1000 })).toBeNull();
     expect(detector.observeWindow({ captured: 0, presented: 0, nowMs: 2000 })).toBeNull();
   });

@@ -113,30 +113,30 @@ Key invariants:
 
 ## Components
 
-| Component            | File                                                                                          | Role                                                                                                                                                  |
-| -------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure state machine   | `entrypoints/content/video/session/machine.ts`                                                | `(state, event) → (state, effects)`; no DOM, timers, or transport                                                                                     |
-| Registry (lifecycle) | `entrypoints/content/video/session/registry.ts`                                               | Owns live sessions, routes predictions by sessionId, dispatch loop routing effects to the modules below                                               |
-| Session state        | `entrypoints/content/video/session/handle.ts`                                                 | `SessionHandle`: per-session mutable record shared by the modules                                                                                     |
-| Frame sampler        | `entrypoints/content/video/session/frameSampler.ts`                                           | Frame ticker, thumbnail readiness, capture+send rounds, sampling bookkeeping                                                                          |
-| Forced presentation  | `entrypoints/content/video/session/forcedPresentation.ts`                                     | Quick-toggle overrides: static visible/blocked presentation with no session behind it                                                                 |
-| Viewport suspension  | `entrypoints/content/video/session/viewportSuspension.ts`                                     | IntersectionObserver suspend/resume with grace period                                                                                                 |
-| Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`                                    | Whole blur, serialized mask overlays, audio route execution, DVR run lifecycle                                                                        |
-| DVR run              | `entrypoints/content/video/dvr/run.ts`                                                        | One DVR run behind five ports: store + presenter + capture drivers, latched D and its growth, budget demand; session-lifetime state in/out via carry  |
-| Discovery            | `entrypoints/content/core/VideoProcessor.ts`                                                  | Routes discovered videos: blacklist styling or registry attachment                                                                                    |
-| Frame Sample model   | `entrypoints/content/video/sampling/sample.ts`                                                | Separates live routing identity from reusable media-timeline identity                                                                                 |
-| Frame capture        | `entrypoints/content/video/sampling/capture.ts`                                               | Canvas capture, poster extraction, CORS workaround                                                                                                    |
-| Transport            | `entrypoints/content/communication/sender.ts`                                                 | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                |
-| Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`                                        | Segmentation mask rendering (paused/standby verdicts)                                                                                                 |
-| DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`                                          | Delayed masked canvas playback (playback verdicts)                                                                                                    |
-| DVR buffers          | `entrypoints/content/video/dvr/{frameStore,rawFrameRing,encodedFrameRing,verdictTimeline}.ts` | Media-time-keyed frame store (raw ImageBitmap ring or WebCodecs-encoded ring behind one `DvrFrameStore` interface) + session-lifetime verdict history |
-| DVR capture tap      | `entrypoints/content/video/dvr/captureTap.ts`                                                 | Full-rate ring capture via `captureStream` + `MediaStreamTrackProcessor`; rVFC ticks are the fallback                                                 |
-| DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                          | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                   |
-| DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                                                 | Global backend-tiered byte budget with a shared quality-degradation ladder                                                                            |
-| DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                 | WebAudio DelayNode routing + the delayability check                                                                                                   |
-| DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                 | Delayed audio for origin-tainted sources: hidden `<audio>` on the original URL at `currentTime − D`; also owns the pending-route mute hold (ADR 0002) |
-| DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                                                      | Plays out the buffered tail at 1x after `ended`, then pins the final frame                                                                            |
-| Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts`                            | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                                                              |
+| Component            | File                                                                                                                | Role                                                                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure state machine   | `entrypoints/content/video/session/machine.ts`                                                                      | `(state, event) → (state, effects)`; no DOM, timers, or transport                                                                                                                                  |
+| Registry (lifecycle) | `entrypoints/content/video/session/registry.ts`                                                                     | Owns live sessions, routes predictions by sessionId, dispatch loop routing effects to the modules below                                                                                            |
+| Session state        | `entrypoints/content/video/session/handle.ts`                                                                       | `SessionHandle`: per-session mutable record shared by the modules                                                                                                                                  |
+| Frame sampler        | `entrypoints/content/video/session/frameSampler.ts`                                                                 | Frame ticker, thumbnail readiness, capture+send rounds, sampling bookkeeping                                                                                                                       |
+| Forced presentation  | `entrypoints/content/video/session/forcedPresentation.ts`                                                           | Quick-toggle overrides: static visible/blocked presentation with no session behind it                                                                                                              |
+| Viewport suspension  | `entrypoints/content/video/session/viewportSuspension.ts`                                                           | IntersectionObserver suspend/resume with grace period                                                                                                                                              |
+| Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`                                                          | Whole blur, serialized mask overlays, audio route execution, DVR run lifecycle                                                                                                                     |
+| DVR run              | `entrypoints/content/video/dvr/run.ts`                                                                              | One DVR run behind five ports: store + presenter + capture drivers, latched D and its growth, budget demand; session-lifetime state in/out via carry                                               |
+| Discovery            | `entrypoints/content/core/VideoProcessor.ts`                                                                        | Routes discovered videos: blacklist styling or registry attachment                                                                                                                                 |
+| Frame Sample model   | `entrypoints/content/video/sampling/sample.ts`                                                                      | Separates live routing identity from reusable media-timeline identity                                                                                                                              |
+| Frame capture        | `entrypoints/content/video/sampling/capture.ts`                                                                     | Canvas capture, poster extraction, CORS workaround                                                                                                                                                 |
+| Transport            | `entrypoints/content/communication/sender.ts`                                                                       | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                                                             |
+| Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`                                                              | Segmentation mask rendering (paused/standby verdicts)                                                                                                                                              |
+| DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`                                                                | Delayed masked canvas playback (playback verdicts)                                                                                                                                                 |
+| DVR buffers          | `entrypoints/content/video/dvr/{frameStore,rawFrameRing,encodedFrameRing,decodedFrameConverter,verdictTimeline}.ts` | Media-time-keyed frame store (raw ImageBitmap ring or WebCodecs-encoded ring behind one `DvrFrameStore` interface, Firefox off-thread decoded-frame conversion) + session-lifetime verdict history |
+| DVR capture tap      | `entrypoints/content/video/dvr/captureTap.ts`                                                                       | Full-rate ring capture via `captureStream` + `MediaStreamTrackProcessor`; rVFC ticks are the fallback                                                                                              |
+| DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                                                | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                                                                |
+| DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                                                                       | Global backend-tiered byte budget with a shared quality-degradation ladder                                                                                                                         |
+| DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                                       | WebAudio DelayNode routing + the delayability check                                                                                                                                                |
+| DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                                       | Delayed audio for origin-tainted sources: hidden `<audio>` on the original URL at `currentTime − D`; also owns the pending-route mute hold (ADR 0002)                                              |
+| DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                                                                            | Plays out the buffered tail at 1x after `ended`, then pins the final frame                                                                                                                         |
+| Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts`                                                  | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                                                                                                           |
 
 ### The pure machine
 
@@ -177,8 +177,9 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
 - **Frame ticker**: `requestVideoFrameCallback` — fires only when a new frame is actually presented
   (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
   `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
-  later `video.currentTime`. An rAF loop gated on playback state is the fallback for engines without
-  rVFC.
+  later `video.currentTime`. Firefox keeps counting `mediaTime` across a native loop (past the
+  duration), so the ticker folds it back by whole durations (`foldLoopedMediaTime`) before the DVR
+  ring keys on it. An rAF loop gated on playback state is the fallback for engines without rVFC.
 - **Viewport lifecycle**: a shared `IntersectionObserver` keeps sessions within 400 px of the
   viewport active. Scrolled-away videos retain their verdict state but stop their frame ticker and
   release any DVR player, audio delay, and frame ring. Leaving the margin only suspends after a 1 s
@@ -307,9 +308,29 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
 - **`play`** → `startDvr`: the presentation adapter derives and latches `D`, registers the session's
   demand with the global ring budget, and creates a `DvrFrameStore` via the frame-store factory: a
   raw ImageBitmap ring immediately (capped at ~30 fps by the budget ladder's tier), upgraded
-  in-place to the WebCodecs-encoded ring when the async hardware probe passes (native-resolution
-  `VideoFrame` captures at the source's **native frame rate**, bitrate-shaped demand, ~50-100x
-  smaller; the upgrade flush re-warms like a seek). Ring capture is driven by a full-rate **capture
+  in-place to the WebCodecs-encoded ring when the async WebCodecs probe passes (`prefer-hardware` on
+  Chrome; `no-preference` on Firefox, whose release builds expose no hardware encoder and run the
+  software encoder off the main thread in a media process) (native-resolution `VideoFrame` captures
+  at the source's **native frame rate**, bitrate-shaped demand, ~50-100x smaller; the upgrade flush
+  re-warms like a seek). On Firefox the encoded ring hands every decoded `VideoFrame` to a blob
+  worker that draws it onto an `OffscreenCanvas` and returns an `ImageBitmap`
+  (`dvr/decodedFrameConverter.ts`): Gecko has no GPU path from a decoded frame to a canvas, so any
+  `drawImage`, `createImageBitmap`, or WebGL upload of one converts its YUV planes to RGB on the
+  calling thread (~16 ms per 1080p frame on the presenter's rAF tick, ~2 ms once it draws the
+  worker's bitmap instead; the conversion costs ~30 ms of extra decode-ahead latency). Conversions
+  in flight count against the decode lookahead, and a conversion landing after a rewarm or
+  discontinuity is discarded. Content scripts can only spawn blob/data workers, which a page CSP may
+  block — a `worker-src`/`script-src` without `blob:` fails the worker asynchronously (the converter
+  strands the frames in flight and passes later frames through), and Trusted Types enforcement
+  (YouTube: `require-trusted-types-for 'script'`) makes the `Worker` constructor throw outright, so
+  the ring runs without a converter (`dvr.frame_converter.unavailable`). No workaround exists on
+  such pages: a `moz-extension:` worker URL never loads from a content script, an extension-origin
+  iframe (which can host workers) never receives a transferred `VideoFrame`, and `VideoFrame.copyTo`
+  does the same readback on the calling thread as a draw. Firefox therefore also asks the decoder
+  for `prefer-software`: a hardware-decoded frame is read back from the GPU before its colour
+  conversion (~15 ms per 1080p draw), a software-decoded one only converted (~7 ms), and the
+  software H.264 decoder runs off the main thread either way. Chrome draws a decoded frame in well
+  under a millisecond and runs without a converter. Ring capture is driven by a full-rate **capture
   tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame,
   keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — rVFC alone
   misses frames on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever
@@ -344,20 +365,22 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   already arrived by the time the clean frame is presented, so the streak costs no extra trail. An
   unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right after) does not cut —
   the mask holds, fail closed. Frames between two unsafe samples composite the union of both
-  bounding masks (RLE-decoded once, pixelated content + destination-in) — inertia over the unknown
-  motion in between; an upcoming unsafe verdict beyond the Bridge Horizon contributes no geometry.
-  **Any verdict behind covers forward at any distance** (closest verdict wins): a clean one presents
-  clean (no mask geometry to go stale), an unsafe one keeps masking with its own geometry — masked
-  content beats hiding the whole frame — so a paused frame or a coverage hole after a seek presents
-  instead of whole-blurring. There is no fail-open exception for a session the machine already
-  cleared: the clearing verdict there is the Thumbnail, which describes the poster and carries no
-  media time, so it must never present playback frames it does not describe — that let Shorts'
-  unsafe first frame show unmasked for a full round-trip. Only genuine verdict silence — no verdict
-  behind at all, including frames that precede an upcoming unsafe sample (never pre-rolled) —
-  whole-blurs (the cost is a short blur over the pinned frame on a clean video's first play;
-  re-warms into covered ranges present clean immediately). Lookups binary-search the
-  timestamp-ordered timeline and read the bounding neighbors, so per-tick cost stays constant rather
-  than growing with the session. Sampling continues at the live edge throughout.
+  bounding masks (RLE-decoded once, pixelated content + destination-in; the pixelated copy is
+  sampled from the already-drawn base canvas, never from the frame, which on Firefox would pay its
+  YUV conversion a second time) — inertia over the unknown motion in between; an upcoming unsafe
+  verdict beyond the Bridge Horizon contributes no geometry. **Any verdict behind covers forward at
+  any distance** (closest verdict wins): a clean one presents clean (no mask geometry to go stale),
+  an unsafe one keeps masking with its own geometry — masked content beats hiding the whole frame —
+  so a paused frame or a coverage hole after a seek presents instead of whole-blurring. There is no
+  fail-open exception for a session the machine already cleared: the clearing verdict there is the
+  Thumbnail, which describes the poster and carries no media time, so it must never present playback
+  frames it does not describe — that let Shorts' unsafe first frame show unmasked for a full
+  round-trip. Only genuine verdict silence — no verdict behind at all, including frames that precede
+  an upcoming unsafe sample (never pre-rolled) — whole-blurs (the cost is a short blur over the
+  pinned frame on a clean video's first play; re-warms into covered ranges present clean
+  immediately). Lookups binary-search the timestamp-ordered timeline and read the bounding
+  neighbors, so per-tick cost stays constant rather than growing with the session. Sampling
+  continues at the live edge throughout.
 - **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
   permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
   Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
@@ -377,9 +400,11 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   DVR still `warming` at `ended` has no tail to drain and `bufferReady` can never fire, so it hands
   back to the DOM overlay instead of latching its warm-up blur forever.
 - **Seek**: ring discontinuity → flush and re-warm (stopDvr/startDvr) with a freshly derived `D` —
-  small when the seek lands in a range the timeline already covers, so re-visited content barely
-  pauses. The warm-up cover is re-established under the same fail-closed rule: whole-blur while
-  masked or verdict-pending; a resumed skipped session stays deliberately uncovered.
+  the store itself treats a backwards capture key within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a
+  re-delivered stale frame (dropped, buffer kept) and only flushes on a larger step — small when the
+  seek lands in a range the timeline already covers, so re-visited content barely pauses. The
+  warm-up cover is re-established under the same fail-closed rule: whole-blur while masked or
+  verdict-pending; a resumed skipped session stays deliberately uncovered.
 - **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
   hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
   ERROR, source change, and the undelayable-audio demotion. Pause, `ended`, and clean streaks are
@@ -444,10 +469,18 @@ resized player (embedded → fullscreen crosses the 1.25× hysteresis) re-regist
 cap the same way. Per-session, the ring stays bounded by `D`+slack, the backend-tiered session cap,
 and the budget-derived capture scale (`dvr/captureScale.ts`): the largest capture size — up to
 min(display size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack
-inside the byte cap. A live ring never shrinks below its latched `D`, or presentation would strand
-on the warm-up frame. The presenter's base canvas backs at device-pixel resolution and scales
-buffered frames smoothly; only the mask canvas keeps `image-rendering: pixelated` (its blockiness is
-the masking effect itself).
+inside the byte cap. On Firefox the raw ring's ceiling is additionally held at 960 px
+(`FIREFOX_RAW_CAPTURE_MAX_WIDTH`): a native-width raw ring holds ~570 MB of RGBA in the content
+process (200 MB at 960 px), and Firefox's `drawImage` from a video is source-bound (~18 ms per frame
+at either width), so the ceiling buys memory headroom rather than main-thread time; the encoded ring
+captures at native resolution regardless (its present cost is moved off the main thread by the
+decoded-frame converter instead). A live ring never shrinks below its latched `D`, or presentation
+would strand on the warm-up frame. The presenter's base canvas backs at device-pixel resolution
+(capped at the buffered frame's own width) and draws in whole device pixels through the identity
+transform (`toDevicePixels`), so a frame that matches the backing store is a 1:1 blit; on Firefox
+both presenter canvases are created with `willReadFrequently` so that blit stays a memcpy into a
+software canvas instead of a texture upload. Only the mask canvas keeps `image-rendering: pixelated`
+(its blockiness is the masking effect itself).
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
 the video's next sibling with the video's own z-index (see

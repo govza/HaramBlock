@@ -4,6 +4,7 @@ export const ANOMALY_FPS_RATIO = 0.75;
 export const ANOMALY_LONG_TASK_MS = 100;
 export const ANOMALY_RATE_LIMIT_MS = 10_000;
 export const ANOMALY_FPS_WINDOWS = 2;
+export const ANOMALY_WARMUP_WINDOWS = 2;
 export const HEALTHY_PRESENTED_RATIO = 0.9;
 export const HEALTHY_LONG_TASK_MS = ANOMALY_LONG_TASK_MS;
 
@@ -41,10 +42,16 @@ export class DvrAnomalyDetector {
 
   resetWindows(): void {
     this.recentWindows.length = 0;
+    this.warmupWindowsLeft = ANOMALY_WARMUP_WINDOWS;
   }
   private readonly recentWindows: FpsWindow[] = [];
+  private warmupWindowsLeft = ANOMALY_WARMUP_WINDOWS;
 
   observeWindow(window: FpsWindow): DvrAnomalyCause | null {
+    if (this.warmupWindowsLeft > 0) {
+      this.warmupWindowsLeft--;
+      return null;
+    }
     this.recentWindows.push(window);
     if (this.recentWindows.length < ANOMALY_FPS_WINDOWS) return null;
     if (this.recentWindows.length > ANOMALY_FPS_WINDOWS) this.recentWindows.shift();
@@ -73,6 +80,8 @@ export class DvrAnomalyDetector {
 
 export type PresentOutcome = 'new' | 'repeat' | 'miss';
 
+export type PresentSource = 'none' | 'live' | 'bitmap' | 'video-frame' | 'other';
+
 export interface DvrTickRecord {
   wallTs: number;
   wallGapMs: number;
@@ -85,7 +94,11 @@ export interface DvrTickRecord {
   ringSpanSec: number;
   captureMs: number;
   presentMs: number;
+  presentBaseMs: number;
+  presentMaskMs: number;
+  presentSource: PresentSource;
   storeCoveredMisses: number;
+  storeLookahead: number;
 }
 
 const emptyRecord = (): DvrTickRecord => ({
@@ -100,7 +113,11 @@ const emptyRecord = (): DvrTickRecord => ({
   ringSpanSec: 0,
   captureMs: 0,
   presentMs: 0,
+  presentBaseMs: 0,
+  presentMaskMs: 0,
+  presentSource: 'none',
   storeCoveredMisses: 0,
+  storeLookahead: 0,
 });
 
 export const SOURCE_SKIP_RATIO = 1.5;

@@ -1,5 +1,5 @@
 import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
-import { dvrCaptureScale } from '@/entrypoints/content/video/dvr/captureScale';
+import { dvrCaptureScale, rawCaptureCeilingPx } from '@/entrypoints/content/video/dvr/captureScale';
 import { startDvrCaptureTap, type DvrTapUnavailableReason } from '@/entrypoints/content/video/dvr/captureTap';
 import {
   COVERED_DVR_DELAY_MS,
@@ -37,6 +37,7 @@ const log = getLogger('dvrRun');
 const DVR_BUFFER_HORIZON_SEC = MAX_DVR_DELAY_MS / 1000 + 1;
 /** Projection cap when neither display nor native size is known yet: assume 1080p rather than under-budget. */
 const FALLBACK_CAPTURE_CAP_PX = 1920;
+const RAW_CAPTURE_CEILING_PX = rawCaptureCeilingPx(import.meta.env.FIREFOX);
 /** Re-register only on a material display resize (embedded → fullscreen), not layout jitter. */
 const CAP_REREGISTER_RATIO = 1.25;
 /** Per-verdict D growth when the store reports a decode stall (covered miss). */
@@ -47,7 +48,7 @@ const TAP_LIVENESS_WINDOW_SEC = 0.5;
 const TAP_LIVENESS_WALL_MS = 500;
 /** Backwards steps smaller than this are currentTime quantization, not a seek. */
 const TAP_KEY_JITTER_SEC = 0.02;
-/** Forward nudge for a quantization-stalled key; must clear the ring's 1 ms jitter tolerance. */
+/** Forward nudge for a quantization-stalled key; the ring drops any key at or before its newest frame. */
 const TAP_KEY_NUDGE_SEC = 0.002;
 
 export type DvrRunEvent = { type: 'bufferReady'; at: number } | { type: 'analysisUnderrun'; at: number };
@@ -450,8 +451,11 @@ class Run implements DvrRun {
   private captureWidthCap(): number {
     const displayWidth = this.ports.surface.displayWidth();
     const nativeWidth = this.registeredWidth;
-    if (displayWidth > 0 && nativeWidth > 0) return Math.min(displayWidth, nativeWidth);
-    return displayWidth || nativeWidth || FALLBACK_CAPTURE_CAP_PX;
+    const visibleCap =
+      displayWidth > 0 && nativeWidth > 0
+        ? Math.min(displayWidth, nativeWidth)
+        : displayWidth || nativeWidth || FALLBACK_CAPTURE_CAP_PX;
+    return this.demandEncoded ? visibleCap : Math.min(visibleCap, RAW_CAPTURE_CEILING_PX);
   }
 
   private registerDemand(): void {
@@ -560,7 +564,7 @@ class Run implements DvrRun {
         nativeWidth,
         nativeHeight,
         displayWidth: surface.displayWidth(),
-        maxWidth: quality.maxWidth,
+        maxWidth: Math.min(quality.maxWidth, RAW_CAPTURE_CEILING_PX),
         delaySec: this.delay,
         captureIntervalSec: quality.captureIntervalSec,
         maxBytes: budget.sessionMaxBytes(),
@@ -596,17 +600,21 @@ class Run implements DvrRun {
     }
   }
 
+  /**
+   * The capture position only moves on an accepted frame: a stale-dropped
+   * frame that advanced it would seed the tap's forward nudge from a stale
+   * key, creeping duplicate pictures into the ring while currentTime stalls.
+   */
   private pushToStore(frame: DvrCaptureFrame, mediaTime: number): void {
     const previousMediaTime = this.lastCapturedMediaTime;
-    this.lastCapturedMediaTime = mediaTime;
     const { probe, store } = this;
     if (!probe) {
-      store.push(frame, mediaTime);
+      if (store.push(frame, mediaTime)) this.lastCapturedMediaTime = mediaTime;
       return;
     }
     const flushesBefore = store.flushes();
     const spanBefore = store.spanSec();
-    store.push(frame, mediaTime);
+    if (store.push(frame, mediaTime)) this.lastCapturedMediaTime = mediaTime;
     if (store.flushes() !== flushesBefore) {
       probe.ringFlushed(flushCause(previousMediaTime, mediaTime), previousMediaTime, mediaTime, spanBefore);
     }

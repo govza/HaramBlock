@@ -9,7 +9,7 @@
  */
 
 import {
-  BACKWARDS_JITTER_TOLERANCE_SEC,
+  isStaleBackstep,
   type DvrCaptureFrame,
   type DvrFrameStore,
   type PresentableFrame,
@@ -34,6 +34,7 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
   private frames: RingFrame<B>[] = [];
   private totalBytes = 0;
   private flushCount = 0;
+  private consecutiveStaleDrops = 0;
 
   constructor(
     private maxDurationSec: number,
@@ -51,22 +52,26 @@ export class FrameRing<B extends RingBitmap = ImageBitmap> {
    * Append a frame. A backwards jump in media time (seek without a `seeked`
    * event, e.g. a native loop restart) is a discontinuity: the buffered
    * content no longer precedes the live edge, so the ring flushes. A
-   * sub-tolerance backwards step or duplicate timestamp is playback jitter,
-   * not a seek: the frame is dropped and the buffer retained.
+   * sub-tolerance backwards step or duplicate timestamp is a re-delivered
+   * stale frame (Firefox rVFC re-ordering), not a seek: the frame is dropped
+   * and the buffer retained. Returns whether the frame was stored.
    */
-  push(frame: RingFrame<B>): void {
+  push(frame: RingFrame<B>): boolean {
     const newest = this.frames.at(-1);
     if (newest && frame.mediaTime <= newest.mediaTime) {
-      if (newest.mediaTime - frame.mediaTime <= BACKWARDS_JITTER_TOLERANCE_SEC) {
+      if (isStaleBackstep(newest.mediaTime, frame.mediaTime, this.consecutiveStaleDrops)) {
+        this.consecutiveStaleDrops++;
         frame.bitmap.close();
-        return;
+        return false;
       }
       this.flush();
       this.flushCount++;
     }
+    this.consecutiveStaleDrops = 0;
     this.frames.push(frame);
     this.totalBytes += frame.bitmap.width * frame.bitmap.height * BYTES_PER_PIXEL;
     this.evict();
+    return true;
   }
 
   /** Latest frame at or before `mediaTime`; null when the buffer does not reach back that far. */
@@ -150,12 +155,12 @@ export class RawFrameRing implements DvrFrameStore {
     this.ring = new FrameRing(maxDurationSec, maxBytes);
   }
 
-  push(frame: DvrCaptureFrame, mediaTime: number): void {
+  push(frame: DvrCaptureFrame, mediaTime: number): boolean {
     if ('displayWidth' in frame) {
       frame.close();
-      return;
+      return false;
     }
-    this.ring.push({ bitmap: frame, mediaTime });
+    return this.ring.push({ bitmap: frame, mediaTime });
   }
 
   frameAt(mediaTime: number): PresentableFrame | null {
@@ -176,6 +181,10 @@ export class RawFrameRing implements DvrFrameStore {
 
   flushes(): number {
     return this.ring.flushes();
+  }
+
+  lookaheadFrames(): number {
+    return 0;
   }
 
   spanSec(): number {

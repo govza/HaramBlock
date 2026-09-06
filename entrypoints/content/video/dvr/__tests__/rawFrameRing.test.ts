@@ -98,6 +98,20 @@ describe('FrameRing', () => {
     expect(ring.bytes()).toBe(40_000);
   });
 
+  it('drops (and closes) a frame-scale re-delivered backstep without flushing', () => {
+    const ring = new FrameRing<FakeBitmap>(10, BIG);
+    const kept = new FakeBitmap();
+    ring.push({ bitmap: kept, mediaTime: 5 });
+
+    const stale = new FakeBitmap();
+    ring.push({ bitmap: stale, mediaTime: 5 - 0.042 });
+
+    expect(kept.closed).toBe(false);
+    expect(stale.closed).toBe(true);
+    expect(ring.frameAt(5)?.bitmap).toBe(kept);
+    expect(ring.flushes()).toBe(0);
+  });
+
   it('exposes the earliest buffered time for warm-up pinning', () => {
     const ring = new FrameRing<FakeBitmap>(10, BIG);
     expect(ring.oldestTime()).toBeNull();

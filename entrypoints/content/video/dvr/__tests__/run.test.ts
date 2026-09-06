@@ -30,9 +30,10 @@ function makeStore(): SessionFrameStore & { misses: number } {
     kind: () => 'encoded' as const,
     selectionReason: () => 'encoded' as const,
     demoteToRaw: () => {},
-    push: () => {},
+    push: () => true,
     frameAt: () => null,
     coveredMisses: () => store.misses,
+    lookaheadFrames: () => 0,
     flushes: () => 0,
     spanSec: () => 0,
     oldestTime: () => null,
@@ -206,6 +207,35 @@ describe('DvrRun.onTick', () => {
     setNow(1000);
     run.onTick(10.1);
     expect(setLimits.mock.calls.length).toBeGreaterThan(tapCaptures);
+  });
+
+  it('a frame the store rejects as stale does not move the tap key forward', () => {
+    const store = makeStore();
+    const pushed: number[] = [];
+    let newest = Number.NEGATIVE_INFINITY;
+    store.push = (_frame, mediaTime) => {
+      pushed.push(mediaTime);
+      if (mediaTime <= newest) return false;
+      newest = mediaTime;
+      return true;
+    };
+    vi.stubGlobal(
+      'VideoFrame',
+      class {
+        close() {}
+      },
+    );
+    try {
+      const { deliverTapFrame } = makeHarness({ store, withTapDriver: true });
+
+      deliverTapFrame(10.04);
+      deliverTapFrame(10);
+      deliverTapFrame(10);
+
+      expect(pushed).toEqual([10.04, 10, 10]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('captures on every tick when no push driver exists', () => {

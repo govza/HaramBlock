@@ -122,24 +122,41 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   every DVR record reflects the effective path, not just whether a tap driver exists.
 - `video.dvr.store_demoted`, `video.dvr.underrun`, `video.dvr.budget_degraded` /
   `video.dvr.budget_recovered` (ladder step, `hb.budget.*`).
+- `dvr.frame_converter.failed` (warn) - the Firefox decoded-frame worker died or stopped answering
+  (`detail`: the worker error, or `timeout` after `CONVERSION_TIMEOUT_MS`; `pending`: frames it
+  stranded). The ring keeps running with main-thread draws for the rest of that run.
+- `dvr.frame_converter.unavailable` (warn) - the worker could not be constructed at all (`error`:
+  the message; on Trusted-Types pages such as YouTube it is a CSP sink violation). The run draws on
+  the main thread from the start.
+- `dvr.frame_converter.transfer_failed` (debug) - posting one decoded frame to the worker threw
+  (`error`); that frame is drawn on the main thread and the worker keeps serving the rest.
 - `video.dvr.ring_flushed` - the frame store emptied itself mid-run: `hb.dvr.cause` (backstep: the
-  capture key went backwards past `BACKWARDS_JITTER_TOLERANCE_SEC`; store: codec reconfiguration;
-  swap: raw <-> encoded exchange), `hb.dvr.from_sec` / `hb.dvr.to_sec` (previous and offending
-  capture key) and `hb.dvr.span_lost_sec` (buffered media the flush discarded). Every flush costs a
-  pinned refill of `D` seconds, so this is the first thing to check behind a freeze.
+  capture key went backwards past `STALE_FRAME_TOLERANCE_SEC` (0.5 s, a loop restart or a seek
+  without a `seeked` event); store: codec reconfiguration; swap: raw <-> encoded exchange),
+  `hb.dvr.from_sec` / `hb.dvr.to_sec` (previous and offending capture key) and
+  `hb.dvr.span_lost_sec` (buffered media the flush discarded). Every flush costs a pinned refill of
+  `D` seconds, so this is the first thing to check behind a freeze.
 - `video.audio.route` - `hb.audio.route.result` (attempt|delayLine|relay|deferred|unavailable).
 - `video.capture.failed` - `hb.capture.stage`, `hb.capture.permanent`.
 - `video.dvr.anomaly` + `video.dvr.tick` - the last 5 s of per-tick records (`hb.dvr.tick.*`),
-  dumped under one `hb.dvr.anomaly.id` when presented fps < 0.75 x captured over 2 s, a long task >
-  100 ms during playback, an analysis underrun, or a stall-driven D raise. One dump per 10 s per
-  session. Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`. Each tick also records
+  dumped under one `hb.dvr.anomaly.id` when presented fps < 0.75 x captured over 2 s (the first 2 s
+  after a run starts or playback resumes are warm-up and never trip it), a long task > 100 ms during
+  playback, an analysis underrun, or a stall-driven D raise. One dump per 10 s per session.
+  Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`. Each tick also records
   `hb.dvr.tick.wall_gap_ms` (wall time since the previous frame delivery) and
   `hb.dvr.tick.media_delta` (mediaTime advance of that delivery): a delta of two frame intervals is
   a source frame the browser never delivered, a negative delta is a backstep (see
   `hb.dvr.source_backsteps`), a wall gap well above the frame interval is a late callback. The
   presenter side carries `hb.dvr.tick.outcome` (new | repeat | miss - a miss is a target the store
   could not serve, invisible in the old boolean), `hb.dvr.tick.pinned` (held on the earliest frame
-  because the ring does not yet span `D`) and `hb.dvr.tick.ring_span_sec`.
+  because the ring does not yet span `D`) and `hb.dvr.tick.ring_span_sec`. `hb.dvr.tick.present_ms`
+  splits into `present_base_ms` (the frame draw) and `present_mask_ms` (the mask pass) so a slow
+  present can be blamed on the source or on the masks; `hb.dvr.tick.store_lookahead` is how many
+  decoded (or converting) frames the encoded store holds ahead of the cursor - 0 means the presenter
+  is eating frames the moment they land. `hb.dvr.tick.present_source` names what the base draw
+  consumed (`bitmap` from the converter worker, `video-frame` straight from the decoder, `live` from
+  the element, `none` on a tick that drew nothing, `other` for any other canvas source), so a slow
+  base draw can be tied to the source kind rather than guessed.
 
 ## Metrics
 
@@ -190,8 +207,11 @@ stay readable at 25+ sessions). Emitted only for active windows unless noted:
 - `hb.dvr.source_backsteps{hb.dvr.backstep_frames}` - deliveries whose mediaTime went backwards, by
   size in frame intervals (`1` | `2` | `3+` | `seek`; seek = more than `BACKSTEP_SEEK_FRAMES` or no
   interval learnt yet). One- and two-frame backsteps are the browser re-delivering an older frame
-  (Firefox rVFC does this every 15-40 s); anything the store's tolerance does not absorb becomes a
-  `video.dvr.ring_flushed`.
+  (Firefox rVFC does this every 15-40 s) and are absorbed by the store's `STALE_FRAME_TOLERANCE_SEC`
+  (0.5 s absolute; the `3+` bucket's upper bound at 24 fps, so the two only coincide at that rate) -
+  they count here but do not flush. A backstep beyond the tolerance, or more than
+  `MAX_CONSECUTIVE_STALE_FRAMES` sub-tolerance backsteps in a row (a natively looping clip shorter
+  than the tolerance), becomes a `video.dvr.ring_flushed`.
 - `hb.dvr.pinned_windows` - active windows in which the presenter held the earliest buffered frame
   because the ring did not yet span `D` (warm-up, seek re-warm, or a flush refilling). A frozen
   window that is also pinned is a ring refill; a frozen window that is not is a decode / present

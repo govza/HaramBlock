@@ -5,10 +5,14 @@ import {
   ENCODED_SESSION_CAP,
   createDvrFrameStore,
   isEncodedDvrRingEnabled,
+  decoderHardwarePreference,
+  probeHardwarePreference,
   selectStoreKind,
   setEncodedDvrRingEnabled,
   type EncodedSessionSlots,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
+
+import type { DecodedFrameConverter } from '@/entrypoints/content/video/dvr/decodedFrameConverter';
 
 const initialFlag = isEncodedDvrRingEnabled();
 
@@ -54,6 +58,26 @@ function storeOptions(overrides: Partial<Parameters<typeof createDvrFrameStore>[
 async function settle(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0));
 }
+
+describe('probeHardwarePreference', () => {
+  it('requires hardware on browsers where prefer-hardware is a soft preference', () => {
+    expect(probeHardwarePreference(false)).toBe('prefer-hardware');
+  });
+
+  it('accepts the off-main-thread software encoder on Firefox, where prefer-hardware means require', () => {
+    expect(probeHardwarePreference(true)).toBe('no-preference');
+  });
+});
+
+describe('decoderHardwarePreference', () => {
+  it('asks Firefox for software decoding so drawn frames skip the GPU readback', () => {
+    expect(decoderHardwarePreference(true)).toBe('prefer-software');
+  });
+
+  it('leaves the decoder choice to browsers with a GPU draw path', () => {
+    expect(decoderHardwarePreference(false)).toBeUndefined();
+  });
+});
 
 describe('selectStoreKind matrix', () => {
   it.each([
@@ -169,6 +193,31 @@ describe('createDvrFrameStore', () => {
     expect(store.kind()).toBe('raw');
     expect(onKindChange).toHaveBeenLastCalledWith('raw');
     expect(slots.count()).toBe(0);
+    store.release();
+  });
+});
+
+describe('createDvrFrameStore decoded-frame converter wiring', () => {
+  it('hands the encoded ring a converter from the factory option once the upgrade lands', async () => {
+    const convert = vi.fn<DecodedFrameConverter['convert']>((frame, onConverted) => onConverted(frame));
+    const createConverter = vi.fn((): DecodedFrameConverter => ({ convert, release: vi.fn() }));
+    const store = createDvrFrameStore(storeOptions({ createConverter }));
+    await settle();
+    expect(store.kind()).toBe('encoded');
+    expect(createConverter).toHaveBeenCalledTimes(1);
+    for (let t = 0; t < 1; t += 1 / 30) store.push(asCaptureFrame(fakeVideoFrame(t)), t);
+    store.frameAt(0.5);
+    expect(convert).toHaveBeenCalled();
+    store.release();
+  });
+
+  it('runs without a converter when the factory option is null', async () => {
+    const store = createDvrFrameStore(storeOptions({ createConverter: null }));
+    await settle();
+    expect(store.kind()).toBe('encoded');
+    for (let t = 0; t < 1; t += 1 / 30) store.push(asCaptureFrame(fakeVideoFrame(t)), t);
+    store.frameAt(0.5);
+    expect(store.frameAt(0.5)).not.toBeNull();
     store.release();
   });
 });

@@ -12,8 +12,11 @@ import {
 import {
   ENCODED_KEYFRAME_INTERVAL_SEC,
   EncodedFrameRing,
+  type DecodedRingFrame,
   type EncodedRingCodecs,
 } from '@/entrypoints/content/video/dvr/encodedFrameRing';
+
+import type { DecodedFrameConverter } from '@/entrypoints/content/video/dvr/decodedFrameConverter';
 
 const BIG = Number.MAX_SAFE_INTEGER;
 const TICK = 1 / 30;
@@ -74,6 +77,21 @@ describe('EncodedFrameRing', () => {
     const frames = [fakeVideoFrame(0), fakeVideoFrame(0.5), fakeVideoFrame(1)];
     frames.forEach(frame => ring.push(asCaptureFrame(frame), frame.timestamp / 1_000_000));
     expect(frames.every(frame => frame.closed)).toBe(true);
+    ring.release();
+  });
+
+  it('configures the decoder with the requested hardware preference', () => {
+    const codecs = createMockCodecs();
+    const ring = new EncodedFrameRing({
+      maxDurationSec: 5,
+      maxBytes: BIG,
+      codecs,
+      onFatalError: vi.fn(),
+      decoderHardwareAcceleration: 'prefer-software',
+    });
+    fill(ring, 0, 1);
+    ring.frameAt(0.5);
+    expect(codecs.decoders[0]?.lastConfig?.hardwareAcceleration).toBe('prefer-software');
     ring.release();
   });
 
@@ -206,6 +224,23 @@ describe('EncodedFrameRing', () => {
     ring.release();
   });
 
+  it('drops (and closes) a frame-scale re-delivered backstep without resetting the codecs', () => {
+    const { ring, codecs } = makeRing(10);
+    fill(ring, 0, 2);
+    const encoder = codecs.encoders[0]!;
+    const encodesBefore = encoder.encodeCalls;
+
+    const stale = fakeVideoFrame(2 - 0.042);
+    ring.push(asCaptureFrame(stale), 2 - 0.042);
+
+    expect(stale.closed).toBe(true);
+    expect(encoder.encodeCalls).toBe(encodesBefore);
+    expect(encoder.resetCalls).toBe(0);
+    expect(codecs.decoders[0]?.resetCalls ?? 0).toBe(0);
+    expect(ring.oldestTime()).toBe(0);
+    ring.release();
+  });
+
   it('resets encoder and decoder state on a discontinuity', () => {
     const { ring, codecs } = makeRing(10);
     fill(ring, 4, 5);
@@ -275,5 +310,107 @@ describe('EncodedFrameRing', () => {
     ring.push(asCaptureFrame(late), 3.5);
     expect(late.closed).toBe(true);
     expect(ring.oldestTime()).toBeNull();
+  });
+});
+
+function makeHeldConverter() {
+  const held: { frame: DecodedRingFrame; deliver: (converted: DecodedRingFrame | null) => void }[] = [];
+  const converted: { source: string; closed: boolean }[] = [];
+  const convertToBitmap = (frame: DecodedRingFrame): DecodedRingFrame => {
+    const bitmap = { source: `bitmap:${frame.timestamp}`, closed: false };
+    converted.push(bitmap);
+    frame.close();
+    return {
+      ...bitmap,
+      displayWidth: frame.displayWidth,
+      displayHeight: frame.displayHeight,
+      timestamp: frame.timestamp,
+      close: () => {
+        bitmap.closed = true;
+      },
+    };
+  };
+  const converter: DecodedFrameConverter & { released: boolean } = {
+    released: false,
+    convert: (frame, onConverted) => held.push({ frame, deliver: onConverted }),
+    release: () => {
+      converter.released = true;
+    },
+  };
+  return {
+    converter,
+    converted,
+    inFlight: () => held.length,
+    flush: () => held.splice(0).forEach(({ frame, deliver }) => deliver(convertToBitmap(frame))),
+    dropAll: () => held.splice(0).forEach(({ deliver }) => deliver(null)),
+  };
+}
+
+function makeConvertingRing(maxDurationSec: number) {
+  const codecs = createMockCodecs();
+  const conversion = makeHeldConverter();
+  const ring = new EncodedFrameRing({
+    maxDurationSec,
+    maxBytes: BIG,
+    codecs,
+    onFatalError: vi.fn(),
+    convertDecoded: conversion.converter,
+  });
+  return { ring, codecs, ...conversion };
+}
+
+describe('EncodedFrameRing decoded-frame conversion', () => {
+  it('presents the converted frame in place of the decoder output', () => {
+    const { ring, flush } = makeConvertingRing(10);
+    fill(ring, 0, 2);
+    expect(ring.frameAt(1)).toBeNull();
+    flush();
+    const frame = settledFrameAt(ring, 1);
+    expect(frame).not.toBeNull();
+    expect(frame!.source).toBe(`bitmap:${Math.round(frame!.mediaTime * 1_000_000)}`);
+    ring.release();
+  });
+
+  it('counts conversions in flight against the decode lookahead', () => {
+    const { ring, codecs, inFlight, flush } = makeConvertingRing(10);
+    fill(ring, 0, 3);
+    ring.frameAt(0.5);
+    ring.frameAt(0.5);
+    const decoder = codecs.decoders[0]!;
+    expect(inFlight()).toBe(decoder.decodeCalls);
+    expect(decoder.decodeCalls).toBeLessThanOrEqual(8);
+    flush();
+    ring.frameAt(0.5);
+    expect(decoder.decodeCalls).toBeGreaterThan(inFlight());
+    ring.release();
+  });
+
+  it('discards a conversion that lands after a discontinuity flushed the lookahead', () => {
+    const { ring, converted, flush } = makeConvertingRing(10);
+    fill(ring, 0, 2);
+    ring.frameAt(1);
+    ring.push(asCaptureFrame(fakeVideoFrame(0)), 0);
+    flush();
+    expect(converted.length).toBeGreaterThan(0);
+    expect(converted.every(bitmap => bitmap.closed)).toBe(true);
+    expect(ring.frameAt(1)).toBeNull();
+    ring.release();
+  });
+
+  it('skips a failed conversion and keeps serving later frames', () => {
+    const { ring, dropAll, flush } = makeConvertingRing(10);
+    fill(ring, 0, 2);
+    ring.frameAt(0.5);
+    dropAll();
+    ring.frameAt(0.5);
+    flush();
+    expect(settledFrameAt(ring, 0.5)).not.toBeNull();
+    ring.release();
+  });
+
+  it('releases the converter with the ring', () => {
+    const { ring, converter } = makeConvertingRing(10);
+    ring.release();
+    expect(converter.released).toBe(true);
   });
 });

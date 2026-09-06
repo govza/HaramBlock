@@ -23,6 +23,9 @@ const sample: PresentedSample = {
   outcome: 'new',
   pinned: false,
   presentMs: 3,
+  presentBaseMs: 2,
+  presentMaskMs: 1,
+  presentSource: 'bitmap',
 };
 
 describe('DVR probe lifecycle', () => {
@@ -81,9 +84,12 @@ describe('DVR probe lifecycle', () => {
       kind: () => 'encoded',
       selectionReason: () => 'encoded' as const,
       demoteToRaw() {},
-      push() {},
+      push() {
+        return true;
+      },
       frameAt: () => null,
       coveredMisses: () => 0,
+      lookaheadFrames: () => 0,
       flushes: () => 0,
       spanSec: () => 2,
       oldestTime: () => 8,

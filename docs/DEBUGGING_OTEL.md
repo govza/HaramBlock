@@ -13,7 +13,13 @@ Prerequisites: Docker with `docker compose` (or the standalone `docker-compose`)
 ```
 pnpm otel:up      # build + start grafana/otel-lgtm, wait for the collector
 pnpm otel:down    # stop it (the data volume survives)
+pnpm otel:clear   # drop the data volume and restart empty
 ```
+
+The stores are never emptied on their own, so data from earlier runs stays queryable across days.
+That is harmless for time-bounded queries and the per-session panels, but the rollup tiles read
+every session in the dashboard range; run `pnpm otel:clear` before a repro when a clean slate
+matters, or just narrow the time range.
 
 `pnpm dev`, `pnpm dev:no-gpu` and `pnpm dev:firefox` run the same script as a pre-step, so the stack
 comes up on its own before the build. There it never blocks: without Docker it prints a warning and
@@ -121,7 +127,7 @@ plays (zero active windows), so an idle dashboard is never green.
 
 - _Captured vs presented fps_ - the DVR's two 1 s-window rates. Presented tracking captured means
   the delay line keeps up. Presented < 0.75 x captured for 2 consecutive windows is the fps anomaly
-  trigger.
+  trigger; the first 2 windows after a run start or playback resume are warm-up and are skipped.
 - _Source vs captured fps_ - `hb.dvr.source_fps` is what the browser delivered (distinct
   mediaTimes); captured below it is the capture throttle (raw ring cadence ~30 fps) or a capture
   that failed. Source below the media's frame rate is the browser skipping frames - see the skipped
@@ -130,8 +136,8 @@ plays (zero active windows), so an idle dashboard is never green.
   the element's `videoWidth` / `videoHeight`. Capture above native is an upscale: wasted capture
   cost and ring bytes. Native at 0 means the DVR started before metadata.
 - _Capture draw / Capture transfer_ - the raw-store capture cost split into drawImage and
-  transferToImageBitmap (both 0 on the encoded store). Firefox is raw-only, so this is where its
-  per-frame main-thread cost shows.
+  transferToImageBitmap (both 0 on the encoded store). On Firefox the raw store is the fallback when
+  the software-encoder probe fails, and this is where its per-frame main-thread cost shows.
 - _Frame delivery gap (ms)_ - wall gap between new-frame deliveries. Bands above the frame interval
   are callbacks held back by main-thread work; Firefox has no `longtask` observer, so this panel
   stands in for _Main-thread long tasks_ there.
@@ -142,9 +148,12 @@ plays (zero active windows), so an idle dashboard is never green.
 - _Sampler encode / frames sent_ - `bitmapToCompressedBlob` cost (Firefox blob transport) and the
   inference sampling rate; the other main-thread consumer next to the DVR capture.
 - _Ring flushes / source backsteps_ - `hb.dvr.ring_flushes` by cause and `hb.dvr.source_backsteps`
-  by size in frame intervals (rollups). A backstep bar without a flush bar is absorbed jitter; a
-  flush bar means the ring emptied and the session is about to pin for `D`. On Firefox a 1-frame
-  backstep every 15-40 s is the rVFC re-delivering an older frame, not a seek.
+  by size in frame intervals (rollups). A backstep bar without a flush bar is a re-delivered stale
+  frame the store absorbed (anything under `STALE_FRAME_TOLERANCE_SEC`, 0.5 s absolute - the size
+  buckets are frame-relative, so a `seek` bucket at 60 fps can still be absorbed); a flush bar means
+  the ring emptied and the session is about to pin for `D`. On Firefox a 1-frame backstep every
+  15-40 s is the rVFC re-delivering an older frame, not a seek - expect backstep bars with no
+  matching flush bars.
 - _Pinned vs frozen windows_ - `hb.dvr.pinned_windows` (presenter waiting for the ring to span `D`)
   next to `hb.dvr.freeze_windows`. Frozen and pinned = ring refill (after a flush or seek); frozen
   and not pinned = decode or present problem.
