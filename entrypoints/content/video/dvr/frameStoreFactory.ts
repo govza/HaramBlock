@@ -9,6 +9,10 @@
  */
 
 import {
+  decodedFrameConverterFactoryFor,
+  type DecodedFrameConverterFactory,
+} from '@/entrypoints/content/video/dvr/decodedFrameConverter';
+import {
   EncodedFrameRing,
   createWebCodecsPair,
   encoderConfigFor,
@@ -26,6 +30,14 @@ import type {
 } from '@/entrypoints/content/video/dvr/frameStore';
 
 const log = getLogger('frameStoreFactory');
+
+/**
+ * Firefox has no GPU path from a decoded VideoFrame to a canvas: every draw
+ * converts the frame's YUV planes to RGB on the calling thread (~16 ms per
+ * 1080p frame, docs/VIDEO_PROCESSING.md). Converting in a worker moves that
+ * off the presenter's rAF tick. Chrome's draw is ~0.5 ms, so nothing to move.
+ */
+const platformConverterFactory = decodedFrameConverterFactoryFor(import.meta.env.FIREFOX);
 
 /**
  * Conservative cap on concurrent hardware encoder sessions; sessions beyond it
@@ -182,11 +194,13 @@ export interface CreateDvrFrameStoreOptions {
   codecs?: EncodedRingCodecs;
   probe?: EncodedSupportProbe;
   slots?: EncodedSessionSlots;
+  createConverter?: DecodedFrameConverterFactory | null;
 }
 
 export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): SessionFrameStore {
   const slots = options.slots ?? globalSlots;
   const probe = options.probe ?? webCodecsProbe;
+  const createConverter = options.createConverter === undefined ? platformConverterFactory : options.createConverter;
   const store = new SwappableFrameStore(
     new RawFrameRing(options.maxDurationSec, options.maxBytes),
     options.maxDurationSec,
@@ -220,6 +234,7 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
           maxDurationSec: store.currentMaxDurationSec(),
           maxBytes: store.currentMaxBytes(),
           codecs: options.codecs ?? createWebCodecsPair(),
+          convertDecoded: createConverter?.() ?? null,
           onFatalError: () => {
             options.onEncodedError();
             if (!store.isReleased() && store.kind() === 'encoded') {

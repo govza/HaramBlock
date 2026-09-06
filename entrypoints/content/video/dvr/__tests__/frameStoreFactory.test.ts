@@ -11,6 +11,8 @@ import {
   type EncodedSessionSlots,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 
+import type { DecodedFrameConverter } from '@/entrypoints/content/video/dvr/decodedFrameConverter';
+
 const initialFlag = isEncodedDvrRingEnabled();
 
 afterEach(() => {
@@ -180,6 +182,31 @@ describe('createDvrFrameStore', () => {
     expect(store.kind()).toBe('raw');
     expect(onKindChange).toHaveBeenLastCalledWith('raw');
     expect(slots.count()).toBe(0);
+    store.release();
+  });
+});
+
+describe('createDvrFrameStore decoded-frame converter wiring', () => {
+  it('hands the encoded ring a converter from the factory option once the upgrade lands', async () => {
+    const convert = vi.fn<DecodedFrameConverter['convert']>((frame, onConverted) => onConverted(frame));
+    const createConverter = vi.fn((): DecodedFrameConverter => ({ convert, release: vi.fn() }));
+    const store = createDvrFrameStore(storeOptions({ createConverter }));
+    await settle();
+    expect(store.kind()).toBe('encoded');
+    expect(createConverter).toHaveBeenCalledTimes(1);
+    for (let t = 0; t < 1; t += 1 / 30) store.push(asCaptureFrame(fakeVideoFrame(t)), t);
+    store.frameAt(0.5);
+    expect(convert).toHaveBeenCalled();
+    store.release();
+  });
+
+  it('runs without a converter when the factory option is null', async () => {
+    const store = createDvrFrameStore(storeOptions({ createConverter: null }));
+    await settle();
+    expect(store.kind()).toBe('encoded');
+    for (let t = 0; t < 1; t += 1 / 30) store.push(asCaptureFrame(fakeVideoFrame(t)), t);
+    store.frameAt(0.5);
+    expect(store.frameAt(0.5)).not.toBeNull();
     store.release();
   });
 });
