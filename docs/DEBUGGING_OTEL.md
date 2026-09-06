@@ -13,7 +13,13 @@ Prerequisites: Docker with `docker compose` (or the standalone `docker-compose`)
 ```
 pnpm otel:up      # build + start grafana/otel-lgtm, wait for the collector
 pnpm otel:down    # stop it (the data volume survives)
+pnpm otel:clear   # drop the data volume and restart empty
 ```
+
+The stores are never emptied on their own, so data from earlier runs stays queryable across days.
+That is harmless for time-bounded queries and the per-session panels, but the rollup tiles read
+every session in the dashboard range; run `pnpm otel:clear` before a repro when a clean slate
+matters, or just narrow the time range.
 
 `pnpm dev`, `pnpm dev:no-gpu` and `pnpm dev:firefox` run the same script as a pre-step, so the stack
 comes up on its own before the build. There it never blocks: without Docker it prints a warning and
