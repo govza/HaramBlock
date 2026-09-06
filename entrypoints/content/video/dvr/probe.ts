@@ -46,6 +46,8 @@ export interface PresentedSample {
   outcome: PresentOutcome;
   pinned: boolean;
   presentMs: number;
+  presentBaseMs: number;
+  presentMaskMs: number;
 }
 
 export type AudioHealthRoute = 'none' | 'pending' | 'delayLine' | 'relay' | 'deferred' | 'unavailable';
@@ -240,7 +242,10 @@ export class DvrProbe {
     record.ringSpanSec = this.opts.store.spanSec();
     record.captureMs = this.lastCaptureMs;
     record.presentMs = sample.presentMs;
+    record.presentBaseMs = sample.presentBaseMs;
+    record.presentMaskMs = sample.presentMaskMs;
     record.storeCoveredMisses = this.opts.store.coveredMisses();
+    record.storeLookahead = this.opts.store.lookaheadFrames();
     if (this.presentSampleCount < this.presentSamples.length) {
       this.presentSamples[this.presentSampleCount++] = sample.presentMs;
     }
@@ -454,6 +459,9 @@ function tickAttributes(tick: DvrTickRecord): Record<string, number | boolean | 
     [ATTR.tickRingSpanSec]: tick.ringSpanSec,
     [ATTR.tickCaptureMs]: tick.captureMs,
     [ATTR.tickPresentMs]: tick.presentMs,
+    [ATTR.tickPresentBaseMs]: tick.presentBaseMs,
+    [ATTR.tickPresentMaskMs]: tick.presentMaskMs,
     [ATTR.tickStoreCoveredMisses]: tick.storeCoveredMisses,
+    [ATTR.tickStoreLookahead]: tick.storeLookahead,
   };
 }

@@ -92,7 +92,10 @@ export interface DvrTickRecord {
   ringSpanSec: number;
   captureMs: number;
   presentMs: number;
+  presentBaseMs: number;
+  presentMaskMs: number;
   storeCoveredMisses: number;
+  storeLookahead: number;
 }
 
 const emptyRecord = (): DvrTickRecord => ({
@@ -107,7 +110,10 @@ const emptyRecord = (): DvrTickRecord => ({
   ringSpanSec: 0,
   captureMs: 0,
   presentMs: 0,
+  presentBaseMs: 0,
+  presentMaskMs: 0,
   storeCoveredMisses: 0,
+  storeLookahead: 0,
 });
 
 export const SOURCE_SKIP_RATIO = 1.5;

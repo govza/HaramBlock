@@ -144,7 +144,11 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   `hb.dvr.source_backsteps`), a wall gap well above the frame interval is a late callback. The
   presenter side carries `hb.dvr.tick.outcome` (new | repeat | miss - a miss is a target the store
   could not serve, invisible in the old boolean), `hb.dvr.tick.pinned` (held on the earliest frame
-  because the ring does not yet span `D`) and `hb.dvr.tick.ring_span_sec`.
+  because the ring does not yet span `D`) and `hb.dvr.tick.ring_span_sec`. `hb.dvr.tick.present_ms`
+  splits into `present_base_ms` (the frame draw) and `present_mask_ms` (the mask pass) so a slow
+  present can be blamed on the source or on the masks; `hb.dvr.tick.store_lookahead` is how many
+  decoded (or converting) frames the encoded store holds ahead of the cursor - 0 means the presenter
+  is eating frames the moment they land.
 
 ## Metrics
 

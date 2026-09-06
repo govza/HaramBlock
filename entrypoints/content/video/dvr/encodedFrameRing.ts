@@ -332,6 +332,10 @@ export class EncodedFrameRing implements DvrFrameStore {
     return this.flushCount;
   }
 
+  lookaheadFrames(): number {
+    return this.decoded.length + this.converting;
+  }
+
   spanSec(): number {
     const oldest = this.oldestTime();
     const newest = this.newestTime();
