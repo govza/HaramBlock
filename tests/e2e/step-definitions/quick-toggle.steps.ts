@@ -101,7 +101,7 @@ When('I wait for image processing', async () => {
   );
 });
 
-When('I hover over the first gallery image', async () => {
+const revealEyeToggle = async (): Promise<void> => {
   const image = await $(Selectors.GALLERY_IMAGE);
   await image.scrollIntoView({ block: 'center' });
   // Hover only after scrolling has fully settled so moveTo() lands on stable coordinates
@@ -117,6 +117,10 @@ When('I hover over the first gallery image', async () => {
       el.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, pointerType: 'mouse' }));
     }, image);
   }
+};
+
+When('I hover over the first gallery image', async () => {
+  await revealEyeToggle();
 });
 
 When('I wait for the eye toggle to auto-hide', async () => {
@@ -145,13 +149,31 @@ Then('I should not see the eye toggle icon', async () => {
   });
 });
 
+const EYE_TOGGLE_REVEAL_ATTEMPTS = 3;
+
 When('I click the eye toggle icon', async () => {
-  const eyeToggle = await $(Selectors.EYE_TOGGLE);
-  await eyeToggle.waitForDisplayed({
-    timeout: SHOW_DELAY_MS + 5000,
-    timeoutMsg: 'Eye toggle not visible for click',
-  });
-  await eyeToggle.click();
+  // Android WebDriver round-trips are slow enough that the eye can auto-hide
+  // (HIDE_DELAY_MS) before we click, or a tap can land on a re-rendered image
+  // and never show it. Re-reveal and re-query on each attempt.
+  let lastError: unknown;
+  /* eslint-disable no-await-in-loop */
+  for (let attempt = 1; attempt <= EYE_TOGGLE_REVEAL_ATTEMPTS; attempt += 1) {
+    try {
+      const eyeToggle = await $(Selectors.EYE_TOGGLE);
+      await eyeToggle.waitForDisplayed({
+        timeout: SHOW_DELAY_MS + (attempt === 1 ? 5000 : 1500),
+        timeoutMsg: 'Eye toggle not visible for click',
+      });
+      await eyeToggle.click();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === EYE_TOGGLE_REVEAL_ATTEMPTS) break;
+      await revealEyeToggle();
+    }
+  }
+  /* eslint-enable no-await-in-loop */
+  throw lastError;
 });
 
 Then('the first image should be masked', async () => {
