@@ -693,6 +693,11 @@ cleared, so the late prediction still applies when it arrives (`findImagesBySrc`
 images) and any later `process()` pass re-sends. Only an explicit `status: 'error'` result from the
 background (inference genuinely impossible) finalizes the copies as `skipped` after two attempts.
 
+The background dedupes as well: a request for a `hostname + src` that is already queued or running
+joins the in-flight task instead of enqueueing a second one (retries, extra `<img>` copies, and
+other tabs on the same host all receive the single broadcast verdict). A joining request with a
+higher priority (a visible copy behind an offscreen one) raises the queued task's priority.
+
 ### DOM Processing
 
 Blur class acts as marker - if image has blur class, don't re-apply:

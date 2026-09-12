@@ -36,7 +36,7 @@ export class QueueService {
     return () => this.queue.off('idle', callback);
   }
 
-  enqueue(task: InferenceTask, signal?: AbortSignal): Promise<void> {
+  enqueue(task: InferenceTask, signal?: AbortSignal, id?: string): Promise<void> {
     // p-queue: higher priority number = runs first
     return this.queue.add(
       async () => {
@@ -44,7 +44,16 @@ export class QueueService {
           await this.onTaskProcessing(task);
         }
       },
-      { priority: task.priority, signal },
+      { priority: task.priority, signal, id },
     );
+  }
+
+  /** No-op once the task has left the queue (p-queue throws for unknown ids). */
+  raisePriority(id: string, priority: number): void {
+    try {
+      this.queue.setPriority(id, priority);
+    } catch {
+      return;
+    }
   }
 }
