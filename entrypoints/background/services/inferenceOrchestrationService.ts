@@ -281,6 +281,7 @@ export class InferenceOrchestrationService {
     this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
       this.markPlaybackFrameStarted(task);
       this.endQueueWait(task, 'started');
+      this.notifyImageInferenceStarted(task);
       const attributes = taskAttributes(task);
       const runSpan = tracer.startSpan(SPAN.run, { attributes }, task.traceContext);
       const runStartedAt = Date.now();
@@ -460,6 +461,21 @@ export class InferenceOrchestrationService {
         task.hostname,
       );
     }
+  }
+
+  private notifyImageInferenceStarted(task: InferenceTask): void {
+    if (task.mediaMetadata.kind !== 'image') return;
+    this.sendImageResultsToContent(
+      [
+        {
+          status: 'started',
+          src: task.imageSrc,
+          hostname: task.hostname,
+          traceparent: injectTraceparent(task.traceContext),
+        },
+      ],
+      task.hostname,
+    );
   }
 
   private sendImageResultsToContent(results: ImageInferenceResult[], hostname: string): void {

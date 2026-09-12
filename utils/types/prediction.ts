@@ -66,11 +66,12 @@ export type ForcedVisibility = 'auto' | 'visible' | 'blocked';
  * Outcome of one image inference request, broadcast to content scripts.
  * Only the 'ok' arm carries a cacheable prediction; 'error' feeds the content
  * script's retry counter instead of leaving the image stuck behind the
- * inference watchdog. The tag is a literal union so it can grow (e.g. a
- * future 'skipped').
+ * inference watchdog. 'started' marks the moment the task left the queue so
+ * the content watchdog measures inference time, not queue backlog.
  */
 export type ImageInferenceResult =
   | { status: 'ok'; prediction: IImagePrediction; traceparent?: string }
+  | { status: 'started'; src: string; hostname: string; traceparent?: string }
   | { status: 'error'; src: string; hostname: string; reason?: string; traceparent?: string };
 
 export function shouldBlock(prediction: IImagePrediction): boolean {
