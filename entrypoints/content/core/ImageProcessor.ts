@@ -69,6 +69,7 @@ const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
 const IMAGE_INFERENCE_TIMEOUT_MS = 20_000;
+const IMAGE_QUEUE_WAIT_TIMEOUT_MS = 120_000;
 const MAX_IMAGE_INFERENCE_ATTEMPTS = 2;
 
 // Animated GIFs: cap tracked decode sessions and fail closed if frame verdicts
@@ -308,8 +309,12 @@ export class ImageProcessor {
    */
   handleInferenceResults(results: ImageInferenceResult[]): void {
     for (const result of results) {
+      if (result.status === 'started') {
+        this.handleInferenceStarted(result.src);
+        continue;
+      }
       if (result.status === 'error') {
-        this.handleInferenceFailure(result.src, result.reason, result.traceparent);
+        this.handleInferenceFailure(result.src, 'open', result.reason, result.traceparent);
         continue;
       }
       const pred = result.prediction;
@@ -497,7 +502,7 @@ export class ImageProcessor {
       }
 
       try {
-        this.armInferenceWatchdog(src, img);
+        this.armInferenceWatchdog(src, img, IMAGE_QUEUE_WAIT_TIMEOUT_MS);
         const isVisible = this.visibilityMap.get(img) ?? false;
         const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
         await requestImageInference(this.hostSettings.hostname, img, priority, getRoundtripContext(src));
@@ -559,7 +564,13 @@ export class ImageProcessor {
     }
   }
 
-  private armInferenceWatchdog(src: string, owner: HTMLImageElement): void {
+  /**
+   * Queue wait is unbounded on slow devices (single-lane WASM inference with
+   * a page of offscreen images ahead), so the send-time watchdog is only a
+   * lost-task guard; the real timeout starts when the background reports the
+   * task left the queue.
+   */
+  private armInferenceWatchdog(src: string, owner: HTMLImageElement, timeoutMs: number): void {
     const existing = this.pendingInferenceTimers.get(src);
     if (existing) clearTimeout(existing);
     this.pendingInferenceTimers.set(
@@ -567,17 +578,29 @@ export class ImageProcessor {
       setTimeout(() => {
         this.pendingInferenceTimers.delete(src);
         if (this.pendingInference.get(src) !== owner) return;
-        this.handleInferenceFailure(src);
-      }, IMAGE_INFERENCE_TIMEOUT_MS),
+        this.handleInferenceFailure(src, 'closed', 'timeout');
+      }, timeoutMs),
     );
   }
 
+  private handleInferenceStarted(src: string): void {
+    const owner = this.pendingInference.get(src);
+    if (!owner) return;
+    this.armInferenceWatchdog(src, owner, IMAGE_INFERENCE_TIMEOUT_MS);
+  }
+
   /**
-   * A pending inference failed (errored result from background, or the
-   * watchdog fired with no reply). Retry with the best candidate element,
-   * failing open once attempts are exhausted.
+   * A pending inference failed. Retry with the best candidate element; once
+   * attempts are exhausted, an errored result fails open (inference is
+   * impossible for this image) while a timeout fails closed: the blur stays
+   * so a late prediction can still land, and the next process() pass retries.
    */
-  private handleInferenceFailure(src: string, reason?: string, traceparent?: string): void {
+  private handleInferenceFailure(
+    src: string,
+    exhaustedMode: 'open' | 'closed',
+    reason?: string,
+    traceparent?: string,
+  ): void {
     if (!this.pendingInference.has(src)) return;
     const tracksRoundtrip = roundtripMatches(src, traceparent);
     this.clearPendingInference(src);
@@ -591,8 +614,12 @@ export class ImageProcessor {
         endRoundtrip(src, {
           status: 'error',
           error: new Error(`Image inference failed after ${attempts} attempts${reason ? `: ${reason}` : ''}`),
-          attributes: { attempts },
+          attributes: { attempts, exhaustedMode },
         });
+      }
+      if (exhaustedMode === 'closed') {
+        log.warn('inference.exhausted.fail_closed', { [ATTR.src]: src, attempts, reason });
+        return;
       }
       this.finalizeAllImagesForSrc(src, 'skipped');
       return;

@@ -682,11 +682,16 @@ owner is stalled (not loaded, e.g. a lazy copy in a hidden subtree) while the ne
 pixels. A duplicate send from a superseded owner is harmless — predictions are keyed by src and the
 second result is idempotent. The entry is deleted when a prediction for that src arrives.
 
-Once a request is actually sent, a 20-second watchdog prevents that entry from living forever if the
-background worker loses the task or inference fails without a prediction broadcast. It retries once
-using a loaded, visible same-source copy when possible; a second timeout finalizes all pending
-copies as `skipped`, matching the pipeline's existing inference-impossible behavior rather than
-leaving Reddit images permanently under the initial blur.
+Once a request is sent, two watchdogs guard the entry. A 120-second send-time guard covers a task
+the background lost before it ever ran. The real 20-second inference watchdog starts only when the
+background broadcasts `status: 'started'` for the src (the task left the queue), because queue wait
+is unbounded on slow devices: single-lane WASM inference on Firefox mobile with a page of offscreen
+Google Images ahead easily exceeded 20 s, and a queue-based timeout revealed the whole below-fold
+band unmasked. Either watchdog retries once using a loaded, visible same-source copy when possible.
+On the second timeout the images **fail closed**: the initial blur stays and the pending entry is
+cleared, so the late prediction still applies when it arrives (`findImagesBySrc` matches blurred
+images) and any later `process()` pass re-sends. Only an explicit `status: 'error'` result from the
+background (inference genuinely impossible) finalizes the copies as `skipped` after two attempts.
 
 ### DOM Processing
 
