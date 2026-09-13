@@ -71,9 +71,10 @@ export type ScheduleArgs = {
 
 type TaskAttributes = ReturnType<typeof taskAttributes>;
 
-function imageTaskKey(hostname: string, imageSrc: string): string {
-  return `${hostname}
-${imageSrc}`;
+type ImageTaskKey = string & { readonly __brand: 'ImageTaskKey' };
+
+function imageTaskKey(hostname: string, imageSrc: string): ImageTaskKey {
+  return `${hostname}|${imageSrc}` as ImageTaskKey;
 }
 
 const log = getLogger('inferenceOrchestrationService');
@@ -130,7 +131,7 @@ export class InferenceOrchestrationService {
   private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
   /** At most one not-yet-started playback frame is retained per video session. */
   private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
-  private readonly inFlightImages = new Map<string, { task: InferenceTask; priority: number }>();
+  private readonly inFlightImages = new Map<ImageTaskKey, { task: InferenceTask; started: boolean }>();
   private queueWaitSpans = new WeakMap<InferenceTask, Span>();
 
   // Batches concurrent queue tasks into one session.run for dynamic-batch models.
@@ -269,7 +270,7 @@ export class InferenceOrchestrationService {
       tracer.startSpan(SPAN.queueWait, { attributes: { ...attributes, [ATTR.priority]: args.priority } }, traceContext),
     );
     const inFlightKey = mediaMetadata.kind === 'image' ? imageTaskKey(hostname, imageSrc) : undefined;
-    if (inFlightKey) this.inFlightImages.set(inFlightKey, { task, priority: args.priority });
+    if (inFlightKey) this.inFlightImages.set(inFlightKey, { task, started: false });
     this.queueService.enqueue(task, controller?.signal, inFlightKey).catch(error => {
       if (inFlightKey) this.inFlightImages.delete(inFlightKey);
       if (controller?.signal.aborted) {
@@ -282,21 +283,16 @@ export class InferenceOrchestrationService {
     });
   }
 
-  /**
-   * A second request for a src already queued or running (content retry,
-   * another <img> copy, another tab on the same host) rides on the existing
-   * task: the verdict is broadcast by src, so it reaches every requester.
-   * A visible copy behind an offscreen one bumps the queued priority.
-   */
   private joinInFlightImage(args: ScheduleArgs, attributes: TaskAttributes, traceContext?: Context): boolean {
     const key = imageTaskKey(args.hostname, args.input.imageSrc);
     const inFlight = this.inFlightImages.get(key);
     if (!inFlight) return false;
     if (args.input.kind === 'bitmap') args.input.bitmap.close();
-    if (args.priority > inFlight.priority) {
-      inFlight.priority = args.priority;
+    if (args.priority > inFlight.task.priority) {
+      inFlight.task.priority = args.priority;
       this.queueService.raisePriority(key, args.priority);
     }
+    if (inFlight.started) this.notifyImageInferenceStarted(inFlight.task);
     log.debug('inference.image.joined', { ...attributes, [ATTR.priority]: args.priority }, traceContext);
     return true;
   }
@@ -505,6 +501,8 @@ export class InferenceOrchestrationService {
 
   private notifyImageInferenceStarted(task: InferenceTask): void {
     if (task.mediaMetadata.kind !== 'image') return;
+    const inFlight = this.inFlightImages.get(imageTaskKey(task.hostname, task.imageSrc));
+    if (inFlight?.task === task) inFlight.started = true;
     this.sendImageResultsToContent(
       [
         {

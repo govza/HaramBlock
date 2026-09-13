@@ -566,10 +566,11 @@ candidate selection keeps using `currentSrc`. As a second net, `process()` regis
 listener per image that re-runs `handleSrcChange` whenever the resolved source no longer matches the
 one last processed (also covers srcset re-selection on images that carry no overlay).
 
-Once such a placeholder has decoded, `isPlaceholderResolution` (either natural side under 32 px)
-finalizes it as `skipped` instead of inferring it: a 10 px image carries nothing to detect, and on a
-single-lane mobile queue those placeholders were the bulk of the backlog ahead of real thumbnails.
-The swap to the real source re-enters processing as described above.
+Once such a placeholder has decoded, `isPlaceholderResolution` (both natural sides under 32 px, or
+under the host's configured minimum size when that is smaller) finalizes it as `skipped` instead of
+inferring it: a 10 px image carries nothing to detect, and on a single-lane mobile queue those
+placeholders were the bulk of the backlog ahead of real thumbnails. The swap to the real source
+re-enters processing as described above.
 
 ### Robust Image Load Detection
 
@@ -713,7 +714,8 @@ background (inference genuinely impossible) finalizes the copies as `skipped` af
 The background dedupes as well: a request for a `hostname + src` that is already queued or running
 joins the in-flight task instead of enqueueing a second one (retries, extra `<img>` copies, and
 other tabs on the same host all receive the single broadcast verdict). A joining request with a
-higher priority (a visible copy behind an offscreen one) raises the queued task's priority.
+higher priority (a visible copy behind an offscreen one) raises the queued task's priority, and one
+that joins a task already running receives the `started` broadcast again so its watchdog arms.
 
 ### DOM Processing
 
