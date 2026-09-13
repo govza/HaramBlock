@@ -50,6 +50,68 @@ const cleanupFirefoxRuntime = (reason: string): void => {
   runAdbCleanup(['shell', 'am', 'force-stop', FENIX_PACKAGE], 'force-stop Firefox Nightly');
 };
 
+const FENIX_HOMEPAGE_AS_NEW_TAB_OPT_OUT_RECIPE = JSON.stringify({
+  data: [
+    {
+      schemaVersion: '1.12.0',
+      slug: 'haramblock-e2e-disable-homepage-as-new-tab',
+      appName: 'fenix',
+      appId: FENIX_PACKAGE,
+      channel: 'nightly',
+      userFacingName: 'HaramBlock E2E: disable homepage as new tab',
+      userFacingDescription: 'Opening a homepage tab while Gecko quits crashes GeckoView.',
+      isEnrollmentPaused: false,
+      isRollout: true,
+      bucketConfig: {
+        randomizationUnit: 'nimbus_id',
+        namespace: 'haramblock-e2e',
+        start: 0,
+        count: 10000,
+        total: 10000,
+      },
+      probeSets: [],
+      outcomes: [],
+      startDate: null,
+      endDate: null,
+      proposedEnrollment: 7,
+      referenceBranch: 'control',
+      featureIds: ['homepage-as-new-tab'],
+      branches: [
+        {
+          slug: 'control',
+          ratio: 1,
+          features: [{ featureId: 'homepage-as-new-tab', enabled: true, value: { enabled: false } }],
+        },
+      ],
+      targeting: 'true',
+    },
+  ],
+});
+
+const disableFenixHomepageAsNewTab = (): void => {
+  runAdbCleanup(
+    [
+      'shell',
+      'am',
+      'broadcast',
+      '-a',
+      `${FENIX_PACKAGE}.NIMBUS_TOOLING`,
+      '-p',
+      FENIX_PACKAGE,
+      '--ez',
+      'nimbus-cli',
+      'true',
+      '--ei',
+      'version',
+      '1',
+      '--es',
+      'experiments',
+      `'${FENIX_HOMEPAGE_AS_NEW_TAB_OPT_OUT_RECIPE}'`,
+    ],
+    'disable Fenix homepage-as-new-tab via Nimbus tooling',
+  );
+};
+
 const cleanupFirefoxSessionState = (reason: string): void => {
   cleanupFirefoxRuntime(reason);
   runAdbCleanup(['shell', 'pm', 'clear', FENIX_PACKAGE], 'clear Firefox Nightly data');
@@ -363,6 +425,8 @@ export const config: WebdriverIO.Config = {
     if (!firefoxExtensionPath) {
       throw new Error('Firefox extension path not set');
     }
+
+    disableFenixHomepageAsNewTab();
 
     // Keep the session's initial tab open and create a fresh one: Android
     // geckodriver can return no remaining handles from closeWindow(), which

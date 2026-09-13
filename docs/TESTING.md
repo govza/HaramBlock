@@ -218,6 +218,13 @@ Android config expects that action-managed emulator to already be booted when `C
 workflow sets `ANDROID_SINGLE_SESSION=true` so all features run in one WebDriver session, since
 repeated geckodriver sessions can leave Fenix profile resources locked on CI.
 
+Once the session is up, the `before` hook broadcasts a local Nimbus rollout to Fenix's
+`QANimbusToolingReceiver` that turns the `homepage-as-new-tab` feature off. Fenix Nightly enables it
+by default (Bug 1977695), and with it on Fenix opens a fresh homepage tab while Gecko is already
+quitting, which trips `MOZ_RELEASE_ASSERT(domWindow)` in `GeckoViewSupport::Open` and crashes the
+app during geckodriver's session delete. The override has to be sent after launch because
+geckodriver runs `pm clear` on the package while creating the session, wiping any pre-seeded prefs.
+
 **Setup:**
 
 ```bash
