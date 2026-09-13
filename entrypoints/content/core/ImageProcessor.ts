@@ -3,7 +3,7 @@ import {
   requestImageInference,
   requestToggleUpdate,
 } from '@/entrypoints/content/communication/sender';
-import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
+import { isPlaceholderResolution, resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
 import {
   decodeGifFrames,
@@ -514,6 +514,13 @@ export class ImageProcessor {
       if (this.isBelowMinSizeForSrc(src, img)) {
         this.clearPendingInference(src, img, true);
         endRoundtrip(src, { status: 'skipped', attributes: { reason: 'below min size' } });
+        this.finalizeAllImagesForSrc(src, 'skipped');
+        return;
+      }
+
+      if (isPlaceholderResolution(img)) {
+        this.clearPendingInference(src, img, true);
+        endRoundtrip(src, { status: 'skipped', attributes: { reason: 'placeholder resolution' } });
         this.finalizeAllImagesForSrc(src, 'skipped');
         return;
       }
