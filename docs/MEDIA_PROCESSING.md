@@ -566,6 +566,11 @@ candidate selection keeps using `currentSrc`. As a second net, `process()` regis
 listener per image that re-runs `handleSrcChange` whenever the resolved source no longer matches the
 one last processed (also covers srcset re-selection on images that carry no overlay).
 
+Once such a placeholder has decoded, `isPlaceholderResolution` (either natural side under 32 px)
+finalizes it as `skipped` instead of inferring it: a 10 px image carries nothing to detect, and on a
+single-lane mobile queue those placeholders were the bulk of the backlog ahead of real thumbnails.
+The swap to the real source re-enters processing as described above.
+
 ### Robust Image Load Detection
 
 For images that aren't yet loaded, we use **both** `decode()` and `load` event - whichever fires
