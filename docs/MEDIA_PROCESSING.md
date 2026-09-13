@@ -554,6 +554,18 @@ t=8: Debounce fires, process(img) with src=C
 t=9: Inference sent for C, prediction applied ✓
 ```
 
+### Resolving the Source Under Firefox's Pending Request
+
+Every "what is this image's URL" read goes through `resolveImageSource(img)` instead of a bare
+`img.currentSrc || img.src`. Firefox keeps `currentSrc` on the **previous** request until the new
+image's size is known, so right after `img.src = next` the mutation callback still reads the old
+URL. On Google Images that made the placeholder→thumbnail swap (`…&s=10` → `…&s`) look like a no-op
+re-stamp: the 10 px placeholder's `safe` verdict stayed on the element and the full thumbnail
+rendered bare. For images without `srcset`/`<picture>` the reflected `src` is authoritative;
+candidate selection keeps using `currentSrc`. As a second net, `process()` registers one `load`
+listener per image that re-runs `handleSrcChange` whenever the resolved source no longer matches the
+one last processed (also covers srcset re-selection on images that carry no overlay).
+
 ### Robust Image Load Detection
 
 For images that aren't yet loaded, we use **both** `decode()` and `load` event - whichever fires

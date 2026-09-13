@@ -1,3 +1,4 @@
+import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { IMAGE_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import { hasInitialStyling } from '@/entrypoints/content/presentation/initialStyling';
@@ -275,7 +276,7 @@ class ImageMaskOverlay implements IMediaOverlay {
       rafId: null,
       destroyed: false,
       currentPrediction: undefined,
-      trackedSrc: image.currentSrc || image.src,
+      trackedSrc: resolveImageSource(image),
       masking,
     };
 
@@ -336,7 +337,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     // ResizeObserver for image size changes + src change detection (self-cleaning)
     state.resizeObserver = new ResizeObserver(entries => {
       // Self-clean if src changed
-      const currentSrc = image.currentSrc || image.src;
+      const currentSrc = resolveImageSource(image);
       if (state.trackedSrc && currentSrc !== state.trackedSrc) {
         this.clearMaskOverlay(image);
         notifySrcDrift(image);
@@ -390,7 +391,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 
   private updateOverlayForImage(image: HTMLImageElement, state: IMediaOverlayState): void {
     // Self-clean if src changed
-    const currentSrc = image.currentSrc || image.src;
+    const currentSrc = resolveImageSource(image);
     if (state.trackedSrc && currentSrc !== state.trackedSrc) {
       this.clearMaskOverlay(image);
       notifySrcDrift(image);

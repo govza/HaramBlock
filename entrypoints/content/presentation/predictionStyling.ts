@@ -1,3 +1,4 @@
+import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
 import { type IHostSettings, type IImagePrediction } from '@/utils/types';
 
@@ -11,7 +12,7 @@ export const applyPredictionsStyling = (
   const predictionMap = new Map(predictions.map(p => [p.src, p]));
 
   for (const image of images) {
-    const imageSrc = image.currentSrc || image.src;
+    const imageSrc = resolveImageSource(image);
     const imagePrediction = predictionMap.get(imageSrc);
 
     if (imagePrediction) {

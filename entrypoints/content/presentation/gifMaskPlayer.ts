@@ -1,3 +1,4 @@
+import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { GIF_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
 import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
@@ -159,7 +160,7 @@ class GifMaskPlayer {
       viewportHandler: () => this.updateLayout(image),
       destroyed: false,
       originalOpacity: image.style.opacity,
-      trackedSrc: image.currentSrc || image.src,
+      trackedSrc: resolveImageSource(image),
     };
 
     gifStates.set(image, state);
@@ -220,7 +221,7 @@ class GifMaskPlayer {
     const state = gifStates.get(image);
     if (!state || state.destroyed) return;
 
-    const currentSrc = image.currentSrc || image.src;
+    const currentSrc = resolveImageSource(image);
     if (currentSrc !== state.trackedSrc) {
       this.clearPlayer(image);
       notifySrcDrift(image);
