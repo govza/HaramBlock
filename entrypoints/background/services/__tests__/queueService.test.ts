@@ -40,3 +40,30 @@ describe('QueueService', () => {
     expect(started).toEqual(['running', 'latest-frame']);
   });
 });
+
+describe('QueueService.raisePriority', () => {
+  it('moves a queued task ahead of its siblings', async () => {
+    const queue = new QueueService();
+    const gate = deferred();
+    const started: string[] = [];
+    queue.setTaskProcessingHandler(async queued => {
+      started.push(queued.imageSrc);
+      if (queued.imageSrc === 'running') await gate.promise;
+    });
+
+    const running = queue.enqueue(task('running'));
+    await vi.waitFor(() => expect(started).toEqual(['running']));
+    const first = queue.enqueue(task('first'), undefined, 'first');
+    const second = queue.enqueue(task('second'), undefined, 'second');
+    queue.raisePriority('second', 30);
+
+    gate.resolve();
+    await Promise.all([running, first, second]);
+    expect(started).toEqual(['running', 'second', 'first']);
+  });
+
+  it('ignores an id that is no longer queued', () => {
+    const queue = new QueueService();
+    expect(() => queue.raisePriority('missing', 30)).not.toThrow();
+  });
+});

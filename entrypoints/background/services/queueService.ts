@@ -6,6 +6,7 @@ import { type InferenceTask } from '@/utils/types';
 export class QueueService {
   private queue: PQueue;
   private onTaskProcessing?: (task: InferenceTask) => Promise<void>;
+  private readonly queuedIds = new Set<string>();
 
   constructor() {
     this.queue = new PQueue({
@@ -37,23 +38,25 @@ export class QueueService {
   }
 
   enqueue(task: InferenceTask, signal?: AbortSignal, id?: string): Promise<void> {
+    if (id) this.queuedIds.add(id);
     // p-queue: higher priority number = runs first
-    return this.queue.add(
-      async () => {
-        if (this.onTaskProcessing) {
-          await this.onTaskProcessing(task);
-        }
-      },
-      { priority: task.priority, signal, id },
-    );
+    return this.queue
+      .add(
+        async () => {
+          if (id) this.queuedIds.delete(id);
+          if (this.onTaskProcessing) {
+            await this.onTaskProcessing(task);
+          }
+        },
+        { priority: task.priority, signal, id },
+      )
+      .finally(() => {
+        if (id) this.queuedIds.delete(id);
+      });
   }
 
-  /** No-op once the task has left the queue (p-queue throws for unknown ids). */
   raisePriority(id: string, priority: number): void {
-    try {
-      this.queue.setPriority(id, priority);
-    } catch {
-      return;
-    }
+    if (!this.queuedIds.has(id)) return;
+    this.queue.setPriority(id, priority);
   }
 }

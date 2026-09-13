@@ -32,19 +32,25 @@ describe('resolveImageSource', () => {
 });
 
 describe('isPlaceholderResolution', () => {
+  const limit = { width: 32, height: 32 };
+
   it('flags a 10 px Google placeholder', () => {
-    expect(isPlaceholderResolution({ naturalWidth: 10, naturalHeight: 13 })).toBe(true);
+    expect(isPlaceholderResolution({ naturalWidth: 10, naturalHeight: 13 }, limit)).toBe(true);
   });
 
-  it('flags a strip whose smaller side is tiny', () => {
-    expect(isPlaceholderResolution({ naturalWidth: 400, naturalHeight: 16 })).toBe(true);
+  it('does not flag a strip that is tiny on one side only', () => {
+    expect(isPlaceholderResolution({ naturalWidth: 400, naturalHeight: 16 }, limit)).toBe(false);
   });
 
   it('does not flag an undecoded image', () => {
-    expect(isPlaceholderResolution({ naturalWidth: 0, naturalHeight: 0 })).toBe(false);
+    expect(isPlaceholderResolution({ naturalWidth: 0, naturalHeight: 0 }, limit)).toBe(false);
   });
 
   it('does not flag a regular thumbnail', () => {
-    expect(isPlaceholderResolution({ naturalWidth: 160, naturalHeight: 200 })).toBe(false);
+    expect(isPlaceholderResolution({ naturalWidth: 160, naturalHeight: 200 }, limit)).toBe(false);
+  });
+
+  it('respects a smaller configured limit', () => {
+    expect(isPlaceholderResolution({ naturalWidth: 10, naturalHeight: 13 }, { width: 8, height: 8 })).toBe(false);
   });
 });

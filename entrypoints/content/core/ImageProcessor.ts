@@ -3,7 +3,7 @@ import {
   requestImageInference,
   requestToggleUpdate,
 } from '@/entrypoints/content/communication/sender';
-import { isPlaceholderResolution, resolveImageSource } from '@/entrypoints/content/core/imageSource';
+import { isPlaceholderResolution, resolveImageSource, type NaturalSize } from '@/entrypoints/content/core/imageSource';
 import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
 import {
   decodeGifFrames,
@@ -71,6 +71,7 @@ const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
 const IMAGE_INFERENCE_TIMEOUT_MS = 20_000;
 const IMAGE_QUEUE_WAIT_TIMEOUT_MS = 120_000;
+const PLACEHOLDER_MAX_NATURAL_PX = 32;
 const MAX_IMAGE_INFERENCE_ATTEMPTS = 2;
 
 // Animated GIFs: cap tracked decode sessions and fail closed if frame verdicts
@@ -245,11 +246,6 @@ export class ImageProcessor {
     this.queueInference(img, src);
   }
 
-  /**
-   * A load can change the resolved source without any attribute mutation
-   * (srcset re-selection, or Firefox promoting a pending request), so every
-   * load re-checks it against the source that was last processed.
-   */
   private watchSourceDriftOnLoad(img: HTMLImageElement): void {
     if (this.loadDriftWatched.has(img)) return;
     this.loadDriftWatched.add(img);
@@ -518,7 +514,7 @@ export class ImageProcessor {
         return;
       }
 
-      if (isPlaceholderResolution(img)) {
+      if (isPlaceholderResolution(img, this.placeholderLimit())) {
         this.clearPendingInference(src, img, true);
         endRoundtrip(src, { status: 'skipped', attributes: { reason: 'placeholder resolution' } });
         this.finalizeAllImagesForSrc(src, 'skipped');
@@ -588,12 +584,6 @@ export class ImageProcessor {
     }
   }
 
-  /**
-   * Queue wait is unbounded on slow devices (single-lane WASM inference with
-   * a page of offscreen images ahead), so the send-time watchdog is only a
-   * lost-task guard; the real timeout starts when the background reports the
-   * task left the queue.
-   */
   private armInferenceWatchdog(src: string, owner: HTMLImageElement, timeoutMs: number): void {
     const existing = this.pendingInferenceTimers.get(src);
     if (existing) clearTimeout(existing);
@@ -613,12 +603,6 @@ export class ImageProcessor {
     this.armInferenceWatchdog(src, owner, IMAGE_INFERENCE_TIMEOUT_MS);
   }
 
-  /**
-   * A pending inference failed. Retry with the best candidate element; once
-   * attempts are exhausted, an errored result fails open (inference is
-   * impossible for this image) while a timeout fails closed: the blur stays
-   * so a late prediction can still land, and the next process() pass retries.
-   */
   private handleInferenceFailure(
     src: string,
     exhaustedMode: 'open' | 'closed',
@@ -666,6 +650,14 @@ export class ImageProcessor {
     if (timer) clearTimeout(timer);
     this.pendingInferenceTimers.delete(src);
     if (resetAttempts) this.inferenceAttempts.delete(src);
+  }
+
+  private placeholderLimit(): NaturalSize {
+    const { minSize } = this.hostSettings;
+    return {
+      width: Math.min(PLACEHOLDER_MAX_NATURAL_PX, minSize.width),
+      height: Math.min(PLACEHOLDER_MAX_NATURAL_PX, minSize.height),
+    };
   }
 
   private isBelowMinSize(img: HTMLImageElement): boolean {
@@ -1118,62 +1110,30 @@ export class ImageProcessor {
   }
 
   private findImagesBySrc(src: string): HTMLImageElement[] {
-    const results: HTMLImageElement[] = [];
-    const selector = `img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`;
-
-    // Query light DOM
-    for (const img of document.querySelectorAll<HTMLImageElement>(selector)) {
-      const imgSrc = resolveImageSource(img);
-      if (imgSrc === src) {
-        results.push(img);
-      }
-    }
-
-    // Query only tracked shadow roots (O(shadowRoots) instead of O(allElements))
-    for (const shadowRoot of this.knownShadowRoots) {
-      // Skip disconnected shadow roots
-      if (!shadowRoot.host.isConnected) {
-        this.knownShadowRoots.delete(shadowRoot);
-        continue;
-      }
-      for (const img of shadowRoot.querySelectorAll<HTMLImageElement>(selector)) {
-        const imgSrc = resolveImageSource(img);
-        if (imgSrc === src) {
-          results.push(img);
-        }
-      }
-    }
-
-    return results;
+    return this.collectMatchingImages(`img.${BLUR_CLASS}, img[${BLACKLIST_ATTR}]`, src);
   }
 
   // Queries all images on each call. Acceptable for user-initiated toggles (infrequent).
   // Maintaining a src→elements index would require complex cleanup for removed elements.
   private findAllImagesBySrc(src: string): HTMLImageElement[] {
-    const results: HTMLImageElement[] = [];
+    return this.collectMatchingImages('img', src);
+  }
 
-    // Query light DOM
-    for (const img of document.querySelectorAll<HTMLImageElement>('img')) {
-      const imgSrc = resolveImageSource(img);
-      if (imgSrc === src) {
-        results.push(img);
-      }
-    }
-
-    // Query only tracked shadow roots
+  private collectMatchingImages(selector: string, src: string): HTMLImageElement[] {
+    const roots: ParentNode[] = [document];
     for (const shadowRoot of this.knownShadowRoots) {
       if (!shadowRoot.host.isConnected) {
         this.knownShadowRoots.delete(shadowRoot);
         continue;
       }
-      for (const img of shadowRoot.querySelectorAll<HTMLImageElement>('img')) {
-        const imgSrc = resolveImageSource(img);
-        if (imgSrc === src) {
-          results.push(img);
-        }
+      roots.push(shadowRoot);
+    }
+    const results: HTMLImageElement[] = [];
+    for (const root of roots) {
+      for (const img of root.querySelectorAll<HTMLImageElement>(selector)) {
+        if (resolveImageSource(img) === src) results.push(img);
       }
     }
-
     return results;
   }
 
