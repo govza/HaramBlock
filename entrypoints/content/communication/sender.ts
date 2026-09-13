@@ -1,5 +1,6 @@
 import { ROOT_CONTEXT, type Context, type Span } from '@opentelemetry/api';
 
+import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { dvrRingBudget } from '@/entrypoints/content/video/dvr/ringBudget';
 import { bitmapToCompressedBlob } from '@/entrypoints/content/video/sampling/compression';
 import {
@@ -127,7 +128,7 @@ async function buildPayload(
   parent: Context,
 ): Promise<IImageTransfer> {
   const requestStartAt = Date.now();
-  const src = image.currentSrc || image.src;
+  const src = resolveImageSource(image);
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
   const traceparent = injectTraceparent(parent);
@@ -244,7 +245,7 @@ async function sendImageForInference(
     }
   }
 
-  log.error('inference.send.failed', { [ATTR.src]: image.currentSrc || image.src, error: lastError }, parent);
+  log.error('inference.send.failed', { [ATTR.src]: resolveImageSource(image), error: lastError }, parent);
   throw lastError;
 }
 

@@ -3,6 +3,7 @@ import {
   requestImageInference,
   requestToggleUpdate,
 } from '@/entrypoints/content/communication/sender';
+import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
 import {
   decodeGifFrames,
@@ -136,6 +137,7 @@ export class ImageProcessor {
   private readonly gifSessions = new Map<string, GifSession>();
   // src → the element whose load listeners drive the request (see queueInference)
   private readonly pendingInference = new Map<string, HTMLImageElement>();
+  private readonly loadDriftWatched = new WeakSet<HTMLImageElement>();
   private readonly pendingInferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly inferenceAttempts = new Map<string, number>();
   /** Last resolved source seen for an element; filters Reddit's no-op attribute churn. */
@@ -180,9 +182,10 @@ export class ImageProcessor {
    * This is the main entry point for both new images and attribute changes.
    */
   process(img: HTMLImageElement): void {
-    const src = img.currentSrc || img.src;
+    const src = resolveImageSource(img);
     if (!src) return;
     this.resolvedSrcByImage.set(img, src);
+    this.watchSourceDriftOnLoad(img);
 
     this.visibilityObserver.observe(img);
     this.trackShadowRoot(img);
@@ -243,6 +246,20 @@ export class ImageProcessor {
   }
 
   /**
+   * A load can change the resolved source without any attribute mutation
+   * (srcset re-selection, or Firefox promoting a pending request), so every
+   * load re-checks it against the source that was last processed.
+   */
+  private watchSourceDriftOnLoad(img: HTMLImageElement): void {
+    if (this.loadDriftWatched.has(img)) return;
+    this.loadDriftWatched.add(img);
+    img.addEventListener('load', () => {
+      const processedSrc = this.resolvedSrcByImage.get(img);
+      if (processedSrc && resolveImageSource(img) !== processedSrc) this.handleSrcChange(img);
+    });
+  }
+
+  /**
    * Process multiple images.
    */
   processAll(images: HTMLImageElement[]): void {
@@ -256,7 +273,7 @@ export class ImageProcessor {
    * Google Images rapidly changes src (quality upgrades), so we wait for it to settle.
    */
   handleSrcChange(img: HTMLImageElement): void {
-    const resolvedSrc = img.currentSrc || img.src;
+    const resolvedSrc = resolveImageSource(img);
     const previousSrc = this.resolvedSrcByImage.get(img);
     if (resolvedSrc === previousSrc) {
       // Lit/React frequently re-stamp an unchanged src/srcset. Treating that
@@ -284,7 +301,7 @@ export class ImageProcessor {
     // Debounce: wait for src to stabilize before processing
     const timeout = setTimeout(() => {
       this.srcChangeDebounce.delete(img);
-      const src = img.currentSrc || img.src;
+      const src = resolveImageSource(img);
       if (src) {
         this.process(img);
       }
@@ -357,7 +374,7 @@ export class ImageProcessor {
    * Clean up when image removed from DOM.
    */
   handleRemoved(img: HTMLImageElement): void {
-    const src = img.currentSrc || img.src;
+    const src = resolveImageSource(img);
     if (src) {
       cancelRoundtrip(src);
     }
@@ -484,7 +501,7 @@ export class ImageProcessor {
 
     const sendRequest = async () => {
       // If src changed before load (common with srcset), reprocess with new src
-      const currentSrc = img.currentSrc || img.src;
+      const currentSrc = resolveImageSource(img);
       if (currentSrc !== src) {
         this.clearPendingInference(src, img);
         // Re-process with the actual loaded URL instead of just aborting
@@ -1013,7 +1030,7 @@ export class ImageProcessor {
   // ===========================================================================
 
   private async applyPrediction(img: HTMLImageElement, prediction: IImagePrediction): Promise<ApplyOutcome> {
-    const currentSrc = img.currentSrc || img.src;
+    const currentSrc = resolveImageSource(img);
 
     // Verify src still matches (handles race where src changed)
     if (currentSrc !== prediction.src) {
@@ -1036,7 +1053,7 @@ export class ImageProcessor {
     await waitForImageReady(img);
 
     // Double-check src after any async wait
-    const srcNow = img.currentSrc || img.src;
+    const srcNow = resolveImageSource(img);
     if (srcNow !== prediction.src) {
       // Responsive images can select a different srcset candidate while
       // decode() is pending without producing another observable attribute
@@ -1099,7 +1116,7 @@ export class ImageProcessor {
 
     // Query light DOM
     for (const img of document.querySelectorAll<HTMLImageElement>(selector)) {
-      const imgSrc = img.currentSrc || img.src;
+      const imgSrc = resolveImageSource(img);
       if (imgSrc === src) {
         results.push(img);
       }
@@ -1113,7 +1130,7 @@ export class ImageProcessor {
         continue;
       }
       for (const img of shadowRoot.querySelectorAll<HTMLImageElement>(selector)) {
-        const imgSrc = img.currentSrc || img.src;
+        const imgSrc = resolveImageSource(img);
         if (imgSrc === src) {
           results.push(img);
         }
@@ -1130,7 +1147,7 @@ export class ImageProcessor {
 
     // Query light DOM
     for (const img of document.querySelectorAll<HTMLImageElement>('img')) {
-      const imgSrc = img.currentSrc || img.src;
+      const imgSrc = resolveImageSource(img);
       if (imgSrc === src) {
         results.push(img);
       }
@@ -1143,7 +1160,7 @@ export class ImageProcessor {
         continue;
       }
       for (const img of shadowRoot.querySelectorAll<HTMLImageElement>('img')) {
-        const imgSrc = img.currentSrc || img.src;
+        const imgSrc = resolveImageSource(img);
         if (imgSrc === src) {
           results.push(img);
         }
