@@ -48,6 +48,7 @@ export const METRIC = {
   mainThreadLoopLagMs: 'hb.main_thread.loop_lag_ms',
   samplerEncodeMs: 'hb.sampler.encode_ms',
   samplerFramesSent: 'hb.sampler.frames_sent',
+  videoTransientRuns: 'hb.video.transient_runs',
 } as const;
 
 export type MetricName = (typeof METRIC)[keyof typeof METRIC];

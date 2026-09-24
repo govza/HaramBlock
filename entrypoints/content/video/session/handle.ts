@@ -9,7 +9,7 @@
  */
 
 import type { DvrRun } from '@/entrypoints/content/video/dvr/run';
-import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import type { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import type { PendingFrameSample } from '@/entrypoints/content/video/sampling/sample';
 import type { SessionTimer, VideoSessionState } from '@/entrypoints/content/video/session/machine';
 import type { UmbrellaSession } from '@/utils/telemetry/roundtrip';
@@ -36,8 +36,7 @@ export interface SessionHandle {
   /** Serializes async overlay work so verdicts render in dispatch order. */
   overlayChain: Promise<void>;
   dvrRun: DvrRun | null;
-  /** Session-lifetime verdict history: survives DVR stop/start, seeks, and loop restarts. */
-  readonly timeline: VerdictTimeline;
+  readonly verdicts: VerdictInterpreter;
   /** Session-lifetime floor under the derived delay, learned from stall raises:
    *  a store that proved it needs a larger D must not re-limp after every re-warm. */
   dvrStallFloorSec: number;

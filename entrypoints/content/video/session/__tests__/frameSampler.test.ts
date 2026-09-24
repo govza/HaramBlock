@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DVR_DELAY_MS, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
-import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import { FrameSampler, foldLoopedMediaTime, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
 import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 
@@ -55,7 +55,7 @@ function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
     removeListeners: () => {},
     overlayChain: Promise.resolve(),
     dvrRun: null,
-    timeline: new VerdictTimeline(),
+    verdicts: new VerdictInterpreter(),
     dvrStallFloorSec: 0,
     dvrEncodedIneligible: false,
     dvrLastAnomalyAt: Number.NEGATIVE_INFINITY,

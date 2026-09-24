@@ -46,7 +46,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 10 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 10 },
     ).state;
 
     const immediate = reduce(ready, { type: 'seeked', at: 20, timestampSec: 12.345 });
@@ -57,7 +57,7 @@ describe('VideoSession machine', () => {
     const released = reduce(remembered.state, {
       type: 'predictionReceived',
       frameIndex: 0,
-      unsafe: false,
+      verdict: 'clean',
       at: 40,
     });
     expect(released.effects).toContainEqual({ kind: 'sendSample', frameIndex: 1, timestampSec: 27.5 });
@@ -89,7 +89,7 @@ describe('VideoSession machine', () => {
     const ready = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 10 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 10 },
       { type: 'play', at: 20 },
       { type: 'frameAvailable', at: 30 },
     ).state;
@@ -106,7 +106,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 1000 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 1200 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 1200 },
     );
 
     expect(state.phase).toBe('standby');
@@ -121,7 +121,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 1000 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 1200 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 1200 },
     );
 
     expect(state.phase).toBe('standby');
@@ -161,7 +161,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
     );
 
     const playing = run(standby.state, { type: 'play', at: 1000 }, { type: 'frameAvailable', at: 1010 });
@@ -177,7 +177,7 @@ describe('VideoSession machine', () => {
     expect(whileInflight.effects.filter(e => e.kind === 'sendSample')).toHaveLength(0);
 
     // Verdict frees the slot, but the floor interval still applies.
-    const freed = run(whileInflight.state, { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 1180 });
+    const freed = run(whileInflight.state, { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 1180 });
     const tooSoon = run(freed.state, { type: 'frameAvailable', at: 1200 });
     expect(tooSoon.effects.filter(e => e.kind === 'sendSample')).toHaveLength(0);
 
@@ -190,7 +190,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
@@ -202,7 +202,7 @@ describe('VideoSession machine', () => {
 
     // An unsafe verdict mid-warm-up keeps that cover: the canvas is not
     // presenting yet, and a DOM overlay would describe a frame that moved on.
-    const unsafe = run(sampling.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 });
+    const unsafe = run(sampling.state, { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 1200 });
     expect(unsafe.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdict' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'clearBlur' });
@@ -211,7 +211,7 @@ describe('VideoSession machine', () => {
 
     // A late redelivery of the Thumbnail verdict (frame -1) is a Stale Prediction:
     // it must not clear the mask the newer unsafe sample just applied.
-    const stale = run(unsafe.state, { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 1250 });
+    const stale = run(unsafe.state, { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 1250 });
     expect(stale.effects).toHaveLength(0);
   });
 
@@ -220,12 +220,12 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'seeked', at: 2000 },
       { type: 'sampleSent', frameIndex: 0, at: 2005 },
     );
 
-    const unsafe = run(standby.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 2200 });
+    const unsafe = run(standby.state, { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 2200 });
     expect(unsafe.effects).toContainEqual({ kind: 'applyBlur' });
     expect(unsafe.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'clearBlur' });
@@ -238,7 +238,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
@@ -249,7 +249,12 @@ describe('VideoSession machine', () => {
 
     // The canvas owns masking even for the frozen frame: an unsafe verdict
     // landing after the pause composites there, never as a DOM overlay.
-    const unsafe = run(pausedPresenting.state, { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 });
+    const unsafe = run(pausedPresenting.state, {
+      type: 'predictionReceived',
+      frameIndex: 0,
+      verdict: 'unsafe',
+      at: 1200,
+    });
     expect(unsafe.state.masked).toBe(true);
     expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdictThenClearBlur' });
     expect(unsafe.effects).not.toContainEqual({ kind: 'applyVerdict' });
@@ -263,7 +268,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
@@ -274,24 +279,24 @@ describe('VideoSession machine', () => {
     const unsafeWarming = run(pausedWarming.state, {
       type: 'predictionReceived',
       frameIndex: 0,
-      unsafe: true,
+      verdict: 'unsafe',
       at: 1200,
     });
     expect(unsafeWarming.state.masked).toBe(true);
     expect(unsafeWarming.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
   });
 
-  it('clears a mask only after two consecutive clean samples (instant on, slow off)', () => {
+  it('clears a mask only on a confirmed clean verdict (instant on, slow off)', () => {
     const masked = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 1200 },
     );
 
-    const oneClean = run(masked.state, { type: 'predictionReceived', frameIndex: 1, unsafe: false, at: 1500 });
+    const oneClean = run(masked.state, { type: 'predictionReceived', frameIndex: 1, verdict: 'clean', at: 1500 });
     expect(oneClean.effects).not.toContainEqual({ kind: 'clearVerdict' });
     // Short of the streak, the warm-up blur is the only protection: keep it.
     expect(oneClean.effects).not.toContainEqual({ kind: 'clearBlur' });
@@ -300,7 +305,12 @@ describe('VideoSession machine', () => {
     // The streak clears mask, status, and blur — this clearBlur is also the
     // un-blur path for a session whose buffer capture never succeeds (the DVR
     // stays warming forever, so bufferReady can never lift the blur).
-    const twoClean = run(oneClean.state, { type: 'predictionReceived', frameIndex: 2, unsafe: false, at: 1800 });
+    const twoClean = run(oneClean.state, {
+      type: 'predictionReceived',
+      frameIndex: 2,
+      verdict: 'confirmedClean',
+      at: 1800,
+    });
     expect(twoClean.effects).toContainEqual({ kind: 'clearVerdict' });
     expect(twoClean.effects).toContainEqual({ kind: 'clearBlur' });
     expect(twoClean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
@@ -310,11 +320,11 @@ describe('VideoSession machine', () => {
     expect(twoClean.state.blurred).toBe(false);
 
     // An unsafe sample resets the clean streak and re-covers the warm-up.
-    const reMasked = run(twoClean.state, { type: 'predictionReceived', frameIndex: 3, unsafe: true, at: 2100 });
+    const reMasked = run(twoClean.state, { type: 'predictionReceived', frameIndex: 3, verdict: 'unsafe', at: 2100 });
     expect(reMasked.effects).not.toContainEqual({ kind: 'startDvr' });
     expect(reMasked.effects).toContainEqual({ kind: 'applyBlur' });
     expect(reMasked.state.dvr).toBe('warming');
-    const cleanAgain = run(reMasked.state, { type: 'predictionReceived', frameIndex: 4, unsafe: false, at: 2400 });
+    const cleanAgain = run(reMasked.state, { type: 'predictionReceived', frameIndex: 4, verdict: 'clean', at: 2400 });
     expect(cleanAgain.effects).not.toContainEqual({ kind: 'clearVerdict' });
   });
 
@@ -323,9 +333,9 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 1200 },
     );
     expect(warming.state.dvr).toBe('warming');
 
@@ -336,7 +346,12 @@ describe('VideoSession machine', () => {
     expect(presenting.effects).toContainEqual({ kind: 'clearVerdict' });
 
     // While presenting: no DOM overlay work per verdict — the player composites.
-    const nextUnsafe = run(presenting.state, { type: 'predictionReceived', frameIndex: 1, unsafe: true, at: 3000 });
+    const nextUnsafe = run(presenting.state, {
+      type: 'predictionReceived',
+      frameIndex: 1,
+      verdict: 'unsafe',
+      at: 3000,
+    });
     expect(nextUnsafe.effects).not.toContainEqual({ kind: 'applyVerdict' });
     expect(nextUnsafe.effects).not.toContainEqual({ kind: 'applyBlur' });
     expect(nextUnsafe.state.dvr).toBe('presenting');
@@ -385,7 +400,7 @@ describe('VideoSession machine', () => {
     expect(presenting.state.dvr).toBe('presenting');
     expect(presenting.state.blurred).toBe(false);
 
-    const clean = run(presenting.state, { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 1200 });
+    const clean = run(presenting.state, { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 1200 });
     expect(clean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
   });
 
@@ -394,7 +409,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'bufferReady', at: 2800 },
     );
@@ -424,7 +439,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'bufferReady', at: 2800 },
     );
@@ -455,7 +470,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
       { type: 'play', at: 1000 },
     );
     expect(warming.state.dvr).toBe('warming');
@@ -474,16 +489,16 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 1200 },
       { type: 'bufferReady', at: 1300 },
     );
 
     const clean = run(
       presenting.state,
-      { type: 'predictionReceived', frameIndex: 1, unsafe: false, at: 1500 },
-      { type: 'predictionReceived', frameIndex: 2, unsafe: false, at: 1800 },
+      { type: 'predictionReceived', frameIndex: 1, verdict: 'clean', at: 1500 },
+      { type: 'predictionReceived', frameIndex: 2, verdict: 'confirmedClean', at: 1800 },
     );
     expect(clean.state.masked).toBe(false);
     expect(clean.state.dvr).toBe('presenting');
@@ -498,7 +513,7 @@ describe('VideoSession machine', () => {
     const unsafeAgain = run(clean.state, {
       type: 'predictionReceived',
       frameIndex: 3,
-      unsafe: true,
+      verdict: 'unsafe',
       at: 2100,
     });
     expect(unsafeAgain.state.dvr).toBe('presenting');
@@ -511,9 +526,9 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 1200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 1200 },
       { type: 'bufferReady', at: 2800 },
     );
 
@@ -532,7 +547,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'bufferReady', at: 2800 },
     );
@@ -609,7 +624,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
     );
     expect(maskedStandby.state.masked).toBe(true);
     expect(maskedStandby.state.dvr).toBe('off');
@@ -625,7 +640,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
     );
     expect(safeStandby.state.dvr).toBe('off');
 
@@ -658,13 +673,13 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
     );
     expect(playing.effects).toContainEqual({ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS });
 
     // Verdicts flowing: each one rewinds the watchdog.
-    const flowing = run(playing.state, { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 1300 });
+    const flowing = run(playing.state, { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 1300 });
     expect(flowing.effects).toContainEqual({ kind: 'startTimer', timer: 'watchdog', ms: WATCHDOG_MS });
 
     // Silence: watchdog fires -> whole-video blur returns, sampling continues.
@@ -673,7 +688,7 @@ describe('VideoSession machine', () => {
     expect(silent.state.phase).toBe('sampling');
 
     // Recovery: the next verdict lifts the blur without waiting for the hysteresis streak.
-    const healed = run(silent.state, { type: 'predictionReceived', frameIndex: 1, unsafe: false, at: 8000 });
+    const healed = run(silent.state, { type: 'predictionReceived', frameIndex: 1, verdict: 'clean', at: 8000 });
     expect(healed.effects).toContainEqual({ kind: 'clearBlur' });
   });
 
@@ -682,7 +697,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
@@ -706,7 +721,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
     );
 
     // Paused scrub: the displayed frame changed, so it must be sampled and its verdict applied.
@@ -717,7 +732,7 @@ describe('VideoSession machine', () => {
     const verdict = run(
       scrubbed.state,
       { type: 'sampleSent', frameIndex: 0, at: 2005 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 2200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 2200 },
     );
     expect(verdict.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
 
@@ -727,7 +742,7 @@ describe('VideoSession machine', () => {
       { type: 'play', at: 3000 },
       { type: 'frameAvailable', at: 3010 },
       { type: 'sampleSent', frameIndex: 1, at: 3015 },
-      { type: 'predictionReceived', frameIndex: 1, unsafe: true, at: 3100 },
+      { type: 'predictionReceived', frameIndex: 1, verdict: 'unsafe', at: 3100 },
       { type: 'seeked', at: 3150 },
     );
     expect(seekWhilePlaying.effects).toContainEqual({ kind: 'sendSample', frameIndex: 2 });
@@ -738,7 +753,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
     );
 
@@ -756,7 +771,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
     );
 
@@ -767,7 +782,7 @@ describe('VideoSession machine', () => {
     }
     interrupted = run(
       interrupted,
-      { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 3000 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 3000 },
       { type: 'sendFailed', frameIndex: 0, at: 3100 },
     ).state;
     expect(interrupted.phase).toBe('sampling');
@@ -805,7 +820,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
     );
     let failing = sampling.state;
@@ -851,7 +866,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
@@ -873,11 +888,11 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'frameAvailable', at: 1010 },
       { type: 'sampleSent', frameIndex: 0, at: 1015 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 2990 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 2990 },
     );
     // Without the cancel, the 1015+3000ms timer could fire under the NEXT
     // in-flight sample and break the one-in-flight invariant.
@@ -913,7 +928,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
       { type: 'play', at: 1000 },
     );
 
@@ -926,7 +941,7 @@ describe('VideoSession machine', () => {
       disposed.state,
       { type: 'play', at: 2000 },
       { type: 'frameAvailable', at: 2010 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 2200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 2200 },
       { type: 'timerFired', timer: 'watchdog', at: 9000 },
     );
     expect(afterDispose.effects).toHaveLength(0);
@@ -946,7 +961,7 @@ describe('VideoSession machine', () => {
     const verdicted = run(
       ready.state,
       { type: 'sampleSent', frameIndex: -1, at: 50 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 300 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 300 },
       { type: 'thumbnailSourceReady' },
     );
     expect(verdicted.effects.filter(e => e.kind === 'captureThumbnail')).toHaveLength(0);
@@ -963,7 +978,7 @@ describe('VideoSession machine', () => {
     );
     expect(eager.state.phase).toBe('sampling');
 
-    const clean = run(eager.state, { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 300 });
+    const clean = run(eager.state, { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 300 });
     expect(clean.effects).toContainEqual({ kind: 'clearBlur' });
     expect(clean.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
   });
@@ -982,7 +997,7 @@ describe('VideoSession machine', () => {
     const verdict = run(scrubbedDuringThumbnail.state, {
       type: 'predictionReceived',
       frameIndex: -1,
-      unsafe: false,
+      verdict: 'clean',
       at: 800,
     });
     expect(verdict.effects).not.toContainEqual({ kind: 'clearBlur' });
@@ -991,7 +1006,7 @@ describe('VideoSession machine', () => {
     const postSeek = run(
       verdict.state,
       { type: 'sampleSent', frameIndex: 0, at: 810 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 1100 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 1100 },
     );
     expect(postSeek.effects).toContainEqual({ kind: 'clearBlur' });
     expect(postSeek.effects).toContainEqual({ kind: 'setStatus', status: 'safe' });
@@ -1002,7 +1017,7 @@ describe('VideoSession machine', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
       { type: 'seeked', at: 2000 }, // paused scrub -> one-shot sample 0 in flight
       { type: 'sampleSent', frameIndex: 0, at: 2005 },
       { type: 'seeked', at: 2100 }, // second scrub while the first is in flight
@@ -1010,7 +1025,7 @@ describe('VideoSession machine', () => {
     expect(inflight.effects.filter(e => e.kind === 'sendSample')).toHaveLength(1);
 
     // The verdict for the pre-seek position frees the slot; the pending seek fires.
-    const freed = run(inflight.state, { type: 'predictionReceived', frameIndex: 0, unsafe: false, at: 2300 });
+    const freed = run(inflight.state, { type: 'predictionReceived', frameIndex: 0, verdict: 'clean', at: 2300 });
     expect(freed.effects).toContainEqual({ kind: 'sendSample', frameIndex: 1 });
   });
 
@@ -1057,7 +1072,7 @@ describe('audio route policy', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
       ...(opts.audible ? [{ type: 'unmuted', at: 150 } as const] : []),
       { type: 'play', at: 1000 },
       { type: 'bufferReady', at: 2800 },
@@ -1094,13 +1109,13 @@ describe('audio route policy', () => {
     expect(deferred.state.audioRoute).toBe('pending');
     expect(deferred.effects).toHaveLength(0);
 
-    const verdict = run(deferred.state, { type: 'predictionReceived', frameIndex: 5, unsafe: false, at: 3500 });
+    const verdict = run(deferred.state, { type: 'predictionReceived', frameIndex: 5, verdict: 'clean', at: 3500 });
     expect(verdict.effects).toContainEqual({ kind: 'engageAudioRoute' });
   });
 
   it('verdicts stop retrying once a route is engaged', () => {
     const engaged = run(present().state, { type: 'audioEngageResult', result: 'delayLine', at: 3000 }).state;
-    const verdict = run(engaged, { type: 'predictionReceived', frameIndex: 5, unsafe: false, at: 3500 });
+    const verdict = run(engaged, { type: 'predictionReceived', frameIndex: 5, verdict: 'clean', at: 3500 });
     expect(verdict.effects).not.toContainEqual({ kind: 'engageAudioRoute' });
   });
 
@@ -1210,7 +1225,7 @@ describe('analysis underrun', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: true, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'unsafe', at: 100 },
       { type: 'play', at: 1000 },
       { type: 'bufferReady', at: 2800 },
     ).state;
@@ -1227,7 +1242,7 @@ describe('analysis underrun', () => {
     const settled = run(
       first.state,
       { type: 'sampleSent', frameIndex: 0, at: 3110 },
-      { type: 'predictionReceived', frameIndex: 0, unsafe: true, at: 3200 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 3200 },
     );
     const early = run(settled.state, { type: 'frameAvailable', at: 3100 + RELIEVED_SAMPLE_FLOOR_MS - 50 });
     expect(early.effects).not.toContainEqual(expect.objectContaining({ kind: 'sendSample' }));
@@ -1252,11 +1267,101 @@ describe('analysis underrun', () => {
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
       { type: 'sampleSent', frameIndex: -1, at: 0 },
-      { type: 'predictionReceived', frameIndex: -1, unsafe: false, at: 100 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
     );
     expect(standby.state.dvr).toBe('off');
     const { state, effects } = run(standby.state, { type: 'analysisUnderrun', at: 200 });
     expect(state).toEqual(standby.state);
     expect(effects).toHaveLength(0);
+  });
+
+  describe('Transient Hit status deferral', () => {
+    function presentingClean() {
+      return run(
+        createVideoSession().state,
+        { type: 'thumbnailSourceReady' },
+        { type: 'sampleSent', frameIndex: -1, at: 0 },
+        { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
+        { type: 'play', at: 1000 },
+        { type: 'bufferReady', at: 1300 },
+      ).state;
+    }
+
+    it('keeps status and mask untouched for a tentative hit while the DVR presents', () => {
+      const tentative = run(presentingClean(), {
+        type: 'predictionReceived',
+        frameIndex: 0,
+        verdict: 'tentative',
+        at: 1500,
+      });
+
+      expect(tentative.state.masked).toBe(false);
+      expect(tentative.effects).not.toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+      expect(tentative.state.lastAppliedIndex).toBe(0);
+    });
+
+    it('flips status once the run resolves as a real hit', () => {
+      const confirmed = run(
+        presentingClean(),
+        { type: 'predictionReceived', frameIndex: 0, verdict: 'tentative', at: 1500 },
+        { type: 'predictionReceived', frameIndex: 1, verdict: 'unsafe', at: 1750 },
+      );
+
+      expect(confirmed.state.masked).toBe(true);
+      expect(confirmed.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+    });
+
+    it('flips status when the player had to mask a run before it could be judged', () => {
+      const deferred = run(presentingClean(), {
+        type: 'predictionReceived',
+        frameIndex: 0,
+        verdict: 'tentative',
+        at: 1500,
+      });
+      const late = run(deferred.state, { type: 'lateHitPresented', at: 2500 });
+
+      expect(late.state.masked).toBe(true);
+      expect(late.effects).toEqual([{ kind: 'setStatus', status: 'unsafe' }]);
+      expect(run(late.state, { type: 'lateHitPresented', at: 2600 }).effects).toEqual([]);
+    });
+
+    it('masks a tentative hit instantly while the DVR is still warming', () => {
+      const warming = run(
+        createVideoSession().state,
+        { type: 'thumbnailSourceReady' },
+        { type: 'sampleSent', frameIndex: -1, at: 0 },
+        { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
+        { type: 'play', at: 1000 },
+        { type: 'predictionReceived', frameIndex: 0, verdict: 'tentative', at: 1200 },
+      );
+
+      expect(warming.state.masked).toBe(true);
+      expect(warming.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+    });
+
+    it('masks a tentative hit instantly on a paused frame without a DVR', () => {
+      const paused = run(
+        createVideoSession().state,
+        { type: 'thumbnailSourceReady' },
+        { type: 'sampleSent', frameIndex: -1, at: 0 },
+        { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
+        { type: 'seeked', at: 2000 },
+        { type: 'predictionReceived', frameIndex: 0, verdict: 'tentative', at: 2200 },
+      );
+
+      expect(paused.effects).toContainEqual({ kind: 'applyVerdictThenClearBlur' });
+      expect(paused.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+    });
+
+    it('treats a tentative Thumbnail verdict as unsafe', () => {
+      const thumbnail = run(
+        createVideoSession().state,
+        { type: 'thumbnailSourceReady' },
+        { type: 'sampleSent', frameIndex: -1, at: 0 },
+        { type: 'predictionReceived', frameIndex: -1, verdict: 'tentative', at: 100 },
+      );
+
+      expect(thumbnail.effects).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+    });
   });
 });

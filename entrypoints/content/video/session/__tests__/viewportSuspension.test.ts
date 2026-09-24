@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 import {
   isVideoNearViewport,
@@ -67,7 +67,7 @@ function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
     removeListeners: () => {},
     overlayChain: Promise.resolve(),
     dvrRun: null,
-    timeline: new VerdictTimeline(),
+    verdicts: new VerdictInterpreter(),
     dvrStallFloorSec: 0,
     dvrEncodedIneligible: false,
     dvrLastAnomalyAt: Number.NEGATIVE_INFINITY,

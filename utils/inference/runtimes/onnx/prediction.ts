@@ -1,10 +1,10 @@
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
-import { strictnessToScoreThreshold } from '@/entrypoints/background/modelUtils/scoreThreshold';
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
 import { acquireModelRuntime, getBackend, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
 import { getPostprocessor, type TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors';
+import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';

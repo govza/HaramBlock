@@ -38,6 +38,20 @@ stop/start, seeks, and loop restarts; live inference writes it today, the shared
 write it tomorrow — readers cannot tell the difference. _Avoid_: verdict track (the old per-DVR-run
 structure)
 
+**Verdict Interpreter**: The only reader of the Verdict Timeline's raw verdicts
+(`dvr/verdictInterpreter.ts`). It answers "what covers the frame at media time t" for the DVR player
+and classifies each new playback sample (`clean | confirmedClean | tentative | unsafe`) for the
+machine, so presentation and status share one confirmation rule. _Avoid_: verdict filter
+
+**Transient Hit**: A run of at most `maxSuppressedRun` consecutive unsafe playback samples, none a
+Confident Hit, closed by an adjacent clean sample (within `COVERAGE_MAX_GAP_SEC`) and preceded by a
+clean sample or a coverage gap (a far seek landing is a clean start). Treated as clean everywhere —
+presented frames, mask hold/bridging, status. _Avoid_: false positive, blip
+
+**Confident Hit**: An unsafe sample whose top detection probability reaches
+`min(scoreThreshold × confidenceCoefficient, confidenceCap)`; it makes its run a real hit however
+short. _Avoid_: strong hit
+
 **Bridge Horizon**: How far ahead an upcoming unsafe verdict can be and still merge its mask
 geometry into a frame's cover; further out it contributes no geometry. Between verdicts the
 clean-cut rule governs: a mask spans exactly unsafe-sample → next confirmed clean verdict, and any
@@ -94,8 +108,13 @@ Key invariants:
   Permanent failures are terminal; a transient streak (busy inference backend, suspended event page)
   retries after `ERROR_RETRY_COOLDOWN_MS` (30 s) — an outage must not disable protection for the
   rest of the tab's lifetime.
-- **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only after
-  `CLEAN_STREAK_TO_CLEAR` (2) consecutive clean samples.
+- **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only on a
+  `confirmedClean` verdict — a clean sample whose predecessor on the Verdict Timeline is not a hit.
+  The one exception is a Transient Hit while the DVR presents: the delay lets the Verdict
+  Interpreter see the run's closing clean sample before the run's first frame is shown, so a short
+  low-confidence run is presented clean and never flips status (`tentative` verdicts wait for the
+  run to resolve). Before the DVR presents, on paused DOM-overlay frames, and for the Thumbnail a
+  `tentative` verdict still masks instantly.
 - **Audible audio must have a delayed route** (ADRs
   [0001](adr/0001-continuous-dvr-and-relay-audio.md),
   [0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)): every video is
@@ -129,6 +148,7 @@ Key invariants:
 | Transport            | `entrypoints/content/communication/sender.ts`                                                                       | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                                                             |
 | Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`                                                              | Segmentation mask rendering (paused/standby verdicts)                                                                                                                                              |
 | DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`                                                                | Delayed masked canvas playback (playback verdicts)                                                                                                                                                 |
+| Verdict Interpreter  | `entrypoints/content/video/dvr/verdictInterpreter.ts`                                                               | Transient Hit suppression, per-frame cover lookup for the player, per-sample classification for the machine, run-resolution telemetry                                                              |
 | DVR buffers          | `entrypoints/content/video/dvr/{frameStore,rawFrameRing,encodedFrameRing,decodedFrameConverter,verdictTimeline}.ts` | Media-time-keyed frame store (raw ImageBitmap ring or WebCodecs-encoded ring behind one `DvrFrameStore` interface, Firefox off-thread decoded-frame conversion) + session-lifetime verdict history |
 | DVR capture tap      | `entrypoints/content/video/dvr/captureTap.ts`                                                                       | Full-rate ring capture via `captureStream` + `MediaStreamTrackProcessor`; rVFC ticks are the fallback                                                                                              |
 | DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                                                | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                                                                |
@@ -150,14 +170,14 @@ fake DOM or real clocks. Its effect vocabulary:
 
 Tuning constants (all in `machine.ts`):
 
-| Constant                 | Value  | Meaning                                                                                    |
-| ------------------------ | ------ | ------------------------------------------------------------------------------------------ |
-| `THUMBNAIL_TIMEOUT_MS`   | 10 000 | Fail-closed clock, started at the **first actual send**; one retry, then finalized blocked |
-| `SAMPLE_FLOOR_MS`        | 250    | Minimum interval between Frame Sample sends (~4 fps ceiling)                               |
-| `SAMPLE_TIMEOUT_MS`      | 3 000  | Frees the single in-flight slot when a verdict is lost                                     |
-| `WATCHDOG_MS`            | 5 000  | Mid-playback verdict silence → whole-video re-blur                                         |
-| `CLEAN_STREAK_TO_CLEAR`  | 2      | Consecutive clean samples required to lift a mask                                          |
-| `MAX_CONSECUTIVE_ERRORS` | 10     | Transient capture/send failures before ERROR (finalized as allow)                          |
+| Constant                 | Value          | Meaning                                                                                                                          |
+| ------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `THUMBNAIL_TIMEOUT_MS`   | 10 000         | Fail-closed clock, started at the **first actual send**; one retry, then finalized blocked                                       |
+| `SAMPLE_FLOOR_MS`        | 250            | Minimum interval between Frame Sample sends (~4 fps ceiling)                                                                     |
+| `SAMPLE_TIMEOUT_MS`      | 3 000          | Frees the single in-flight slot when a verdict is lost                                                                           |
+| `WATCHDOG_MS`            | 5 000          | Mid-playback verdict silence → whole-video re-blur                                                                               |
+| `TRANSIENT_HIT_CONFIG`   | 3 / 1.5 / 0.95 | `maxSuppressedRun` / `confidenceCoefficient` / `confidenceCap` of the Verdict Interpreter (tuned from `hb.video.transient_runs`) |
+| `MAX_CONSECUTIVE_ERRORS` | 10             | Transient capture/send failures before ERROR (finalized as allow)                                                                |
 
 ### The registry / DOM adapter
 
@@ -358,9 +378,17 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
 - **Unsafe verdict while playing**: no transition — the verdict lands in the Verdict Timeline and
   the already-running presentation composites its masks `D` later. Only a DVR still `warming`
   (canvas not yet presenting) gets an interim whole-blur cover.
-- **Per presented frame** (`videoDvrPlayer.ts`): the **clean-cut rule** — a mask exists exactly on
-  the span from its unsafe sample's timestamp to the next clean verdict's timestamp. Never before
-  the unsafe sample (no pre-roll), and never after a clean verdict that a following clean verdict
+- **Per presented frame** (`videoDvrPlayer.ts` asking the Verdict Interpreter): Transient Hits are
+  read as clean first. The judgement is made once, when a run's first frame is presented, and
+  latched for the whole run: if the run's closing clean verdict has not arrived by then the whole
+  run masks (no mid-run cut; D is not raised for it) and the machine gets `lateHitPresented`, which
+  flips the status to unsafe. New evidence for a latched Transient Hit, such as a re-sampled
+  Confident Hit or a run that grows past `maxSuppressedRun`, overturns the suppression. Every
+  latched run is counted on `hb.video.transient_runs` by resolution
+  (`suppressed | confident | long | late`) with its length, top probability, score threshold, and
+  the `TRANSIENT_HIT_CONFIG` in effect. Then the **clean-cut rule** — a mask exists exactly on the
+  span from its unsafe sample's timestamp to the next clean verdict's timestamp. Never before the
+  unsafe sample (no pre-roll), and never after a clean verdict that a following clean verdict
   confirms; because presentation runs `D` behind the live edge, that confirming verdict has normally
   already arrived by the time the clean frame is presented, so the streak costs no extra trail. An
   unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right after) does not cut —
@@ -579,10 +607,11 @@ where audio cannot be delayed receive no protection at all.
   contract run against both the raw and (mock-codec) encoded rings (selection, eviction,
   discontinuity flush, release), encoded-ring specifics (GOP keyframing, decode-ahead, backpressure
   drops, keyframe re-warm, codec-error teardown), the store factory's selection matrix (probe ×
-  concurrency cap × prior error × flag), the VerdictTimeline (window lookup, inertia merging,
-  coverage-ahead, entry cap), coverage-derived delay derivation, the budget-derived capture scale,
-  the global ring budget's degradation ladder, the drain clock, and the presented-fps simulation
-  harness parameterized over both stores.
+  concurrency cap × prior error × flag), the VerdictTimeline (coverage-ahead, entry cap), the
+  Verdict Interpreter (clean-cut rule, inertia merging, Transient Hit suppression, Confident Hit
+  overturn, per-run latching, sample classification, run-resolution reports), coverage-derived delay
+  derivation, the budget-derived capture scale, the global ring budget's degradation ladder, the
+  drain clock, and the presented-fps simulation harness parameterized over both stores.
 - **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
   the `<source>`-child discovery path, DVR canvas takeover on a clean playing video, and an unsafe
   verdict landing mid-playback compositing into the running DVR without a whole-blur flash.

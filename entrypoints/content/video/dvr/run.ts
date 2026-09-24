@@ -26,7 +26,7 @@ import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoin
 import { ATTR, getLogger, METRIC, metricsEnabled, recordCounter } from '@/utils/telemetry';
 
 import type { DvrCaptureFrame, DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
-import type { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import type { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import type { IMaskingSettings } from '@/utils/types';
 
 declare const __HB_TELEMETRY_ENABLED__: boolean;
@@ -88,7 +88,7 @@ export interface DvrPresenter {
 export interface PresenterPort {
   create(options: {
     store: SessionFrameStore;
-    timeline: VerdictTimeline;
+    verdicts: VerdictInterpreter;
     getDelaySec: () => number;
     onReady: () => void;
     onPresented?: (sample: PresentedSample) => void;
@@ -108,7 +108,7 @@ export interface DvrRunPorts {
 
 export interface DvrRunContext {
   readonly sessionId: string;
-  readonly timeline: VerdictTimeline;
+  readonly verdicts: VerdictInterpreter;
   readonly latenciesMs: readonly number[];
   readonly stallFloorSec: number;
   readonly encodedIneligible: boolean;
@@ -160,8 +160,8 @@ export function defaultDvrRunPorts(options: {
       return tap ? { driver: tap, reason: null } : { driver: null, reason };
     },
     presenter: {
-      create: ({ store, timeline, getDelaySec, onReady, onPresented }) =>
-        new VideoDvrPlayer({ video, store, timeline, getDelaySec, getMasking, onReady, onPresented }),
+      create: ({ store, verdicts, getDelaySec, onReady, onPresented }) =>
+        new VideoDvrPlayer({ video, store, verdicts, getDelaySec, getMasking, onReady, onPresented }),
     },
   };
 }
@@ -202,7 +202,7 @@ class Run implements DvrRun {
     private readonly ctx: DvrRunContext,
   ) {
     const { surface, budget } = ports;
-    const derivedDelayMs = deriveDvrDelayMs(ctx.latenciesMs, ctx.timeline.coverageAheadOf(surface.currentTime()));
+    const derivedDelayMs = deriveDvrDelayMs(ctx.latenciesMs, ctx.verdicts.coverageAheadOf(surface.currentTime()));
     this.covered = derivedDelayMs === COVERED_DVR_DELAY_MS;
     this.delay = Math.max(derivedDelayMs / 1000, ctx.stallFloorSec);
     this.stallFloorSec = ctx.stallFloorSec;
@@ -262,7 +262,7 @@ class Run implements DvrRun {
     const { probe } = this;
     this.presenter = ports.presenter.create({
       store,
-      timeline: ctx.timeline,
+      verdicts: ctx.verdicts,
       getDelaySec: () => this.delay,
       onReady: () => ports.events({ type: 'bufferReady', at: surface.now() }),
       ...(probe ? { onPresented: (sample: PresentedSample) => probe.presented(sample) } : {}),
@@ -378,7 +378,7 @@ class Run implements DvrRun {
    */
   onVerdict(): void {
     if (this.stopped) return;
-    const coverageAheadSec = this.ctx.timeline.coverageAheadOf(this.ports.surface.currentTime());
+    const coverageAheadSec = this.ctx.verdicts.coverageAheadOf(this.ports.surface.currentTime());
     const derivedSec = deriveDvrDelayMs(this.ctx.latenciesMs, coverageAheadSec) / 1000;
     // A decode stall (covered miss since the last sync) feeds the same
     // let-D-grow path: the slow decoder buys itself headroom by sliding

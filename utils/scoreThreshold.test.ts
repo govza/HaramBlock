@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  MAX_SCORE_THRESHOLD,
-  MIN_SCORE_THRESHOLD,
-  strictnessToScoreThreshold,
-} from '@/entrypoints/background/modelUtils/scoreThreshold';
+import { MAX_SCORE_THRESHOLD, MIN_SCORE_THRESHOLD, strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 
 describe('strictnessToScoreThreshold', () => {
   it('maps minimum strictness to the most permissive (highest) threshold', () => {
