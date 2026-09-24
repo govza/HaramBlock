@@ -38,8 +38,6 @@ export interface VideoSessionState {
   lastAppliedIndex: number;
   /** A verdict mask is currently applied. */
   masked: boolean;
-  /** Consecutive clean samples while masked; clears the mask at the hysteresis threshold. */
-  cleanStreak: number;
   blurred: boolean;
   /** Consecutive capture/send failures; ERROR at the limit. */
   errorStreak: number;
@@ -66,7 +64,20 @@ export const SAMPLE_FLOOR_MS = 250;
 /** Widened sampling floor after an analysisUnderrun: fewer samples relieve inference pressure.
  *  Must stay under the timeline's coverage gap tolerance or relief itself breaks coverage. */
 export const RELIEVED_SAMPLE_FLOOR_MS = 1000;
-export const CLEAN_STREAK_TO_CLEAR = 2;
+export interface TransientHitConfig {
+  readonly maxSuppressedRun: number;
+  readonly confidenceCoefficient: number;
+  readonly confidenceCap: number;
+}
+
+export const TRANSIENT_HIT_CONFIG: TransientHitConfig = Object.freeze({
+  maxSuppressedRun: 3,
+  confidenceCoefficient: 1.5,
+  confidenceCap: 0.95,
+});
+
+export type SampleVerdict = 'clean' | 'confirmedClean' | 'tentative' | 'unsafe';
+
 export const WATCHDOG_MS = 5_000;
 export const SAMPLE_TIMEOUT_MS = 3_000;
 export const MAX_CONSECUTIVE_ERRORS = 10;
@@ -80,7 +91,7 @@ export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 export type SessionEvent =
   | { type: 'thumbnailSourceReady' }
   | { type: 'sampleSent'; frameIndex: number; at: number }
-  | { type: 'predictionReceived'; frameIndex: number; unsafe: boolean; at: number }
+  | { type: 'predictionReceived'; frameIndex: number; verdict: SampleVerdict; at: number }
   | { type: 'timerFired'; timer: SessionTimer; at: number }
   | { type: 'play'; at: number }
   | { type: 'frameAvailable'; at: number; timestampSec: number }
@@ -101,6 +112,7 @@ export type SessionEvent =
   /** Analysis persistently cannot keep up with playback (hysteresis applied by
    *  the adapter). First occurrence widens the sampling interval; a second demotes. */
   | { type: 'analysisUnderrun'; at: number }
+  | { type: 'lateHitPresented'; at: number }
   /** Adapter finished one engageAudioRoute attempt; the reducer decides
    *  engaged/retry/withdraw (ADR 0002). */
   | { type: 'audioEngageResult'; result: AudioEngageOutcome; at: number }
@@ -154,7 +166,6 @@ export function createVideoSession(): ReduceResult {
       nextFrameIndex: 0,
       lastAppliedIndex: Number.NEGATIVE_INFINITY,
       masked: false,
-      cleanStreak: 0,
       blurred: true,
       errorStreak: 0,
       pendingSeek: false,
@@ -280,16 +291,15 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     };
   }
   if (event.type === 'predictionReceived' && state.phase === 'thumbnailing') {
+    const unsafe = isUnsafeVerdict(event.verdict);
     if (state.pendingSeek) {
       // The verdict describes a frame that is no longer displayed: keep the
       // blur (fail-closed); the pending post-seek sample decides what shows.
       return {
-        state: { ...state, phase: 'standby', lastAppliedIndex: event.frameIndex, masked: event.unsafe, allowed: false },
+        state: { ...state, phase: 'standby', lastAppliedIndex: event.frameIndex, masked: unsafe, allowed: false },
         effects: [
           { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
-          ...(event.unsafe
-            ? [{ kind: 'applyVerdict' } as const, { kind: 'setStatus', status: 'unsafe' } as const]
-            : []),
+          ...(unsafe ? [{ kind: 'applyVerdict' } as const, { kind: 'setStatus', status: 'unsafe' } as const] : []),
         ],
       };
     }
@@ -298,16 +308,16 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
         ...state,
         phase: 'standby',
         lastAppliedIndex: event.frameIndex,
-        masked: event.unsafe,
+        masked: unsafe,
         blurred: false,
         allowed: false,
       },
       effects: [
         { kind: 'cancelTimer', timer: 'thumbnailTimeout' },
-        ...(event.unsafe
+        ...(unsafe
           ? ([{ kind: 'applyBlur' }, { kind: 'applyVerdictThenClearBlur' }] as const)
           : ([{ kind: 'clearVerdict' }, { kind: 'clearBlur' }] as const)),
-        { kind: 'setStatus', status: event.unsafe ? 'unsafe' : 'safe' },
+        { kind: 'setStatus', status: unsafe ? 'unsafe' : 'safe' },
       ],
     };
   }
@@ -340,10 +350,13 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       allowed: false,
     };
 
-    if (event.unsafe) {
-      // Instant on: an unsafe sample masks immediately and resets the clean streak.
+    if (awaitsTransientHitResolution(state, event.verdict)) {
+      return { state: next, effects };
+    }
+
+    const unsafe = isUnsafeVerdict(event.verdict);
+    if (unsafe) {
       next.masked = true;
-      next.cleanStreak = 0;
       if (state.phase === 'sampling') {
         // Playback masking is the DVR's job: a DOM overlay would chase content
         // that has already moved on. Whole-blur covers until the canvas warms.
@@ -376,19 +389,14 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       // frame; the verdict composites there with no DOM effects.
       effects.push({ kind: 'setStatus', status: 'unsafe' });
     } else {
-      next.cleanStreak = state.masked ? state.cleanStreak + 1 : 0;
-      if (state.masked && next.cleanStreak >= CLEAN_STREAK_TO_CLEAR) {
-        // Slow off: only a sustained clean run may clear the mask.
+      if (state.masked && event.verdict === 'confirmedClean') {
         next.masked = false;
-        next.cleanStreak = 0;
         // The DVR stays untouched: it is the permanent presentation for the
         // rest of playback (continuous DVR). For a warming session this
         // clearBlur is also the un-blur escape when the buffer never becomes
         // ready (capture failure) — bufferReady can never lift the blur there.
         effects.push({ kind: 'clearVerdict' }, { kind: 'clearBlur' }, { kind: 'setStatus', status: 'safe' });
       } else if (state.masked && state.dvr === 'warming') {
-        // Clean sample short of the streak: the warm-up blur is the only
-        // protection (no DOM overlay on this path) — keep it until bufferReady.
         next.blurred = true;
       } else if (state.blurred || verdictPending(state)) {
         // verdictPending: the first verdict must land a status even when
@@ -403,6 +411,12 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
       }
     }
     return { state: next, effects };
+  }
+  if (event.type === 'lateHitPresented') {
+    if (state.masked || state.dvr !== 'presenting' || (state.phase !== 'sampling' && state.phase !== 'standby')) {
+      return { state, effects: [] };
+    }
+    return { state: { ...state, masked: true }, effects: [{ kind: 'setStatus', status: 'unsafe' }] };
   }
   if (event.type === 'analysisUnderrun') {
     // Only a live DVR run can underrun; elsewhere the event is stale.
@@ -657,7 +671,6 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       phase: 'error',
       inflightIndex: null,
       masked: false,
-      cleanStreak: 0,
       blurred: false,
       pendingSeek: false,
       pendingSeekTimestampSec: null,
@@ -680,6 +693,14 @@ function finalizeAllow(state: VideoSessionState, opts: { terminal: boolean }): R
       ...(opts.terminal ? [] : [{ kind: 'startTimer', timer: 'errorCooldown', ms: ERROR_RETRY_COOLDOWN_MS } as const]),
     ],
   };
+}
+
+export function isUnsafeVerdict(verdict: SampleVerdict): boolean {
+  return verdict === 'unsafe' || verdict === 'tentative';
+}
+
+function awaitsTransientHitResolution(state: VideoSessionState, verdict: SampleVerdict): boolean {
+  return verdict === 'tentative' && state.dvr === 'presenting' && state.phase === 'sampling' && !verdictPending(state);
 }
 
 function sendNextSample(state: VideoSessionState, at: number, timestampSec: number): ReduceResult {

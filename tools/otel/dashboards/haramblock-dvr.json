@@ -2482,6 +2482,68 @@
           "tableType": "traces"
         }
       ]
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "Transient Hit resolutions (content)",
+      "description": "Short unsafe runs judged by the Verdict Interpreter when first presented (hb.video.transient_runs): suppressed = presented clean as a Transient Hit; confident / long / late = masked, with the reason. Use it to tune TRANSIENT_HIT_CONFIG.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 146,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": 5000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(hb_video_transient_runs_total[$__rate_interval])) by (hb_transient_resolution)",
+          "legendFormat": "{{hb_transient_resolution}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum(increase(hb_video_transient_runs_total{hb_transient_resolution=\"suppressed\"}[$__rate_interval])) by (hb_transient_top_probability)",
+          "legendFormat": "suppressed p={{hb_transient_top_probability}}",
+          "range": true
+        }
+      ]
     }
   ]
 }

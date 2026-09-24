@@ -16,7 +16,7 @@ import {
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
-import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
@@ -24,10 +24,13 @@ import {
   createVideoSession,
   type ReduceResult,
   reduce,
+  isUnsafeVerdict,
+  type SampleVerdict,
   type SessionEffect,
   type SessionEvent,
   type SessionStatus,
   type VideoSessionState,
+  TRANSIENT_HIT_CONFIG,
 } from '@/entrypoints/content/video/session/machine';
 import { SESSION_ID_ATTR, SESSION_SRC_ATTR } from '@/entrypoints/content/video/session/markers';
 import {
@@ -38,7 +41,8 @@ import {
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { generateNonce } from '@/utils/nonce';
-import { ATTR, getLogger } from '@/utils/telemetry';
+import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
+import { ATTR, getLogger, METRIC, recordCounter } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
@@ -53,6 +57,40 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
 };
 
 let warnedTimestamplessPrediction = false;
+
+const PROBABILITY_BUCKET = 0.05;
+
+function scoreThresholdOf(handle: SessionHandle): number {
+  return strictnessToScoreThreshold(handle.hostSettings.strictness);
+}
+
+function interpretVerdict(handle: SessionHandle, pred: IFramePrediction): SampleVerdict {
+  const unsafe = Boolean(pred.predictions?.length);
+  if (pred.frameIndex < 0) return unsafe ? 'unsafe' : 'clean';
+  return handle.verdicts.record(
+    {
+      timestampSec: pred.timestampSec,
+      unsafe,
+      predictions: pred.predictions ?? [],
+      maskTransform: pred.maskTransform,
+      width: pred.width,
+      height: pred.height,
+    },
+    scoreThresholdOf(handle),
+  );
+}
+
+function recordTransientRun(handle: SessionHandle, run: ResolvedRun): void {
+  recordCounter(METRIC.videoTransientRuns, 1, {
+    [ATTR.transientResolution]: run.resolution,
+    [ATTR.transientRunLength]: run.runLength,
+    [ATTR.transientTopProbability]: Math.round(run.topProbability / PROBABILITY_BUCKET) * PROBABILITY_BUCKET,
+    [ATTR.scoreThreshold]: scoreThresholdOf(handle),
+    [ATTR.transientMaxRun]: TRANSIENT_HIT_CONFIG.maxSuppressedRun,
+    [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
+    [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
+  });
+}
 
 interface PendingAttachment {
   hostSettings: IHostSettings;
@@ -165,7 +203,7 @@ class VideoSessionRegistry {
       removeListeners: () => {},
       overlayChain: Promise.resolve(),
       dvrRun: null,
-      timeline: new VerdictTimeline(),
+      verdicts: new VerdictInterpreter({ onRunResolved: run => this.onTransientRunResolved(handle, run) }),
       dvrStallFloorSec: 0,
       dvrEncodedIneligible: false,
       dvrLastAnomalyAt: Number.NEGATIVE_INFINITY,
@@ -230,15 +268,14 @@ class VideoSessionRegistry {
         log.error('registry.prediction.missing_timestamp');
       }
       handle.lastPrediction = pred;
-      const unsafe = Boolean(pred.predictions?.length);
+      const verdict = interpretVerdict(handle, pred);
       const settled = this.sampler.recordVerdictLatency(handle, pred.frameIndex);
       this.dispatchPrediction(handle, pred, {
         type: 'predictionReceived',
         frameIndex: pred.frameIndex,
-        unsafe,
+        verdict,
         at: performance.now(),
       });
-      this.presentation.recordVerdict(handle, pred, unsafe);
       if (settled) {
         // After the verdict lands in the timeline: the coverage it just added
         // decides whether the latched delay is still large enough.
@@ -364,6 +401,11 @@ class VideoSessionRegistry {
     this.forced.sweepDisconnected();
   }
 
+  private onTransientRunResolved(handle: SessionHandle, run: ResolvedRun): void {
+    recordTransientRun(handle, run);
+    if (run.resolution === 'late') this.dispatch(handle, { type: 'lateHitPresented', at: performance.now() });
+  }
+
   private dispatch(handle: SessionHandle, event: SessionEvent): void {
     const { effects } = this.reduceAndLog(handle, event);
     this.execute(handle, effects, event.type);
@@ -403,7 +445,11 @@ class VideoSessionRegistry {
   ): void {
     const { previous, state, effects } = this.reduceAndLog(handle, event);
     const previousLastAppliedIndex = previous.lastAppliedIndex;
-    if (event.unsafe && event.frameIndex > previousLastAppliedIndex && state.lastAppliedIndex === event.frameIndex) {
+    if (
+      isUnsafeVerdict(event.verdict) &&
+      event.frameIndex > previousLastAppliedIndex &&
+      state.lastAppliedIndex === event.frameIndex
+    ) {
       // Set before executing effects: applyVerdict reads this synchronously.
       handle.lastUnsafePrediction = prediction;
     }

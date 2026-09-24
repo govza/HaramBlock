@@ -23,5 +23,18 @@ _Avoid_: proxy fetch, CORS bypass
 video's original URL one Presentation Delay behind the live edge, while the page element is kept
 silent. _Avoid_: audio proxy, blob audio
 
+**Verdict Interpreter**: The single reader of a video's raw playback verdicts. Decides what covers
+each presented frame and classifies each new sample for the session machine, so masking and status
+share one confirmation rule. _Avoid_: verdict filter, smoothing
+
+**Transient Hit**: A run of at most `maxSuppressedRun` consecutive low-confidence unsafe playback
+samples with a clean edge on each side (an adjacent clean sample, or a coverage gap before the run).
+Treated as clean everywhere — a model hallucination is never shown as a mask flash. _Avoid_: false
+positive, blip
+
+**Confident Hit**: An unsafe sample whose top detection probability reaches
+`min(scoreThreshold × confidenceCoefficient, confidenceCap)`. One Confident Hit makes its run a real
+hit, however short. _Avoid_: strong hit
+
 **Safe / Unsafe image**: An image without / with predictions. Unsafe images are masked when Forced
 Visibility is `'auto'`. _Avoid_: clean image, flagged image

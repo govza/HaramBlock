@@ -7,7 +7,7 @@ import {
   type DvrRunEvent,
   type DvrRunPorts,
 } from '@/entrypoints/content/video/dvr/run';
-import { VerdictTimeline } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import { ATTR } from '@/utils/telemetry/attributes';
 import { registerLogSink } from '@/utils/telemetry/logger';
 import { METRIC, registerMetricSink } from '@/utils/telemetry/metrics';
@@ -83,10 +83,10 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     },
     presenter: { create: () => presenter },
   };
-  const timeline = new VerdictTimeline();
+  const timeline = new VerdictInterpreter();
   const ctx: DvrRunContext = {
     sessionId: 'session-1',
-    timeline,
+    verdicts: timeline,
     latenciesMs: options.latenciesMs ?? [],
     stallFloorSec: 0,
     encodedIneligible: false,
@@ -116,16 +116,19 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
   };
 }
 
-function addCoverage(timeline: VerdictTimeline, fromSec: number, toSec: number) {
+function addCoverage(timeline: VerdictInterpreter, fromSec: number, toSec: number) {
   for (let t = fromSec; t < toSec; t += 0.5) {
-    timeline.add({
-      timestampSec: t,
-      unsafe: false,
-      predictions: [],
-      maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 },
-      width: 640,
-      height: 360,
-    });
+    timeline.record(
+      {
+        timestampSec: t,
+        unsafe: false,
+        predictions: [],
+        maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 },
+        width: 640,
+        height: 360,
+      },
+      0.5,
+    );
   }
 }
 
@@ -369,14 +372,14 @@ describe('DvrRun lifecycle', () => {
   });
 
   it('a covered range derives a small D and the stall floor from the context floors it', () => {
-    const timeline = new VerdictTimeline();
+    const timeline = new VerdictInterpreter();
     addCoverage(timeline, 10, 20);
     const { run } = makeHarnessWithTimeline(timeline, 2.5);
     expect(run.delaySec).toBe(2.5);
   });
 });
 
-function makeHarnessWithTimeline(timeline: VerdictTimeline, stallFloorSec: number) {
+function makeHarnessWithTimeline(timeline: VerdictInterpreter, stallFloorSec: number) {
   const store = makeStore();
   const ports: DvrRunPorts = {
     events: () => {},
@@ -403,7 +406,7 @@ function makeHarnessWithTimeline(timeline: VerdictTimeline, stallFloorSec: numbe
   };
   const run = startDvrRun(ports, {
     sessionId: 'session-1',
-    timeline,
+    verdicts: timeline,
     latenciesMs: [],
     stallFloorSec,
     encodedIneligible: false,

@@ -35,11 +35,8 @@ import {
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { drainTargetTime, startDrainClock, type DrainClock } from '@/entrypoints/content/video/dvr/drain';
-import {
-  BRIDGE_HORIZON_SEC,
-  type VerdictEntry,
-  type VerdictTimeline,
-} from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { BRIDGE_HORIZON_SEC, type VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { type VerdictEntry } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';
@@ -82,8 +79,7 @@ const MASK_CANVAS_STYLE = [CANVAS_STYLE, 'image-rendering: pixelated', 'image-re
 export interface VideoDvrPlayerOptions {
   video: HTMLVideoElement;
   store: DvrFrameStore;
-  /** Session-lifetime verdict history; the player only reads it. */
-  timeline: VerdictTimeline;
+  verdicts: VerdictInterpreter;
   /**
    * Presentation delay D: the canvas presents mediaTime ≈ currentTime − D.
    * Read per tick — the registry adapts it to the session's observed
@@ -355,7 +351,7 @@ export class VideoDvrPlayer {
   }
 
   private draw(): void {
-    const { video, store, timeline, getDelaySec, getMasking } = this.opts;
+    const { video, store, verdicts, getDelaySec, getMasking } = this.opts;
     const { surfaces } = this;
     if (!surfaces) return;
     const { width, height } = this.lastSize;
@@ -391,7 +387,7 @@ export class VideoDvrPlayer {
     // When inference cannot keep up, stretch verdicts (inertia) further rather
     // than blurring: the bridge horizon scales with the observed round-trip.
     const bridgeHorizonSec = Math.max(BRIDGE_HORIZON_SEC, delaySec * 2);
-    const verdict = timeline.verdictFor(frame ? frame.mediaTime : video.currentTime, bridgeHorizonSec);
+    const verdict = verdicts.verdictFor(frame ? frame.mediaTime : video.currentTime, bridgeHorizonSec);
 
     // A verdict-less frame always fails closed: a Thumbnail-cleared session
     // must not fail-open playback frames its poster verdict does not describe
