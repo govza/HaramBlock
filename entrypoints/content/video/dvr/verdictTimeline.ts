@@ -1,3 +1,5 @@
+import { COVERAGE_MAX_GAP_SEC } from '@/entrypoints/content/video/maskTiming';
+
 import type { IElementPrediction, IMaskTransform } from '@/utils/types';
 
 export interface VerdictEntry {
@@ -17,8 +19,6 @@ export interface VerdictEntry {
  * verdicts/sec this covers well over 15 minutes of continuous coverage.
  */
 export const MAX_TIMELINE_ENTRIES = 4000;
-/** Two verdicts further apart than this break continuous coverage. */
-export const COVERAGE_MAX_GAP_SEC = 2;
 
 export class VerdictTimeline {
   private entries: VerdictEntry[] = [];

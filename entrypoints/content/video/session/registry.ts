@@ -17,6 +17,7 @@ import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/conten
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
 import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
@@ -30,7 +31,6 @@ import {
   type SessionEvent,
   type SessionStatus,
   type VideoSessionState,
-  TRANSIENT_HIT_CONFIG,
 } from '@/entrypoints/content/video/session/machine';
 import { SESSION_ID_ATTR, SESSION_SRC_ATTR } from '@/entrypoints/content/video/session/markers';
 import {
@@ -58,7 +58,11 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
 
 let warnedTimestamplessPrediction = false;
 
-const PROBABILITY_BUCKET = 0.05;
+const ATTRIBUTE_BUCKET = 0.05;
+
+function bucketOf(value: number): number {
+  return Math.round(value / ATTRIBUTE_BUCKET) * ATTRIBUTE_BUCKET;
+}
 
 function scoreThresholdOf(handle: SessionHandle): number {
   return strictnessToScoreThreshold(handle.hostSettings.strictness);
@@ -84,11 +88,13 @@ function recordTransientRun(handle: SessionHandle, run: ResolvedRun): void {
   recordCounter(METRIC.videoTransientRuns, 1, {
     [ATTR.transientResolution]: run.resolution,
     [ATTR.transientRunLength]: run.runLength,
-    [ATTR.transientTopProbability]: Math.round(run.topProbability / PROBABILITY_BUCKET) * PROBABILITY_BUCKET,
+    [ATTR.transientTopProbability]: bucketOf(run.topProbability),
     [ATTR.scoreThreshold]: scoreThresholdOf(handle),
     [ATTR.transientMaxRun]: TRANSIENT_HIT_CONFIG.maxSuppressedRun,
     [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
     [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
+    [ATTR.transientPreMaskLeadSec]: PRE_MASK_LEAD_SEC,
+    ...(run.onsetGapSec !== null && { [ATTR.transientOnsetGapSec]: bucketOf(run.onsetGapSec) }),
   });
 }
 
