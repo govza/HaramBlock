@@ -2487,7 +2487,7 @@
       "id": 44,
       "type": "timeseries",
       "title": "Transient Hit resolutions (content)",
-      "description": "Short unsafe runs judged by the Verdict Interpreter when first presented (hb.video.transient_runs): suppressed = presented clean as a Transient Hit; confident / long / late = masked, with the reason. Use it to tune TRANSIENT_HIT_CONFIG.",
+      "description": "Short unsafe runs judged by the Verdict Interpreter when first presented (hb.video.transient_runs): suppressed = presented clean as a Transient Hit; confident / long / late = masked, with the reason. Use it to tune TRANSIENT_HIT_CONFIG. Onset gap = clean-sample-to-hit spacing for masked runs; a lead shorter than the gap leaves the rest of it unmasked — tune PRE_MASK_LEAD_SEC against it.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2541,6 +2541,16 @@
           "refId": "B",
           "expr": "sum(increase(hb_video_transient_runs_total{hb_transient_resolution=\"suppressed\"}[$__rate_interval])) by (hb_transient_top_probability)",
           "legendFormat": "suppressed p={{hb_transient_top_probability}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "sum(increase(hb_video_transient_runs_total{hb_transient_resolution!=\"suppressed\",hb_transient_onset_gap_sec!=\"\"}[$__rate_interval])) by (hb_transient_onset_gap_sec, hb_transient_pre_mask_lead_sec)",
+          "legendFormat": "onset gap={{hb_transient_onset_gap_sec}}s lead={{hb_transient_pre_mask_lead_sec}}s",
           "range": true
         }
       ]

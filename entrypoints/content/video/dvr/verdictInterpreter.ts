@@ -1,17 +1,14 @@
+import { VerdictTimeline, type VerdictEntry } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import {
+  BRIDGE_HORIZON_SEC,
   COVERAGE_MAX_GAP_SEC,
-  VerdictTimeline,
-  type VerdictEntry,
-} from '@/entrypoints/content/video/dvr/verdictTimeline';
-import {
+  PRE_MASK_LEAD_SEC,
   TRANSIENT_HIT_CONFIG,
-  type SampleVerdict,
   type TransientHitConfig,
-} from '@/entrypoints/content/video/session/machine';
+} from '@/entrypoints/content/video/maskTiming';
+import { type SampleVerdict } from '@/entrypoints/content/video/session/machine';
 
 export type VerdictLookup = { kind: 'unsafe'; entries: VerdictEntry[] } | { kind: 'clean' } | { kind: 'none' };
-
-export const BRIDGE_HORIZON_SEC = 3;
 
 export type RunResolution = 'suppressed' | 'confident' | 'long' | 'late';
 
@@ -19,6 +16,7 @@ export interface ResolvedRun {
   resolution: RunResolution;
   runLength: number;
   topProbability: number;
+  onsetGapSec: number | null;
 }
 
 export interface VerdictInterpreterOptions {
@@ -85,6 +83,14 @@ export class VerdictInterpreter {
 
     const before = this.timeline.at(after - 2);
     if (before && this.latchPresentedHit(after - 2) && (!next || nextIsHit)) return unsafeLookup(before, nextNear);
+    if (
+      next &&
+      next.timestampSec - mediaTime <= PRE_MASK_LEAD_SEC &&
+      this.areAdjacent(after - 1, after) &&
+      this.latchPresentedHit(after)
+    ) {
+      return { kind: 'unsafe', entries: [next] };
+    }
     return { kind: 'clean' };
   }
 
@@ -125,7 +131,15 @@ export class VerdictInterpreter {
       resolution: resolutionOf(run),
       runLength: run.lastIndex - run.firstIndex + 1,
       topProbability: this.topProbabilityOf(run),
+      onsetGapSec: this.onsetGapOf(run),
     });
+  }
+
+  private onsetGapOf(run: UnsafeRun): number | null {
+    const preceding = this.timeline.at(run.firstIndex - 1);
+    const first = this.timeline.at(run.firstIndex);
+    if (!preceding || !first || preceding.unsafe || !this.areAdjacent(run.firstIndex - 1, run.firstIndex)) return null;
+    return first.timestampSec - preceding.timestampSec;
   }
 
   private topProbabilityOf(run: UnsafeRun): number {

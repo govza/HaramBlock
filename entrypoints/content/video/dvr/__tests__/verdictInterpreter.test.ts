@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  BRIDGE_HORIZON_SEC,
-  VerdictInterpreter,
-  type ResolvedRun,
-} from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { BRIDGE_HORIZON_SEC, PRE_MASK_LEAD_SEC } from '@/entrypoints/content/video/maskTiming';
 
 import type { VerdictEntry } from '@/entrypoints/content/video/dvr/verdictTimeline';
 
@@ -37,15 +34,33 @@ function add(interpreter: VerdictInterpreter, verdict: VerdictEntry) {
 }
 
 describe('VerdictInterpreter clean-cut rule', () => {
-  it('covers every frame with the closest verdict behind it', () => {
+  it('pre-masks only the lead just before a hit', () => {
     const track = new VerdictInterpreter();
     const unsafe = entry(2, true);
     add(track, entry(1, false));
     add(track, unsafe);
 
     expect(track.verdictFor(1.1)).toEqual({ kind: 'clean' });
-    expect(track.verdictFor(1.6)).toEqual({ kind: 'clean' });
+    expect(track.verdictFor(2 - PRE_MASK_LEAD_SEC - 0.01)).toEqual({ kind: 'clean' });
+    expect(track.verdictFor(2 - PRE_MASK_LEAD_SEC + 0.01)).toEqual({ kind: 'unsafe', entries: [unsafe] });
     expect(track.verdictFor(2 + BRIDGE_HORIZON_SEC + 0.1)).toEqual({ kind: 'unsafe', entries: [unsafe] });
+  });
+
+  it('does not pre-mask across a coverage gap', () => {
+    const track = new VerdictInterpreter();
+    add(track, entry(1, false));
+    add(track, entry(10, true));
+
+    expect(track.verdictFor(10 - PRE_MASK_LEAD_SEC / 2)).toEqual({ kind: 'clean' });
+  });
+
+  it('does not pre-mask before a suppressed Transient Hit', () => {
+    const track = new VerdictInterpreter();
+    add(track, entry(10, false));
+    add(track, entry(10.5, true, 0.6));
+    add(track, entry(11, false));
+
+    expect(track.verdictFor(10.5 - PRE_MASK_LEAD_SEC / 2)).toEqual({ kind: 'clean' });
   });
 
   it('cuts the mask at a clean verdict confirmed by a following clean verdict', () => {
@@ -367,7 +382,9 @@ describe('VerdictInterpreter run resolutions', () => {
     interpreter.verdictFor(10.3);
     interpreter.verdictFor(10.6);
 
-    expect(resolved).toEqual([{ resolution: 'suppressed', runLength: 2, topProbability: LOW_PROBABILITY }]);
+    expect(resolved).toEqual([
+      { resolution: 'suppressed', runLength: 2, topProbability: LOW_PROBABILITY, onsetGapSec: 0.25 },
+    ]);
   });
 
   it('reports why a short run was masked', () => {
@@ -383,9 +400,11 @@ describe('VerdictInterpreter run resolutions', () => {
     late.interpreter.verdictFor(10.3);
 
     expect(confident.resolved).toEqual([
-      { resolution: 'confident', runLength: 1, topProbability: CONFIDENT_PROBABILITY },
+      { resolution: 'confident', runLength: 1, topProbability: CONFIDENT_PROBABILITY, onsetGapSec: 0.25 },
     ]);
-    expect(late.resolved).toEqual([{ resolution: 'late', runLength: 1, topProbability: LOW_PROBABILITY }]);
+    expect(late.resolved).toEqual([
+      { resolution: 'late', runLength: 1, topProbability: LOW_PROBABILITY, onsetGapSec: 0.25 },
+    ]);
   });
 
   it('reports a run too long to suppress once, at its start', () => {
@@ -396,6 +415,19 @@ describe('VerdictInterpreter run resolutions', () => {
 
     for (const t of [10.3, 10.6, 10.8, 11.1, 11.3]) interpreter.verdictFor(t);
 
-    expect(resolved).toEqual([{ resolution: 'long', runLength: 4, topProbability: LOW_PROBABILITY }]);
+    expect(resolved).toEqual([
+      { resolution: 'long', runLength: 4, topProbability: LOW_PROBABILITY, onsetGapSec: 0.25 },
+    ]);
+  });
+
+  it('reports no onset gap when no adjacent clean sample precedes the run', () => {
+    const { interpreter, resolved } = resolving();
+    add(interpreter, entry(1, false));
+    add(interpreter, entry(10, true));
+    interpreter.verdictFor(10.1);
+
+    expect(resolved).toEqual([
+      { resolution: 'confident', runLength: 1, topProbability: CONFIDENT_PROBABILITY, onsetGapSec: null },
+    ]);
   });
 });

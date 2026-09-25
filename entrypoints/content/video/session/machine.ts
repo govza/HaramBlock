@@ -3,6 +3,8 @@
  * events carry timestamps in, effects describe what the adapter must do out.
  */
 
+import { RELIEVED_SAMPLE_FLOOR_MS, SAMPLE_FLOOR_MS } from '@/entrypoints/content/video/maskTiming';
+
 export type SessionPhase = 'attached' | 'thumbnailing' | 'standby' | 'sampling' | 'error' | 'disposed';
 
 /**
@@ -60,22 +62,6 @@ export interface VideoSessionState {
 }
 
 export const THUMBNAIL_TIMEOUT_MS = 10_000;
-export const SAMPLE_FLOOR_MS = 250;
-/** Widened sampling floor after an analysisUnderrun: fewer samples relieve inference pressure.
- *  Must stay under the timeline's coverage gap tolerance or relief itself breaks coverage. */
-export const RELIEVED_SAMPLE_FLOOR_MS = 1000;
-export interface TransientHitConfig {
-  readonly maxSuppressedRun: number;
-  readonly confidenceCoefficient: number;
-  readonly confidenceCap: number;
-}
-
-export const TRANSIENT_HIT_CONFIG: TransientHitConfig = Object.freeze({
-  maxSuppressedRun: 3,
-  confidenceCoefficient: 1.5,
-  confidenceCap: 0.95,
-});
-
 export type SampleVerdict = 'clean' | 'confirmedClean' | 'tentative' | 'unsafe';
 
 export const WATCHDOG_MS = 5_000;

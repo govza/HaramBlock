@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { RELIEVED_SAMPLE_FLOOR_MS } from '@/entrypoints/content/video/maskTiming';
 import {
   createVideoSession,
   ERROR_RETRY_COOLDOWN_MS,
   MAX_CONSECUTIVE_ERRORS,
   reduce,
-  RELIEVED_SAMPLE_FLOOR_MS,
   SAMPLE_TIMEOUT_MS,
   THUMBNAIL_TIMEOUT_MS,
   WATCHDOG_MS,

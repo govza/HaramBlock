@@ -35,8 +35,9 @@ import {
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { drainTargetTime, startDrainClock, type DrainClock } from '@/entrypoints/content/video/dvr/drain';
-import { BRIDGE_HORIZON_SEC, type VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { type VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import { type VerdictEntry } from '@/entrypoints/content/video/dvr/verdictTimeline';
+import { BRIDGE_HORIZON_SEC } from '@/entrypoints/content/video/maskTiming';
 import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
 import { decodeMaskRLE } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';

@@ -86,6 +86,8 @@ export const ATTR = {
   transientMaxRun: 'hb.transient.max_run',
   transientConfidenceCoefficient: 'hb.transient.confidence_coefficient',
   transientConfidenceCap: 'hb.transient.confidence_cap',
+  transientOnsetGapSec: 'hb.transient.onset_gap_sec',
+  transientPreMaskLeadSec: 'hb.transient.pre_mask_lead_sec',
   errorType: 'error.type',
   errorMessage: 'error.message',
   errorStack: 'error.stack',

@@ -168,16 +168,14 @@ fake DOM or real clocks. Its effect vocabulary:
 `applyVerdict` · `clearVerdict` · `setStatus{safe|unsafe|skipped}` · `startTimer`/`cancelTimer` ·
 `stopTicker` · `startDvr`/`stopDvr` · `cleanup`
 
-Tuning constants (all in `machine.ts`):
+Session constants (in `machine.ts`; mask timing constants live in `video/maskTiming.ts`):
 
-| Constant                 | Value          | Meaning                                                                                                                          |
-| ------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `THUMBNAIL_TIMEOUT_MS`   | 10 000         | Fail-closed clock, started at the **first actual send**; one retry, then finalized blocked                                       |
-| `SAMPLE_FLOOR_MS`        | 250            | Minimum interval between Frame Sample sends (~4 fps ceiling)                                                                     |
-| `SAMPLE_TIMEOUT_MS`      | 3 000          | Frees the single in-flight slot when a verdict is lost                                                                           |
-| `WATCHDOG_MS`            | 5 000          | Mid-playback verdict silence → whole-video re-blur                                                                               |
-| `TRANSIENT_HIT_CONFIG`   | 3 / 1.5 / 0.95 | `maxSuppressedRun` / `confidenceCoefficient` / `confidenceCap` of the Verdict Interpreter (tuned from `hb.video.transient_runs`) |
-| `MAX_CONSECUTIVE_ERRORS` | 10             | Transient capture/send failures before ERROR (finalized as allow)                                                                |
+| Constant                 | Value  | Meaning                                                                                    |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------ |
+| `THUMBNAIL_TIMEOUT_MS`   | 10 000 | Fail-closed clock, started at the **first actual send**; one retry, then finalized blocked |
+| `SAMPLE_TIMEOUT_MS`      | 3 000  | Frees the single in-flight slot when a verdict is lost                                     |
+| `WATCHDOG_MS`            | 5 000  | Mid-playback verdict silence → whole-video re-blur                                         |
+| `MAX_CONSECUTIVE_ERRORS` | 10     | Transient capture/send failures before ERROR (finalized as allow)                          |
 
 ### The registry / DOM adapter
 
@@ -387,25 +385,25 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   latched run is counted on `hb.video.transient_runs` by resolution
   (`suppressed | confident | long | late`) with its length, top probability, score threshold, and
   the `TRANSIENT_HIT_CONFIG` in effect. Then the **clean-cut rule** — a mask exists exactly on the
-  span from its unsafe sample's timestamp to the next clean verdict's timestamp. Never before the
-  unsafe sample (no pre-roll), and never after a clean verdict that a following clean verdict
-  confirms; because presentation runs `D` behind the live edge, that confirming verdict has normally
-  already arrived by the time the clean frame is presented, so the streak costs no extra trail. An
-  unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right after) does not cut —
-  the mask holds, fail closed. Frames between two unsafe samples composite the union of both
-  bounding masks (RLE-decoded once, pixelated content + destination-in; the pixelated copy is
-  sampled from the already-drawn base canvas, never from the frame, which on Firefox would pay its
-  YUV conversion a second time) — inertia over the unknown motion in between; an upcoming unsafe
-  verdict beyond the Bridge Horizon contributes no geometry. **Any verdict behind covers forward at
-  any distance** (closest verdict wins): a clean one presents clean (no mask geometry to go stale),
-  an unsafe one keeps masking with its own geometry — masked content beats hiding the whole frame —
-  so a paused frame or a coverage hole after a seek presents instead of whole-blurring. There is no
-  fail-open exception for a session the machine already cleared: the clearing verdict there is the
-  Thumbnail, which describes the poster and carries no media time, so it must never present playback
-  frames it does not describe — that let Shorts' unsafe first frame show unmasked for a full
-  round-trip. Only genuine verdict silence — no verdict behind at all, including frames that precede
-  an upcoming unsafe sample (never pre-rolled) — whole-blurs (the cost is a short blur over the
-  pinned frame on a clean video's first play; re-warms into covered ranges present clean
+  span around its unsafe sample up to the next clean verdict's timestamp. It starts
+  `PRE_MASK_LEAD_SEC` before the unsafe sample, and never after a clean verdict that a following
+  clean verdict confirms; because presentation runs `D` behind the live edge, that confirming
+  verdict has normally already arrived by the time the clean frame is presented, so the streak costs
+  no extra trail. An unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right
+  after) does not cut — the mask holds, fail closed. Frames between two unsafe samples composite the
+  union of both bounding masks (RLE-decoded once, pixelated content + destination-in; the pixelated
+  copy is sampled from the already-drawn base canvas, never from the frame, which on Firefox would
+  pay its YUV conversion a second time) — inertia over the unknown motion in between; an upcoming
+  unsafe verdict beyond the Bridge Horizon contributes no geometry. **Any verdict behind covers
+  forward at any distance** (closest verdict wins): a clean one presents clean (no mask geometry to
+  go stale), an unsafe one keeps masking with its own geometry — masked content beats hiding the
+  whole frame — so a paused frame or a coverage hole after a seek presents instead of
+  whole-blurring. There is no fail-open exception for a session the machine already cleared: the
+  clearing verdict there is the Thumbnail, which describes the poster and carries no media time, so
+  it must never present playback frames it does not describe — that let Shorts' unsafe first frame
+  show unmasked for a full round-trip. Only genuine verdict silence — no verdict behind at all,
+  including frames that precede an upcoming unsafe sample — whole-blurs (the cost is a short blur
+  over the pinned frame on a clean video's first play; re-warms into covered ranges present clean
   immediately). Lookups binary-search the timestamp-ordered timeline and read the bounding
   neighbors, so per-tick cost stays constant rather than growing with the session. Sampling
   continues at the live edge throughout.
