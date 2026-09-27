@@ -1,11 +1,11 @@
-import type { IImagePrediction } from '@/utils/types';
+import type { ICacheMetadata } from '@/utils/types';
 
 /**
  * Check whether a cached prediction is still valid per its cache metadata.
  * An entry expires when the Expires timestamp has passed or its age exceeds
  * maxAge (seconds); with neither rule set it never expires.
  */
-export function isValidPrediction(prediction: IImagePrediction, now: number = Date.now()): boolean {
+export function isValidPrediction(prediction: { cacheMetadata: ICacheMetadata }, now: number = Date.now()): boolean {
   if (prediction.cacheMetadata.expires && now > prediction.cacheMetadata.expires) {
     return false;
   }
