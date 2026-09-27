@@ -5,4 +5,5 @@ export { ImageCacheService } from '@/entrypoints/background/services/imageCacheS
 export { MediaFetchService } from '@/entrypoints/background/services/mediaFetchService';
 export { ModelService } from '@/entrypoints/background/services/modelService';
 export { QueueService } from '@/entrypoints/background/services/queueService';
+export { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 export { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';

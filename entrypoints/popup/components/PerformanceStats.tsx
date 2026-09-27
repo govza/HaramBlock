@@ -70,7 +70,7 @@ interface PerformanceStatsProps {
 }
 
 export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
-  const { currentHostname, imageCacheRepository, isGlobalMode } = useHostDataContext();
+  const { currentHostname, imagePredictionRepository, isGlobalMode } = useHostDataContext();
   const [stats, setStats] = useState<PredictionStats | null>(null);
   const [liveLatency, setLiveLatency] = useState<LatencySnapshot | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -87,8 +87,8 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
 
       try {
         const predictions = isGlobalMode
-          ? await imageCacheRepository.findAllValid()
-          : await imageCacheRepository.findValidByHostname(currentHostname);
+          ? await imagePredictionRepository.findAllValid()
+          : await imagePredictionRepository.findValidByHostname(currentHostname);
         const calculatedStats = calculateStats(predictions);
         setStats(calculatedStats);
       } catch {
@@ -115,7 +115,7 @@ export const PerformanceStats = ({ isActive }: PerformanceStatsProps) => {
     }, 2000);
 
     return () => clearInterval(intervalId);
-  }, [currentHostname, imageCacheRepository, isGlobalMode, isActive]);
+  }, [currentHostname, imagePredictionRepository, isGlobalMode, isActive]);
 
   return (
     <div>

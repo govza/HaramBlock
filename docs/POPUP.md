@@ -46,7 +46,7 @@ The `HostDataContext` is the central state provider for the popup. It manages:
 - **Current hostname**: Auto-detected from the active tab via `useHostname()`
 - **Host settings**: Loaded reactively from IndexedDB via `useLiveQuery`
 - **Global/Local mode**: Toggle between site-specific and global settings
-- **Repository access**: Provides `HostSettingsRepository` and `ImageCacheRepository`
+- **Repository access**: Provides `HostSettingsRepository` and `ImagePredictionRepository`
 
 ```tsx
 interface HostDataType {
@@ -55,7 +55,7 @@ interface HostDataType {
   isLoading: boolean;
   error?: string;
   hostSettingsRepository: HostSettingsRepository;
-  imageCacheRepository: ImageCacheRepository;
+  imagePredictionRepository: ImagePredictionRepository;
   switchToGlobal: () => void;
   switchToLocal: () => void;
   isGlobalMode: boolean;
@@ -168,7 +168,7 @@ Displays real-time performance statistics when the panel is open:
 | Batch      | Average batched images per `session.run`           |
 | Latency    | Live p75 of pure per-image `session.run` time (ms) |
 
-- Data is fetched from `ImageCacheRepository` (global or per-hostname based on mode), except
+- Data is fetched from `ImagePredictionRepository` (global or per-hostname based on mode), except
   Latency, which polls the latency tracker's rolling window via
   `backgroundRpc.getInferenceLatency()` — the same signal the auto model switcher decides on (see
   [MODEL.md](MODEL.md)); it shows `0ms` until the first post-warmup samples exist in the current

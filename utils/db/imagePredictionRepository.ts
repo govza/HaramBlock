@@ -1,19 +1,17 @@
-import { BaseRepository } from '@/utils/db/baseRepository';
-import { imageDb, isIncognito } from '@/utils/db/db';
+import { isCacheDisabled } from '@/utils/db/cacheAvailability';
+import { mediaCacheDb } from '@/utils/db/db';
+import { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository';
 import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { type IImagePrediction } from '@/utils/types';
-
-// Cache is disabled in private browsing (IndexedDB doesn't work) or no-cache mode
-const isCacheDisabled = isIncognito || import.meta.env.MODE === 'no-cache';
 
 /**
  * Repository for managing image prediction cache records
  * Provides database operations specific to image prediction cache
  */
-export class ImageCacheRepository extends BaseRepository<IImagePrediction, string> {
+export class ImagePredictionRepository extends HostScopedCacheRepository<IImagePrediction> {
   constructor() {
-    super(imageDb.predictions);
+    super(mediaCacheDb.imagePredictions);
   }
 
   /**
@@ -106,17 +104,6 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
   }
 
   /**
-   * Delete predictions by hostname
-   */
-  async deleteByHostname(hostname: string): Promise<number> {
-    if (isCacheDisabled) {
-      return 0;
-    }
-    const effectiveHostname = getEffectiveHostname(hostname);
-    return this.where('hostname').equals(effectiveHostname).delete();
-  }
-
-  /**
    * Delete predictions older than timestamp
    */
   async deleteOlderThan(timestamp: number): Promise<number> {
@@ -150,17 +137,6 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
   }
 
   /**
-   * Count predictions by hostname
-   */
-  async countByHostname(hostname: string): Promise<number> {
-    if (isCacheDisabled) {
-      return 0;
-    }
-    const effectiveHostname = getEffectiveHostname(hostname);
-    return this.where('hostname').equals(effectiveHostname).count();
-  }
-
-  /**
    * Save a prediction record to the database
    * @param prediction - The prediction record to save
    * @returns The src key of the saved record
@@ -173,10 +149,10 @@ export class ImageCacheRepository extends BaseRepository<IImagePrediction, strin
 
     try {
       if (prediction.src) {
-        await imageDb.predictions.put(prediction);
+        await mediaCacheDb.imagePredictions.put(prediction);
         return prediction.src;
       } else {
-        const src = await imageDb.predictions.add(prediction);
+        const src = await mediaCacheDb.imagePredictions.add(prediction);
         return src;
       }
     } catch (error) {

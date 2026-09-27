@@ -66,7 +66,7 @@ used for settings lookup and for filtering prediction broadcasts.
 Most UI code writes settings through repositories rather than calling Dexie directly:
 
 - `HostSettingsRepository`: `utils/db/hostSettingsRepository.ts`
-- `ImageCacheRepository`: `utils/db/imageCacheRepository.ts` (cached inference results)
+- `ImagePredictionRepository`: `utils/db/imagePredictionRepository.ts` (cached inference results)
 
 ## UI Reactivity (Popup / Options)
 
@@ -76,7 +76,7 @@ The popup/options UIs use a small stack of hooks + context:
 - `HostDataProvider`: `entrypoints/popup/context/HostDataContext.tsx`
   - uses `useLiveQuery` directly for reactive settings
   - combines hostname + settings and exposes:
-    - `hostSettings`, `currentHostname`, `hostSettingsRepository`, `imageCacheRepository`
+    - `hostSettings`, `currentHostname`, `hostSettingsRepository`, `imagePredictionRepository`
     - global/local mode helpers: `switchToGlobal()`, `switchToLocal()`, `isGlobalMode`
 
 Minimal usage:

@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie';
 
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 
-import type { IHostSettings, IImagePrediction } from '@/utils/types';
+import type { IHostSettings, IImagePrediction, IVideoPredictionRecord } from '@/utils/types';
 
 /**
  * HostSettingsDatabase - Dexie database for host settings
@@ -26,22 +26,25 @@ hostSettingsDb.on('populate', () => {
   void hostSettingsDb.hostSettings.add(DEFAULT_HOST_SETTINGS);
 });
 
-/**
- * ImageDatabase - Dexie database for image prediction records
- * Stores image predictions with metadata like hostname, timestamp, and dimensions
- */
-export class ImageDatabase extends Dexie {
-  predictions!: Table<IImagePrediction, string>;
+export class MediaCacheDatabase extends Dexie {
+  imagePredictions!: Table<IImagePrediction, string>;
+  videoPredictions!: Table<IVideoPredictionRecord, string>;
 
   constructor() {
-    super('ImageDatabase');
+    super('MediaCacheDatabase');
     this.version(1).stores({
-      predictions: '&src, hostname, timestamp', // Primary key is src, with hostname and timestamp as secondary keys
+      imagePredictions: '&src, hostname, timestamp, [hostname+timestamp]',
+      videoPredictions: '&videoUrl, hostname, timestamp, [hostname+timestamp]',
     });
   }
 }
 
-export const imageDb = new ImageDatabase();
+export const mediaCacheDb = new MediaCacheDatabase();
+
+const LEGACY_CACHE_DATABASE_NAMES = ['ImageDatabase', 'VideoDatabase'];
+
+export const deleteLegacyCacheDatabases = () =>
+  Promise.all(LEGACY_CACHE_DATABASE_NAMES.map(name => Dexie.delete(name)));
 
 /** Whether running in incognito/private browsing mode */
 export const isIncognito = browser.extension.inIncognitoContext;

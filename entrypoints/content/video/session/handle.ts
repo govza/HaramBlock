@@ -22,6 +22,7 @@ export interface SessionHandle {
   /** Object-backed sources have no URL; retain their identity for source-change detection. */
   readonly srcObject: HTMLVideoElement['srcObject'];
   readonly src: string;
+  cacheKey: string;
   readonly trace: UmbrellaSession;
   dvrWarmupSpan: Span | null;
   dvrWarmupStartedAt: number;

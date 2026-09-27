@@ -8,6 +8,7 @@
  * and presentation (presentationAdapter.ts).
  */
 
+import { requestCachedVideoPredictions, requestVideoToggleUpdate } from '@/entrypoints/content/communication/sender';
 import {
   clearProcessedStatus,
   PROCESSED_ATTR_MAP,
@@ -38,6 +39,7 @@ import {
   clearWholeBlur,
   PresentationAdapter,
 } from '@/entrypoints/content/video/session/presentationAdapter';
+import { toVerdictCacheKey } from '@/entrypoints/content/video/session/verdictCacheKey';
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { generateNonce } from '@/utils/nonce';
@@ -45,6 +47,7 @@ import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 
+import type { VerdictEntry } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { FrameInferenceResult, ForcedVisibility, IFramePrediction, IHostSettings } from '@/utils/types';
 
@@ -84,6 +87,31 @@ function interpretVerdict(handle: SessionHandle, pred: IFramePrediction): Sample
   );
 }
 
+function predictionFromCachedEntry(
+  handle: SessionHandle,
+  entry: VerdictEntry,
+  frameIndex: number,
+  timestampSec: number,
+): IFramePrediction {
+  const now = Date.now();
+  return {
+    sessionId: handle.sessionId,
+    frameIndex,
+    timestampSec,
+    videoUrl: handle.cacheKey,
+    sourceUrl: handle.src,
+    src: '',
+    hostname: handle.hostSettings.hostname,
+    width: entry.width,
+    height: entry.height,
+    predictions: entry.predictions,
+    maskTransform: entry.maskTransform,
+    timestamp: now,
+    cacheMetadata: { createdAt: now, accessedAt: now },
+    processingTime: { fetchTime: 0, decodeTime: 0, queueTime: 0, inferenceTime: 0, e2eTime: 0, backend: 'cache' },
+  };
+}
+
 function recordTransientRun(handle: SessionHandle, run: ResolvedRun): void {
   recordCounter(METRIC.videoTransientRuns, 1, {
     [ATTR.transientResolution]: run.resolution,
@@ -115,6 +143,7 @@ class VideoSessionRegistry {
   /** Videos awaiting a resolved source; strong so disposeAll/sweep can cancel the waits. */
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
+  private readonly userToggledCacheKeys = new WeakMap<HTMLVideoElement, string>();
 
   // Every port forwards through an arrow so the modules resolve each other at
   // call time, not at field-initialization time: the wiring stays correct
@@ -193,6 +222,7 @@ class VideoSessionRegistry {
       // Object-backed streams lack a persistent media URL. A session-local
       // label preserves sample metadata without pretending it is cacheable.
       src: source.url || `srcobject:${sessionId}`,
+      cacheKey: toVerdictCacheKey(source.url),
       trace: startUmbrellaSession(SPAN.videoSession, {
         [ATTR.src]: source.url,
         [ATTR.hostname]: hostSettings.hostname,
@@ -239,6 +269,46 @@ class VideoSessionRegistry {
     this.suspension.observe(handle);
     if (!handle.suspended) this.sampler.startTicker(handle);
     this.sampler.queueThumbnailSourceReady(handle);
+    this.seedTimelineFromCache(handle);
+  }
+
+  private seedTimelineFromCache(handle: SessionHandle): void {
+    if (!handle.cacheKey) return;
+    void requestCachedVideoPredictions(handle.cacheKey).then(({ samples, forcedVisibility }) => {
+      if (this.byId.get(handle.sessionId) !== handle || handle.state.phase === 'disposed') return;
+      if (!this.isCacheKeyCurrent(handle)) return;
+      if (forcedVisibility !== 'auto' && this.userToggledCacheKeys.get(handle.video) !== handle.cacheKey) {
+        log.debug('registry.forced_visibility.restored', { [ATTR.sessionId]: handle.sessionId, forcedVisibility });
+        this.applyForcedVisibility(handle.video, forcedVisibility, false);
+        return;
+      }
+      if (samples.length === 0) return;
+      handle.verdicts.seed(samples, scoreThresholdOf(handle));
+      log.debug('registry.timeline.seeded', { [ATTR.sessionId]: handle.sessionId, count: samples.length });
+      this.presentation.syncDvrVerdict(handle);
+    });
+  }
+
+  private isCacheKeyCurrent(handle: SessionHandle): boolean {
+    if (!handle.cacheKey) return false;
+    if (toVerdictCacheKey(handle.src) === handle.cacheKey) return true;
+    log.debug('registry.cache_key.stale', { [ATTR.sessionId]: handle.sessionId });
+    handle.cacheKey = '';
+    handle.verdicts.dropCached();
+    return false;
+  }
+
+  private resolveFromCache(handle: SessionHandle, frameIndex: number, timestampSec: number): boolean {
+    if (frameIndex < 0 || !this.isCacheKeyCurrent(handle)) return false;
+    const entry = handle.verdicts.cachedVerdictAt(timestampSec);
+    if (!entry) return false;
+    const prediction = predictionFromCachedEntry(handle, entry, frameIndex, timestampSec);
+    queueMicrotask(() => {
+      if (handle.state.phase === 'disposed') return;
+      this.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
+      this.applyCachedVerdict(handle, prediction, entry);
+    });
+    return true;
   }
 
   /** Route a batch of frame inference results to their sessions; unknown sessions are dropped. */
@@ -273,21 +343,32 @@ class VideoSessionRegistry {
         warnedTimestamplessPrediction = true;
         log.error('registry.prediction.missing_timestamp');
       }
-      handle.lastPrediction = pred;
-      const verdict = interpretVerdict(handle, pred);
-      const settled = this.sampler.recordVerdictLatency(handle, pred.frameIndex);
-      this.dispatchPrediction(handle, pred, {
-        type: 'predictionReceived',
-        frameIndex: pred.frameIndex,
-        verdict,
-        at: performance.now(),
-      });
-      if (settled) {
-        // After the verdict lands in the timeline: the coverage it just added
-        // decides whether the latched delay is still large enough.
-        this.presentation.syncDvrVerdict(handle);
-      }
+      this.applyLiveVerdict(handle, pred);
     }
+  }
+
+  private applyLiveVerdict(handle: SessionHandle, pred: IFramePrediction): void {
+    const verdict = interpretVerdict(handle, pred);
+    this.applyVerdict(handle, pred, verdict, this.sampler.recordVerdictLatency(handle, pred.frameIndex));
+  }
+
+  private applyCachedVerdict(handle: SessionHandle, pred: IFramePrediction, entry: VerdictEntry): void {
+    this.applyVerdict(handle, pred, handle.verdicts.judgeCached(entry), true);
+  }
+
+  private applyVerdict(handle: SessionHandle, pred: IFramePrediction, verdict: SampleVerdict, settled: boolean): void {
+    handle.lastPrediction = pred;
+    this.dispatchPrediction(handle, pred, {
+      type: 'predictionReceived',
+      frameIndex: pred.frameIndex,
+      verdict,
+      at: performance.now(),
+    });
+    if (settled) this.resyncDvrAfterCoverageChange(handle);
+  }
+
+  private resyncDvrAfterCoverageChange(handle: SessionHandle): void {
+    this.presentation.syncDvrVerdict(handle);
   }
 
   /** Dispose the session bound to this element (source change or removal). */
@@ -321,11 +402,18 @@ class VideoSessionRegistry {
    * Quick-toggle entry point: 'visible' and 'blocked' replace the session with
    * a static presentation (no sampling, no DVR, no audio delay); 'auto' drops
    * the override and re-attaches for a fresh verdict. State is per
-   * (element × source) and dies with the source — nothing is persisted.
+   * (element × source) and dies with the source.
    */
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
+    this.userToggledCacheKeys.set(video, toVerdictCacheKey(resolveVideoSource(video)?.url ?? ''));
+    this.applyForcedVisibility(video, next, true);
+  }
+
+  private applyForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility, persist: boolean): void {
     const settings = this.byVideo.get(video)?.hostSettings ?? this.settingsByVideo.get(video);
     if (!settings) return;
+    const source = resolveVideoSource(video);
+    if (persist && source) this.persistForcedVisibility(source, settings, next);
 
     if (next === 'auto') {
       this.forced.clearOverride(video);
@@ -334,10 +422,15 @@ class VideoSessionRegistry {
       return;
     }
 
-    const source = resolveVideoSource(video);
     if (!source) return;
     this.forced.setOverride(video, source, next);
     this.attach(video, settings);
+  }
+
+  private persistForcedVisibility(source: ResolvedVideoSource, settings: IHostSettings, next: ForcedVisibility): void {
+    const cacheKey = toVerdictCacheKey(source.url);
+    if (!cacheKey) return;
+    void requestVideoToggleUpdate(cacheKey, { sourceUrl: source.url, hostname: settings.hostname }, next);
   }
 
   private registerToggle(
@@ -476,7 +569,9 @@ class VideoSessionRegistry {
           this.sampler.captureThumbnail(handle);
           break;
         case 'sendSample':
-          void this.sampler.captureAndSend(handle, effect.frameIndex, effect.timestampSec);
+          if (!this.resolveFromCache(handle, effect.frameIndex, effect.timestampSec)) {
+            void this.sampler.captureAndSend(handle, effect.frameIndex, effect.timestampSec);
+          }
           break;
         case 'applyVerdict':
           if (!handle.suspended) this.presentation.applyVerdictOverlay(handle);

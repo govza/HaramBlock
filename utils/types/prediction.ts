@@ -58,6 +58,7 @@ export interface IImagePrediction {
     batchSize?: number; // Number of images in the batched session.run this image was part of
   };
   forcedVisibility: ForcedVisibility;
+  modelId?: string;
 }
 
 export type ForcedVisibility = 'auto' | 'visible' | 'blocked';
@@ -119,6 +120,36 @@ export interface IFramePrediction extends IFrameSampleRouting, IVideoFrameVerdic
   hostname: string; // Effective hostname
   src: string; // URL of the media blob image
 }
+
+export interface IInferenceInputGeometry {
+  width: number;
+  height: number;
+  maskTransform: IMaskTransform;
+}
+
+export interface ICachedFrameSample {
+  timestampSec: number;
+  predictions: IElementPrediction[];
+  input: IInferenceInputGeometry;
+}
+
+export interface IVideoPredictionRecord {
+  videoUrl: string;
+  sourceUrl: string;
+  hostname: string;
+  modelId: string;
+  forcedVisibility: ForcedVisibility;
+  timestamp: number;
+  cacheMetadata: ICacheMetadata;
+  samples: ICachedFrameSample[];
+}
+
+export interface ICachedVideoPredictions {
+  samples: ICachedFrameSample[];
+  forcedVisibility: ForcedVisibility;
+}
+
+export const EMPTY_CACHED_VIDEO_PREDICTIONS: ICachedVideoPredictions = { samples: [], forcedVisibility: 'auto' };
 
 export interface IGifFramePrediction {
   sessionId: string; // Stable ID grouping decoded frames of one GIF decode

@@ -8,12 +8,14 @@ import type { ImageCacheService } from '@/entrypoints/background/services/imageC
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type { MediaFetchService } from '@/entrypoints/background/services/mediaFetchService';
 import type { ModelService } from '@/entrypoints/background/services/modelService';
+import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import type { ModelPreference } from '@/utils/modelSettings';
 import type {
   ForcedVisibility,
   IHostSettings,
   IImagePrediction,
+  ICachedVideoPredictions,
   IImageTransfer,
   IVideoFrameTransfer,
   IGifFrameTransfer,
@@ -108,6 +110,7 @@ export class BackgroundRpc {
     private iconService: IconService,
     private modelService: ModelService,
     private mediaFetchService: MediaFetchService,
+    private videoPredictionCacheService: VideoPredictionCacheService,
   ) {}
 
   // ============ Request-Response Methods (replaces controllers) ============
@@ -121,6 +124,28 @@ export class BackgroundRpc {
       return await this.imageCacheService.getCachedPredictionsByHostname(hostname);
     } catch (error) {
       log.error('cache.read.failed', { [ATTR.hostname]: hostname, error });
+      throw error;
+    }
+  }
+
+  async getCachedVideoPredictions(videoUrl: string): Promise<ICachedVideoPredictions> {
+    try {
+      return await this.videoPredictionCacheService.getCached(videoUrl);
+    } catch (error) {
+      log.error('video_cache.read.failed', { [ATTR.src]: videoUrl, error });
+      throw error;
+    }
+  }
+
+  async updateVideoToggleState(
+    videoUrl: string,
+    origin: { sourceUrl: string; hostname: string },
+    forcedVisibility: ForcedVisibility,
+  ): Promise<void> {
+    try {
+      await this.videoPredictionCacheService.setForcedVisibility(videoUrl, origin, forcedVisibility);
+    } catch (error) {
+      log.error('video_cache.toggle.update.failed', { [ATTR.src]: videoUrl, error });
       throw error;
     }
   }
@@ -229,8 +254,17 @@ export class BackgroundRpc {
    * Firefox: Receives compressed WebP Blob via browser.runtime (structured clone)
    */
   async postInferenceVideoFrame(frameData: IVideoFrameTransfer): Promise<void> {
-    const { hostname, videoUrl, frameIndex, timestampSec, originalWidth, originalHeight, priority, traceparent } =
-      frameData;
+    const {
+      hostname,
+      videoUrl,
+      sourceUrl,
+      frameIndex,
+      timestampSec,
+      originalWidth,
+      originalHeight,
+      priority,
+      traceparent,
+    } = frameData;
 
     if (!hostname) {
       log.error('inference.request.rejected', { reason: 'missing hostname', videoUrl, [ATTR.mediaKind]: 'frame' });
@@ -261,6 +295,7 @@ export class BackgroundRpc {
         mediaMetadata: {
           kind: 'frame',
           videoUrl,
+          sourceUrl,
           frameIndex,
           sessionId: frameData.sessionId,
           timestampSec,

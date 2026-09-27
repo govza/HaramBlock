@@ -214,7 +214,8 @@ export class FrameSampler {
     const pendingSample: PendingFrameSample = {
       sessionId: handle.sessionId,
       frameIndex,
-      videoUrl: handle.src,
+      videoUrl: handle.cacheKey || handle.src,
+      sourceUrl: handle.src,
       timestampSec,
       capturedAt,
     };

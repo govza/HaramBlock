@@ -11,6 +11,7 @@ export interface IFrameSampleRouting {
 /** Reusable position on a video's media timeline; future cache identity starts here. */
 export interface IVideoTimelinePosition {
   videoUrl: string;
+  sourceUrl: string;
   timestampSec: number;
 }
 

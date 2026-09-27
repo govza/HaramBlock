@@ -14,6 +14,7 @@ const makeRpc = (): BackgroundRpc =>
     undefined as never,
     undefined as never,
     undefined as never,
+    undefined as never,
   );
 
 const frameResults = [] as FrameInferenceResult[];
