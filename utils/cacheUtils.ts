@@ -1,5 +1,14 @@
 import { type ICacheMetadata, type IMediaMetadata } from '@/utils/types';
 
+const DAY_SEC = 24 * 60 * 60;
+export const MIN_CACHE_MAX_AGE_SEC = 30 * DAY_SEC;
+export const MAX_CACHE_MAX_AGE_SEC = 90 * DAY_SEC;
+
+export function clampMaxAge(maxAge: number | null | undefined): number {
+  if (maxAge === null || maxAge === undefined || !Number.isFinite(maxAge)) return MIN_CACHE_MAX_AGE_SEC;
+  return Math.min(MAX_CACHE_MAX_AGE_SEC, Math.max(MIN_CACHE_MAX_AGE_SEC, maxAge));
+}
+
 export function extractMaxAge(cacheControl: string): number | null {
   const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
   return maxAgeMatch && maxAgeMatch[1] ? parseInt(maxAgeMatch[1], 10) : null;
@@ -11,7 +20,7 @@ export function createCacheMetadataFromMediaMetadata(mediaMetadata: IMediaMetada
   if (mediaMetadata.kind === 'image') {
     const cacheControlHeader = mediaMetadata.cacheControl;
     const contentType = mediaMetadata.contentType ?? 'image/jpeg';
-    const maxAge = typeof cacheControlHeader === 'string' ? (extractMaxAge(cacheControlHeader) ?? 3600) : 3600;
+    const maxAge = clampMaxAge(typeof cacheControlHeader === 'string' ? extractMaxAge(cacheControlHeader) : null);
 
     return {
       createdAt: now,
@@ -23,11 +32,12 @@ export function createCacheMetadataFromMediaMetadata(mediaMetadata: IMediaMetada
   }
 
   const contentType = mediaMetadata.frameIndex === -1 ? 'video/thumbnail' : 'video/frame';
+  const maxAge = clampMaxAge(null);
   return {
     createdAt: now,
     accessedAt: now,
-    maxAge: 0,
-    cacheControl: 'no-cache',
+    maxAge,
+    cacheControl: `max-age=${maxAge}`,
     contentType,
   };
 }
@@ -48,20 +58,8 @@ export function createCacheMetadata(
   const cacheControl = headers['cache-control'] || headers['Cache-Control'];
   const etag = headers['etag'] || headers['ETag'];
   const lastModified = headers['last-modified'] || headers['Last-Modified'];
-  const expires = headers['expires'] || headers['Expires'];
 
-  let maxAge: number | undefined;
-  let expiresTimestamp: number | undefined;
-
-  // Parse Cache-Control max-age
-  if (cacheControl) {
-    maxAge = extractMaxAge(cacheControl) ?? undefined;
-  }
-
-  // Parse Expires header
-  if (expires) {
-    expiresTimestamp = new Date(expires).getTime();
-  }
+  const maxAge = clampMaxAge(cacheControl ? extractMaxAge(cacheControl) : null);
 
   // Parse Last-Modified header
   let lastModifiedTimestamp: number | undefined;
@@ -73,7 +71,6 @@ export function createCacheMetadata(
     cacheControl,
     etag,
     lastModified: lastModifiedTimestamp,
-    expires: expiresTimestamp,
     maxAge,
     createdAt: now,
     accessedAt: now,
