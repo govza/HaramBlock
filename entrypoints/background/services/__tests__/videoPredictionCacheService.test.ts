@@ -9,7 +9,6 @@ const repository = vi.hoisted(() => ({
   updateForcedVisibility: vi.fn(() => Promise.resolve()),
   findValidByVideoUrl: vi.fn(() => Promise.resolve(undefined)),
   touchAccessed: vi.fn(() => Promise.resolve()),
-  deleteExpired: vi.fn(() => Promise.resolve(0)),
 }));
 
 vi.mock('@/utils/db/videoPredictionRepository', () => ({

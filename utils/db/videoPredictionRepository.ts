@@ -104,13 +104,4 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
         record.samples = [];
       });
   }
-
-  async deleteExpired(): Promise<number> {
-    if (isCacheDisabled) return 0;
-    const expiredKeys = (await this.table.toArray())
-      .filter(record => !isValidPrediction(record))
-      .map(record => record.videoUrl);
-    if (expiredKeys.length === 0) return 0;
-    return this.table.where('videoUrl').anyOf(expiredKeys).delete();
-  }
 }
