@@ -114,29 +114,6 @@ export class ImagePredictionRepository extends HostScopedCacheRepository<IImageP
   }
 
   /**
-   * Delete expired cache entries based on cache metadata
-   */
-  async deleteExpired(): Promise<number> {
-    if (isCacheDisabled) {
-      return 0;
-    }
-    const allRecords = await this.table.toArray();
-    const expiredIds: string[] = [];
-
-    for (const record of allRecords) {
-      if (!isValidPrediction(record)) {
-        expiredIds.push(record.src);
-      }
-    }
-
-    if (expiredIds.length > 0) {
-      return this.where('src').anyOf(expiredIds).delete();
-    }
-
-    return 0;
-  }
-
-  /**
    * Save a prediction record to the database
    * @param prediction - The prediction record to save
    * @returns The src key of the saved record

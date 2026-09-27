@@ -2,7 +2,10 @@ import Dexie from 'dexie';
 
 import { BaseRepository } from '@/utils/db/baseRepository';
 import { isCacheDisabled } from '@/utils/db/cacheAvailability';
+import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
+
+import type { ICacheMetadata } from '@/utils/types';
 
 export interface IHostCacheSummary {
   hostname: string;
@@ -16,7 +19,7 @@ export interface IHostCachePage<T> {
 }
 
 export abstract class HostScopedCacheRepository<
-  T extends { hostname: string; timestamp: number },
+  T extends { hostname: string; timestamp: number; cacheMetadata: ICacheMetadata },
 > extends BaseRepository<T, string> {
   async listHostSummaries(): Promise<IHostCacheSummary[]> {
     if (isCacheDisabled) return [];
@@ -51,6 +54,11 @@ export abstract class HostScopedCacheRepository<
   async deleteByHostname(hostname: string): Promise<number> {
     if (isCacheDisabled) return 0;
     return this.whereHostname(hostname).delete();
+  }
+
+  async deleteExpired(): Promise<number> {
+    if (isCacheDisabled) return 0;
+    return this.table.filter(record => !isValidPrediction(record)).delete();
   }
 
   async clear(): Promise<void> {

@@ -43,6 +43,7 @@ interface IMediaProps {
 }
 
 interface ICacheSource {
+  labelKey: string;
   repository: Pick<
     HostScopedCacheRepository<CacheRecord>,
     'count' | 'delete' | 'deleteByHostname' | 'clear' | 'listHostSummaries'
@@ -51,54 +52,57 @@ interface ICacheSource {
   Media: (props: IMediaProps) => ReactNode;
 }
 
-const forcedVisibilityLabelKeys = {
+const forcedVisibilityLabelKeys: Record<Exclude<ForcedVisibility, 'auto'>, string> = {
   visible: 'OptionsPage.Cache.forcedVisible',
   blocked: 'OptionsPage.Cache.forcedBlocked',
-} as const;
+};
 
-const imageToRow = (record: IImagePrediction): ICacheRow => ({
-  key: record.src,
-  timestamp: record.timestamp,
-  forcedVisibility: record.forcedVisibility,
-  modelId: record.modelId,
-  predictions: record.predictions,
-  detail: t('OptionsPage.Cache.dimensions', [String(record.width), String(record.height)]),
-});
-
-const videoToRow = (record: IVideoPredictionRecord): ICacheRow => ({
-  key: record.videoUrl,
-  timestamp: record.timestamp,
-  forcedVisibility: record.forcedVisibility,
-  modelId: record.modelId,
-  predictions: record.samples.flatMap(sample => sample.predictions),
-  detail: t('OptionsPage.Cache.samples', [String(record.samples.length)]),
-});
-
-const ImageMedia = ({ src, className }: IMediaProps) => <img src={src} loading='lazy' alt='' className={className} />;
-
-const VideoMedia = ({ src, className }: IMediaProps) => (
-  <video src={src} preload='metadata' muted className={className} />
-);
-
-const createCacheSource = <T extends CacheRecord>(
-  repository: HostScopedCacheRepository<T>,
-  toRow: (record: T) => ICacheRow,
-  Media: ICacheSource['Media'],
-): ICacheSource => ({
+const defineCacheSource = <T extends CacheRecord>({
+  repository,
+  toRow,
+  ...rest
+}: Omit<ICacheSource, 'repository' | 'loadPage'> & {
+  repository: HostScopedCacheRepository<T>;
+  toRow: (record: T) => ICacheRow;
+}): ICacheSource => ({
+  ...rest,
   repository,
   loadPage: async (hostname, page) => {
     const { records, total, page: clampedPage } = await repository.findNewestPageByHostname(hostname, page, PAGE_SIZE);
     return { rows: records.map(toRow), total, page: clampedPage };
   },
-  Media,
 });
 
 const useCacheSources = (): Record<CacheKind, ICacheSource> => {
   const { imagePredictionRepository, videoPredictionRepository } = useHostDataContext();
   return useMemo(
     () => ({
-      images: createCacheSource(imagePredictionRepository, imageToRow, ImageMedia),
-      videos: createCacheSource(videoPredictionRepository, videoToRow, VideoMedia),
+      images: defineCacheSource({
+        labelKey: 'OptionsPage.Cache.images',
+        repository: imagePredictionRepository,
+        toRow: record => ({
+          key: record.src,
+          timestamp: record.timestamp,
+          forcedVisibility: record.forcedVisibility,
+          modelId: record.modelId,
+          predictions: record.predictions,
+          detail: t('OptionsPage.Cache.dimensions', [String(record.width), String(record.height)]),
+        }),
+        Media: ({ src, className }: IMediaProps) => <img src={src} loading='lazy' alt='' className={className} />,
+      }),
+      videos: defineCacheSource({
+        labelKey: 'OptionsPage.Cache.videos',
+        repository: videoPredictionRepository,
+        toRow: record => ({
+          key: record.videoUrl,
+          timestamp: record.timestamp,
+          forcedVisibility: record.forcedVisibility,
+          modelId: record.modelId,
+          predictions: record.samples.flatMap(sample => sample.predictions),
+          detail: t('OptionsPage.Cache.samples', [String(record.samples.length)]),
+        }),
+        Media: ({ src, className }: IMediaProps) => <video src={src} preload='metadata' muted className={className} />,
+      }),
     }),
     [imagePredictionRepository, videoPredictionRepository],
   );
@@ -319,12 +323,10 @@ const CacheHostItems = ({
 };
 
 const CacheKindTab = ({
-  kind,
   source,
   isActive,
   onSelect,
 }: {
-  kind: CacheKind;
   source: ICacheSource;
   isActive: boolean;
   onSelect: () => void;
@@ -341,7 +343,7 @@ const CacheKindTab = ({
           : 'bg-secondary text-text-muted hover:text-text-primary hover:bg-surface'
       }`}
     >
-      {t('OptionsPage.Cache.labelWithCount', [t(`OptionsPage.Cache.${kind}`), String(count ?? 0)])}
+      {t('OptionsPage.Cache.labelWithCount', [t(source.labelKey), String(count ?? 0)])}
     </button>
   );
 };
@@ -365,7 +367,6 @@ export const CacheBrowser = () => {
         {cacheKinds.map(tabKind => (
           <CacheKindTab
             key={tabKind}
-            kind={tabKind}
             source={sources[tabKind]}
             isActive={kind === tabKind}
             onSelect={() => {

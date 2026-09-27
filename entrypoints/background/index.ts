@@ -2,6 +2,7 @@ import { getAvailableModels } from '@inference-runtime';
 
 import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
 import {
+  CacheEvictionService,
   HostSettingsService,
   ImageCacheService,
   VideoPredictionCacheService,
@@ -28,21 +29,6 @@ import { initBackgroundTelemetry } from '@/utils/telemetry/setup/background';
 
 initBackgroundTelemetry();
 const log = getLogger('background');
-
-async function evictExpiredCacheEntries(
-  imageCacheService: ImageCacheService,
-  videoPredictionCacheService: VideoPredictionCacheService,
-): Promise<void> {
-  try {
-    const [images, videos] = await Promise.all([
-      imageCacheService.deleteExpired(),
-      videoPredictionCacheService.deleteExpired(),
-    ]);
-    log.debug('cache.evicted', { images, videos });
-  } catch (error) {
-    log.warn('cache.evict.failed', { error });
-  }
-}
 
 // Resolve which model to load at startup. A manual preference always wins. In auto mode, honor the
 // remembered auto selection when this environment can run it - unlike the old auto switcher, a
@@ -110,7 +96,7 @@ export default defineBackground({
     );
     log.debug('rpc.initialized');
 
-    void evictExpiredCacheEntries(imageCacheService, videoPredictionCacheService);
+    void new CacheEvictionService().evictExpired();
 
     // Reap a closed tab's subscription entries; frames that navigate away are
     // evicted when their successor re-subscribes (see BackgroundRpc.subscribe)

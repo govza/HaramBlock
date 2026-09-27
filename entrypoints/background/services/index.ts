@@ -1,3 +1,4 @@
+export { CacheEvictionService } from '@/entrypoints/background/services/cacheEvictionService';
 export { BatchCollector } from '@/entrypoints/background/services/batchCollector';
 export { IconService } from '@/entrypoints/background/services/iconService';
 export { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';

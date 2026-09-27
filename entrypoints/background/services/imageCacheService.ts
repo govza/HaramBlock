@@ -111,8 +111,4 @@ export class ImageCacheService {
       throw error;
     }
   }
-
-  async deleteExpired(): Promise<number> {
-    return this.repository.deleteExpired();
-  }
 }

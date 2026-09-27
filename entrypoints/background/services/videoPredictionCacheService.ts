@@ -109,10 +109,6 @@ export class VideoPredictionCacheService {
     }
   }
 
-  async deleteExpired(): Promise<number> {
-    return this.repository.deleteExpired();
-  }
-
   private scheduleFlush(): void {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
