@@ -2,6 +2,11 @@
 // If tests fail due to network issues, verify haramblock.com is accessible.
 export const GALLERY_BASE_URL = 'https://haramblock.com/gallery/basic';
 
+export type VideoFixture = 'safe' | 'unsafe' | 'turns-unsafe';
+
+export const buildVideoFixtureUrl = (fixture: VideoFixture): string =>
+  new URL(`/test/video/${fixture}.webm`, GALLERY_BASE_URL).href;
+
 export const INFERENCE_TIMEOUT = 80_000;
 
 export const Selectors = {
@@ -12,6 +17,7 @@ export const Selectors = {
   GALLERY_IMAGE: 'main img',
   EYE_TOGGLE: '.haramblock-eye-toggle',
   TEST_VIDEO: '#hb-e2e-video',
+  WHOLE_BLUR_CLASS: 'haramblock-initial-blur',
 } as const;
 
 export const GalleryMode = {

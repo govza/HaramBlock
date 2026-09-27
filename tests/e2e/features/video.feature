@@ -17,7 +17,7 @@ Feature: Video Masking
 
   Scenario: A playing safe video is verdicted clean without masking
     Given I open the video test page with "sf-neutral" images
-    When I inject and play a generated safe video using "src"
+    When I inject and play a safe video using "src"
     Then the video is verdicted "safe" within the inference timeout
     And I should see exactly "0" video mask overlays
 
@@ -25,18 +25,18 @@ Feature: Video Masking
   # canvas from play onward, clean ones included (ADR 0001).
   Scenario: A clean playing video is presented through the delayed DVR canvas
     Given I open the video test page with "sf-neutral" images
-    When I inject and play a generated safe video using "src"
+    When I inject and play a safe video using "src"
     Then the video is verdicted "safe" within the inference timeout
     And the DVR canvas player replaces the native video
 
   Scenario: A source-child video is adopted via loadstart and verdicted
     Given I open the video test page with "sf-neutral" images
-    When I inject and play a generated safe video using "source-child"
+    When I inject and play a safe video using "source-child"
     Then the video is verdicted "safe" within the inference timeout
 
   Scenario: An unsafe playing video is presented through the delayed DVR canvas
     Given I open the video test page with "nsf-female" images
-    When I inject and play a generated unsafe video
+    When I inject and play an unsafe video
     Then the video is verdicted "unsafe" within the inference timeout
     And the DVR canvas player replaces the native video
 
@@ -44,7 +44,7 @@ Feature: Video Masking
   # it composites into the running canvas with no whole-blur mode switch.
   Scenario: An unsafe verdict mid-playback composites without a whole-blur flash
     Given I open the video test page with "nsf-female" images
-    When I inject and play a generated video that turns unsafe mid-playback
+    When I inject and play a video that turns unsafe mid-playback
     And I watch the native video for whole-blur changes
     Then the DVR canvas player replaces the native video
     And the video is verdicted "unsafe" within the inference timeout
