@@ -9,7 +9,31 @@
       "overview": "Übersicht",
       "hostList": "Hostliste",
       "customSettings": "Benutzerdefinierte Einstellungen",
+      "cache": "Cache",
       "about": "Über"
+    },
+    "Cache": {
+      "title": "Zwischengespeicherte Elemente",
+      "description": "Nach Website gruppiert. Öffne eine Website, um ihre Einträge zu sehen; Vorschauen laden nur per Klick.",
+      "images": "Bilder",
+      "videos": "Videos",
+      "filterPlaceholder": "Nach Hostname filtern",
+      "clearAll": "Alle löschen",
+      "clearConfirm": "Zum Bestätigen erneut klicken",
+      "noDetections": "Keine Erkennungen",
+      "samples": "$1 Proben",
+      "previous": "Zurück",
+      "next": "Weiter",
+      "pageOf": "Seite $1 von $2",
+      "itemCount": "$1 Einträge",
+      "backToHosts": "← Alle Websites",
+      "labelWithCount": "$1 ($2)",
+      "dimensions": "$1×$2",
+      "detection": "$1 $2 %",
+      "forcedVisible": "Immer angezeigt",
+      "forcedBlocked": "Immer blockiert",
+      "loadPreview": "Vorschau",
+      "togglePreview": "Klicken, um die Vorschau zu laden oder auszublenden (wird von der Originalseite geladen)"
     }
   },
   "HostSettings": {

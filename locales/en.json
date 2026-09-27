@@ -9,7 +9,31 @@
       "overview": "Overview",
       "hostList": "List of hosts",
       "customSettings": "Custom settings",
+      "cache": "Cache",
       "about": "About"
+    },
+    "Cache": {
+      "title": "Cached items",
+      "description": "Grouped by site. Open a site to browse its items; previews load only when clicked.",
+      "images": "Images",
+      "videos": "Videos",
+      "filterPlaceholder": "Filter by hostname",
+      "clearAll": "Clear all",
+      "clearConfirm": "Click again to confirm",
+      "noDetections": "No detections",
+      "samples": "$1 samples",
+      "previous": "Previous",
+      "next": "Next",
+      "pageOf": "Page $1 of $2",
+      "itemCount": "$1 items",
+      "backToHosts": "← All sites",
+      "labelWithCount": "$1 ($2)",
+      "dimensions": "$1×$2",
+      "detection": "$1 $2%",
+      "forcedVisible": "Always shown",
+      "forcedBlocked": "Always blocked",
+      "loadPreview": "Preview",
+      "togglePreview": "Click to load or hide the preview (downloads it from the original site)"
     }
   },
   "HostSettings": {

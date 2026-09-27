@@ -2,13 +2,14 @@ import { useState } from 'react';
 
 import { VerticalTabs } from '@/entrypoints/options/components/VerticalTabs';
 import { About } from '@/entrypoints/options/features/About';
+import { CacheBrowser } from '@/entrypoints/options/features/CacheBrowser';
 import { CustomSettings } from '@/entrypoints/options/features/CustomSettings';
 import { HostList } from '@/entrypoints/options/features/HostList';
 import { Overview } from '@/entrypoints/options/features/Overview';
 import { HostDataProvider } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 
-const tabIds = ['overview', 'hostList', 'customSettings', 'about'] as const;
+const tabIds = ['overview', 'hostList', 'customSettings', 'cache', 'about'] as const;
 type TabId = (typeof tabIds)[number];
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
             overview: <Overview />,
             hostList: <HostList />,
             customSettings: <CustomSettings />,
+            cache: <CacheBrowser />,
             about: <About />,
           }}
         </VerticalTabs>

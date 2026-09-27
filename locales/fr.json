@@ -9,7 +9,31 @@
       "overview": "Aperçu",
       "hostList": "Liste des hôtes",
       "customSettings": "Paramètres personnalisés",
+      "cache": "Cache",
       "about": "À propos"
+    },
+    "Cache": {
+      "title": "Éléments en cache",
+      "description": "Regroupés par site. Ouvrez un site pour parcourir ses éléments ; les aperçus se chargent uniquement au clic.",
+      "images": "Images",
+      "videos": "Vidéos",
+      "filterPlaceholder": "Filtrer par nom d’hôte",
+      "clearAll": "Tout effacer",
+      "clearConfirm": "Cliquez à nouveau pour confirmer",
+      "noDetections": "Aucune détection",
+      "samples": "$1 échantillons",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "pageOf": "Page $1 sur $2",
+      "itemCount": "$1 éléments",
+      "backToHosts": "← Tous les sites",
+      "labelWithCount": "$1 ($2)",
+      "dimensions": "$1×$2",
+      "detection": "$1 $2 %",
+      "forcedVisible": "Toujours affiché",
+      "forcedBlocked": "Toujours bloqué",
+      "loadPreview": "Aperçu",
+      "togglePreview": "Cliquer pour charger ou masquer l’aperçu (téléchargé depuis le site d’origine)"
     }
   },
   "HostSettings": {
