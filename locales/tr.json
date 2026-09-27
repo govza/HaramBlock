@@ -9,7 +9,31 @@
       "overview": "Genel bakış",
       "hostList": "Host Listesi",
       "customSettings": "Özel Ayarlar",
+      "cache": "Önbellek",
       "about": "Hakkında"
+    },
+    "Cache": {
+      "title": "Önbelleğe alınan öğeler",
+      "description": "Siteye göre gruplandı. Öğelerini görmek için bir site açın; önizlemeler yalnızca tıklandığında yüklenir.",
+      "images": "Görseller",
+      "videos": "Videolar",
+      "filterPlaceholder": "Ana makine adına göre filtrele",
+      "clearAll": "Tümünü temizle",
+      "clearConfirm": "Onaylamak için tekrar tıklayın",
+      "noDetections": "Tespit yok",
+      "samples": "$1 örnek",
+      "previous": "Önceki",
+      "next": "Sonraki",
+      "pageOf": "Sayfa $1 / $2",
+      "itemCount": "$1 öğe",
+      "backToHosts": "← Tüm siteler",
+      "labelWithCount": "$1 ($2)",
+      "dimensions": "$1×$2",
+      "detection": "$1 %$2",
+      "forcedVisible": "Her zaman gösterilir",
+      "forcedBlocked": "Her zaman engellenir",
+      "loadPreview": "Önizleme",
+      "togglePreview": "Önizlemeyi yüklemek veya gizlemek için tıklayın (orijinal siteden indirilir)"
     }
   },
   "HostSettings": {

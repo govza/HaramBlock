@@ -9,7 +9,31 @@
       "overview": "نظرة عامة",
       "hostList": "قائمة المواقع",
       "customSettings": "إعدادات مخصصة",
+      "cache": "ذاكرة التخزين",
       "about": "حول"
+    },
+    "Cache": {
+      "title": "العناصر المخزنة",
+      "description": "مجمعة حسب الموقع. افتح موقعًا لتصفح عناصره؛ تُحمَّل المعاينات عند النقر فقط.",
+      "images": "الصور",
+      "videos": "مقاطع الفيديو",
+      "filterPlaceholder": "تصفية حسب اسم المضيف",
+      "clearAll": "مسح الكل",
+      "clearConfirm": "انقر مرة أخرى للتأكيد",
+      "noDetections": "لا توجد اكتشافات",
+      "samples": "$1 عينات",
+      "previous": "السابق",
+      "next": "التالي",
+      "pageOf": "الصفحة $1 من $2",
+      "itemCount": "$1 عنصر",
+      "backToHosts": "→ كل المواقع",
+      "labelWithCount": "$1 ($2)",
+      "dimensions": "$1×$2",
+      "detection": "$1 ‏$2%",
+      "forcedVisible": "معروض دائمًا",
+      "forcedBlocked": "محظور دائمًا",
+      "loadPreview": "معاينة",
+      "togglePreview": "انقر لتحميل المعاينة أو إخفائها (يتم تنزيلها من الموقع الأصلي)"
     }
   },
   "HostSettings": {
