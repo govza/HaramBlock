@@ -5,7 +5,8 @@ import { useSafeLiveQuery } from '@/hooks/useSafeLiveQuery';
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 import { isIncognito } from '@/utils/db/db';
 import { createHostSettingsRepository, type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
-import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
+import { ImagePredictionRepository } from '@/utils/db/imagePredictionRepository';
+import { VideoPredictionRepository } from '@/utils/db/videoPredictionRepository';
 import { getEffectiveHostname, isGlobalPage } from '@/utils/hostnameUtil';
 import { backgroundRpc } from '@/utils/messaging/popup';
 
@@ -17,7 +18,8 @@ type HostDataType = {
   isLoading: boolean;
   error?: string;
   hostSettingsRepository: HostSettingsRepository;
-  imageCacheRepository: ImageCacheRepository;
+  imagePredictionRepository: ImagePredictionRepository;
+  videoPredictionRepository: VideoPredictionRepository;
   switchToGlobal: () => void;
   switchToLocal: () => void;
   isGlobalMode: boolean;
@@ -31,7 +33,8 @@ const HostDataContext = createContext<HostDataType>({
   currentHostname: DEFAULT_GLOBAL_KEY,
   isLoading: false,
   hostSettingsRepository: {} as HostSettingsRepository,
-  imageCacheRepository: {} as ImageCacheRepository,
+  imagePredictionRepository: {} as ImagePredictionRepository,
+  videoPredictionRepository: {} as VideoPredictionRepository,
   switchToGlobal: () => {},
   switchToLocal: () => {},
   isGlobalMode: false,
@@ -65,7 +68,8 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
   };
   const isLoading = hostSettingsData === undefined;
   const error = hostnameError;
-  const imageCacheRepository = useMemo(() => new ImageCacheRepository(), []);
+  const imagePredictionRepository = useMemo(() => new ImagePredictionRepository(), []);
+  const videoPredictionRepository = useMemo(() => new VideoPredictionRepository(), []);
 
   const switchToGlobal = () => setIsGlobalMode(true);
   const switchToLocal = () => setIsGlobalMode(false);
@@ -108,7 +112,8 @@ export const HostDataProvider = ({ children }: HostDataProviderProps) => {
         isLoading,
         error,
         hostSettingsRepository,
-        imageCacheRepository,
+        imagePredictionRepository,
+        videoPredictionRepository,
         switchToGlobal,
         switchToLocal,
         isGlobalMode,

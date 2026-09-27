@@ -1,6 +1,7 @@
 import { COVERAGE_MAX_GAP_SEC } from '@/entrypoints/content/video/maskTiming';
+import { MAX_VERDICT_TIMELINE_ENTRIES } from '@/utils/constants/video';
 
-import type { IElementPrediction, IMaskTransform } from '@/utils/types';
+import type { ICachedFrameSample, IElementPrediction, IMaskTransform } from '@/utils/types';
 
 export interface VerdictEntry {
   /** Media time (video.currentTime domain) of the sampled frame this verdict describes. */
@@ -11,6 +12,7 @@ export interface VerdictEntry {
   /** Inference frame dimensions the masks are relative to. */
   width: number;
   height: number;
+  fromCache?: boolean;
 }
 
 /**
@@ -18,7 +20,19 @@ export interface VerdictEntry {
  * but a very long playback must not grow the timeline without limit. At ~4
  * verdicts/sec this covers well over 15 minutes of continuous coverage.
  */
-export const MAX_TIMELINE_ENTRIES = 4000;
+export const MAX_TIMELINE_ENTRIES = MAX_VERDICT_TIMELINE_ENTRIES;
+const CACHED_VERDICT_MAX_GAP_SEC = 0.25;
+const SAME_FRAME_TOLERANCE_SEC = 0.001;
+
+const toSeededEntry = (entry: ICachedFrameSample): VerdictEntry => ({
+  timestampSec: entry.timestampSec,
+  unsafe: entry.predictions.length > 0,
+  predictions: entry.predictions,
+  maskTransform: entry.input.maskTransform,
+  width: entry.input.width,
+  height: entry.input.height,
+  fromCache: true,
+});
 
 export class VerdictTimeline {
   private entries: VerdictEntry[] = [];
@@ -35,6 +49,46 @@ export class VerdictTimeline {
     if (this.entries.length <= MAX_TIMELINE_ENTRIES) return index;
     this.entries.shift();
     return index - 1;
+  }
+
+  seed(cached: readonly ICachedFrameSample[]): VerdictEntry[] {
+    const seeded = cached.filter(entry => !this.hasEntryNear(entry.timestampSec)).map(toSeededEntry);
+    if (seeded.length === 0) return [];
+    const merged = [...this.entries, ...seeded].sort((a, b) => a.timestampSec - b.timestampSec);
+    this.entries = merged.length > MAX_TIMELINE_ENTRIES ? merged.slice(merged.length - MAX_TIMELINE_ENTRIES) : merged;
+    return seeded;
+  }
+
+  dropCached(): void {
+    this.entries = this.entries.filter(entry => !entry.fromCache);
+  }
+
+  indexOf(entry: VerdictEntry): number {
+    return this.entries.indexOf(entry);
+  }
+
+  private hasEntryNear(timestampSec: number): boolean {
+    return this.entries.some(entry => Math.abs(entry.timestampSec - timestampSec) < SAME_FRAME_TOLERANCE_SEC);
+  }
+
+  cachedVerdictAt(timestampSec: number, maxGapSec = CACHED_VERDICT_MAX_GAP_SEC): VerdictEntry | null {
+    const after = this.indexAfter(timestampSec);
+    const previous = this.nearestCachedEntry(after - 1, -1, timestampSec - maxGapSec);
+    const next = this.nearestCachedEntry(after, 1, timestampSec + maxGapSec);
+    if (!previous) return next;
+    if (!next) return previous;
+    return timestampSec - previous.timestampSec <= next.timestampSec - timestampSec ? previous : next;
+  }
+
+  private nearestCachedEntry(startIndex: number, step: 1 | -1, boundarySec: number): VerdictEntry | null {
+    for (let index = startIndex; index >= 0 && index < this.entries.length; index += step) {
+      const entry = this.entries[index];
+      if (!entry) return null;
+      const outOfRange = step < 0 ? entry.timestampSec < boundarySec : entry.timestampSec > boundarySec;
+      if (outOfRange) return null;
+      if (entry.fromCache) return entry;
+    }
+    return null;
   }
 
   /**

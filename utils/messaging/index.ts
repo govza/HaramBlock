@@ -9,6 +9,7 @@ import type { ImageCacheService } from '@/entrypoints/background/services/imageC
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type { MediaFetchService } from '@/entrypoints/background/services/mediaFetchService';
 import type { ModelService } from '@/entrypoints/background/services/modelService';
+import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 
 export { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 export { ProvideAdapter, InjectAdapter } from '@/utils/messaging/adapters/browserRuntimeAdapter';
@@ -31,6 +32,7 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
     iconService: IconService,
     modelService: ModelService,
     mediaFetchService: MediaFetchService,
+    videoPredictionCacheService: VideoPredictionCacheService,
   ) =>
     new BackgroundRpc(
       hostSettingsService,
@@ -39,6 +41,7 @@ export const [provideBackgroundRpc, injectBackgroundRpc] = defineProxy(
       iconService,
       modelService,
       mediaFetchService,
+      videoPredictionCacheService,
     ),
   {
     namespace: '__haramblock__',

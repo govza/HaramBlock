@@ -431,3 +431,39 @@ describe('VerdictInterpreter run resolutions', () => {
     ]);
   });
 });
+
+function cached(timestampSec: number, unsafe: boolean, probability = CONFIDENT_PROBABILITY) {
+  const { predictions, maskTransform, width, height } = entry(timestampSec, unsafe, probability);
+  return { timestampSec, predictions, input: { width, height, maskTransform } };
+}
+
+describe('VerdictInterpreter cached verdicts', () => {
+  it('judges a clean cached entry clean', () => {
+    const track = new VerdictInterpreter();
+    track.seed([cached(1, false)], SCORE_THRESHOLD);
+    const hit = track.cachedVerdictAt(1);
+    expect(hit && track.judgeCached(hit)).toBe('clean');
+  });
+
+  it('judges a confident cached hit unsafe', () => {
+    const track = new VerdictInterpreter();
+    track.seed([cached(1, false), cached(1.5, true), cached(2, false)], SCORE_THRESHOLD);
+    const hit = track.cachedVerdictAt(1.5);
+    expect(hit && track.judgeCached(hit)).toBe('unsafe');
+  });
+
+  it('applies the transient rule to a lone low-confidence cached hit', () => {
+    const track = new VerdictInterpreter();
+    track.seed([cached(1, false), cached(1.5, true, 0.6), cached(2, false)], SCORE_THRESHOLD);
+    const hit = track.cachedVerdictAt(1.5);
+    expect(hit && track.judgeCached(hit)).toBe('tentative');
+  });
+
+  it('forgets cached entries on dropCached', () => {
+    const track = new VerdictInterpreter();
+    track.seed([cached(1, true)], SCORE_THRESHOLD);
+    track.dropCached();
+    expect(track.cachedVerdictAt(1)).toBeNull();
+    expect(track.coverageAheadOf(1)).toBe(0);
+  });
+});

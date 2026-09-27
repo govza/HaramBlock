@@ -27,17 +27,19 @@ import {
   startRoundtrip,
   type UmbrellaSession,
 } from '@/utils/telemetry/roundtrip';
+import {
+  EMPTY_CACHED_VIDEO_PREDICTIONS,
+  type ForcedVisibility,
+  type IHostSettings,
+  type IImagePrediction,
+  type ICachedVideoPredictions,
+  type IImageMetadata,
+  type IImageTransfer,
+  type IVideoFrameTransfer,
+  type IGifFrameTransfer,
+} from '@/utils/types';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
-import type {
-  ForcedVisibility,
-  IHostSettings,
-  IImagePrediction,
-  IImageMetadata,
-  IImageTransfer,
-  IVideoFrameTransfer,
-  IGifFrameTransfer,
-} from '@/utils/types';
 
 const log = getLogger('sender');
 const tracer = getTracer('inference');
@@ -71,6 +73,27 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
   } catch (error) {
     log.error('cached_predictions.request.failed', { [ATTR.hostname]: hostname, error });
     return [];
+  }
+}
+
+export async function requestCachedVideoPredictions(videoUrl: string): Promise<ICachedVideoPredictions> {
+  try {
+    return (await backgroundRpc.getCachedVideoPredictions(videoUrl)) || EMPTY_CACHED_VIDEO_PREDICTIONS;
+  } catch (error) {
+    log.error('cached_video_verdicts.request.failed', { [ATTR.src]: videoUrl, error });
+    return EMPTY_CACHED_VIDEO_PREDICTIONS;
+  }
+}
+
+export async function requestVideoToggleUpdate(
+  videoUrl: string,
+  origin: { sourceUrl: string; hostname: string },
+  forcedVisibility: ForcedVisibility,
+): Promise<void> {
+  try {
+    await backgroundRpc.updateVideoToggleState(videoUrl, origin, forcedVisibility);
+  } catch (error) {
+    log.error('video_toggle.update.failed', { [ATTR.src]: videoUrl, forcedVisibility, error });
   }
 }
 
@@ -376,7 +399,7 @@ export interface VideoFrameParams {
  */
 export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
   const { sample, hostname, priority, session } = params;
-  const { bitmap, videoUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
+  const { bitmap, videoUrl, sourceUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
   const roundtripKey = `${sessionId}:${frameIndex}`;
   const parent = startRoundtrip(roundtripKey, {
@@ -395,6 +418,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
   try {
     const base = {
       videoUrl,
+      sourceUrl,
       frameIndex,
       timestampSec,
       width: bitmap.width,

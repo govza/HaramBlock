@@ -1,4 +1,4 @@
-import { ImageCacheRepository } from '@/utils/db/imageCacheRepository';
+import { ImagePredictionRepository } from '@/utils/db/imagePredictionRepository';
 import { ATTR, getLogger } from '@/utils/telemetry';
 import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
@@ -9,14 +9,14 @@ const log = getLogger('imageCacheService');
  * Coordinates between controllers and data layer for cached image predictions
  */
 export class ImageCacheService {
-  private repository: ImageCacheRepository;
+  private repository: ImagePredictionRepository;
 
   constructor() {
     try {
-      this.repository = new ImageCacheRepository();
+      this.repository = new ImagePredictionRepository();
     } catch {
       log.error('cache.init.failed');
-      throw new Error('Failed to initialize ImageCacheRepository');
+      throw new Error('Failed to initialize ImagePredictionRepository');
     }
   }
   /**
@@ -110,5 +110,9 @@ export class ImageCacheService {
       log.error('cache.toggle_state.update.failed', { [ATTR.src]: src, error });
       throw error;
     }
+  }
+
+  async deleteExpired(): Promise<number> {
+    return this.repository.deleteExpired();
   }
 }

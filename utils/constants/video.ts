@@ -1,0 +1,1 @@
+export const MAX_VERDICT_TIMELINE_ENTRIES = 4000;

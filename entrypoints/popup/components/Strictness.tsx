@@ -2,14 +2,18 @@ import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext'
 import { t } from '@/utils/i18n';
 
 export const Strictness = () => {
-  const { hostSettings, hostSettingsRepository, imageCacheRepository, markDirty } = useHostDataContext();
+  const { hostSettings, hostSettingsRepository, imagePredictionRepository, videoPredictionRepository, markDirty } =
+    useHostDataContext();
 
   const isDisabled = hostSettings.policy.behavior !== 'process';
 
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(event.target.value);
     await hostSettingsRepository.setStrictness(hostSettings.hostname, value);
-    await imageCacheRepository.deleteByHostname(hostSettings.hostname);
+    await Promise.all([
+      imagePredictionRepository.deleteByHostname(hostSettings.hostname),
+      videoPredictionRepository.clearSamplesByHostname(hostSettings.hostname),
+    ]);
     markDirty();
   };
 

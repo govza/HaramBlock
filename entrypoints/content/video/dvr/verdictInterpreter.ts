@@ -8,6 +8,8 @@ import {
 } from '@/entrypoints/content/video/maskTiming';
 import { type SampleVerdict } from '@/entrypoints/content/video/session/machine';
 
+import type { ICachedFrameSample } from '@/utils/types';
+
 export type VerdictLookup = { kind: 'unsafe'; entries: VerdictEntry[] } | { kind: 'clean' } | { kind: 'none' };
 
 export type RunResolution = 'suppressed' | 'confident' | 'long' | 'late';
@@ -53,13 +55,34 @@ export class VerdictInterpreter {
   }
 
   record(entry: VerdictEntry, scoreThreshold: number): SampleVerdict {
-    if (entry.unsafe && topProbability(entry) >= this.confidentProbability(scoreThreshold)) {
-      this.confidentEntries.add(entry);
-    }
+    this.markIfConfident(entry, scoreThreshold);
     const index = this.timeline.add(entry);
     if (entry.unsafe) return this.isHitBeforeClosing(index) ? 'unsafe' : 'tentative';
     const confirmsPrevious = this.timeline.at(index - 1) !== undefined && !this.isHit(index - 1);
     return confirmsPrevious ? 'confirmedClean' : 'clean';
+  }
+
+  seed(cached: readonly ICachedFrameSample[], scoreThreshold: number): void {
+    for (const entry of this.timeline.seed(cached)) this.markIfConfident(entry, scoreThreshold);
+  }
+
+  dropCached(): void {
+    this.timeline.dropCached();
+  }
+
+  judgeCached(entry: VerdictEntry): SampleVerdict {
+    if (!entry.unsafe) return 'clean';
+    return this.isHitBeforeClosing(this.timeline.indexOf(entry)) ? 'unsafe' : 'tentative';
+  }
+
+  private markIfConfident(entry: VerdictEntry, scoreThreshold: number): void {
+    if (entry.unsafe && topProbability(entry) >= this.confidentProbability(scoreThreshold)) {
+      this.confidentEntries.add(entry);
+    }
+  }
+
+  cachedVerdictAt(timestampSec: number): VerdictEntry | null {
+    return this.timeline.cachedVerdictAt(timestampSec);
   }
 
   coverageAheadOf(fromSec: number): number {

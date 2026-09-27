@@ -4,6 +4,7 @@ import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from
 import {
   HostSettingsService,
   ImageCacheService,
+  VideoPredictionCacheService,
   MediaFetchService,
   ModelService,
   QueueService,
@@ -18,6 +19,7 @@ import {
 } from '@/entrypoints/background/services/autoModelDecision';
 import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
 import { resolveVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
+import { deleteLegacyCacheDatabases } from '@/utils/db/db';
 import { getInferenceBackend, initializeInference } from '@/utils/inference';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
 import { getModelSettings, setModelSettings, updateAutoModelState, type ModelSettings } from '@/utils/modelSettings';
@@ -26,6 +28,21 @@ import { initBackgroundTelemetry } from '@/utils/telemetry/setup/background';
 
 initBackgroundTelemetry();
 const log = getLogger('background');
+
+async function evictExpiredCacheEntries(
+  imageCacheService: ImageCacheService,
+  videoPredictionCacheService: VideoPredictionCacheService,
+): Promise<void> {
+  try {
+    const [images, videos] = await Promise.all([
+      imageCacheService.deleteExpired(),
+      videoPredictionCacheService.deleteExpired(),
+    ]);
+    log.debug('cache.evicted', { images, videos });
+  } catch (error) {
+    log.warn('cache.evict.failed', { error });
+  }
+}
 
 // Resolve which model to load at startup. A manual preference always wins. In auto mode, honor the
 // remembered auto selection when this environment can run it - unlike the old auto switcher, a
@@ -50,6 +67,12 @@ function getStartupModelId(settings: ModelSettings): string | undefined {
 export default defineBackground({
   type: 'module',
   main() {
+    browser.runtime.onInstalled.addListener(() => {
+      deleteLegacyCacheDatabases().catch((error: unknown) => {
+        log.warn('cache.legacy_delete.failed', { error });
+      });
+    });
+
     void resolveVideoProcessingAvailable().catch(error => {
       log.error('capability.video.resolve.failed', { error });
     });
@@ -61,7 +84,12 @@ export default defineBackground({
     const modelService = new ModelService();
     const queueService = new QueueService();
 
-    const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
+    const videoPredictionCacheService = new VideoPredictionCacheService();
+    const inferenceService = new InferenceOrchestrationService(
+      queueService,
+      imageCacheService,
+      videoPredictionCacheService,
+    );
     const mediaFetchService = new MediaFetchService();
 
     // Initialize event listeners (event handling layer)
@@ -78,8 +106,11 @@ export default defineBackground({
       iconService,
       modelService,
       mediaFetchService,
+      videoPredictionCacheService,
     );
     log.debug('rpc.initialized');
+
+    void evictExpiredCacheEntries(imageCacheService, videoPredictionCacheService);
 
     // Reap a closed tab's subscription entries; frames that navigate away are
     // evicted when their successor re-subscribes (see BackgroundRpc.subscribe)

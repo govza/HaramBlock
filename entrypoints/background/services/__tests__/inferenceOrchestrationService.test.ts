@@ -5,6 +5,7 @@ import { QueueService } from '@/entrypoints/background/services/queueService';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants/hostsettings';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
+import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { IImagePrediction, IMediaMetadata, ImageInferenceResult, InferenceTask } from '@/utils/types';
 
 const { processInferenceTask, gates } = vi.hoisted(() => {
@@ -56,9 +57,11 @@ const cacheService = {
   cachePredictions: vi.fn(() => Promise.resolve()),
 } as unknown as ImageCacheService;
 
+const videoPredictionCacheService = { record: vi.fn() } as unknown as VideoPredictionCacheService;
+
 function setup() {
   const queue = new QueueService();
-  const service = new InferenceOrchestrationService(queue, cacheService);
+  const service = new InferenceOrchestrationService(queue, cacheService, videoPredictionCacheService);
   const results: ImageInferenceResult[] = [];
   service.setOnImagePredictionsCallback(batch => results.push(...batch));
   const schedule = (imageSrc: string, priority = 0) =>

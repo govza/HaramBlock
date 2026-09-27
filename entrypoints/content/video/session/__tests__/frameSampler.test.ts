@@ -43,6 +43,7 @@ function makeHandle(overrides: Partial<SessionHandle> = {}): SessionHandle {
     video: new FakeVideo() as unknown as HTMLVideoElement,
     srcObject: null,
     src: 'https://example.test/clip.mp4',
+    cacheKey: 'https://example.test/clip.mp4',
     trace: { sessionId: 'session-1' },
     dvrWarmupSpan: null,
     dvrWarmupStartedAt: 0,
@@ -98,6 +99,7 @@ describe('FrameSampler suspension bookkeeping', () => {
       sessionId: 'session-1',
       frameIndex: 7,
       videoUrl: '',
+      sourceUrl: '',
       timestampSec: 3,
       capturedAt: 0,
     });
@@ -263,6 +265,7 @@ describe('FrameSampler verdict latency', () => {
       sessionId: 'session-1',
       frameIndex: 3,
       videoUrl: '',
+      sourceUrl: '',
       timestampSec: 1,
       capturedAt: 1_400,
     });
@@ -285,6 +288,7 @@ describe('FrameSampler verdict latency', () => {
         sessionId: 'session-1',
         frameIndex: index,
         videoUrl: '',
+        sourceUrl: '',
         timestampSec: index,
         capturedAt: 1_000 + index,
       });
@@ -324,6 +328,7 @@ describe('FrameSampler teardown', () => {
       sessionId: 'session-1',
       frameIndex: 1,
       videoUrl: '',
+      sourceUrl: '',
       timestampSec: 0,
       capturedAt: 0,
     });

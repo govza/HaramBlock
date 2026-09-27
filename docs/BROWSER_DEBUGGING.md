@@ -119,10 +119,10 @@ reach buttons with `el.shadowRoot.querySelector(...)` and `.click()` them from t
 
 Extension pages share the service worker's origin and see the same IndexedDB. Navigate an existing
 tab to `chrome-extension://<id>/popup.html` (find the id on `chrome://extensions` — unpacked ids are
-profile-specific), then evaluate a plain `indexedDB.open('ImageDatabase')` → `getAll()` on the
-`predictions` store. This exposes each prediction's `width/height`, `maskTransform`, and RLE masks —
-invariants like `maskTransform.scaleX × mask.width ≈ width` can be audited in bulk, and the RLE can
-be decoded in-page to measure the mask's extent inside its grid.
+profile-specific), then evaluate a plain `indexedDB.open('MediaCacheDatabase')` → `getAll()` on the
+`imagePredictions` store. This exposes each prediction's `width/height`, `maskTransform`, and RLE
+masks — invariants like `maskTransform.scaleX × mask.width ≈ width` can be audited in bulk, and the
+RLE can be decoded in-page to measure the mask's extent inside its grid.
 
 ### Temporary instrumentation beats deduction
 

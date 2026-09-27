@@ -18,6 +18,7 @@ import { SPAN } from '@/utils/telemetry/roundtrip';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
+import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type {
   FrameInferenceResult,
   GifFrameInferenceResult,
@@ -143,6 +144,7 @@ export class InferenceOrchestrationService {
   constructor(
     private queueService: QueueService,
     private imageCacheService: ImageCacheService,
+    private videoPredictionCacheService: VideoPredictionCacheService,
   ) {
     this.setupEventHandlers();
   }
@@ -398,6 +400,11 @@ export class InferenceOrchestrationService {
     try {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
+        try {
+          this.videoPredictionCacheService.record(framePrediction);
+        } catch (error) {
+          log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
+        }
         this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction, traceparent }], task.hostname);
       } else if (task.mediaMetadata.kind === 'gifFrame') {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
@@ -409,7 +416,9 @@ export class InferenceOrchestrationService {
         // A cache write failure must not suppress the reply - the verdict is
         // already computed and content is waiting on it.
         try {
-          await this.imageCacheService.cachePredictions([imagePrediction]);
+          await this.imageCacheService.cachePredictions([
+            { ...imagePrediction, modelId: getCurrentModelId() ?? 'unknown' },
+          ]);
         } catch (error) {
           log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
         }
@@ -423,6 +432,7 @@ export class InferenceOrchestrationService {
   private toFramePrediction(imagePrediction: IImagePrediction, frameMetadata: IFrameMetadata): IFramePrediction {
     return {
       videoUrl: frameMetadata.videoUrl,
+      sourceUrl: frameMetadata.sourceUrl,
       src: imagePrediction.src,
       frameIndex: frameMetadata.frameIndex,
       timestampSec: frameMetadata.timestampSec,

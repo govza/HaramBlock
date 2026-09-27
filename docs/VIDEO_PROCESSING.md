@@ -157,6 +157,7 @@ Key invariants:
 | DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                                       | Delayed audio for origin-tainted sources: hidden `<audio>` on the original URL at `currentTime − D`; also owns the pending-route mute hold (ADR 0002)                                              |
 | DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                                                                            | Plays out the buffered tail at 1x after `ended`, then pins the final frame                                                                                                                         |
 | Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts`                                                  | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                                                                                                           |
+| Prediction cache     | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`           | Buffered persistence of playback verdicts per cache key; read by the registry on attach                                                                                                            |
 
 ### The pure machine
 
@@ -253,10 +254,43 @@ Each Frame Sample has two deliberately separate identities:
 
 - **Live routing** — `sessionId + frameIndex`; used for staleness and delivery to the current
   VideoSession, never suitable as a persistent key.
-- **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same
-  URL-backed media and the starting point for future verdict caching. Object-backed streams use a
-  session-local, non-cacheable `videoUrl` label. A `CapturedFrameSample` attaches pixels, source
-  dimensions, and capture time to both identities. No video verdicts are persisted yet.
+- **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same media and
+  the key of the persisted verdict cache. `videoUrl` is the session's **cache key**
+  (`verdictCacheKey.ts`): the media URL for file-backed sources, the normalized page URL (hash,
+  `t`/`list`/`index`/`utm_*`-style volatile params dropped) for `blob:` (MSE) sources such as
+  YouTube; the unmodified media URL travels alongside as `sourceUrl` and is stored on the row.
+  Object-backed (`srcObject`) streams use a session-local, non-cacheable label. A
+  `CapturedFrameSample` attaches pixels, source dimensions, and capture time to both identities.
+
+### Verdict cache
+
+Playback predictions persist in the `videoPredictions` table of `MediaCacheDatabase`
+(`utils/db/db.ts`) as one row per cache key holding its Frame Sample `samples`: `timestampSec`,
+predictions, and `input` (the inference input bitmap size plus its mask transform, i.e. the
+coordinate space the masks are in; it is per sample because the capture size follows the active
+model). The row also carries the `modelId` of the last write, the user's `forcedVisibility`
+quick-toggle for that video (restored on attach, so a "show"/"block" choice survives reloads; the
+in-memory `ForcedPresentation` override stays the runtime source of truth), and
+`cacheMetadata.accessedAt`, refreshed on every read. `VideoPredictionCacheService` (background)
+buffers each `IFramePrediction` and merges the batch into the row every 2 s or 50 samples,
+deduplicating by `timestampSec` and capping at `MAX_VERDICT_TIMELINE_ENTRIES` (oldest timestamps
+drop first). Rows expire by the same clamped `maxAge` rule as image predictions (`cacheUtils.ts`,
+30–90 days) and are swept at background startup.
+
+On attach the registry fetches the row by cache key and seeds the session's Verdict Timeline with it
+(live entries win within 1 ms) and marks confident cached hits against the current strictness, so a
+locally answered sample is judged by the same transient-run rules as a live one. Changing strictness
+in the popup empties the site's rows (keeping `forcedVisibility`). The cache key is re-derived
+before each use; if the page URL moved under a blob source (SPA navigation racing attach), the
+session drops its seeded entries and stops caching. A persisted override is not re-applied on the
+attach the user's own toggle triggered. When the machine asks for a sample whose `timestampSec` has
+a seeded (cached, never live) verdict within `CACHED_VERDICT_MAX_GAP_SEC` (0.25 s, one sampling
+floor), the registry answers it locally: no capture, transfer, or inference. It dispatches
+`sampleSent` and `predictionReceived` with a synthetic `IFramePrediction` bound to the live
+`sessionId + frameIndex`, so masking, DVR start, and the watchdog behave exactly as for a live
+verdict, and the coverage-derived `D` drops to `COVERED_DVR_DELAY_MS`. Uncovered ranges fall through
+to live sampling and their verdicts extend the row. Thumbnails (frame −1) always go live; beyond the
+strictness clear, no media-revision or model-identity invalidation is applied.
 
 Paused seeks retain their selected `timestampSec` while another sample is in flight. The cached CORS
 decoder also waits for its seek to that timestamp to complete before drawing, keeping the timeline
@@ -619,11 +653,5 @@ where audio cannot be delayed receive no protection at all.
 - **Loop verdict+ring reuse** — the Verdict Timeline already survives seeks and loop restarts
   (covered re-warms derive a small `D`); for loops specifically, keeping the ring too would remove
   even the short covered re-buffer.
-- **Prediction caching and persistence** — persist verdicts (not frames) from the reusable
-  `videoUrl + timestampSec` side of Frame Sample identity, augmented with media revision and model
-  identity. Cache hits must be rebound to the requesting `sessionId + frameIndex`; those routing
-  fields must never become persistent keys.
-- **Timeline synchronization** — seed the session's Verdict Timeline from cached timeline verdicts
-  and infer only uncovered ranges during playback, seek, and replay. With coverage-derived `D`
-  already in place, a fully cached video plays at `COVERED_DVR_DELAY_MS` from the first unsafe
-  verdict.
+- **Verdict cache invalidation** — the persisted verdict cache keys by media URL / page URL only;
+  media revision and model identity could be added if stale hits become a problem in practice.
