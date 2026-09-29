@@ -33,6 +33,24 @@ fps, inference latency, anomaly dumps, traces) open the local Grafana stack -
    `netstat -ano | grep :3000`, kill it with `taskkill /PID <pid> /F` (Windows) or `kill <pid>`
    (POSIX), and confirm the port is free.
 
+## Firefox
+
+The chrome-devtools MCP and the `pnpm dev` debug profile are Chromium-only. When a bug reproduces
+only in Firefox (a `moz-extension://` URL in a pasted DOM is the tell), don't debug it in Chrome:
+Firefox runs a different transport (Blob over `browser.runtime`, see
+[MESSAGING_CHANNEL.md](MESSAGING_CHANNEL.md)) and a different content-script sandbox.
+
+- **Manual:** `pnpm dev:firefox`; background console at `about:debugging` → HaramBlock → Inspect.
+- **Automated:** drive Firefox through the WebdriverIO e2e stack. `pnpm build:firefox`, then run a
+  throwaway probe feature with `IS_FIREFOX=true` and a tag filter (see [TESTING.md](TESTING.md)).
+  Use unique step wording — a duplicate step pattern silently skips steps — and delete the probe
+  afterwards.
+- **No console capture:** content-script logs are not collected on this path. Record diagnostics on
+  the DOM instead — e.g. append trace steps to a temporary `data-hb-debug` attribute and write a
+  caught error's `stack` to another — then read them back from the probe with `browser.execute`.
+- **Sandbox gotcha:** Firefox content scripts see page-object iterators through Xray wrappers; e.g.
+  `[...url.searchParams.keys()]` throws `is not iterable`. Iterate strings (`url.search`) instead.
+
 ## Extension Pages and Force-Reload
 
 - `new_page` cannot open `chrome-extension://` URLs, but `navigate_page` on an existing tab can —
