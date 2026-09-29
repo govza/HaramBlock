@@ -1,6 +1,4 @@
-const VOLATILE_PAGE_PARAMS = new Set(['t', 'start', 'list', 'index', 'pp', 'si', 'feature', 'fbclid', 'gclid']);
-
-export function normalizePageUrl(href: string): string {
+export function withoutFragment(href: string): string {
   let url: URL;
   try {
     url = new URL(href);
@@ -8,14 +6,11 @@ export function normalizePageUrl(href: string): string {
     return href;
   }
   url.hash = '';
-  for (const name of [...url.searchParams.keys()]) {
-    if (VOLATILE_PAGE_PARAMS.has(name) || name.startsWith('utm_')) url.searchParams.delete(name);
-  }
-  return url.toString();
+  return url.href;
 }
 
 export function toVerdictCacheKey(sourceUrl: string, pageHref = globalThis.location?.href ?? ''): string {
   if (!sourceUrl) return '';
-  if (sourceUrl.startsWith('blob:')) return normalizePageUrl(pageHref);
+  if (sourceUrl.startsWith('blob:')) return withoutFragment(pageHref);
   return sourceUrl;
 }

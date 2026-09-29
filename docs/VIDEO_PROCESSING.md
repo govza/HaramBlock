@@ -256,11 +256,12 @@ Each Frame Sample has two deliberately separate identities:
   VideoSession, never suitable as a persistent key.
 - **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same media and
   the key of the persisted verdict cache. `videoUrl` is the session's **cache key**
-  (`verdictCacheKey.ts`): the media URL for file-backed sources, the normalized page URL (hash,
-  `t`/`list`/`index`/`utm_*`-style volatile params dropped) for `blob:` (MSE) sources such as
-  YouTube; the unmodified media URL travels alongside as `sourceUrl` and is stored on the row.
-  Object-backed (`srcObject`) streams use a session-local, non-cacheable label. A
-  `CapturedFrameSample` attaches pixels, source dimensions, and capture time to both identities.
+  (`verdictCacheKey.ts`): the media URL for file-backed sources, the page URL without its fragment
+  for `blob:` (MSE) sources such as YouTube (query kept whole: a differing query only misses the
+  cache, while dropping params could merge distinct videos); the unmodified media URL travels
+  alongside as `sourceUrl` and is stored on the row. Object-backed (`srcObject`) streams use a
+  session-local, non-cacheable label. A `CapturedFrameSample` attaches pixels, source dimensions,
+  and capture time to both identities.
 
 ### Verdict cache
 
