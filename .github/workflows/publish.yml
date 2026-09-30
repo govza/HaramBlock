@@ -23,11 +23,6 @@ on:
         required: false
         default: true
         type: boolean
-      edge:
-        description: "Publish to Edge Add-ons"
-        required: false
-        default: true
-        type: boolean
       dry_run:
         description: "Dry run (test without publishing)"
         required: false
@@ -40,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require at least one publish target
-        if: ${{ !inputs.chrome && !inputs.firefox && !inputs.edge }}
+        if: ${{ !inputs.chrome && !inputs.firefox }}
         run: |
-          echo "::error::No publish target selected — check at least one of chrome/firefox/edge (a run with zero targets would still bump/tag/release)."
+          echo "::error::No publish target selected — check at least one of chrome/firefox (a run with zero targets would still bump/tag/release)."
           exit 1
 
   bump-version:
@@ -117,9 +112,6 @@ jobs:
       FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
       FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
       FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
-      EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
-      EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
-      EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -168,7 +160,3 @@ jobs:
       - name: Submit to Firefox Add-ons
         if: inputs.firefox && !cancelled() && steps.zip.conclusion == 'success'
         run: pnpm submit:firefox
-
-      - name: Submit to Edge Add-ons
-        if: inputs.edge && !cancelled() && steps.zip.conclusion == 'success'
-        run: pnpm submit:edge
