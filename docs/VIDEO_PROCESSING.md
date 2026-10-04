@@ -197,8 +197,8 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
   `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
   later `video.currentTime`. Firefox keeps counting `mediaTime` across a native loop (past the
-  duration), so the ticker folds it back by whole durations (`foldLoopedMediaTime`); sampling and
-  the Verdict Timeline use that folded time, while the DVR run unwraps it again into a continuous
+  duration), so the ticker folds it back by whole durations (`foldToMediaTime`); sampling and the
+  Verdict Timeline use that folded time, while the DVR run unwraps it again into a Continuous Time
   ring key (see Loop continuity). An rAF loop gated on playback state is the fallback for engines
   without rVFC.
 - **Viewport lifecycle**: a shared `IntersectionObserver` keeps sessions within 400 px of the
@@ -463,13 +463,13 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A
   DVR still `warming` at `ended` has no tail to drain and `bufferReady` can never fire, so it hands
   back to the DOM overlay instead of latching its warm-up blur forever.
-- **Seek**: a native loop wrap (`loopWrap`) is not a seek — it samples the new frame and keeps the
-  DVR running (see Loop continuity). Any other seek is a ring discontinuity → flush and re-warm
-  (stopDvr/startDvr) with a freshly derived `D` — the store itself treats a backwards capture key
-  within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a re-delivered stale frame (dropped, buffer kept)
-  and only flushes on a larger step — small when the seek lands in a range the timeline already
-  covers, so re-visited content barely pauses. The warm-up cover is re-established under the same
-  fail-closed rule: whole-blur while masked or verdict-pending; a resumed skipped session stays
+- **Seek**: a Loop Restart (`loopRestarted` event) is not a seek — it samples the new frame and
+  keeps the DVR running (see Loop continuity). Any other seek is a ring discontinuity → flush and
+  re-warm (stopDvr/startDvr) with a freshly derived `D` — the store itself treats a backwards
+  capture key within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a re-delivered stale frame (dropped,
+  buffer kept) and only flushes on a larger step — small when the seek lands in a range the timeline
+  already covers, so re-visited content barely pauses. The warm-up cover is re-established under the
+  same fail-closed rule: whole-blur while masked or verdict-pending; a resumed skipped session stays
   deliberately uncovered.
 - **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
   hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
@@ -678,12 +678,15 @@ extra warm-up on every DVR start.
 
 ### Loop continuity
 
-A native loop wrap fires `seeked`; treating it as a seek rebuilt the DVR each loop and froze short
-looping clips. The registry flags tail→head wraps as `loopWrap` (`video/loopClock.ts`
-`isLoopRestartSeek`) and the machine then leaves the DVR running. Inside the run, capture keys and
-`currentTime` pass through their own `createLoopUnwrapper`, so ring keys and the presenter's
-`PlaybackClock` stay continuous; verdict lookups fold back to media time (`foldLoopedMediaTime`). A
-real seek still restarts the run.
+A native Loop Wrap fires `seeked`; treating it as a seek rebuilt the DVR each loop and froze short
+looping clips. The registry dispatches a Loop Restart as its own `loopRestarted` event instead of
+`seeked` (`video/loopClock.ts` `createLoopRestartDetector`), and the machine samples it without
+restarting the DVR. Browsers report the head-of-loop position in a `timeupdate` before `seeked`,
+with `seeking` already false (measured on Chrome and Firefox), so the detector ignores a wrap-sized
+backward jump and classifies against the tail position. Inside the run, rVFC keys, tap keys and
+`currentTime` each pass through their own `createLoopUnwrapper` (`unwrapRvfcTime`, `unwrapTapTime`,
+`unwrapPlaybackTime`), so ring keys and the presenter's `PlaybackClock` run on Continuous Time;
+verdict lookups fold back to media time (`foldToMediaTime`). A real seek still restarts the run.
 
 ## Testing
 
@@ -703,8 +706,8 @@ real seek still restarts the run.
   reports), coverage-derived delay derivation, the budget-derived capture scale, the global ring
   budget's degradation ladder, the drain clock, the presented-fps simulation harness parameterized
   over both stores, and the run's continuous loop keys and presenter clock (`run.test.ts`).
-  `entrypoints/content/video/__tests__/loopClock.test.ts` covers loop unwrapping, `isLoopWrap` and
-  `isLoopRestartSeek`.
+  `entrypoints/content/video/__tests__/loopClock.test.ts` covers loop unwrapping, `isLoopWrap`,
+  `isLoopRestartSeek` and the registry's loop-restart detector.
 - **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
   the `<source>`-child discovery path, DVR canvas takeover on a clean playing video, and an unsafe
   verdict landing mid-playback compositing into the running DVR without a whole-blur flash.

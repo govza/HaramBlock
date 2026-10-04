@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createLoopRestartDetector,
   createLoopUnwrapper,
   isLoopRestartSeek,
   isLoopWrap,
@@ -67,5 +68,46 @@ describe('isLoopRestartSeek', () => {
   it('rejects a user seek back to the start from mid-clip', () => {
     expect(isLoopRestartSeek(looping(10), 7, 0)).toBe(false);
     expect(isLoopRestartSeek(looping(10), 9.8, 2)).toBe(false);
+  });
+});
+
+describe('createLoopRestartDetector', () => {
+  it('classifies a native restart whose head-of-loop timeupdate lands before seeked', () => {
+    const detector = createLoopRestartDetector(looping(2.5));
+    detector.observePlayback(2.3, false);
+    detector.observePlayback(2.45, false);
+    detector.observePlayback(0.0001, false);
+    expect(detector.isLoopRestart(0)).toBe(true);
+  });
+
+  it('keeps classifying restarts loop after loop', () => {
+    const detector = createLoopRestartDetector(looping(2.5));
+    for (let loop = 0; loop < 3; loop++) {
+      detector.observePlayback(1.2, false);
+      detector.observePlayback(2.4, false);
+      detector.observePlayback(0.0001, false);
+      expect(detector.isLoopRestart(0)).toBe(true);
+    }
+  });
+
+  it('treats a user seek back to the start from mid-clip as a real seek', () => {
+    const detector = createLoopRestartDetector(looping(10));
+    detector.observePlayback(7, false);
+    detector.observePlayback(0, true);
+    expect(detector.isLoopRestart(0)).toBe(false);
+  });
+
+  it('ignores positions reported while a seek is in progress', () => {
+    const detector = createLoopRestartDetector(looping(10));
+    detector.observePlayback(9.8, false);
+    detector.observePlayback(4, true);
+    expect(detector.isLoopRestart(0.02)).toBe(true);
+  });
+
+  it('forgets the playback position after a reset', () => {
+    const detector = createLoopRestartDetector(looping(2.5));
+    detector.observePlayback(2.4, false);
+    detector.reset();
+    expect(detector.isLoopRestart(0)).toBe(false);
   });
 });
