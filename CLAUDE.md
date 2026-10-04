@@ -7,7 +7,7 @@
   `pnpm build` is the alternative setup — [docs/PLAYWRIGHT.md](docs/PLAYWRIGHT.md).
   - Drive a browser only in rare cases where automation is explicitly needed. Prefer asking the user
     to test manually first. When automation is warranted, delegate the browser-driving to a subagent
-    on a cheaper/lighter model (e.g. Haiku) instead of running it from the main session.
+    on Sonnet (`model: "sonnet"`) instead of running it from the main session.
 
 ## Agent skills
 
