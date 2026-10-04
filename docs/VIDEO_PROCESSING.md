@@ -197,8 +197,10 @@ owns lifecycle and the dispatch loop, and routes each machine effect to the modu
   (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
   `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
   later `video.currentTime`. Firefox keeps counting `mediaTime` across a native loop (past the
-  duration), so the ticker folds it back by whole durations (`foldLoopedMediaTime`) before the DVR
-  ring keys on it. An rAF loop gated on playback state is the fallback for engines without rVFC.
+  duration), so the ticker folds it back by whole durations (`foldLoopedMediaTime`); sampling and
+  the Verdict Timeline use that folded time, while the DVR run unwraps it again into a continuous
+  ring key (see Loop continuity). An rAF loop gated on playback state is the fallback for engines
+  without rVFC.
 - **Viewport lifecycle**: a shared `IntersectionObserver` keeps sessions within 400 px of the
   viewport active. Scrolled-away videos retain their verdict state but stop their frame ticker and
   release any DVR player, audio delay, and frame ring. Leaving the margin only suspends after a 1 s
@@ -348,8 +350,8 @@ presentation exactly like a slow decoder. The raise is the larger of a fixed ste
 capture→presentable lag, and each DVR run starts with a one-delta holdoff so the decoder's warm-up
 priming misses never count. Stall-driven raises also persist as a session-lifetime floor under the
 derived D (`dvrStallFloorSec`): a store that proved it cannot serve the small covered D must not
-re-limp through the same raises after every seek/loop re-warm. An **analysis underrun** — the
-derived D clamped at its ceiling while coverage ahead of the playhead still trails the latched D
+re-limp through the same raises after every seek re-warm. An **analysis underrun** — the derived D
+clamped at its ceiling while coverage ahead of the playhead still trails the latched D
 (`isAnalysisUnderrun`), sustained over `UNDERRUN_VERDICT_STREAK` consecutive verdicts — dispatches
 `analysisUnderrun` to the machine: the first widens the sampling floor to `RELIEVED_SAMPLE_FLOOR_MS`
 (fewer samples relieve inference pressure), and a second sustained underrun after relief demotes the
@@ -385,10 +387,11 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   software H.264 decoder runs off the main thread either way. Chrome draws a decoded frame in well
   under a millisecond and runs without a converter. Ring capture is driven by a full-rate **capture
   tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame,
-  keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — rVFC alone
-  misses frames on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever
-  the tap is absent or stalls (media-time liveness window, no explicit health protocol). The intent
-  split: **inference samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while
+  keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — Firefox
+  has no `MediaStreamTrackProcessor`, so it always captures on rVFC alone — rVFC alone misses frames
+  on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever the tap is
+  absent or stalls (media-time liveness window, no explicit health protocol). The intent split:
+  **inference samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while
   **presented frames are full video frames at the native rate** when the encoded store carries the
   ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
   codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
@@ -460,12 +463,14 @@ Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the prese
   frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A
   DVR still `warming` at `ended` has no tail to drain and `bufferReady` can never fire, so it hands
   back to the DOM overlay instead of latching its warm-up blur forever.
-- **Seek**: ring discontinuity → flush and re-warm (stopDvr/startDvr) with a freshly derived `D` —
-  the store itself treats a backwards capture key within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a
-  re-delivered stale frame (dropped, buffer kept) and only flushes on a larger step — small when the
-  seek lands in a range the timeline already covers, so re-visited content barely pauses. The
-  warm-up cover is re-established under the same fail-closed rule: whole-blur while masked or
-  verdict-pending; a resumed skipped session stays deliberately uncovered.
+- **Seek**: a native loop wrap (`loopWrap`) is not a seek — it samples the new frame and keeps the
+  DVR running (see Loop continuity). Any other seek is a ring discontinuity → flush and re-warm
+  (stopDvr/startDvr) with a freshly derived `D` — the store itself treats a backwards capture key
+  within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a re-delivered stale frame (dropped, buffer kept)
+  and only flushes on a larger step — small when the seek lands in a range the timeline already
+  covers, so re-visited content barely pauses. The warm-up cover is re-established under the same
+  fail-closed rule: whole-blur while masked or verdict-pending; a resumed skipped session stays
+  deliberately uncovered.
 - **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
   hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
   ERROR, source change, and the undelayable-audio demotion. Pause, `ended`, and clean streaks are
@@ -532,16 +537,17 @@ and the budget-derived capture scale (`dvr/captureScale.ts`): the largest captur
 min(display size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack
 inside the byte cap. On Firefox the raw ring's ceiling is additionally held at 960 px
 (`FIREFOX_RAW_CAPTURE_MAX_WIDTH`): a native-width raw ring holds ~570 MB of RGBA in the content
-process (200 MB at 960 px), and Firefox's `drawImage` from a video is source-bound (~18 ms per frame
-at either width), so the ceiling buys memory headroom rather than main-thread time; the encoded ring
-captures at native resolution regardless (its present cost is moved off the main thread by the
-decoded-frame converter instead). A live ring never shrinks below its latched `D`, or presentation
-would strand on the warm-up frame. The presenter's base canvas backs at device-pixel resolution
-(capped at the buffered frame's own width) and draws in whole device pixels through the identity
-transform (`toDevicePixels`), so a frame that matches the backing store is a 1:1 blit; on Firefox
-both presenter canvases are created with `willReadFrequently` so that blit stays a memcpy into a
-software canvas instead of a texture upload. Only the mask canvas keeps `image-rendering: pixelated`
-(its blockiness is the masking effect itself).
+process (200 MB at 960 px), and Firefox's `drawImage` from a video is source-bound (~10 ms per 720p
+source frame, 15–18 ms per 1080p, at either capture width), so the ceiling buys memory headroom
+rather than main-thread time; the encoded ring captures at native resolution regardless (its present
+cost is moved off the main thread by the decoded-frame converter instead). A live ring never shrinks
+below its latched `D`, or presentation would strand on the warm-up frame. The presenter's base
+canvas backs at device-pixel resolution (capped at the buffered frame's own width) and draws in
+whole device pixels through the identity transform (`toDevicePixels`), so a frame that matches the
+backing store is a 1:1 blit; on Firefox both presenter canvases are created with
+`willReadFrequently` so that blit stays a memcpy into a software canvas instead of a texture upload.
+Only the mask canvas keeps `image-rendering: pixelated` (its blockiness is the masking effect
+itself).
 
 Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
 the video's next sibling with the video's own z-index (see
@@ -628,6 +634,57 @@ Accepted consequences (per ADR 0001): every processed video pays ~`D` of pinned 
 memory while playing; the seek bar reads `D` ahead of the picture; endings complete ~`D` late; sites
 where audio cannot be delayed receive no protection at all.
 
+### Measured: masking without the ring (2026-10)
+
+"Drop the DVR and mask as verdicts arrive" was measured end to end (RTX 3080 Ti, WebGPU, warm
+model): round-trip p50 73–108 ms, p99 ≤ 169 ms; sampling runs ~4 samples/s. A ring-less mask
+therefore lags content by ~330–450 ms, and a cold start (WebGPU warm-up) by over a second. Ring-less
+masking is leak-free only if every frame is analyzed within one frame interval (16–41 ms), so the
+ring stays — the sampling interval, not inference, dominates. Use `hb.inference.roundtrip_ms` for
+end-to-end figures; the Tempo `inference.roundtrip` span ends at the RPC ack. Capture + WebP encode
+(26–53 ms) costs about as much as inference itself (33–46 ms).
+
+| Round-trip ms p50 / p90 / p99 (Firefox 157, `sem-i448`) | Value                |
+| ------------------------------------------------------- | -------------------- |
+| Gallery 720p safe                                       | 73 / 101 / 157       |
+| Gallery 720p unsafe                                     | 76 / 82 / 98         |
+| YouTube 1080p                                           | 108 / 126 / 169      |
+| Cold first page (WebGPU warm-up queue wait)             | p90 ~1600, max ~3100 |
+
+### Measured: raw-ring frame drops (2026-10)
+
+The raw ring's synchronous main-thread `drawImage(video)` capture (10–15 ms per frame) and its
+`DVR_CAPTURE_INTERVAL_SEC` throttle lose frames: 1080p60 sources present at ~20–27 fps, and
+rVFC-driven capture also misses frames when the render step slips (`getVideoPlaybackQuality()`
+reports 0 dropped — the loss is ours). The encoded ring captures a `VideoFrame` at native cadence
+and encodes off the main thread (on Chrome 1080p60 at 60 fps, ~6 ms/s more main thread), so it is
+the default in every build (`frameStoreFactory.ts`). Raw remains the automatic fallback, explained
+by `hb_dvr_store_reason`; cross-origin videos without CORS (`SecurityError` on `new VideoFrame`)
+always stay raw.
+
+| Source (RTX 3080 Ti)               | Raw ring                    | Encoded ring                         |
+| ---------------------------------- | --------------------------- | ------------------------------------ |
+| YouTube 1080p60, Firefox           | ~20 fps, ~0.5 ms draw/frame | ~24–25 fps, ~12 ms draw/frame        |
+| Gallery 720p24, Firefox            | ≤28 lost / 20 s             | n/a — cross-origin without CORS, raw |
+| Same-origin 1080p60, Chrome Canary | ~27 fps, 12 ms/s            | 60 fps, 18 ms/s                      |
+| Raw capture cost per frame         | ~10 ms 720p, 15–18 ms 1080p | -                                    |
+
+Open gaps: on Firefox YouTube the encoded ring does not fix the drops — Trusted Types block the
+decoded-frame converter worker, so every decoded frame is colour-converted on the main thread.
+Chrome figures are Canary with a local file; YouTube on stable Chrome and several concurrent videos
+against `ENCODED_SESSION_CAP` are untested. Encoder start-up: Firefox's encoder emits nothing until
+~17 frames are queued and outputs them reordered, costing ~0.7 s at 24 fps (~1.7 s at 10 fps) of
+extra warm-up on every DVR start.
+
+### Loop continuity
+
+A native loop wrap fires `seeked`; treating it as a seek rebuilt the DVR each loop and froze short
+looping clips. The registry flags tail→head wraps as `loopWrap` (`video/loopClock.ts`
+`isLoopRestartSeek`) and the machine then leaves the DVR running. Inside the run, capture keys and
+`currentTime` pass through their own `createLoopUnwrapper`, so ring keys and the presenter's
+`PlaybackClock` stay continuous; verdict lookups fold back to media time (`foldLoopedMediaTime`). A
+real seek still restarts the run.
+
 ## Testing
 
 - **Unit** (`entrypoints/content/video/session/__tests__/machine.test.ts`): every machine behavior —
@@ -635,24 +692,24 @@ where audio cannot be delayed receive no protection at all.
   hysteresis, watchdog re-blur + self-heal, lost-sample slot recovery, paused-seek one-shots,
   terminal allow (error streak + permanent failures), terminal disposal, play-preempts-thumbnail,
   and the continuous-DVR lifecycle (start on play, warm-up cover rules, bufferReady, clean streak
-  staying in the DVR, pause hold, ended drain, seek re-warm, suspension hand-back, undelayable-audio
-  demotion, dispose). `entrypoints/content/video/dvr/__tests__/` covers the shared `DvrFrameStore`
-  contract run against both the raw and (mock-codec) encoded rings (selection, eviction,
-  discontinuity flush, release), encoded-ring specifics (GOP keyframing, decode-ahead, backpressure
-  drops, keyframe re-warm, codec-error teardown), the store factory's selection matrix (probe ×
-  concurrency cap × prior error × flag), the VerdictTimeline (coverage-ahead, entry cap), the
-  Verdict Interpreter (clean-cut rule, inertia merging, Transient Hit suppression, Confident Hit
-  overturn, per-run latching, sample classification, run-resolution reports), coverage-derived delay
-  derivation, the budget-derived capture scale, the global ring budget's degradation ladder, the
-  drain clock, and the presented-fps simulation harness parameterized over both stores.
+  staying in the DVR, pause hold, ended drain, seek re-warm, loop wrap keeping the DVR, suspension
+  hand-back, undelayable-audio demotion, dispose). `entrypoints/content/video/dvr/__tests__/` covers
+  the shared `DvrFrameStore` contract run against both the raw and (mock-codec) encoded rings
+  (selection, eviction, discontinuity flush, release), encoded-ring specifics (GOP keyframing,
+  decode-ahead, backpressure drops, keyframe re-warm, codec-error teardown), the store factory's
+  selection matrix (probe × concurrency cap × prior error × flag), the VerdictTimeline
+  (coverage-ahead, entry cap), the Verdict Interpreter (clean-cut rule, inertia merging, Transient
+  Hit suppression, Confident Hit overturn, per-run latching, sample classification, run-resolution
+  reports), coverage-derived delay derivation, the budget-derived capture scale, the global ring
+  budget's degradation ladder, the drain clock, the presented-fps simulation harness parameterized
+  over both stores, and the run's continuous loop keys and presenter clock (`run.test.ts`).
+  `entrypoints/content/video/__tests__/loopClock.test.ts` covers loop unwrapping, `isLoopWrap` and
+  `isLoopRestartSeek`.
 - **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
   the `<source>`-child discovery path, DVR canvas takeover on a clean playing video, and an unsafe
   verdict landing mid-playback compositing into the running DVR without a whole-blur flash.
 
 ## Future enhancements
 
-- **Loop verdict+ring reuse** — the Verdict Timeline already survives seeks and loop restarts
-  (covered re-warms derive a small `D`); for loops specifically, keeping the ring too would remove
-  even the short covered re-buffer.
 - **Verdict cache invalidation** — the persisted verdict cache keys by media URL / page URL only;
   media revision and model identity could be added if stale hits become a problem in practice.
