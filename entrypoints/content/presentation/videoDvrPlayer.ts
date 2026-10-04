@@ -87,6 +87,8 @@ export interface VideoDvrPlayerOptions {
    * sample→verdict round-trips.
    */
   getDelaySec: () => number;
+  playbackTime: () => number;
+  verdictTime: (mediaTime: number) => number;
   /** Live view of the host masking settings (quick toggle may change them). */
   getMasking: () => IMaskingSettings;
   /** Fired once, when the canvas takes over (first buffered frame, pinned until the buffer spans D). */
@@ -192,9 +194,9 @@ export class VideoDvrPlayer {
    */
   startDrain(): void {
     if (this.destroyed || this.drainClock) return;
-    const { video, store, getDelaySec } = this.opts;
+    const { store, getDelaySec, playbackTime } = this.opts;
     this.drainClock = startDrainClock(
-      clampToOldest(video.currentTime - getDelaySec(), store.oldestTime()),
+      clampToOldest(playbackTime() - getDelaySec(), store.oldestTime()),
       performance.now() / 1000,
     );
   }
@@ -240,11 +242,11 @@ export class VideoDvrPlayer {
   };
 
   private reportPresented(presentMs: number): void {
-    const { onPresented, video } = this.opts;
+    const { onPresented, playbackTime } = this.opts;
     if (!onPresented || !this.hasPresentedFrame || this.presentedClockSec === null) return;
     const sample = this.presentedSample;
     if (!sample) return;
-    sample.mediaTime = video.currentTime;
+    sample.mediaTime = playbackTime();
     sample.targetTime = this.presentedClockSec;
     sample.frameTimeServed = this.lastPresentedMediaTime;
     sample.outcome = this.lastDrawOutcome;
@@ -352,7 +354,7 @@ export class VideoDvrPlayer {
   }
 
   private draw(): void {
-    const { video, store, verdicts, getDelaySec, getMasking } = this.opts;
+    const { video, store, verdicts, getDelaySec, getMasking, playbackTime, verdictTime } = this.opts;
     const { surfaces } = this;
     if (!surfaces) return;
     const { width, height } = this.lastSize;
@@ -370,11 +372,12 @@ export class VideoDvrPlayer {
     const nowSec = performance.now() / 1000;
     const wallDt = this.lastTickWallSec === null ? 0 : nowSec - this.lastTickWallSec;
     this.lastTickWallSec = nowSec;
+    const livePlaybackTime = playbackTime();
     const idealTarget =
       this.drainClock && newest !== null
         ? drainTargetTime(this.drainClock, nowSec, newest)
-        : clampToOldest(video.currentTime - delaySec, oldest);
-    this.lastDrawPinned = !this.drainClock && oldest !== null && video.currentTime - delaySec < oldest;
+        : clampToOldest(livePlaybackTime - delaySec, oldest);
+    this.lastDrawPinned = !this.drainClock && oldest !== null && livePlaybackTime - delaySec < oldest;
     let targetTime = idealTarget;
     if (this.hasPresentedFrame && !this.drainClock && this.presentedClockSec !== null) {
       const maxAdvance = video.paused ? 0 : wallDt * video.playbackRate * PRESENTED_CATCH_UP_RATE;
@@ -388,7 +391,7 @@ export class VideoDvrPlayer {
     // When inference cannot keep up, stretch verdicts (inertia) further rather
     // than blurring: the bridge horizon scales with the observed round-trip.
     const bridgeHorizonSec = Math.max(BRIDGE_HORIZON_SEC, delaySec * 2);
-    const verdict = verdicts.verdictFor(frame ? frame.mediaTime : video.currentTime, bridgeHorizonSec);
+    const verdict = verdicts.verdictFor(frame ? verdictTime(frame.mediaTime) : video.currentTime, bridgeHorizonSec);
 
     // A verdict-less frame always fails closed: a Thumbnail-cleared session
     // must not fail-open playback frames its poster verdict does not describe

@@ -7,6 +7,7 @@
 
 import { cancelVideoSessionInference, requestVideoFrameInference } from '@/entrypoints/content/communication/sender';
 import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
+import { foldLoopedMediaTime } from '@/entrypoints/content/video/dvr/loopClock';
 import { captureFrameBitmap, captureThumbnailBitmap } from '@/entrypoints/content/video/sampling/capture';
 import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
@@ -301,19 +302,6 @@ export class FrameSampler {
       this.ports.dispatch(handle, { type: 'sendFailed', frameIndex, at: performance.now(), permanent });
     }
   }
-}
-
-/**
- * Firefox's rVFC `mediaTime` keeps counting across a native loop (11.3 s on a
- * 10 s clip while `currentTime` reads 1.3 s), so a looping video would key the
- * DVR ring on a timeline the presenter never targets and pin forever. A frame
- * clock past the duration is whole loops ahead and is folded back onto the
- * media timeline; `currentTime` is deliberately not consulted, since it wraps
- * a frame or two before the last frames of a loop are presented.
- */
-export function foldLoopedMediaTime(mediaTime: number, duration: number): number {
-  if (!Number.isFinite(duration) || duration <= 0 || mediaTime < duration) return mediaTime;
-  return mediaTime - Math.floor(mediaTime / duration) * duration;
 }
 
 /**

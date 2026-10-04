@@ -45,7 +45,14 @@ function makeStore(): SessionFrameStore & { misses: number } {
   return store;
 }
 
-function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[]; withTapDriver?: boolean } = {}) {
+function makeHarness(
+  options: {
+    store?: SessionFrameStore;
+    latenciesMs?: number[];
+    withTapDriver?: boolean;
+    loopDurationSec?: number;
+  } = {},
+) {
   const store = options.store ?? makeStore();
   const dispatched: DvrRunEvent[] = [];
   const onDelayChanged = vi.fn();
@@ -54,6 +61,7 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
   let tapDeliver: ((frame: VideoFrame, mediaTime: number) => void) | null = null;
   const driverStop = vi.fn();
   const presenter = { isPlaybackActive: () => true, startDrain: vi.fn(), destroy: vi.fn() };
+  let presenterOptions: Parameters<DvrRunPorts['presenter']['create']>[0] | null = null;
   const budget = {
     quality: () => FULL_QUALITY,
     sessionMaxBytes: () => 1024 * 1024 * 1024,
@@ -68,6 +76,8 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     surface: {
       now: () => nowMs,
       currentTime: () => currentTime,
+      duration: () => options.loopDurationSec ?? 60,
+      loops: () => options.loopDurationSec !== undefined,
       nativeWidth: () => 640,
       nativeHeight: () => 360,
       displayWidth: () => 640,
@@ -81,7 +91,12 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
       tapDeliver = onFrame;
       return { driver: { stop: driverStop }, reason: null };
     },
-    presenter: { create: () => presenter },
+    presenter: {
+      create: options => {
+        presenterOptions = options;
+        return presenter;
+      },
+    },
   };
   const timeline = new VerdictInterpreter();
   const ctx: DvrRunContext = {
@@ -107,6 +122,10 @@ function makeHarness(options: { store?: SessionFrameStore; latenciesMs?: number[
     markStoreKind,
     timeline,
     deliverTapFrame,
+    presenterOptions: () => {
+      if (!presenterOptions) throw new Error('presenter was never created');
+      return presenterOptions;
+    },
     setCurrentTime: (t: number) => {
       currentTime = t;
     },
@@ -239,6 +258,44 @@ describe('DvrRun.onTick', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('keys captures on a continuous timeline across native loop wraps', () => {
+    const store = makeStore();
+    const pushed: number[] = [];
+    store.push = (_frame, mediaTime) => {
+      pushed.push(mediaTime);
+      return true;
+    };
+    vi.stubGlobal(
+      'VideoFrame',
+      class {
+        close() {}
+      },
+    );
+    try {
+      const { run } = makeHarness({ store, loopDurationSec: 2.5 });
+
+      [2.3, 2.4, 0, 0.1].forEach(mediaTime => run.onTick(mediaTime));
+
+      expect(pushed).toHaveLength(4);
+      expect(pushed[2]).toBeCloseTo(2.5, 9);
+      expect(pushed[3]).toBeCloseTo(2.6, 9);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('hands the presenter a continuous playback time and folds frame times onto the verdict timeline', () => {
+    const { presenterOptions, setCurrentTime } = makeHarness({ loopDurationSec: 2.5 });
+    const { playbackTime, verdictTime } = presenterOptions();
+
+    setCurrentTime(2.4);
+    expect(playbackTime()).toBeCloseTo(2.4, 9);
+    setCurrentTime(0.2);
+    expect(playbackTime()).toBeCloseTo(2.7, 9);
+    expect(verdictTime(2.7)).toBeCloseTo(0.2, 9);
+    expect(verdictTime(1.2)).toBeCloseTo(1.2, 9);
   });
 
   it('captures on every tick when no push driver exists', () => {
@@ -388,6 +445,8 @@ function makeHarnessWithTimeline(timeline: VerdictInterpreter, stallFloorSec: nu
     surface: {
       now: () => 0,
       currentTime: () => 10,
+      duration: () => 60,
+      loops: () => false,
       nativeWidth: () => 640,
       nativeHeight: () => 360,
       displayWidth: () => 640,

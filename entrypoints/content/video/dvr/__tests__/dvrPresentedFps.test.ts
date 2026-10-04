@@ -88,3 +88,46 @@ describe.each(CASES)('DVR presented fps: $label', ({ create, frame, captureInter
     store.release();
   });
 });
+
+describe('DVR presented fps: Firefox-like rVFC on the encoded ring', () => {
+  const FIREFOX_SOURCE_FPS = 24;
+  const RAF_HZ = 60;
+  const MAX_RVFC_LATENESS_SEC = 0.012;
+  const SKIP_EVERY_NTH_FRAME = 7;
+  const rvfcLatenessSec = (frameIndex: number) => ((frameIndex * 5) % 4) * (MAX_RVFC_LATENESS_SEC / 3);
+  const toMicros = (sec: number) => Math.round(sec * 1_000_000);
+
+  it('presents every frame rVFC delivers despite late ticks and skipped frames', () => {
+    const store = createEncoded();
+    let lastCapturedMediaTime = -Infinity;
+    let nextFrameIndex = 0;
+    const delivered: number[] = [];
+    const presented = new Set<number>();
+
+    for (let rafTick = 0; rafTick < (DURATION_SEC + DELAY_SEC) * RAF_HZ; rafTick++) {
+      const wallSec = rafTick / RAF_HZ;
+      while (true) {
+        const mediaTime = nextFrameIndex / FIREFOX_SOURCE_FPS;
+        const latenessSec = rvfcLatenessSec(nextFrameIndex);
+        if (mediaTime + latenessSec > wallSec) break;
+        const skipped = nextFrameIndex % SKIP_EVERY_NTH_FRAME === SKIP_EVERY_NTH_FRAME - 1;
+        nextFrameIndex++;
+        if (skipped) continue;
+        if (!(mediaTime - lastCapturedMediaTime < ENCODED_CAPTURE_INTERVAL_SEC && mediaTime >= lastCapturedMediaTime)) {
+          lastCapturedMediaTime = mediaTime;
+          store.push(asCaptureFrame(fakeVideoFrame(mediaTime)), mediaTime);
+          delivered.push(mediaTime);
+        }
+      }
+      const targetTime = wallSec - DELAY_SEC;
+      if (targetTime < 0) continue;
+      const presentable = store.frameAt(Math.max(targetTime, store.oldestTime() ?? targetTime));
+      if (presentable) presented.add(toMicros(presentable.mediaTime));
+    }
+
+    const missed = delivered.filter(mediaTime => mediaTime < DURATION_SEC && !presented.has(toMicros(mediaTime)));
+    expect(delivered.length).toBeGreaterThan(DURATION_SEC * FIREFOX_SOURCE_FPS * 0.8);
+    expect(missed).toEqual([]);
+    store.release();
+  });
+});

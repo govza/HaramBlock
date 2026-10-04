@@ -542,6 +542,25 @@ describe('VideoSession machine', () => {
     expect(seeked.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
   });
 
+  it('keeps the DVR presenting across a native loop wrap, sampling the new frame', () => {
+    const presenting = run(
+      createVideoSession().state,
+      { type: 'thumbnailSourceReady' },
+      { type: 'sampleSent', frameIndex: -1, at: 0 },
+      { type: 'predictionReceived', frameIndex: -1, verdict: 'clean', at: 100 },
+      { type: 'play', at: 1000 },
+      { type: 'predictionReceived', frameIndex: 0, verdict: 'unsafe', at: 1200 },
+      { type: 'bufferReady', at: 2800 },
+    );
+
+    const wrapped = run(presenting.state, { type: 'seeked', at: 3500, loopWrap: true });
+    expect(wrapped.state.dvr).toBe('presenting');
+    expect(wrapped.effects).not.toContainEqual({ kind: 'stopDvr' });
+    expect(wrapped.effects).not.toContainEqual({ kind: 'startDvr' });
+    expect(wrapped.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(wrapped.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
+  });
+
   it('re-warms without blur on a mid-presentation seek of a safe session', () => {
     const safePresenting = run(
       createVideoSession().state,
