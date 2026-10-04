@@ -16,9 +16,9 @@ import {
 } from '@/entrypoints/content/presentation/initialStyling';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import { isLoopRestartSeek } from '@/entrypoints/content/video/dvr/loopClock';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { isLoopRestartSeek } from '@/entrypoints/content/video/loopClock';
 import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
@@ -693,9 +693,11 @@ class VideoSessionRegistry {
       if (!video.seeking) lastPlaybackPosition = video.currentTime;
     };
     const onSeeked = () => {
-      const loopWrap = isLoopRestartSeek(loopingMedia, lastPlaybackPosition, video.currentTime);
+      const type = isLoopRestartSeek(loopingMedia, lastPlaybackPosition, video.currentTime)
+        ? 'loopRestarted'
+        : 'seeked';
       lastPlaybackPosition = video.currentTime;
-      this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime, loopWrap });
+      this.dispatch(handle, { type, at: now(), timestampSec: video.currentTime });
     };
     // Raw site intent for the machine's audio-route policy (ADR 0002). While
     // the relay module owns the element's audio output (hold or engaged

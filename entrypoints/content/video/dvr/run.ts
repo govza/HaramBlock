@@ -16,11 +16,6 @@ import {
   type SessionFrameStore,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import {
-  createLoopUnwrapper,
-  foldLoopedMediaTime,
-  type LoopUnwrapper,
-} from '@/entrypoints/content/video/dvr/loopClock';
-import {
   DvrProbe,
   type AudioHealthSample,
   type DvrRingFlushCause,
@@ -28,6 +23,12 @@ import {
   type PresentedSample,
 } from '@/entrypoints/content/video/dvr/probe';
 import { dvrRingBudget, type RingQuality, type SessionDemand } from '@/entrypoints/content/video/dvr/ringBudget';
+import {
+  createLoopUnwrapper,
+  foldToMediaTime,
+  type LoopUnwrapper,
+  type PlaybackClock,
+} from '@/entrypoints/content/video/loopClock';
 import { ATTR, getLogger, METRIC, metricsEnabled, recordCounter } from '@/utils/telemetry';
 
 import type { DvrCaptureFrame, DvrStoreKind } from '@/entrypoints/content/video/dvr/frameStore';
@@ -97,8 +98,7 @@ export interface PresenterPort {
     store: SessionFrameStore;
     verdicts: VerdictInterpreter;
     getDelaySec: () => number;
-    playbackTime: () => number;
-    verdictTime: (mediaTime: number) => number;
+    clock: PlaybackClock;
     onReady: () => void;
     onPresented?: (sample: PresentedSample) => void;
   }): DvrPresenter;
@@ -171,18 +171,8 @@ export function defaultDvrRunPorts(options: {
       return tap ? { driver: tap, reason: null } : { driver: null, reason };
     },
     presenter: {
-      create: ({ store, verdicts, getDelaySec, playbackTime, verdictTime, onReady, onPresented }) =>
-        new VideoDvrPlayer({
-          video,
-          store,
-          verdicts,
-          getDelaySec,
-          playbackTime,
-          verdictTime,
-          getMasking,
-          onReady,
-          onPresented,
-        }),
+      create: ({ store, verdicts, getDelaySec, clock, onReady, onPresented }) =>
+        new VideoDvrPlayer({ video, store, verdicts, getDelaySec, clock, getMasking, onReady, onPresented }),
     },
   };
 }
@@ -217,18 +207,18 @@ class Run implements DvrRun {
   private underrunStreak = 0;
   private demandEncoded = false;
   private effectiveTap: DvrTapKind = 'rvfc';
-  private readonly captureClock: LoopUnwrapper;
-  private readonly tapClock: LoopUnwrapper;
-  private readonly playbackClock: LoopUnwrapper;
+  private readonly unwrapRvfcTime: LoopUnwrapper;
+  private readonly unwrapTapTime: LoopUnwrapper;
+  private readonly unwrapPlaybackTime: LoopUnwrapper;
 
   constructor(
     private readonly ports: DvrRunPorts,
     private readonly ctx: DvrRunContext,
   ) {
     const { surface, budget } = ports;
-    this.captureClock = createLoopUnwrapper(surface);
-    this.tapClock = createLoopUnwrapper(surface);
-    this.playbackClock = createLoopUnwrapper(surface);
+    this.unwrapRvfcTime = createLoopUnwrapper(surface);
+    this.unwrapTapTime = createLoopUnwrapper(surface);
+    this.unwrapPlaybackTime = createLoopUnwrapper(surface);
     const derivedDelayMs = deriveDvrDelayMs(ctx.latenciesMs, ctx.verdicts.coverageAheadOf(surface.currentTime()));
     this.covered = derivedDelayMs === COVERED_DVR_DELAY_MS;
     this.delay = Math.max(derivedDelayMs / 1000, ctx.stallFloorSec);
@@ -291,8 +281,10 @@ class Run implements DvrRun {
       store,
       verdicts: ctx.verdicts,
       getDelaySec: () => this.delay,
-      playbackTime: () => this.continuousPlaybackTime(),
-      verdictTime: mediaTime => foldLoopedMediaTime(mediaTime, surface.duration()),
+      clock: {
+        continuousTime: () => this.continuousPlaybackTime(),
+        foldToMediaTime: continuousTime => foldToMediaTime(continuousTime, surface.duration()),
+      },
       onReady: () => ports.events({ type: 'bufferReady', at: surface.now() }),
       ...(probe ? { onPresented: (sample: PresentedSample) => probe.presented(sample) } : {}),
     });
@@ -303,7 +295,7 @@ class Run implements DvrRun {
         frame.close();
         return;
       }
-      const mediaTime = this.tapClock.unwrap(deliveredMediaTime);
+      const mediaTime = this.unwrapTapTime(deliveredMediaTime);
       // currentTime quantizes coarser than a 60 fps frame grid: an equal key is
       // nudged forward, a genuinely backwards key is a seek.
       const sinceLastSec = mediaTime - this.lastCapturedMediaTime;
@@ -361,12 +353,12 @@ class Run implements DvrRun {
   }
 
   private continuousPlaybackTime(): number {
-    return this.playbackClock.unwrap(this.ports.surface.currentTime());
+    return this.unwrapPlaybackTime(this.ports.surface.currentTime());
   }
 
   onTick(deliveredMediaTime: number): void {
     if (this.stopped) return;
-    const mediaTime = this.captureClock.unwrap(deliveredMediaTime);
+    const mediaTime = this.unwrapRvfcTime(deliveredMediaTime);
     // Both clocks: media distance survives seeks, wall-clock catches a tap that
     // died while the media clock crawls (slow rate, a stall).
     const tapLive =

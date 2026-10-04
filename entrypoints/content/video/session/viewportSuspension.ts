@@ -132,7 +132,11 @@ export class ViewportSuspension {
         // A sample deflected during suspension (page-driven seek, cancelled
         // in-flight) left the displayed frame unverified, and a paused video
         // produces no further events — sample it like a fresh seek.
-        this.ports.dispatch(handle, { type: 'seeked', at: performance.now(), timestampSec: handle.video.currentTime });
+        this.ports.dispatch(handle, {
+          type: 'seeked',
+          at: performance.now(),
+          timestampSec: handle.video.currentTime,
+        });
       }
     }
   }

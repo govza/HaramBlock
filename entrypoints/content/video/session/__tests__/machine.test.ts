@@ -13,7 +13,7 @@ import {
   type VideoSessionState,
 } from '@/entrypoints/content/video/session/machine';
 
-type TimelineEvent = Extract<SessionEvent, { type: 'frameAvailable' | 'seeked' }>;
+type TimelineEvent = Extract<SessionEvent, { type: 'frameAvailable' | 'seeked' | 'loopRestarted' }>;
 type TestSessionEvent = Exclude<SessionEvent, TimelineEvent> | Omit<TimelineEvent, 'timestampSec'> | TimelineEvent;
 
 /** Run a sequence of events through the reducer, returning the final state and all effects. */
@@ -22,7 +22,8 @@ function run(state: VideoSessionState, ...events: TestSessionEvent[]) {
   const effects = [];
   for (const candidate of events) {
     const event = (
-      (candidate.type === 'frameAvailable' || candidate.type === 'seeked') && !('timestampSec' in candidate)
+      (candidate.type === 'frameAvailable' || candidate.type === 'seeked' || candidate.type === 'loopRestarted') &&
+      !('timestampSec' in candidate)
         ? { ...candidate, timestampSec: candidate.at / 1000 }
         : candidate
     ) as SessionEvent;
@@ -542,7 +543,7 @@ describe('VideoSession machine', () => {
     expect(seeked.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
   });
 
-  it('keeps the DVR presenting across a native loop wrap, sampling the new frame', () => {
+  it('keeps the DVR presenting across a native loop restart, sampling the new frame', () => {
     const presenting = run(
       createVideoSession().state,
       { type: 'thumbnailSourceReady' },
@@ -553,12 +554,12 @@ describe('VideoSession machine', () => {
       { type: 'bufferReady', at: 2800 },
     );
 
-    const wrapped = run(presenting.state, { type: 'seeked', at: 3500, loopWrap: true });
-    expect(wrapped.state.dvr).toBe('presenting');
-    expect(wrapped.effects).not.toContainEqual({ kind: 'stopDvr' });
-    expect(wrapped.effects).not.toContainEqual({ kind: 'startDvr' });
-    expect(wrapped.effects).not.toContainEqual({ kind: 'applyBlur' });
-    expect(wrapped.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
+    const restarted = run(presenting.state, { type: 'loopRestarted', at: 3500 });
+    expect(restarted.state.dvr).toBe('presenting');
+    expect(restarted.effects).not.toContainEqual({ kind: 'stopDvr' });
+    expect(restarted.effects).not.toContainEqual({ kind: 'startDvr' });
+    expect(restarted.effects).not.toContainEqual({ kind: 'applyBlur' });
+    expect(restarted.effects).toContainEqual({ kind: 'sendSample', frameIndex: 0 });
   });
 
   it('re-warms without blur on a mid-presentation seek of a safe session', () => {

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DVR_DELAY_MS, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
-import { foldLoopedMediaTime } from '@/entrypoints/content/video/dvr/loopClock';
 import { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { foldToMediaTime } from '@/entrypoints/content/video/loopClock';
 import { FrameSampler, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
 import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 
@@ -230,23 +230,23 @@ describe('FrameSampler ticker', () => {
   });
 });
 
-describe('foldLoopedMediaTime', () => {
+describe('foldToMediaTime', () => {
   it('returns a media time inside the duration unchanged', () => {
-    expect(foldLoopedMediaTime(8.25, 10)).toBe(8.25);
-    expect(foldLoopedMediaTime(9.9, 10)).toBe(9.9);
-    expect(foldLoopedMediaTime(0, 10)).toBe(0);
+    expect(foldToMediaTime(8.25, 10)).toBe(8.25);
+    expect(foldToMediaTime(9.9, 10)).toBe(9.9);
+    expect(foldToMediaTime(0, 10)).toBe(0);
   });
 
   it('subtracts whole loops when the frame clock ran past the duration', () => {
-    expect(foldLoopedMediaTime(11.333, 10)).toBeCloseTo(1.333, 6);
-    expect(foldLoopedMediaTime(19.9, 10)).toBeCloseTo(9.9, 6);
-    expect(foldLoopedMediaTime(190.033, 10)).toBeCloseTo(0.033, 6);
+    expect(foldToMediaTime(11.333, 10)).toBeCloseTo(1.333, 6);
+    expect(foldToMediaTime(19.9, 10)).toBeCloseTo(9.9, 6);
+    expect(foldToMediaTime(190.033, 10)).toBeCloseTo(0.033, 6);
   });
 
   it('leaves the media time alone without a finite positive duration', () => {
-    expect(foldLoopedMediaTime(11.333, Number.NaN)).toBe(11.333);
-    expect(foldLoopedMediaTime(11.333, Number.POSITIVE_INFINITY)).toBe(11.333);
-    expect(foldLoopedMediaTime(11.333, 0)).toBe(11.333);
+    expect(foldToMediaTime(11.333, Number.NaN)).toBe(11.333);
+    expect(foldToMediaTime(11.333, Number.POSITIVE_INFINITY)).toBe(11.333);
+    expect(foldToMediaTime(11.333, 0)).toBe(11.333);
   });
 });
 

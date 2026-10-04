@@ -5,19 +5,19 @@ import {
   isLoopRestartSeek,
   isLoopWrap,
   type LoopingMedia,
-} from '@/entrypoints/content/video/dvr/loopClock';
+} from '@/entrypoints/content/video/loopClock';
 
 const looping = (duration: number, loops = true): LoopingMedia => ({ duration: () => duration, loops: () => loops });
 
 describe('createLoopUnwrapper', () => {
   it('passes media time through until the clip wraps', () => {
     const clock = createLoopUnwrapper(looping(2.5));
-    expect([0, 0.1, 1.2, 2.4].map(clock.unwrap)).toEqual([0, 0.1, 1.2, 2.4]);
+    expect([0, 0.1, 1.2, 2.4].map(clock)).toEqual([0, 0.1, 1.2, 2.4]);
   });
 
   it('continues the timeline across every native loop wrap', () => {
     const clock = createLoopUnwrapper(looping(2.5));
-    const keys = [2.3, 2.4, 0, 0.1, 2.4, 0.05].map(clock.unwrap);
+    const keys = [2.3, 2.4, 0, 0.1, 2.4, 0.05].map(clock);
     expect(keys[2]).toBeCloseTo(2.5, 9);
     expect(keys[3]).toBeCloseTo(2.6, 9);
     expect(keys[4]).toBeCloseTo(4.9, 9);
@@ -26,24 +26,24 @@ describe('createLoopUnwrapper', () => {
 
   it('keeps a late frame from the previous loop on its own loop', () => {
     const clock = createLoopUnwrapper(looping(2.5));
-    clock.unwrap(2.3);
-    expect(clock.unwrap(2.4)).toBeCloseTo(2.4, 9);
-    expect(clock.unwrap(0.02)).toBeCloseTo(2.52, 9);
+    clock(2.3);
+    expect(clock(2.4)).toBeCloseTo(2.4, 9);
+    expect(clock(0.02)).toBeCloseTo(2.52, 9);
   });
 
   it('leaves small backsteps alone (re-delivered stale frames, not wraps)', () => {
     const clock = createLoopUnwrapper(looping(10));
-    clock.unwrap(5);
-    expect(clock.unwrap(4.96)).toBe(4.96);
+    clock(5);
+    expect(clock(4.96)).toBe(4.96);
   });
 
   it('never unwraps a non-looping or unbounded video', () => {
     const plain = createLoopUnwrapper(looping(2.5, false));
-    plain.unwrap(2.4);
-    expect(plain.unwrap(0)).toBe(0);
+    plain(2.4);
+    expect(plain(0)).toBe(0);
     const live = createLoopUnwrapper(looping(Number.POSITIVE_INFINITY));
-    live.unwrap(100);
-    expect(live.unwrap(1)).toBe(1);
+    live(100);
+    expect(live(1)).toBe(1);
   });
 });
 
