@@ -122,6 +122,12 @@ E2E tests use [WebdriverIO](https://webdriver.io/) with [Cucumber](https://cucum
 The e2e tests run against the haramblock website, which is controlled by us and may be modified to
 suit testing needs. It lives in `../wildebeest` (relative to the project root).
 
+### Known Issues
+
+- **Dev-mode crash on long videos:** the extension crashes in dev mode (`pnpm dev`) on long videos.
+  It is a known, unrelated bug — ignore it when testing video changes, and verify on a static build
+  (`pnpm build` / `pnpm build:firefox`) instead.
+
 ### Running E2E Tests
 
 **Important:** If you've modified extension code, rebuild before running tests. `pnpm build` is
@@ -135,14 +141,21 @@ pnpm build
 pnpm e2e
 
 # Run tests by tag (e.g., @policy, @masking, @quick-toggle)
-pnpm e2e -- --debug --cucumberOpts.tags="@policy"
+pnpm e2e --debug --cucumberOpts.tags="@policy"
 
 # Run tests by scenario name
-pnpm e2e -- --debug --cucumberOpts.name="Segment mask on large images"
+pnpm e2e --debug --cucumberOpts.name="Segment mask on large images"
 
 # Run smoke tests only (quick validation)
-pnpm e2e -- --debug --cucumberOpts.tags="@smoke"
+pnpm e2e --debug --cucumberOpts.tags="@smoke"
+
+# Run a single feature file
+pnpm e2e --spec ./tests/e2e/features/video.feature
 ```
+
+Pass wdio flags straight after the script name, without a `--` separator: pnpm forwards `--`
+verbatim, and wdio treats everything after it as positional arguments, so the filter is dropped and
+the whole suite runs.
 
 #### Debugging E2E Tests
 
@@ -152,10 +165,10 @@ so you can watch exactly what the tests are doing:
 
 ```bash
 # Run tests with visible browser (CI-like environment)
-pnpm e2e -- --debug
+pnpm e2e --debug
 
 # Combine with tag filters to debug a specific scenario
-pnpm e2e -- --debug --cucumberOpts.tags="@masking"
+pnpm e2e --debug --cucumberOpts.tags="@masking"
 ```
 
 This is especially useful for reproducing CI-only failures locally — the browser runs with the same
@@ -172,6 +185,9 @@ pnpm build:firefox
 
 # Run E2E tests on Firefox
 pnpm e2e:firefox
+
+# Same filters as Chrome, e.g. one feature file
+pnpm e2e:firefox --spec ./tests/e2e/features/video.feature
 ```
 
 #### Firefox Android Manual Testing
@@ -242,10 +258,10 @@ emulator -avd Pixel_3a_API_34_extension_level_7_x86_64
 pnpm e2e:android
 
 # Run tests by tag
-pnpm e2e:android -- --cucumberOpts.tags="@whitelist"
+pnpm e2e:android --cucumberOpts.tags="@whitelist"
 
 # Run smoke tests only
-pnpm e2e:android -- --cucumberOpts.tags="@smoke"
+pnpm e2e:android --cucumberOpts.tags="@smoke"
 ```
 
 **Environment variables:**
