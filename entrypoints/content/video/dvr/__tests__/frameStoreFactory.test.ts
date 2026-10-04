@@ -98,6 +98,12 @@ describe('selectStoreKind matrix', () => {
   });
 });
 
+describe('encoded ring default', () => {
+  it('is on in every build', () => {
+    expect(initialFlag).toBe(true);
+  });
+});
+
 describe('createDvrFrameStore', () => {
   it('counts a backing swap as one flush on top of the backings own flushes', async () => {
     setEncodedDvrRingEnabled(true);

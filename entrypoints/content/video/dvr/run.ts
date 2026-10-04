@@ -16,6 +16,11 @@ import {
   type SessionFrameStore,
 } from '@/entrypoints/content/video/dvr/frameStoreFactory';
 import {
+  createLoopUnwrapper,
+  foldLoopedMediaTime,
+  type LoopUnwrapper,
+} from '@/entrypoints/content/video/dvr/loopClock';
+import {
   DvrProbe,
   type AudioHealthSample,
   type DvrRingFlushCause,
@@ -56,6 +61,8 @@ export type DvrRunEvent = { type: 'bufferReady'; at: number } | { type: 'analysi
 export interface VideoSurface {
   now(): number;
   currentTime(): number;
+  duration(): number;
+  loops(): boolean;
   nativeWidth(): number;
   nativeHeight(): number;
   displayWidth(): number;
@@ -90,6 +97,8 @@ export interface PresenterPort {
     store: SessionFrameStore;
     verdicts: VerdictInterpreter;
     getDelaySec: () => number;
+    playbackTime: () => number;
+    verdictTime: (mediaTime: number) => number;
     onReady: () => void;
     onPresented?: (sample: PresentedSample) => void;
   }): DvrPresenter;
@@ -144,6 +153,8 @@ export function defaultDvrRunPorts(options: {
     surface: {
       now: () => performance.now(),
       currentTime: () => video.currentTime,
+      duration: () => video.duration,
+      loops: () => video.loop,
       nativeWidth: () => video.videoWidth,
       nativeHeight: () => video.videoHeight,
       displayWidth: () => Math.round(video.clientWidth * (globalThis.devicePixelRatio || 1)),
@@ -160,8 +171,18 @@ export function defaultDvrRunPorts(options: {
       return tap ? { driver: tap, reason: null } : { driver: null, reason };
     },
     presenter: {
-      create: ({ store, verdicts, getDelaySec, onReady, onPresented }) =>
-        new VideoDvrPlayer({ video, store, verdicts, getDelaySec, getMasking, onReady, onPresented }),
+      create: ({ store, verdicts, getDelaySec, playbackTime, verdictTime, onReady, onPresented }) =>
+        new VideoDvrPlayer({
+          video,
+          store,
+          verdicts,
+          getDelaySec,
+          playbackTime,
+          verdictTime,
+          getMasking,
+          onReady,
+          onPresented,
+        }),
     },
   };
 }
@@ -196,12 +217,18 @@ class Run implements DvrRun {
   private underrunStreak = 0;
   private demandEncoded = false;
   private effectiveTap: DvrTapKind = 'rvfc';
+  private readonly captureClock: LoopUnwrapper;
+  private readonly tapClock: LoopUnwrapper;
+  private readonly playbackClock: LoopUnwrapper;
 
   constructor(
     private readonly ports: DvrRunPorts,
     private readonly ctx: DvrRunContext,
   ) {
     const { surface, budget } = ports;
+    this.captureClock = createLoopUnwrapper(surface);
+    this.tapClock = createLoopUnwrapper(surface);
+    this.playbackClock = createLoopUnwrapper(surface);
     const derivedDelayMs = deriveDvrDelayMs(ctx.latenciesMs, ctx.verdicts.coverageAheadOf(surface.currentTime()));
     this.covered = derivedDelayMs === COVERED_DVR_DELAY_MS;
     this.delay = Math.max(derivedDelayMs / 1000, ctx.stallFloorSec);
@@ -264,16 +291,19 @@ class Run implements DvrRun {
       store,
       verdicts: ctx.verdicts,
       getDelaySec: () => this.delay,
+      playbackTime: () => this.continuousPlaybackTime(),
+      verdictTime: mediaTime => foldLoopedMediaTime(mediaTime, surface.duration()),
       onReady: () => ports.events({ type: 'bufferReady', at: surface.now() }),
       ...(probe ? { onPresented: (sample: PresentedSample) => probe.presented(sample) } : {}),
     });
 
-    const { driver, reason: tapReason } = ports.captureDriver((frame, mediaTime) => {
+    const { driver, reason: tapReason } = ports.captureDriver((frame, deliveredMediaTime) => {
       // The push driver can outlive its run by a frame or two (async reader).
       if (this.stopped) {
         frame.close();
         return;
       }
+      const mediaTime = this.tapClock.unwrap(deliveredMediaTime);
       // currentTime quantizes coarser than a 60 fps frame grid: an equal key is
       // nudged forward, a genuinely backwards key is a seek.
       const sinceLastSec = mediaTime - this.lastCapturedMediaTime;
@@ -330,8 +360,13 @@ class Run implements DvrRun {
     return this.delay;
   }
 
-  onTick(mediaTime: number): void {
+  private continuousPlaybackTime(): number {
+    return this.playbackClock.unwrap(this.ports.surface.currentTime());
+  }
+
+  onTick(deliveredMediaTime: number): void {
     if (this.stopped) return;
+    const mediaTime = this.captureClock.unwrap(deliveredMediaTime);
     // Both clocks: media distance survives seeks, wall-clock catches a tap that
     // died while the media clock crawls (slow rate, a stall).
     const tapLive =
@@ -394,7 +429,7 @@ class Run implements DvrRun {
     // Raise by the measured capture→presentable lag when it beats the fixed
     // step: a pipeline running ~a second behind escapes in one raise.
     const newestSec = this.store.newestTime();
-    const pipelineLagSec = newestSec === null ? 0 : this.ports.surface.currentTime() - newestSec;
+    const pipelineLagSec = newestSec === null ? 0 : this.continuousPlaybackTime() - newestSec;
     const stallTargetSec = stalled
       ? Math.min(
           MAX_DVR_DELAY_MS / 1000,

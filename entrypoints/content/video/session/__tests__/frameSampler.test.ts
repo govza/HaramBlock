@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_DVR_DELAY_MS, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
+import { foldLoopedMediaTime } from '@/entrypoints/content/video/dvr/loopClock';
 import { VerdictInterpreter } from '@/entrypoints/content/video/dvr/verdictInterpreter';
-import { FrameSampler, foldLoopedMediaTime, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
+import { FrameSampler, type SamplerPorts } from '@/entrypoints/content/video/session/frameSampler';
 import { createVideoSession, type SessionEvent } from '@/entrypoints/content/video/session/machine';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';

@@ -16,6 +16,7 @@ import {
 } from '@/entrypoints/content/presentation/initialStyling';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
+import { isLoopRestartSeek } from '@/entrypoints/content/video/dvr/loopClock';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
 import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
@@ -686,7 +687,16 @@ class VideoSessionRegistry {
     };
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
-    const onSeeked = () => this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime });
+    const loopingMedia = { duration: () => video.duration, loops: () => video.loop };
+    let lastPlaybackPosition: number | null = null;
+    const onTimeUpdate = () => {
+      if (!video.seeking) lastPlaybackPosition = video.currentTime;
+    };
+    const onSeeked = () => {
+      const loopWrap = isLoopRestartSeek(loopingMedia, lastPlaybackPosition, video.currentTime);
+      lastPlaybackPosition = video.currentTime;
+      this.dispatch(handle, { type: 'seeked', at: now(), timestampSec: video.currentTime, loopWrap });
+    };
     // Raw site intent for the machine's audio-route policy (ADR 0002). While
     // the relay module owns the element's audio output (hold or engaged
     // relay), its intent tracker forwards site changes instead — the module's
@@ -697,6 +707,7 @@ class VideoSessionRegistry {
       this.dispatch(handle, { type: audible ? 'unmuted' : 'muted', at: now() });
     };
     const onSourceChanged = () => {
+      lastPlaybackPosition = null;
       const current = resolveVideoSource(video);
       if (current && isSameVideoSource(handle, current)) return;
       // New or removed source on the same element: the old VideoSession (and
@@ -712,6 +723,7 @@ class VideoSessionRegistry {
     video.addEventListener('pause', onPause);
     video.addEventListener('ended', onEnded);
     video.addEventListener('seeked', onSeeked);
+    video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('volumechange', onVolumeChange);
     video.addEventListener('loadstart', onSourceChanged);
     video.addEventListener('emptied', onSourceChanged);
@@ -721,6 +733,7 @@ class VideoSessionRegistry {
       video.removeEventListener('pause', onPause);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('volumechange', onVolumeChange);
       video.removeEventListener('loadstart', onSourceChanged);
       video.removeEventListener('emptied', onSourceChanged);

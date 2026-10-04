@@ -47,11 +47,7 @@ const platformConverterFactory = decodedFrameConverterFactoryFor(import.meta.env
  */
 export const ENCODED_SESSION_CAP = 4;
 
-/**
- * Debug flag for the encoded ring: on in dev builds for measurement, off in
- * production until the rollout flips it (spec: rollout steps 2-3).
- */
-let encodedRingEnabled = Boolean(import.meta.env.DEV);
+let encodedRingEnabled = true;
 
 export function setEncodedDvrRingEnabled(enabled: boolean): void {
   encodedRingEnabled = enabled;
