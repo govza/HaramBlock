@@ -288,14 +288,14 @@ describe('DvrRun.onTick', () => {
 
   it('hands the presenter a continuous playback time and folds frame times onto the verdict timeline', () => {
     const { presenterOptions, setCurrentTime } = makeHarness({ loopDurationSec: 2.5 });
-    const { playbackTime, verdictTime } = presenterOptions();
+    const { clock } = presenterOptions();
 
     setCurrentTime(2.4);
-    expect(playbackTime()).toBeCloseTo(2.4, 9);
+    expect(clock.continuousTime()).toBeCloseTo(2.4, 9);
     setCurrentTime(0.2);
-    expect(playbackTime()).toBeCloseTo(2.7, 9);
-    expect(verdictTime(2.7)).toBeCloseTo(0.2, 9);
-    expect(verdictTime(1.2)).toBeCloseTo(1.2, 9);
+    expect(clock.continuousTime()).toBeCloseTo(2.7, 9);
+    expect(clock.foldToMediaTime(2.7)).toBeCloseTo(0.2, 9);
+    expect(clock.foldToMediaTime(1.2)).toBeCloseTo(1.2, 9);
   });
 
   it('captures on every tick when no push driver exists', () => {

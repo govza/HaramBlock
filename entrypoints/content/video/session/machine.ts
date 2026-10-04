@@ -81,7 +81,8 @@ export type SessionEvent =
   | { type: 'timerFired'; timer: SessionTimer; at: number }
   | { type: 'play'; at: number }
   | { type: 'frameAvailable'; at: number; timestampSec: number }
-  | { type: 'seeked'; at: number; timestampSec: number; loopWrap?: boolean }
+  | { type: 'seeked'; at: number; timestampSec: number }
+  | { type: 'loopRestarted'; at: number; timestampSec: number }
   /** atEnd: the element reached its natural end (Chrome fires this pause just before 'ended'). */
   | { type: 'pause'; at: number; atEnd?: boolean }
   | { type: 'ended'; at: number }
@@ -576,7 +577,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
     return sendNextSample(state, event.at, event.timestampSec);
   }
   if (
-    event.type === 'seeked' &&
+    (event.type === 'seeked' || event.type === 'loopRestarted') &&
     (state.phase === 'sampling' || state.phase === 'standby' || state.phase === 'thumbnailing')
   ) {
     // The displayed frame changed: sample it now, floor interval waived. If a
@@ -589,7 +590,7 @@ function reduceCore(state: VideoSessionState, event: SessionEvent): ReduceResult
             effects: [] as SessionEffect[],
           }
         : sendNextSample(state, event.at, event.timestampSec);
-    if (state.dvr === 'off' || event.loopWrap) return sampled;
+    if (state.dvr === 'off' || event.type === 'loopRestarted') return sampled;
     // Ring-buffer discontinuity: the buffered frames no longer precede the new
     // position. Flush by re-warming, re-establishing whatever fail-closed
     // cover the torn-down canvas was providing: whole-blur while masked, or

@@ -7,7 +7,7 @@
 
 import { cancelVideoSessionInference, requestVideoFrameInference } from '@/entrypoints/content/communication/sender';
 import { computeDvrDelayMs, LATENCY_SAMPLE_COUNT } from '@/entrypoints/content/video/dvr/delay';
-import { foldLoopedMediaTime } from '@/entrypoints/content/video/dvr/loopClock';
+import { foldToMediaTime } from '@/entrypoints/content/video/loopClock';
 import { captureFrameBitmap, captureThumbnailBitmap } from '@/entrypoints/content/video/sampling/capture';
 import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
@@ -317,7 +317,7 @@ function startFrameTicker(video: HTMLVideoElement, onFrame: (at: number, mediaTi
     const loop = () => {
       callbackId = video.requestVideoFrameCallback((now, metadata) => {
         if (stopped) return;
-        onFrame(now, foldLoopedMediaTime(metadata.mediaTime, video.duration));
+        onFrame(now, foldToMediaTime(metadata.mediaTime, video.duration));
         loop();
       });
     };

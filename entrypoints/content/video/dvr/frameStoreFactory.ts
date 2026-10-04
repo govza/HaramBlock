@@ -47,16 +47,6 @@ const platformConverterFactory = decodedFrameConverterFactoryFor(import.meta.env
  */
 export const ENCODED_SESSION_CAP = 4;
 
-let encodedRingEnabled = true;
-
-export function setEncodedDvrRingEnabled(enabled: boolean): void {
-  encodedRingEnabled = enabled;
-}
-
-export function isEncodedDvrRingEnabled(): boolean {
-  return encodedRingEnabled;
-}
-
 /** Pure selection rule: probe result × concurrency cap × prior error × flag. */
 export function selectStoreKind(input: {
   enabled: boolean;
@@ -199,6 +189,7 @@ export interface CreateDvrFrameStoreOptions {
   /** Test seams. */
   codecs?: EncodedRingCodecs;
   probe?: EncodedSupportProbe;
+  encodedRingEnabled?: boolean;
   slots?: EncodedSessionSlots;
   createConverter?: DecodedFrameConverterFactory | null;
 }
@@ -215,7 +206,7 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
   );
 
   const preSelection = selectStoreReason({
-    enabled: encodedRingEnabled,
+    enabled: options.encodedRingEnabled ?? true,
     probeSupported: true, // probe result pending; re-checked below
     activeEncodedSessions: slots.active(),
     encodedIneligible: options.encodedIneligible,

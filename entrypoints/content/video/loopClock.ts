@@ -3,8 +3,11 @@ export interface LoopingMedia {
   loops(): boolean;
 }
 
-export interface LoopUnwrapper {
-  unwrap: (mediaTime: number) => number;
+export type LoopUnwrapper = (mediaTime: number) => number;
+
+export interface PlaybackClock {
+  continuousTime(): number;
+  foldToMediaTime(continuousTime: number): number;
 }
 
 const hasFiniteDuration = (duration: number): boolean => Number.isFinite(duration) && duration > 0;
@@ -12,18 +15,16 @@ const hasFiniteDuration = (duration: number): boolean => Number.isFinite(duratio
 export function createLoopUnwrapper(media: LoopingMedia): LoopUnwrapper {
   let loopOffsetSec = 0;
   let lastMediaTime: number | null = null;
-  return {
-    unwrap: mediaTime => {
-      if (isLoopWrap(media, lastMediaTime, mediaTime)) loopOffsetSec += media.duration();
-      lastMediaTime = mediaTime;
-      return mediaTime + loopOffsetSec;
-    },
+  return mediaTime => {
+    if (isLoopWrap(media, lastMediaTime, mediaTime)) loopOffsetSec += media.duration();
+    lastMediaTime = mediaTime;
+    return mediaTime + loopOffsetSec;
   };
 }
 
-export function foldLoopedMediaTime(mediaTime: number, duration: number): number {
-  if (!hasFiniteDuration(duration) || mediaTime < duration) return mediaTime;
-  return mediaTime - Math.floor(mediaTime / duration) * duration;
+export function foldToMediaTime(continuousTime: number, duration: number): number {
+  if (!hasFiniteDuration(duration) || continuousTime < duration) return continuousTime;
+  return continuousTime - Math.floor(continuousTime / duration) * duration;
 }
 
 export function isLoopWrap(media: LoopingMedia, previousTime: number | null, currentTime: number): boolean {
