@@ -18,7 +18,7 @@ import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/conten
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
-import { isLoopRestartSeek } from '@/entrypoints/content/video/loopClock';
+import { createLoopRestartDetector } from '@/entrypoints/content/video/loopClock';
 import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
@@ -687,16 +687,10 @@ class VideoSessionRegistry {
     };
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
-    const loopingMedia = { duration: () => video.duration, loops: () => video.loop };
-    let lastPlaybackPosition: number | null = null;
-    const onTimeUpdate = () => {
-      if (!video.seeking) lastPlaybackPosition = video.currentTime;
-    };
+    const loopRestarts = createLoopRestartDetector({ duration: () => video.duration, loops: () => video.loop });
+    const onTimeUpdate = () => loopRestarts.observePlayback(video.currentTime, video.seeking);
     const onSeeked = () => {
-      const type = isLoopRestartSeek(loopingMedia, lastPlaybackPosition, video.currentTime)
-        ? 'loopRestarted'
-        : 'seeked';
-      lastPlaybackPosition = video.currentTime;
+      const type = loopRestarts.isLoopRestart(video.currentTime) ? 'loopRestarted' : 'seeked';
       this.dispatch(handle, { type, at: now(), timestampSec: video.currentTime });
     };
     // Raw site intent for the machine's audio-route policy (ADR 0002). While
@@ -709,7 +703,7 @@ class VideoSessionRegistry {
       this.dispatch(handle, { type: audible ? 'unmuted' : 'muted', at: now() });
     };
     const onSourceChanged = () => {
-      lastPlaybackPosition = null;
+      loopRestarts.reset();
       const current = resolveVideoSource(video);
       if (current && isSameVideoSource(handle, current)) return;
       // New or removed source on the same element: the old VideoSession (and

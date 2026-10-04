@@ -44,3 +44,27 @@ export function isLoopRestartSeek(media: LoopingMedia, previousTime: number | nu
     currentTime <= LOOP_RESTART_EDGE_SEC
   );
 }
+
+export interface LoopRestartDetector {
+  observePlayback(currentTime: number, seeking: boolean): void;
+  isLoopRestart(currentTime: number): boolean;
+  reset(): void;
+}
+
+export function createLoopRestartDetector(media: LoopingMedia): LoopRestartDetector {
+  let lastPlaybackPosition: number | null = null;
+  return {
+    observePlayback(currentTime, seeking) {
+      if (seeking || isLoopWrap(media, lastPlaybackPosition, currentTime)) return;
+      lastPlaybackPosition = currentTime;
+    },
+    isLoopRestart(currentTime) {
+      const loopRestart = isLoopRestartSeek(media, lastPlaybackPosition, currentTime);
+      lastPlaybackPosition = currentTime;
+      return loopRestart;
+    },
+    reset() {
+      lastPlaybackPosition = null;
+    },
+  };
+}
