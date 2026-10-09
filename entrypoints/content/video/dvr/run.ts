@@ -1,4 +1,4 @@
-import { VideoDvrPlayer } from '@/entrypoints/content/presentation/videoDvrPlayer';
+import { VideoDvrPlayer, type DvrPresenterOptions } from '@/entrypoints/content/presentation/videoDvrPlayer';
 import { dvrCaptureScale, rawCaptureCeilingPx } from '@/entrypoints/content/video/dvr/captureScale';
 import { startDvrCaptureTap, type DvrTapUnavailableReason } from '@/entrypoints/content/video/dvr/captureTap';
 import {
@@ -27,7 +27,7 @@ import {
   createLoopUnwrapper,
   foldToMediaTime,
   type LoopUnwrapper,
-  type PlaybackClock,
+  loopingMediaOf,
 } from '@/entrypoints/content/video/loopClock';
 import { ATTR, getLogger, METRIC, metricsEnabled, recordCounter } from '@/utils/telemetry';
 
@@ -94,14 +94,7 @@ export interface DvrPresenter {
 }
 
 export interface PresenterPort {
-  create(options: {
-    store: SessionFrameStore;
-    verdicts: VerdictInterpreter;
-    getDelaySec: () => number;
-    clock: PlaybackClock;
-    onReady: () => void;
-    onPresented?: (sample: PresentedSample) => void;
-  }): DvrPresenter;
+  create(options: DvrPresenterOptions): DvrPresenter;
 }
 
 export interface DvrRunPorts {
@@ -153,8 +146,7 @@ export function defaultDvrRunPorts(options: {
     surface: {
       now: () => performance.now(),
       currentTime: () => video.currentTime,
-      duration: () => video.duration,
-      loops: () => video.loop,
+      ...loopingMediaOf(video),
       nativeWidth: () => video.videoWidth,
       nativeHeight: () => video.videoHeight,
       displayWidth: () => Math.round(video.clientWidth * (globalThis.devicePixelRatio || 1)),
@@ -171,8 +163,7 @@ export function defaultDvrRunPorts(options: {
       return tap ? { driver: tap, reason: null } : { driver: null, reason };
     },
     presenter: {
-      create: ({ store, verdicts, getDelaySec, clock, onReady, onPresented }) =>
-        new VideoDvrPlayer({ video, store, verdicts, getDelaySec, clock, getMasking, onReady, onPresented }),
+      create: options => new VideoDvrPlayer({ ...options, video, getMasking }),
     },
   };
 }

@@ -18,7 +18,7 @@ import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/conten
 import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
 import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
 import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
-import { createLoopRestartDetector } from '@/entrypoints/content/video/loopClock';
+import { createLoopRestartDetector, loopingMediaOf } from '@/entrypoints/content/video/loopClock';
 import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
 import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
@@ -687,7 +687,7 @@ class VideoSessionRegistry {
     };
     const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
     const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
-    const loopRestarts = createLoopRestartDetector({ duration: () => video.duration, loops: () => video.loop });
+    const loopRestarts = createLoopRestartDetector(loopingMediaOf(video));
     const onTimeUpdate = () => loopRestarts.observePlayback(video.currentTime, video.seeking);
     const onSeeked = () => {
       const type = loopRestarts.isLoopRestart(video.currentTime) ? 'loopRestarted' : 'seeked';

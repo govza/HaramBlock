@@ -73,18 +73,11 @@ describe('decoderHardwarePreference', () => {
 
 describe('selectStoreKind matrix', () => {
   it.each([
-    [{ enabled: true, probeSupported: true, activeEncodedSessions: 0, encodedIneligible: false }, 'encoded'],
-    [{ enabled: false, probeSupported: true, activeEncodedSessions: 0, encodedIneligible: false }, 'raw'],
-    [{ enabled: true, probeSupported: false, activeEncodedSessions: 0, encodedIneligible: false }, 'raw'],
-    [{ enabled: true, probeSupported: true, activeEncodedSessions: 0, encodedIneligible: true }, 'raw'],
-    [
-      { enabled: true, probeSupported: true, activeEncodedSessions: ENCODED_SESSION_CAP - 1, encodedIneligible: false },
-      'encoded',
-    ],
-    [
-      { enabled: true, probeSupported: true, activeEncodedSessions: ENCODED_SESSION_CAP, encodedIneligible: false },
-      'raw',
-    ],
+    [{ probeSupported: true, activeEncodedSessions: 0, encodedIneligible: false }, 'encoded'],
+    [{ probeSupported: false, activeEncodedSessions: 0, encodedIneligible: false }, 'raw'],
+    [{ probeSupported: true, activeEncodedSessions: 0, encodedIneligible: true }, 'raw'],
+    [{ probeSupported: true, activeEncodedSessions: ENCODED_SESSION_CAP - 1, encodedIneligible: false }, 'encoded'],
+    [{ probeSupported: true, activeEncodedSessions: ENCODED_SESSION_CAP, encodedIneligible: false }, 'raw'],
   ] as const)('%o -> %s', (input, expected) => {
     expect(selectStoreKind(input)).toBe(expected);
   });
@@ -121,15 +114,6 @@ describe('createDvrFrameStore', () => {
     const store = createDvrFrameStore(storeOptions({ probe: () => Promise.resolve(false) }));
     await settle();
     expect(store.kind()).toBe('raw');
-    store.release();
-  });
-
-  it('stays raw and never probes when the flag is off', async () => {
-    const probe = vi.fn(() => Promise.resolve(true));
-    const store = createDvrFrameStore(storeOptions({ probe, encodedRingEnabled: false }));
-    await settle();
-    expect(store.kind()).toBe('raw');
-    expect(probe).not.toHaveBeenCalled();
     store.release();
   });
 
