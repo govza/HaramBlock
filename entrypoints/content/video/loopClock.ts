@@ -3,9 +3,14 @@ export interface LoopingMedia {
   loops(): boolean;
 }
 
-export const loopingMediaOf = (video: HTMLVideoElement): LoopingMedia => ({
+export interface LoopRestartMedia extends LoopingMedia {
+  playbackRate(): number;
+}
+
+export const loopingMediaOf = (video: HTMLVideoElement): LoopRestartMedia => ({
   duration: () => video.duration,
   loops: () => video.loop,
+  playbackRate: () => video.playbackRate,
 });
 
 export type LoopUnwrapper = (mediaTime: number) => number;
@@ -51,12 +56,16 @@ export function isLoopWrap(media: LoopingMedia, previousTime: number | null, cur
 
 const LOOP_RESTART_EDGE_SEC = 0.5;
 
-export function isLoopRestartSeek(media: LoopingMedia, previousTime: number | null, currentTime: number): boolean {
+const loopRestartEdgeSec = (media: LoopRestartMedia): number =>
+  LOOP_RESTART_EDGE_SEC * Math.max(1, media.playbackRate());
+
+export function isLoopRestartSeek(media: LoopRestartMedia, previousTime: number | null, currentTime: number): boolean {
+  const edgeSec = loopRestartEdgeSec(media);
   return (
     previousTime !== null &&
     isLoopWrap(media, previousTime, currentTime) &&
-    media.duration() - previousTime <= LOOP_RESTART_EDGE_SEC &&
-    currentTime <= LOOP_RESTART_EDGE_SEC
+    media.duration() - previousTime <= edgeSec &&
+    currentTime <= edgeSec
   );
 }
 
@@ -66,7 +75,7 @@ export interface LoopRestartDetector {
   reset(): void;
 }
 
-export function createLoopRestartDetector(media: LoopingMedia): LoopRestartDetector {
+export function createLoopRestartDetector(media: LoopRestartMedia): LoopRestartDetector {
   let lastPlaybackPosition: number | null = null;
   return {
     observePlayback(currentTime, seeking) {

@@ -683,7 +683,9 @@ looping clips. The registry dispatches a Loop Restart as its own `loopRestarted`
 `seeked` (`video/loopClock.ts` `createLoopRestartDetector`), and the machine samples it without
 restarting the DVR. Browsers report the head-of-loop position in a `timeupdate` before `seeked`,
 with `seeking` already false (measured on Chrome and Firefox), so the detector ignores a wrap-sized
-backward jump and classifies against the tail position. Inside the run, rVFC keys, tap keys and
+backward jump and classifies against the tail position. Both edges are 0.5 s of media time scaled by
+`playbackRate` (never below 0.5 s): `timeupdate` fires on a wall-clock cadence (~250 ms), so at 4×
+the last tail report can land a full second before the end. Inside the run, rVFC keys, tap keys and
 `currentTime` all pass through one shared `createLoopUnwrapper`, so ring keys and the presenter's
 `PlaybackClock` always agree on the loop even when one source keeps reading while the others stall
 (a hidden tab stops rAF and rVFC but not the tap). The unwrapper picks the earliest loop that puts a

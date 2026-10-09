@@ -119,8 +119,8 @@ borderline hit
 playhead going from the tail back to the head. _Avoid_: loop seek
 
 **Loop Restart**: A `seeked` that is the browser's own Loop Wrap (tail → head, both ends within 0.5
-s of the edges) rather than a user or page seek; it keeps the DVR running. _Avoid_: loop wrap (for
-the event)
+s × playback rate of the edges) rather than a user or page seek; it keeps the DVR running. _Avoid_:
+loop wrap (for the event)
 
 **Continuous Time**: Media time unwrapped across Loop Wraps, so it keeps growing while a looping
 video replays; DVR ring keys and presentation run on it, and it folds back to media time for verdict
