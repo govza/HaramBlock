@@ -18,11 +18,11 @@ describe('createLoopUnwrapper', () => {
 
   it('continues the timeline across every native loop wrap', () => {
     const clock = createLoopUnwrapper(looping(2.5));
-    const keys = [2.3, 2.4, 0, 0.1, 2.4, 0.05].map(clock);
+    const keys = [2.3, 2.4, 0, 0.1, 1.2, 2.4, 0.05].map(clock);
     expect(keys[2]).toBeCloseTo(2.5, 9);
     expect(keys[3]).toBeCloseTo(2.6, 9);
-    expect(keys[4]).toBeCloseTo(4.9, 9);
-    expect(keys[5]).toBeCloseTo(5.05, 9);
+    expect(keys[5]).toBeCloseTo(4.9, 9);
+    expect(keys[6]).toBeCloseTo(5.05, 9);
   });
 
   it('keeps a late frame from the previous loop on its own loop', () => {
@@ -30,6 +30,21 @@ describe('createLoopUnwrapper', () => {
     clock(2.3);
     expect(clock(2.4)).toBeCloseTo(2.4, 9);
     expect(clock(0.02)).toBeCloseTo(2.52, 9);
+  });
+
+  it('keeps a stale tail reading on the previous loop after another source already wrapped', () => {
+    const clock = createLoopUnwrapper(looping(2.5));
+    clock(2.4);
+    expect(clock(0.05)).toBeCloseTo(2.55, 9);
+    expect(clock(2.45)).toBeCloseTo(2.45, 9);
+    expect(clock(0.1)).toBeCloseTo(2.6, 9);
+  });
+
+  it('reads a forward jump past half a loop as progress, not as a stale reading', () => {
+    const clock = createLoopUnwrapper(looping(2.5));
+    clock(0.1);
+    expect(clock(1.9)).toBeCloseTo(1.9, 9);
+    expect(clock(0.4)).toBeCloseTo(2.9, 9);
   });
 
   it('leaves small backsteps alone (re-delivered stale frames, not wraps)', () => {
