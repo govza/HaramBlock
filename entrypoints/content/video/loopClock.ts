@@ -17,18 +17,28 @@ export interface PlaybackClock {
 
 const hasFiniteDuration = (duration: number): boolean => Number.isFinite(duration) && duration > 0;
 
+const STALE_READING_TOLERANCE_SEC = 0.5;
+
+const loopOffsetNotBefore = (mediaTime: number, referenceTime: number, duration: number): number => {
+  const earliestTime = referenceTime - Math.min(STALE_READING_TOLERANCE_SEC, duration / 2);
+  return Math.ceil((earliestTime - mediaTime) / duration) * duration;
+};
+
 export function createLoopUnwrapper(media: LoopingMedia): LoopUnwrapper {
   let loopOffsetSec = 0;
-  let lastMediaTime: number | null = null;
+  let lastContinuousTime: number | null = null;
   return mediaTime => {
-    if (isLoopWrap(media, lastMediaTime, mediaTime)) loopOffsetSec += media.duration();
-    lastMediaTime = mediaTime;
-    return mediaTime + loopOffsetSec;
+    const duration = media.duration();
+    if (lastContinuousTime !== null && media.loops() && hasFiniteDuration(duration)) {
+      loopOffsetSec = loopOffsetNotBefore(mediaTime, lastContinuousTime, duration);
+    }
+    lastContinuousTime = mediaTime + loopOffsetSec;
+    return lastContinuousTime;
   };
 }
 
 export function foldToMediaTime(continuousTime: number, duration: number): number {
-  if (!hasFiniteDuration(duration) || continuousTime < duration) return continuousTime;
+  if (!hasFiniteDuration(duration) || (continuousTime >= 0 && continuousTime < duration)) return continuousTime;
   return continuousTime - Math.floor(continuousTime / duration) * duration;
 }
 

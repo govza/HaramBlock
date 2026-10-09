@@ -198,18 +198,14 @@ class Run implements DvrRun {
   private underrunStreak = 0;
   private demandEncoded = false;
   private effectiveTap: DvrTapKind = 'rvfc';
-  private readonly unwrapRvfcTime: LoopUnwrapper;
-  private readonly unwrapTapTime: LoopUnwrapper;
-  private readonly unwrapPlaybackTime: LoopUnwrapper;
+  private readonly toContinuousTime: LoopUnwrapper;
 
   constructor(
     private readonly ports: DvrRunPorts,
     private readonly ctx: DvrRunContext,
   ) {
     const { surface, budget } = ports;
-    this.unwrapRvfcTime = createLoopUnwrapper(surface);
-    this.unwrapTapTime = createLoopUnwrapper(surface);
-    this.unwrapPlaybackTime = createLoopUnwrapper(surface);
+    this.toContinuousTime = createLoopUnwrapper(surface);
     const derivedDelayMs = deriveDvrDelayMs(ctx.latenciesMs, ctx.verdicts.coverageAheadOf(surface.currentTime()));
     this.covered = derivedDelayMs === COVERED_DVR_DELAY_MS;
     this.delay = Math.max(derivedDelayMs / 1000, ctx.stallFloorSec);
@@ -286,7 +282,7 @@ class Run implements DvrRun {
         frame.close();
         return;
       }
-      const mediaTime = this.unwrapTapTime(deliveredMediaTime);
+      const mediaTime = this.toContinuousTime(deliveredMediaTime);
       // currentTime quantizes coarser than a 60 fps frame grid: an equal key is
       // nudged forward, a genuinely backwards key is a seek.
       const sinceLastSec = mediaTime - this.lastCapturedMediaTime;
@@ -344,12 +340,12 @@ class Run implements DvrRun {
   }
 
   private continuousPlaybackTime(): number {
-    return this.unwrapPlaybackTime(this.ports.surface.currentTime());
+    return this.toContinuousTime(this.ports.surface.currentTime());
   }
 
   onTick(deliveredMediaTime: number): void {
     if (this.stopped) return;
-    const mediaTime = this.unwrapRvfcTime(deliveredMediaTime);
+    const mediaTime = this.toContinuousTime(deliveredMediaTime);
     // Both clocks: media distance survives seeks, wall-clock catches a tap that
     // died while the media clock crawls (slow rate, a stall).
     const tapLive =

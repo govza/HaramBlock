@@ -684,9 +684,12 @@ looping clips. The registry dispatches a Loop Restart as its own `loopRestarted`
 restarting the DVR. Browsers report the head-of-loop position in a `timeupdate` before `seeked`,
 with `seeking` already false (measured on Chrome and Firefox), so the detector ignores a wrap-sized
 backward jump and classifies against the tail position. Inside the run, rVFC keys, tap keys and
-`currentTime` each pass through their own `createLoopUnwrapper` (`unwrapRvfcTime`, `unwrapTapTime`,
-`unwrapPlaybackTime`), so ring keys and the presenter's `PlaybackClock` run on Continuous Time;
-verdict lookups fold back to media time (`foldToMediaTime`). A real seek still restarts the run.
+`currentTime` all pass through one shared `createLoopUnwrapper`, so ring keys and the presenter's
+`PlaybackClock` always agree on the loop even when one source keeps reading while the others stall
+(a hidden tab stops rAF and rVFC but not the tap). The unwrapper picks the earliest loop that puts a
+reading no more than `min(0.5 s, duration/2)` behind the last one: a slightly late reading from
+another source stays on the previous loop, anything further back counts as the next loop. Verdict
+lookups fold back to media time (`foldToMediaTime`). A real seek still restarts the run.
 
 ## Testing
 

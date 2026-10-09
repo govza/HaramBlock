@@ -298,6 +298,39 @@ describe('DvrRun.onTick', () => {
     expect(clock.foldToMediaTime(1.2)).toBeCloseTo(1.2, 9);
   });
 
+  it('keeps playback time on the same loop as tap keys that kept arriving while playback went unread', () => {
+    const store = makeStore();
+    const pushed: number[] = [];
+    store.push = (_frame, mediaTime) => {
+      pushed.push(mediaTime);
+      return true;
+    };
+    vi.stubGlobal(
+      'VideoFrame',
+      class {
+        close() {}
+      },
+    );
+    try {
+      const { presenterOptions, setCurrentTime, deliverTapFrame } = makeHarness({
+        store,
+        loopDurationSec: 2.5,
+        withTapDriver: true,
+      });
+      const { clock } = presenterOptions();
+      setCurrentTime(2.4);
+      clock.continuousTime();
+
+      [2.45, 0.5, 1.5, 2.4, 0.3, 1.3].forEach(deliverTapFrame);
+      setCurrentTime(1.35);
+
+      expect(pushed.at(-1)).toBeCloseTo(6.3, 9);
+      expect(clock.continuousTime()).toBeCloseTo(6.35, 9);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('captures on every tick when no push driver exists', () => {
     const store = makeStore();
     const setLimits = vi.spyOn(store, 'setLimits');
