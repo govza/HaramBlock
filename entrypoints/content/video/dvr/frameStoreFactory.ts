@@ -47,9 +47,7 @@ const platformConverterFactory = decodedFrameConverterFactoryFor(import.meta.env
  */
 export const ENCODED_SESSION_CAP = 4;
 
-/** Pure selection rule: probe result × concurrency cap × prior error × flag. */
 export function selectStoreKind(input: {
-  enabled: boolean;
   probeSupported: boolean;
   activeEncodedSessions: number;
   encodedIneligible: boolean;
@@ -58,13 +56,11 @@ export function selectStoreKind(input: {
 }
 
 export function selectStoreReason(input: {
-  enabled: boolean;
   probeSupported: boolean;
   activeEncodedSessions: number;
   encodedIneligible: boolean;
 }): DvrStoreReason {
-  const { enabled, probeSupported, activeEncodedSessions, encodedIneligible } = input;
-  if (!enabled) return 'disabled';
+  const { probeSupported, activeEncodedSessions, encodedIneligible } = input;
   if (encodedIneligible) return 'ineligible';
   if (!probeSupported) return 'webcodecs_unsupported';
   return activeEncodedSessions < ENCODED_SESSION_CAP ? 'encoded' : 'session_cap';
@@ -153,7 +149,6 @@ function cachedProbe(probe: EncodedSupportProbe, width: number, height: number):
 export type DvrStoreReason =
   | 'encoded'
   | 'probing'
-  | 'disabled'
   | 'ineligible'
   | 'session_cap'
   | 'webcodecs_unsupported'
@@ -189,7 +184,6 @@ export interface CreateDvrFrameStoreOptions {
   /** Test seams. */
   codecs?: EncodedRingCodecs;
   probe?: EncodedSupportProbe;
-  encodedRingEnabled?: boolean;
   slots?: EncodedSessionSlots;
   createConverter?: DecodedFrameConverterFactory | null;
 }
@@ -206,7 +200,6 @@ export function createDvrFrameStore(options: CreateDvrFrameStoreOptions): Sessio
   );
 
   const preSelection = selectStoreReason({
-    enabled: options.encodedRingEnabled ?? true,
     probeSupported: true, // probe result pending; re-checked below
     activeEncodedSessions: slots.active(),
     encodedIneligible: options.encodedIneligible,

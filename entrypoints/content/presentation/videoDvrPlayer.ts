@@ -78,8 +78,7 @@ const PRESENT_CONTEXT_OPTIONS: CanvasRenderingContext2DSettings | undefined = im
 const CANVAS_STYLE = ['position: absolute', 'top: 0', 'left: 0', 'pointer-events: none'].join('; ');
 const MASK_CANVAS_STYLE = [CANVAS_STYLE, 'image-rendering: pixelated', 'image-rendering: crisp-edges'].join('; ');
 
-export interface VideoDvrPlayerOptions {
-  video: HTMLVideoElement;
+export interface DvrPresenterOptions {
   store: DvrFrameStore;
   verdicts: VerdictInterpreter;
   /**
@@ -89,11 +88,15 @@ export interface VideoDvrPlayerOptions {
    */
   getDelaySec: () => number;
   clock: PlaybackClock;
-  /** Live view of the host masking settings (quick toggle may change them). */
-  getMasking: () => IMaskingSettings;
   /** Fired once, when the canvas takes over (first buffered frame, pinned until the buffer spans D). */
   onReady: () => void;
   onPresented?: (sample: PresentedSample) => void;
+}
+
+export interface VideoDvrPlayerOptions extends DvrPresenterOptions {
+  video: HTMLVideoElement;
+  /** Live view of the host masking settings (quick toggle may change them). */
+  getMasking: () => IMaskingSettings;
 }
 
 interface DrawSurfaces {

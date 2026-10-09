@@ -112,9 +112,9 @@ All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.d
   push tap is unavailable: no_track_processor | no_capture_stream | capture_stream_failed |
   no_video_track | processor_failed - Firefox always reports `no_track_processor`) and the source
   geometry `hb.media.native_width` / `hb.media.native_height` / `hb.media.display_width`. Every
-  lifecycle record carries `hb.dvr.store_reason` (encoded | probing | disabled | ineligible |
-  session_cap | webcodecs_unsupported | released_before_probe | codec_error): why the store is on
-  its current backing, read at stop for the final answer.
+  lifecycle record carries `hb.dvr.store_reason` (encoded | probing | ineligible | session_cap |
+  webcodecs_unsupported | released_before_probe | codec_error): why the store is on its current
+  backing, read at stop for the final answer.
 - `video.dvr.delay_raised` - `hb.dvr.from_sec`, `hb.dvr.to_sec`, `hb.dvr.cause`
   (verdict|store_stall).
 - `video.dvr.tap_changed` - `hb.dvr.from`, `hb.dvr.to` (tap|rvfc): the effective capture path

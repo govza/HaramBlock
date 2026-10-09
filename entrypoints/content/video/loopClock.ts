@@ -3,6 +3,11 @@ export interface LoopingMedia {
   loops(): boolean;
 }
 
+export const loopingMediaOf = (video: HTMLVideoElement): LoopingMedia => ({
+  duration: () => video.duration,
+  loops: () => video.loop,
+});
+
 export type LoopUnwrapper = (mediaTime: number) => number;
 
 export interface PlaybackClock {
