@@ -161,10 +161,22 @@ export class LookaheadHost {
     };
     const options = { live: open.live, suspicionThreshold: open.suspicionThreshold };
     if (open.tap.kind === 'progressive') {
-      const analysis = createProgressiveAnalysis(lookaheadPorts, options, this.ports.rangeSource(open.tap.url));
+      const bytes = this.ports.rangeSource(open.tap.url);
+      let reported = false;
+      const reportReachableOnFirstRange: ByteRangeSource = {
+        size: async () => {
+          const size = await bytes.size();
+          if (!reported && this.sessions.get(open.sessionId) === analysis) {
+            reported = true;
+            this.ports.send({ t: 'reachable', sessionId: open.sessionId, tap: 'progressive' });
+          }
+          return size;
+        },
+        read: (start, end) => bytes.read(start, end),
+      };
+      const analysis = createProgressiveAnalysis(lookaheadPorts, options, reportReachableOnFirstRange);
       this.latestOpens.delete(open.sessionId);
       this.sessions.set(open.sessionId, analysis);
-      this.ports.send({ t: 'reachable', sessionId: open.sessionId, tap: 'progressive' });
       return;
     }
     const sourceId = await this.sourceFor(open.tap.objectUrl);

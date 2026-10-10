@@ -483,9 +483,12 @@ class VideoSessionRegistry {
 
   private tapResolved(handle: SessionHandle, tap: TapKind, reason: UnreachableReason | 'reachable' | 'none'): void {
     if (handle.state.phase === 'disposed') return;
+    const firstResolution = handle.tap === null;
     handle.tap = tap;
     handle.video.setAttribute(VIDEO_TAP_ATTR, tap);
-    recordCounter(METRIC.videoTapSessions, 1, { [ATTR.videoTap]: tap, [ATTR.videoTapReason]: reason });
+    if (firstResolution) {
+      recordCounter(METRIC.videoTapSessions, 1, { [ATTR.videoTap]: tap, [ATTR.videoTapReason]: reason });
+    }
     log.info('video.tap.resolved', { [ATTR.sessionId]: handle.sessionId, [ATTR.videoTap]: tap, reason });
     this.dispatch(handle, { type: tap === 'none' ? 'tapUnreachable' : 'tapReachable' });
   }

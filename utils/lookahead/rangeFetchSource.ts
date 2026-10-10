@@ -23,6 +23,11 @@ function isMediaBody(response: Response): boolean {
   return !type || MEDIA_CONTENT_TYPE.test(type);
 }
 
+function rejectResponse(response: Response, message: string): never {
+  void response.body?.cancel().catch(() => undefined);
+  throw new RangeFetchRejectedError(message);
+}
+
 export function createRangeFetchSource(url: string, options: RangeFetchOptions = {}): ByteRangeSource {
   const fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
   const blockSize = options.blockSize ?? RANGE_BLOCK_BYTES;
@@ -54,16 +59,15 @@ export function createRangeFetchSource(url: string, options: RangeFetchOptions =
 
   const fetchBlocks = async (firstBlock: number, lastBlock: number, size: number): Promise<void> => {
     const response = await request(firstBlock, lastBlock, size);
-    if (response.status !== 206) throw new RangeFetchRejectedError(`Range request answered ${response.status}`);
+    if (response.status !== 206) rejectResponse(response, `Range request answered ${response.status}`);
     storeBlocks(firstBlock, new Uint8Array(await response.arrayBuffer()));
   };
 
   const probe = async (): Promise<number> => {
     const response = await request(0, 0, null);
-    if (response.status !== 206) throw new RangeFetchRejectedError(`First range request answered ${response.status}`);
-    if (!isMediaBody(response)) throw new RangeFetchRejectedError('First range request returned a non-media body');
-    const total = totalSizeOf(response);
-    if (total === null) throw new RangeFetchRejectedError('First range request has no total size');
+    if (response.status !== 206) rejectResponse(response, `First range request answered ${response.status}`);
+    if (!isMediaBody(response)) rejectResponse(response, 'First range request returned a non-media body');
+    const total = totalSizeOf(response) ?? rejectResponse(response, 'First range request has no total size');
     storeBlocks(0, new Uint8Array(await response.arrayBuffer()));
     return total;
   };

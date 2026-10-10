@@ -25,10 +25,10 @@ export interface ProgressiveFile {
 
 const SHORT_GOP_MAX_US = 1_000_000;
 
-export function gopSamplePoints(keyframesUs: readonly number[], durationUs: number): ProgressiveGop[] {
-  return keyframesUs.map((startUs, index) => {
-    const endUs = keyframesUs[index + 1] ?? durationUs;
-    const points = endUs - startUs <= SHORT_GOP_MAX_US ? latticePointsIn(startUs, endUs) : [toPointUs(startUs / 1e6)];
+export function gopSamplePoints(keyframePointsUs: readonly number[], durationUs: number): ProgressiveGop[] {
+  return keyframePointsUs.map((startUs, index) => {
+    const endUs = keyframePointsUs[index + 1] ?? durationUs;
+    const points = endUs - startUs <= SHORT_GOP_MAX_US ? latticePointsIn(startUs, endUs) : [startUs];
     return { startUs, endUs, points };
   });
 }
@@ -52,16 +52,16 @@ export async function openProgressiveFile(bytes: ByteRangeSource): Promise<Progr
     const config = await track.getDecoderConfig();
     if (!config) throw new Error('No decoder config');
     const sink = new EncodedPacketSink(track);
-    const keyframesUs: number[] = [];
+    const keyframePointsUs: number[] = [];
     for (
       let key = await sink.getFirstKeyPacket({ metadataOnly: true });
       key;
       key = await sink.getNextKeyPacket(key, { metadataOnly: true })
     ) {
-      keyframesUs.push(packetUs(key));
+      keyframePointsUs.push(toPointUs(key.timestamp));
     }
     const durationUs = Math.round((await track.computeDuration()) * 1e6);
-    const gops = gopSamplePoints(keyframesUs, durationUs);
+    const gops = gopSamplePoints(keyframePointsUs, durationUs);
     const gopOf = (pointUs: number) => gops.findLast(gop => gop.startUs <= pointUs);
 
     return {

@@ -30,6 +30,7 @@ export interface PointSource {
   readonly endUs: number;
   readonly arrivedAt: number;
   pointsToSample(): number[];
+  isDue(pointUs: number): boolean;
   nextBatch(orderedPoints: readonly number[]): number[];
   buildJob(points: readonly number[]): Promise<DecodeJob | null>;
   release(): void;
@@ -127,12 +128,6 @@ export class SampleScheduler {
     this.schedulePump();
   }
 
-  pruneWanted(keep: (pointUs: number) => boolean): void {
-    for (const point of this.wanted) {
-      if (!keep(point)) this.wanted.delete(point);
-    }
-  }
-
   stop(reason?: UnreachableReason): void {
     if (this.stopped) return;
     this.stopped = true;
@@ -155,6 +150,12 @@ export class SampleScheduler {
     if (this.known.has(pointUs) || this.inflight.has(pointUs)) return;
     if (!this.sourceFor(pointUs)) return;
     this.wanted.add(pointUs);
+  }
+
+  private isDue = (pointUs: number): boolean => this.sourceFor(pointUs)?.isDue(pointUs) ?? true;
+
+  private dueWanted(): number[] {
+    return [...this.wanted].filter(this.isDue);
   }
 
   private sourceFor(pointUs: number): PointSource | undefined {
@@ -233,7 +234,7 @@ export class SampleScheduler {
       return;
     }
     if (this.inflight.size >= MAX_INFLIGHT_INFERENCES) return;
-    const next = [...this.wanted].sort(this.compareOrder)[0];
+    const next = this.dueWanted().sort(this.compareOrder)[0];
     if (next === undefined) {
       this.notifyIfIdle();
       return;
@@ -245,7 +246,9 @@ export class SampleScheduler {
       return;
     }
     const points = source.nextBatch(
-      [...this.wanted].filter(point => this.sourceFor(point) === source).sort(this.compareOrder),
+      this.dueWanted()
+        .filter(point => this.sourceFor(point) === source)
+        .sort(this.compareOrder),
     );
     for (const point of points) {
       this.wanted.delete(point);
@@ -343,7 +346,7 @@ export class SampleScheduler {
         !this.pumpQueued &&
         this.pendingWork === 0 &&
         this.inflight.size === 0 &&
-        this.wanted.size === 0);
+        this.dueWanted().length === 0);
     if (!idle) return;
     const waiters = this.idleWaiters;
     this.idleWaiters = [];
@@ -367,6 +370,10 @@ class UnitSource implements PointSource {
 
   pointsToSample(): number[] {
     return latticePointsIn(this.startUs, this.endUs);
+  }
+
+  isDue(): boolean {
+    return true;
   }
 
   nextBatch(orderedPoints: readonly number[]): number[] {
@@ -535,6 +542,7 @@ class ProgressiveSource implements PointSource {
   readonly startUs = 0;
   readonly arrivedAt = 0;
   private readonly samplePoints: number[];
+  private inWindow: (pointUs: number) => boolean = () => false;
 
   constructor(
     private readonly scheduler: SampleScheduler,
@@ -542,22 +550,30 @@ class ProgressiveSource implements PointSource {
     private readonly windowUs: number,
   ) {
     this.samplePoints = file.gops.flatMap(gop => gop.points);
+    this.refreshWindow();
   }
 
   get endUs(): number {
     return this.file.durationUs + 1;
   }
 
-  windowPredicate(): (pointUs: number) => boolean {
+  refreshWindow(): void {
+    if (!this.scheduler.isVisible()) {
+      this.inWindow = () => false;
+      return;
+    }
     const playheadUs = this.scheduler.currentPlayhead().timeSec * 1e6;
     const startUs = this.samplePoints.findLast(point => point <= playheadUs) ?? 0;
     const endUs = playheadUs + this.windowUs;
-    return pointUs => pointUs >= startUs && pointUs < endUs;
+    this.inWindow = pointUs => pointUs >= startUs && pointUs < endUs;
   }
 
   pointsToSample(): number[] {
-    if (!this.scheduler.isVisible()) return [];
-    return this.samplePoints.filter(this.windowPredicate());
+    return this.samplePoints.filter(this.inWindow);
+  }
+
+  isDue(pointUs: number): boolean {
+    return this.inWindow(pointUs);
   }
 
   nextBatch(orderedPoints: readonly number[]): number[] {
@@ -587,9 +603,8 @@ export function createProgressiveAnalysis(
 
   const refresh = () => {
     if (!source) return;
-    const current = source;
-    scheduler.pruneWanted(scheduler.isVisible() ? current.windowPredicate() : () => false);
-    scheduler.refreshWanted(current);
+    source.refreshWindow();
+    scheduler.refreshWanted(source);
   };
 
   const opening = scheduler.trackWork(

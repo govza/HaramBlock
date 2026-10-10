@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import type {
   AnalysisFrame,
   ByteRangeSource,
+  DecodeJob,
   DecoderPort,
   InferencePort,
   InferredSample,
@@ -57,12 +58,12 @@ export function createHarness(
   const emitted: StoredSample[] = [];
   const unreachable: UnreachableReason[] = [];
   let cacheReads = 0;
-  let decodeJobs = 0;
+  const jobs: DecodeJob[] = [];
   const verdictAt = options.verdictAt ?? (() => CLEAN);
 
   const decoder: DecoderPort = {
     async *decode(job) {
-      decodeJobs += 1;
+      jobs.push(job);
       for (const target of [...job.targets].sort((a, b) => a.ptsUs - b.ptsUs)) {
         const frame: TestFrame = {
           ptsUs: target.ptsUs,
@@ -108,7 +109,8 @@ export function createHarness(
     emitted,
     unreachable,
     cacheReads: () => cacheReads,
-    decodeJobs: () => decodeJobs,
+    jobs,
+    decodeJobs: () => jobs.length,
     requestedPoints: () => requests.map(request => request.pointUs),
   };
 }
