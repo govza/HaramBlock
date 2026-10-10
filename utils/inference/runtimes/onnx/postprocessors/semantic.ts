@@ -2,7 +2,7 @@ import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/b
 import { encodeMaskRLE } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';
 
-import type { PostprocessContext } from '@/utils/inference/runtimes/onnx/postprocessors/types';
+import type { PostprocessContext, PostprocessResult } from '@/utils/inference/runtimes/onnx/postprocessors/types';
 import type { IElementPrediction } from '@/utils/types';
 
 const log = getLogger('prediction');
@@ -28,13 +28,13 @@ export function processSemanticSegmentation({
   scoreThreshold,
   originalWidth,
   originalHeight,
-}: PostprocessContext): IElementPrediction[] {
+}: PostprocessContext): PostprocessResult {
   const [modelHeight, modelWidth] = config.imgsz;
 
   const output = results['output0'];
   if (!output) {
     log.error('postprocess.tensor.missing', { tensorName: 'output0', availableTensors: Object.keys(results) });
-    return [];
+    return { predictions: [], topUnsafeScore: 0 };
   }
 
   const data = output.data as Float32Array;
@@ -86,6 +86,7 @@ export function processSemanticSegmentation({
     });
   }
 
+  let topUnsafeScore = 0;
   let bufferIdx = 0;
   for (let sy = 0; sy < subH; sy++) {
     const y = Math.min(cropTop + sy * step, cropBottom - 1);
@@ -109,6 +110,7 @@ export function processSemanticSegmentation({
           expSum += Math.exp((data[c * spatial + y * outW + x] ?? 0) - maxLogit);
         }
         const prob = 1 / expSum;
+        topUnsafeScore = Math.max(topUnsafeScore, prob);
 
         if (prob >= scoreThreshold) {
           acc.mask[bufferIdx] = 1;
@@ -159,5 +161,5 @@ export function processSemanticSegmentation({
     });
   }
 
-  return predictions;
+  return { predictions, topUnsafeScore };
 }

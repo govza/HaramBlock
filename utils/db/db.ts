@@ -36,6 +36,12 @@ export class MediaCacheDatabase extends Dexie {
       imagePredictions: '&src, hostname, timestamp, [hostname+timestamp]',
       videoPredictions: '&videoUrl, hostname, timestamp, [hostname+timestamp]',
     });
+    this.version(2)
+      .stores({
+        imagePredictions: '&src, hostname, timestamp, [hostname+timestamp]',
+        videoPredictions: '&videoUrl, hostname, timestamp, [hostname+timestamp]',
+      })
+      .upgrade(tx => tx.table('videoPredictions').clear());
   }
 }
 

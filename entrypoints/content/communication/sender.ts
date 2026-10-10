@@ -1,7 +1,6 @@
 import { ROOT_CONTEXT, type Context, type Span } from '@opentelemetry/api';
 
 import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
-import { dvrRingBudget } from '@/entrypoints/content/video/dvr/ringBudget';
 import { bitmapToCompressedBlob } from '@/entrypoints/content/video/sampling/compression';
 import {
   IS_CHROME,
@@ -37,6 +36,7 @@ import {
   type IImageTransfer,
   type IVideoFrameTransfer,
   type IGifFrameTransfer,
+  type FrameSampleKind,
 } from '@/utils/types';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
@@ -298,41 +298,6 @@ export async function requestImageInference(
   await sendImageForInference(hostname, image, metadata, priority, parent);
 }
 
-const BACKEND_POLL_MS = 5000;
-/** Model load can take a while on cold starts; after ~2 min settle on the conservative tier. */
-const BACKEND_POLL_MAX_ATTEMPTS = 24;
-let backendSyncStarted = false;
-
-/**
- * Feed the inference backend to the DVR ring budget. The backend is decided in
- * the background at model load, so it may still read 'unknown' when the page
- * initializes — poll until it resolves; until then (and on failure) the budget
- * stays at its conservative WASM tier.
- */
-function syncDvrRingBudgetBackend(attempt = 0): void {
-  if (attempt === 0) {
-    if (backendSyncStarted) return;
-    backendSyncStarted = true;
-  }
-  backgroundRpc
-    .getInferenceBackend()
-    .then(backend => {
-      if (backend === 'webgpu' || backend === 'wasm') {
-        dvrRingBudget.setBackend(backend);
-      } else if (attempt < BACKEND_POLL_MAX_ATTEMPTS) {
-        setTimeout(() => syncDvrRingBudgetBackend(attempt + 1), BACKEND_POLL_MS);
-      }
-    })
-    .catch((error: unknown) => {
-      // A transient RPC failure (service worker restarting) must not pin a
-      // WebGPU machine to the conservative tier forever - keep polling.
-      log.debug('backend.resolve.retry', { attempt, error });
-      if (attempt < BACKEND_POLL_MAX_ATTEMPTS) {
-        setTimeout(() => syncDvrRingBudgetBackend(attempt + 1), BACKEND_POLL_MS);
-      }
-    });
-}
-
 /**
  * Request both host settings and cached predictions in parallel
  * @param hostname - The hostname to get data for
@@ -343,7 +308,6 @@ export async function requestHostData(hostname: string): Promise<{
   predictions: IImagePrediction[];
 }> {
   try {
-    syncDvrRingBudgetBackend();
     const [settings, predictions] = await Promise.all([
       requestHostSettings(hostname),
       requestCachedPredictions(hostname),
@@ -387,6 +351,7 @@ async function resolveVideoFrameTransferKind(): Promise<VideoFrameTransferKind> 
 
 export interface VideoFrameParams {
   sample: CapturedFrameSample;
+  sampleKind: FrameSampleKind;
   hostname: string;
   priority: number;
   session?: UmbrellaSession;
@@ -398,7 +363,7 @@ export interface VideoFrameParams {
  * Firefox: Compressed WebP blob via structured clone
  */
 export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
-  const { sample, hostname, priority, session } = params;
+  const { sample, sampleKind, hostname, priority, session } = params;
   const { bitmap, videoUrl, sourceUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
   const roundtripKey = `${sessionId}:${frameIndex}`;
@@ -427,6 +392,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       originalHeight,
       hostname,
       sessionId,
+      sampleKind,
       priority,
       traceparent: injectTraceparent(parent),
     };

@@ -15,8 +15,3 @@ export interface CapturedFrameSample extends IFrameSampleIdentity {
   /** Content-process monotonic time at which capture began. */
   capturedAt: number;
 }
-
-/** Session-local lifecycle data; intentionally not a persistent cache record. */
-export interface PendingFrameSample extends IFrameSampleIdentity {
-  capturedAt: number;
-}

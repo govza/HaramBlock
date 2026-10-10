@@ -3,6 +3,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 
 import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
+import { allVideoSamples } from '@/utils/db/videoPredictionRepository';
 import { t } from '@/utils/i18n';
 import { getLogger } from '@/utils/telemetry';
 
@@ -97,9 +98,9 @@ const useCacheSources = (): Record<CacheKind, ICacheSource> => {
           key: record.videoUrl,
           timestamp: record.timestamp,
           forcedVisibility: record.forcedVisibility,
-          modelId: record.modelId,
-          predictions: record.samples.flatMap(sample => sample.predictions),
-          detail: t('OptionsPage.Cache.samples', [String(record.samples.length)]),
+          modelId: Object.keys(record.samplesByModel).join(', ') || undefined,
+          predictions: allVideoSamples(record).flatMap(sample => sample.predictions),
+          detail: t('OptionsPage.Cache.samples', [String(allVideoSamples(record).length)]),
         }),
         Media: ({ src, className }: IMediaProps) => <video src={src} preload='metadata' muted className={className} />,
       }),

@@ -37,6 +37,7 @@ export interface PointSource {
 
 export class SampleScheduler {
   private readonly known = new Map<number, StoredSample>();
+  private readonly cachedUnreported = new Set<number>();
   private readonly wanted = new Set<number>();
   private readonly inflight = new Set<number>();
   private sources: PointSource[] = [];
@@ -61,7 +62,10 @@ export class SampleScheduler {
     if (!this.options.live) {
       try {
         const cached = await this.ports.cache.read();
-        for (const sample of cached) this.recordKnown(sample);
+        for (const sample of cached) {
+          this.recordKnown(sample);
+          this.cachedUnreported.add(sample.pointUs);
+        }
         for (const sample of cached) this.ports.events.sample(sample);
       } catch {
         this.cacheReady = true;
@@ -147,6 +151,7 @@ export class SampleScheduler {
   }
 
   private want(pointUs: number): void {
+    if (this.cachedUnreported.delete(pointUs)) this.ports.events.stat?.({ kind: 'cacheHit', pointUs });
     if (this.known.has(pointUs) || this.inflight.has(pointUs)) return;
     if (!this.sourceFor(pointUs)) return;
     this.wanted.add(pointUs);

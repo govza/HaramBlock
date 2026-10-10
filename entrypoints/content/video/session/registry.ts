@@ -1,56 +1,61 @@
-/**
- * VideoSession registry: the lifecycle module (docs/VIDEO_PROCESSING.md).
- *
- * Owns every live VideoSession (element × resolved source), routes frame
- * predictions by sessionId (no DOM queries), and runs the dispatch loop that
- * feeds the pure machine and routes its effects to the executing modules:
- * sampling (frameSampler.ts), viewport suspension (viewportSuspension.ts),
- * and presentation (presentationAdapter.ts).
- */
-
-import { requestCachedVideoPredictions, requestVideoToggleUpdate } from '@/entrypoints/content/communication/sender';
+import {
+  cancelVideoSessionInference,
+  requestCachedVideoPredictions,
+  requestVideoFrameInference,
+  requestVideoToggleUpdate,
+} from '@/entrypoints/content/communication/sender';
 import {
   clearProcessedStatus,
   PROCESSED_ATTR_MAP,
   type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
-import { videoMaskOverlays } from '@/entrypoints/content/presentation/videoMaskOverlay';
-import { hasMuteIntent, releaseMuteHold, releaseRelayAudio } from '@/entrypoints/content/video/dvr/relayAudio';
-import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/dvr/verdictInterpreter';
+import { LiveSampler } from '@/entrypoints/content/video/live/liveSampler';
 import { createLoopRestartDetector, loopingMediaOf } from '@/entrypoints/content/video/loopClock';
 import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
-import { releaseCorsVideoCache } from '@/entrypoints/content/video/sampling/capture';
+import { MaskPresenter } from '@/entrypoints/content/video/presenter/maskPresenter';
+import {
+  captureFrameBitmap,
+  captureThumbnailBitmap,
+  currentInferenceCaptureSize,
+  releaseCorsVideoCache,
+  type CaptureResult,
+} from '@/entrypoints/content/video/sampling/capture';
+import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
-import { FrameSampler } from '@/entrypoints/content/video/session/frameSampler';
+import { SESSION_ID_ATTR, SESSION_SRC_ATTR, VIDEO_TAP_ATTR } from '@/entrypoints/content/video/session/markers';
+import { toVerdictCacheKey } from '@/entrypoints/content/video/session/verdictCacheKey';
 import {
   createVideoSession,
-  type ReduceResult,
   reduce,
-  isUnsafeVerdict,
-  type SampleVerdict,
   type SessionEffect,
   type SessionEvent,
   type SessionStatus,
-  type VideoSessionState,
-} from '@/entrypoints/content/video/session/machine';
-import { SESSION_ID_ATTR, SESSION_SRC_ATTR } from '@/entrypoints/content/video/session/markers';
-import {
-  applyWholeBlur,
-  clearWholeBlur,
-  PresentationAdapter,
-} from '@/entrypoints/content/video/session/presentationAdapter';
-import { toVerdictCacheKey } from '@/entrypoints/content/video/session/verdictCacheKey';
+  type TransientResolution,
+} from '@/entrypoints/content/video/session/videoSession';
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
+import { applyWholeBlur, clearWholeBlur } from '@/entrypoints/content/video/session/wholeBlur';
+import { openLookahead, type LookaheadInferenceRequest } from '@/entrypoints/content/video/tap/lookaheadClient';
+import { chooseTap } from '@/entrypoints/content/video/tap/tapChoice';
+import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/timeline/verdictInterpreter';
+import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
-import { ATTR, getLogger, METRIC, recordCounter } from '@/utils/telemetry';
+import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 
-import type { VerdictEntry } from '@/entrypoints/content/video/dvr/verdictTimeline';
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
-import type { FrameInferenceResult, ForcedVisibility, IFramePrediction, IHostSettings } from '@/utils/types';
+import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
+import type { AnalysisStat, InferredSample, StoredSample, UnreachableReason } from '@/utils/lookahead/ports';
+import type { TapKind } from '@/utils/lookahead/protocol';
+import type {
+  FrameInferenceResult,
+  FrameSampleKind,
+  ForcedVisibility,
+  IFramePrediction,
+  IHostSettings,
+} from '@/utils/types';
 
 const log = getLogger('videoSession:registry');
 
@@ -60,77 +65,30 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   skipped: 'skipped',
 };
 
-let warnedTimestamplessPrediction = false;
-
+const THUMBNAIL_FRAME_INDEX = -1;
+const PROGRESS_INTERVAL_MS = 250;
+const LOOKAHEAD_INFERENCE_TIMEOUT_MS = 30_000;
+const SUSPICION_RATIO = 0.5;
 const ATTRIBUTE_BUCKET = 0.05;
 
-function bucketOf(value: number): number {
-  return Math.round(value / ATTRIBUTE_BUCKET) * ATTRIBUTE_BUCKET;
-}
+const bucketOf = (value: number): number => Math.round(value / ATTRIBUTE_BUCKET) * ATTRIBUTE_BUCKET;
 
-function scoreThresholdOf(handle: SessionHandle): number {
-  return strictnessToScoreThreshold(handle.hostSettings.strictness);
-}
+const scoreThresholdOf = (handle: SessionHandle): number => strictnessToScoreThreshold(handle.hostSettings.strictness);
 
-function interpretVerdict(handle: SessionHandle, pred: IFramePrediction): SampleVerdict {
-  const unsafe = Boolean(pred.predictions?.length);
-  if (pred.frameIndex < 0) return unsafe ? 'unsafe' : 'clean';
-  return handle.verdicts.record(
-    {
-      timestampSec: pred.timestampSec,
-      unsafe,
-      predictions: pred.predictions ?? [],
-      maskTransform: pred.maskTransform,
-      width: pred.width,
-      height: pred.height,
-    },
-    scoreThresholdOf(handle),
-  );
-}
+const toEntry = (timestampSec: number, sample: InferredSample): VerdictEntry => ({
+  timestampSec,
+  unsafe: sample.predictions.length > 0,
+  predictions: sample.predictions,
+  maskTransform: sample.input.maskTransform,
+  width: sample.input.width,
+  height: sample.input.height,
+});
 
-function predictionFromCachedEntry(
-  handle: SessionHandle,
-  entry: VerdictEntry,
-  frameIndex: number,
-  timestampSec: number,
-): IFramePrediction {
-  const now = Date.now();
-  return {
-    sessionId: handle.sessionId,
-    frameIndex,
-    timestampSec,
-    videoUrl: handle.cacheKey,
-    sourceUrl: handle.src,
-    src: '',
-    hostname: handle.hostSettings.hostname,
-    width: entry.width,
-    height: entry.height,
-    predictions: entry.predictions,
-    maskTransform: entry.maskTransform,
-    timestamp: now,
-    cacheMetadata: { createdAt: now, accessedAt: now },
-    processingTime: { fetchTime: 0, decodeTime: 0, queueTime: 0, inferenceTime: 0, e2eTime: 0, backend: 'cache' },
-  };
-}
-
-function recordTransientRun(handle: SessionHandle, run: ResolvedRun): void {
-  recordCounter(METRIC.videoTransientRuns, 1, {
-    [ATTR.transientResolution]: run.resolution,
-    [ATTR.transientRunLength]: run.runLength,
-    [ATTR.transientTopProbability]: bucketOf(run.topProbability),
-    [ATTR.scoreThreshold]: scoreThresholdOf(handle),
-    [ATTR.transientMaxRun]: TRANSIENT_HIT_CONFIG.maxSuppressedRun,
-    [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
-    [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
-    [ATTR.transientPreMaskLeadSec]: PRE_MASK_LEAD_SEC,
-    ...(run.onsetGapSec !== null && { [ATTR.transientOnsetGapSec]: bucketOf(run.onsetGapSec) }),
-  });
-}
-
-interface PendingAttachment {
-  hostSettings: IHostSettings;
-  cancel: () => void;
-}
+const toInferred = (prediction: IFramePrediction): InferredSample => ({
+  predictions: prediction.predictions ?? [],
+  input: { width: prediction.width, height: prediction.height, maskTransform: prediction.maskTransform },
+  topUnsafeScore: prediction.topUnsafeScore ?? 0,
+});
 
 function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): boolean {
   return source.srcObject
@@ -138,17 +96,23 @@ function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): 
     : handle.srcObject === null && handle.src === source.url;
 }
 
+const isLiveDuration = (video: HTMLVideoElement): boolean => video.duration === Number.POSITIVE_INFINITY;
+
+const documentVisible = (): boolean => globalThis.document?.visibilityState !== 'hidden';
+
+interface PendingAttachment {
+  hostSettings: IHostSettings;
+  cancel: () => void;
+}
+
 class VideoSessionRegistry {
   private readonly byId = new Map<string, SessionHandle>();
   private readonly byVideo = new WeakMap<HTMLVideoElement, SessionHandle>();
-  /** Videos awaiting a resolved source; strong so disposeAll/sweep can cancel the waits. */
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
   private readonly userToggledCacheKeys = new WeakMap<HTMLVideoElement, string>();
+  private documentVisibilityBound = false;
 
-  // Every port forwards through an arrow so the modules resolve each other at
-  // call time, not at field-initialization time: the wiring stays correct
-  // however these three fields are ordered.
   private readonly forced = new ForcedPresentation({
     attach: (video, hostSettings) => this.attach(video, hostSettings),
     disposeSession: video => {
@@ -159,43 +123,14 @@ class VideoSessionRegistry {
       this.registerToggle(video, hostSettings, forcedVisibility, hasDetections, unprocessed),
   });
 
-  private readonly presentation = new PresentationAdapter({
-    dispatch: (handle, event) => this.dispatch(handle, event),
-    // Latched per DVR run (set at startDvr); the adaptive estimate only seeds
-    // runs that derive it fresh.
-    currentDelaySec: handle => handle.dvrRun?.delaySec ?? this.sampler.currentDvrDelaySec(handle),
-  });
-
-  private readonly sampler = new FrameSampler({
-    dispatch: (handle, event) => this.dispatch(handle, event),
-    captureIntoRing: (handle, mediaTime) => this.presentation.captureIntoRing(handle, mediaTime),
-  });
-
   private readonly suspension = new ViewportSuspension({
     handleFor: video => this.byVideo.get(video),
-    dispatch: (handle, event) => this.dispatch(handle, event),
-    sampler: {
-      startTicker: handle => this.sampler.startTicker(handle),
-      stopTicker: handle => this.sampler.stopTicker(handle),
-      invalidateForSuspend: handle => this.sampler.invalidateForSuspend(handle),
-      replayDeferredThumbnail: handle => this.sampler.replayDeferredThumbnail(handle),
-      consumePendingResample: handle => this.sampler.consumePendingResample(handle),
-      discardPendingResample: handle => this.sampler.discardPendingResample(handle),
-    },
-    reapplyStaticMask: handle => {
-      applyWholeBlur(handle.video, handle.hostSettings);
-      this.presentation.applyVerdictOverlay(handle, true);
-    },
+    suspendedChanged: handle => this.applyVisibility(handle),
   });
 
-  /**
-   * Attach a video, creating its VideoSession. A video without a resolved
-   * source yet is attached as soon as resource selection yields one.
-   * Re-attaching the same (element, source) pair only refreshes host settings;
-   * a changed source disposes the old session and starts a fresh one.
-   */
   attach(video: HTMLVideoElement, hostSettings: IHostSettings): void {
     this.sweepDisconnected();
+    this.bindDocumentVisibility();
     this.settingsByVideo.set(video, hostSettings);
     const source = resolveVideoSource(video);
     if (!source) {
@@ -203,7 +138,6 @@ class VideoSessionRegistry {
       return;
     }
     this.pendingByVideo.get(video)?.cancel();
-
     if (this.forced.reconcile(video, source, hostSettings)) return;
 
     const existing = this.byVideo.get(video);
@@ -215,44 +149,7 @@ class VideoSessionRegistry {
       this.dispose(video);
     }
 
-    const sessionId = generateNonce();
-    const handle: SessionHandle = {
-      sessionId,
-      video,
-      srcObject: source.srcObject,
-      // Object-backed streams lack a persistent media URL. A session-local
-      // label preserves sample metadata without pretending it is cacheable.
-      src: source.url || `srcobject:${sessionId}`,
-      cacheKey: toVerdictCacheKey(source.url),
-      trace: startUmbrellaSession(SPAN.videoSession, {
-        [ATTR.src]: source.url,
-        [ATTR.hostname]: hostSettings.hostname,
-        [ATTR.mediaKind]: 'video',
-      }),
-      dvrWarmupSpan: null,
-      dvrWarmupStartedAt: 0,
-      hostSettings,
-      state: null as unknown as VideoSessionState, // set right below via createVideoSession
-      lastPrediction: null,
-      lastUnsafePrediction: null,
-      timers: new Map(),
-      stopTicker: null,
-      removeListeners: () => {},
-      overlayChain: Promise.resolve(),
-      dvrRun: null,
-      verdicts: new VerdictInterpreter({ onRunResolved: run => this.onTransientRunResolved(handle, run) }),
-      dvrStallFloorSec: 0,
-      dvrEncodedIneligible: false,
-      dvrLastAnomalyAt: Number.NEGATIVE_INFINITY,
-      pendingSamples: new Map(),
-      latenciesMs: [],
-      suspended: !isVideoNearViewport(video),
-      suspendGrace: null,
-      captureEpoch: 0,
-      pendingThumbnailCapture: false,
-      pendingResample: false,
-      sentPlaybackFrame: false,
-    };
+    const handle = this.createHandle(video, source, hostSettings);
     this.byId.set(handle.sessionId, handle);
     this.byVideo.set(video, handle);
     video.setAttribute(SESSION_SRC_ATTR, handle.src);
@@ -263,120 +160,111 @@ class VideoSessionRegistry {
     handle.state = born.state;
     this.execute(handle, born.effects);
 
-    // Undelayable audio is not an attachment gate (ADR 0001): the machine's
-    // audioRoute policy decides engage/retry/withdraw from engage results
-    // and raw mute intent (ADR 0002).
     this.bindMediaEvents(handle);
     this.suspension.observe(handle);
-    if (!handle.suspended) this.sampler.startTicker(handle);
-    this.sampler.queueThumbnailSourceReady(handle);
-    this.seedTimelineFromCache(handle);
+    this.applyVisibility(handle);
+    this.queueThumbnail(handle);
+    this.openTap(handle, source);
+    this.restoreForcedVisibility(handle);
   }
 
-  private seedTimelineFromCache(handle: SessionHandle): void {
-    if (!handle.cacheKey) return;
-    void requestCachedVideoPredictions(handle.cacheKey).then(({ samples, forcedVisibility }) => {
-      if (this.byId.get(handle.sessionId) !== handle || handle.state.phase === 'disposed') return;
-      if (!this.isCacheKeyCurrent(handle)) return;
-      if (forcedVisibility !== 'auto' && this.userToggledCacheKeys.get(handle.video) !== handle.cacheKey) {
-        log.debug('registry.forced_visibility.restored', { [ATTR.sessionId]: handle.sessionId, forcedVisibility });
-        this.applyForcedVisibility(handle.video, forcedVisibility, false);
-        return;
-      }
-      if (samples.length === 0) return;
-      handle.verdicts.seed(samples, scoreThresholdOf(handle));
-      log.debug('registry.timeline.seeded', { [ATTR.sessionId]: handle.sessionId, count: samples.length });
-      this.presentation.syncDvrVerdict(handle);
-    });
+  private createHandle(video: HTMLVideoElement, source: ResolvedVideoSource, hostSettings: IHostSettings) {
+    const sessionId = generateNonce();
+    const interpreter = new VerdictInterpreter({ onRunResolved: run => this.recordTransientRun(handle, run) });
+    const handle: SessionHandle = {
+      sessionId,
+      video,
+      srcObject: source.srcObject,
+      src: source.url || `srcobject:${sessionId}`,
+      cacheKey: toVerdictCacheKey(source.url),
+      trace: startUmbrellaSession(SPAN.videoSession, {
+        [ATTR.src]: source.url,
+        [ATTR.hostname]: hostSettings.hostname,
+        [ATTR.mediaKind]: 'video',
+      }),
+      hostSettings,
+      state: createVideoSession().state,
+      interpreter,
+      presenter: new MaskPresenter({
+        video,
+        interpreter,
+        masking: () => handle.hostSettings.masking,
+        onPresented: unsafe => this.dispatch(handle, { type: 'presented', unsafe }),
+        onFrame: mediaTimeSec => this.onPresentedFrame(handle, mediaTimeSec),
+      }),
+      live: new LiveSampler({ video, sample: timestampSec => void this.sendLiveSample(handle, timestampSec) }),
+      lookahead: null,
+      tap: null,
+      nextFrameIndex: 0,
+      pendingLive: new Map(),
+      pendingLookahead: new Map(),
+      heldSamples: new Map(),
+      nextSampleId: 0,
+      removeListeners: () => {},
+      suspended: !isVideoNearViewport(video),
+      suspendGrace: null,
+      lastProgressAt: Number.NEGATIVE_INFINITY,
+      lastFrameAt: null,
+      liveMaskingSince: null,
+      liveMaskingMs: 0,
+    };
+    return handle;
   }
 
-  private isCacheKeyCurrent(handle: SessionHandle): boolean {
-    if (!handle.cacheKey) return false;
-    if (toVerdictCacheKey(handle.src) === handle.cacheKey) return true;
-    log.debug('registry.cache_key.stale', { [ATTR.sessionId]: handle.sessionId });
-    handle.cacheKey = '';
-    handle.verdicts.dropCached();
-    return false;
-  }
-
-  private resolveFromCache(handle: SessionHandle, frameIndex: number, timestampSec: number): boolean {
-    if (frameIndex < 0 || !this.isCacheKeyCurrent(handle)) return false;
-    const entry = handle.verdicts.cachedVerdictAt(timestampSec);
-    if (!entry) return false;
-    const prediction = predictionFromCachedEntry(handle, entry, frameIndex, timestampSec);
-    queueMicrotask(() => {
-      if (handle.state.phase === 'disposed') return;
-      this.dispatch(handle, { type: 'sampleSent', frameIndex, at: performance.now() });
-      this.applyCachedVerdict(handle, prediction, entry);
-    });
-    return true;
-  }
-
-  /** Route a batch of frame inference results to their sessions; unknown sessions are dropped. */
   handleResults(results: FrameInferenceResult[]): void {
     this.sweepDisconnected();
     for (const result of results) {
-      if (result.status === 'error') {
-        const handle = this.byId.get(result.sessionId);
-        if (!handle) continue;
-        // The attempt is finalized with no verdict — same stance as a capture
-        // failure: free the in-flight slot now instead of waiting out the
-        // sample timeout, and let the error streak decide on a cooldown.
-        this.dispatch(handle, {
-          type: 'sendFailed',
-          frameIndex: result.frameIndex,
-          at: performance.now(),
-        });
-        continue;
+      const sessionId = result.status === 'error' ? result.sessionId : result.prediction.sessionId;
+      const frameIndex = result.status === 'error' ? result.frameIndex : result.prediction.frameIndex;
+      const handle = this.byId.get(sessionId);
+      if (!handle) continue;
+      const prediction = result.status === 'ok' ? result.prediction : null;
+      const lookahead = handle.pendingLookahead.get(frameIndex);
+      if (lookahead) {
+        handle.pendingLookahead.delete(frameIndex);
+        lookahead(prediction ? toInferred(prediction) : null);
+      } else if (frameIndex === THUMBNAIL_FRAME_INDEX) {
+        if (prediction) this.applyThumbnail(handle, prediction);
+      } else if (handle.pendingLive.has(frameIndex)) {
+        const pending = handle.pendingLive.get(frameIndex);
+        handle.pendingLive.delete(frameIndex);
+        if (pending) {
+          recordHistogram(METRIC.inferenceRoundtripMs, performance.now() - pending.sentAt, {
+            [ATTR.sessionId]: handle.sessionId,
+            [ATTR.mediaKind]: 'frame',
+          });
+        }
+        handle.live.settle();
+        if (prediction) this.applyLiveSample(handle, prediction);
       }
-      const pred = result.prediction;
-      const handle = this.byId.get(pred.sessionId);
-      if (!handle) {
-        log.debug('registry.prediction.unknown_session', { [ATTR.sessionId]: pred.sessionId });
-        continue;
-      }
-      // A playback frame without a timeline position means the background is
-      // running a different build than this content script (a stale dev
-      // service worker after a failed extension reload). The VerdictTimeline can
-      // never match such verdicts to frames, so the DVR stays fail-closed —
-      // surface the skew instead of blurring silently forever.
-      if (pred.frameIndex >= 0 && typeof pred.timestampSec !== 'number' && !warnedTimestamplessPrediction) {
-        warnedTimestamplessPrediction = true;
-        log.error('registry.prediction.missing_timestamp');
-      }
-      this.applyLiveVerdict(handle, pred);
     }
   }
 
-  private applyLiveVerdict(handle: SessionHandle, pred: IFramePrediction): void {
-    const verdict = interpretVerdict(handle, pred);
-    this.applyVerdict(handle, pred, verdict, this.sampler.recordVerdictLatency(handle, pred.frameIndex));
+  private applyThumbnail(handle: SessionHandle, prediction: IFramePrediction): void {
+    const entry = toEntry(0, toInferred(prediction));
+    handle.presenter.setThumbnail(entry.unsafe ? entry : null);
+    this.dispatch(handle, { type: 'thumbnailVerdict', unsafe: entry.unsafe });
   }
 
-  private applyCachedVerdict(handle: SessionHandle, pred: IFramePrediction, entry: VerdictEntry): void {
-    this.applyVerdict(handle, pred, handle.verdicts.judgeCached(entry), true);
+  private applyLiveSample(handle: SessionHandle, prediction: IFramePrediction): void {
+    const entry = toEntry(prediction.timestampSec, toInferred(prediction));
+    const sampleId = this.holdSample(handle, entry);
+    const verdict = handle.interpreter.classifyLive(entry, scoreThresholdOf(handle));
+    this.dispatch(handle, { type: 'liveSample', sampleId, verdict });
   }
 
-  private applyVerdict(handle: SessionHandle, pred: IFramePrediction, verdict: SampleVerdict, settled: boolean): void {
-    handle.lastPrediction = pred;
-    this.dispatchPrediction(handle, pred, {
-      type: 'predictionReceived',
-      frameIndex: pred.frameIndex,
-      verdict,
-      at: performance.now(),
-    });
-    if (settled) this.resyncDvrAfterCoverageChange(handle);
+  private holdSample(handle: SessionHandle, entry: VerdictEntry): string {
+    const sampleId = String(handle.nextSampleId++);
+    handle.heldSamples.set(sampleId, entry);
+    return sampleId;
   }
 
-  private resyncDvrAfterCoverageChange(handle: SessionHandle): void {
-    this.presentation.syncDvrVerdict(handle);
+  private onLookaheadSample(handle: SessionHandle, sample: StoredSample): void {
+    const sampleId = this.holdSample(handle, toEntry(sample.pointUs / 1e6, sample));
+    this.dispatch(handle, { type: 'verdict', sampleId });
   }
 
-  /** Dispose the session bound to this element (source change or removal). */
   dispose(video: HTMLVideoElement): void {
-    // Presentation dies here, but the forced override survives on purpose: it
-    // is keyed per (element × source), so re-attaching the same pair re-enters
-    // the forced presentation; a changed source drops it.
     this.forced.release(video);
     const pending = this.pendingByVideo.get(video);
     pending?.cancel();
@@ -399,12 +287,6 @@ class VideoSessionRegistry {
     }
   }
 
-  /**
-   * Quick-toggle entry point: 'visible' and 'blocked' replace the session with
-   * a static presentation (no sampling, no DVR, no audio delay); 'auto' drops
-   * the override and re-attaches for a fresh verdict. State is per
-   * (element × source) and dies with the source.
-   */
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
     this.userToggledCacheKeys.set(video, toVerdictCacheKey(resolveVideoSource(video)?.url ?? ''));
     this.applyForcedVisibility(video, next, true);
@@ -415,14 +297,12 @@ class VideoSessionRegistry {
     if (!settings) return;
     const source = resolveVideoSource(video);
     if (persist && source) this.persistForcedVisibility(source, settings, next);
-
     if (next === 'auto') {
       this.forced.clearOverride(video);
       this.dispose(video);
       this.attach(video, settings);
       return;
     }
-
     if (!source) return;
     this.forced.setOverride(video, source, next);
     this.attach(video, settings);
@@ -432,6 +312,16 @@ class VideoSessionRegistry {
     const cacheKey = toVerdictCacheKey(source.url);
     if (!cacheKey) return;
     void requestVideoToggleUpdate(cacheKey, { sourceUrl: source.url, hostname: settings.hostname }, next);
+  }
+
+  private restoreForcedVisibility(handle: SessionHandle): void {
+    if (!handle.cacheKey) return;
+    void requestCachedVideoPredictions(handle.cacheKey).then(({ forcedVisibility }) => {
+      if (this.byId.get(handle.sessionId) !== handle || handle.state.phase === 'disposed') return;
+      if (forcedVisibility === 'auto' || this.userToggledCacheKeys.get(handle.video) === handle.cacheKey) return;
+      log.debug('registry.forced_visibility.restored', { [ATTR.sessionId]: handle.sessionId, forcedVisibility });
+      this.applyForcedVisibility(handle.video, forcedVisibility, false);
+    });
   }
 
   private registerToggle(
@@ -451,22 +341,12 @@ class VideoSessionRegistry {
     });
   }
 
-  /**
-   * A video with no resolved source yet (<source> children still selecting,
-   * MSE, late src assignment) is attached when resource selection yields one:
-   * 'loadstart' fires whenever selection begins — even with preload="none".
-   * Object-backed media is attached as soon as `srcObject` becomes available,
-   * despite having no URL in `currentSrc` or `src`.
-   * The wait lives in the registry so re-discovery refreshes its settings and
-   * dispose/disposeAll cancel it; it cannot outlive the pipeline.
-   */
   private awaitResolvedSource(video: HTMLVideoElement, hostSettings: IHostSettings): void {
     const pending = this.pendingByVideo.get(video);
     if (pending) {
       pending.hostSettings = hostSettings;
       return;
     }
-    // Fail closed during the wait: a src-less video still displays its poster.
     applyWholeBlur(video, hostSettings);
     const entry: PendingAttachment = { hostSettings, cancel: () => {} };
     const onLoadstart = () => {
@@ -482,81 +362,293 @@ class VideoSessionRegistry {
     video.addEventListener('loadstart', onLoadstart);
   }
 
-  /**
-   * Reclaim sessions whose element left the document without a removal
-   * notification (e.g. deeply nested shadow-root teardown). byId is a strong
-   * Map, so a missed dispose would otherwise leak the handle and element.
-   */
   private sweepDisconnected(): void {
     for (const handle of this.byId.values()) {
-      if (!handle.video.isConnected) {
-        this.dispatch(handle, { type: 'dispose' });
-      }
+      if (!handle.video.isConnected) this.dispatch(handle, { type: 'dispose' });
     }
     for (const [video, pending] of this.pendingByVideo) {
-      if (!video.isConnected) {
-        pending.cancel();
-      }
+      if (!video.isConnected) pending.cancel();
     }
     this.forced.sweepDisconnected();
   }
 
-  private onTransientRunResolved(handle: SessionHandle, run: ResolvedRun): void {
-    recordTransientRun(handle, run);
-    if (run.resolution === 'late') this.dispatch(handle, { type: 'lateHitPresented', at: performance.now() });
-  }
-
-  private dispatch(handle: SessionHandle, event: SessionEvent): void {
-    const { effects } = this.reduceAndLog(handle, event);
-    this.execute(handle, effects, event.type);
-  }
-
-  private reduceAndLog(handle: SessionHandle, event: SessionEvent): ReduceResult & { previous: VideoSessionState } {
-    const previous = handle.state;
-    const { state, effects } = reduce(previous, event);
-    handle.state = state;
-    this.logTransition(handle, previous, state, event);
-    return { previous, state, effects };
-  }
-
-  private logTransition(
-    handle: SessionHandle,
-    previous: VideoSessionState,
-    next: VideoSessionState,
-    event: SessionEvent,
-  ): void {
-    if (previous.phase === next.phase && previous.dvr === next.dvr && previous.audioRoute === next.audioRoute) return;
-    log.info('video.session.transition', {
-      [ATTR.sessionId]: handle.sessionId,
-      [ATTR.hostname]: handle.hostSettings.hostname,
-      [ATTR.sessionFrom]: previous.phase,
-      [ATTR.sessionTo]: next.phase,
-      [ATTR.sessionEvent]: event.type,
-      [ATTR.sessionDvr]: next.dvr,
-      [ATTR.sessionAudioRoute]: next.audioRoute,
+  private bindDocumentVisibility(): void {
+    if (this.documentVisibilityBound || !globalThis.document) return;
+    this.documentVisibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      for (const handle of this.byId.values()) this.applyVisibility(handle);
     });
   }
 
-  /** Commit adapter state only for verdicts accepted by the reducer's ordering rule. */
-  private dispatchPrediction(
-    handle: SessionHandle,
-    prediction: IFramePrediction,
-    event: Extract<SessionEvent, { type: 'predictionReceived' }>,
-  ): void {
-    const { previous, state, effects } = this.reduceAndLog(handle, event);
-    const previousLastAppliedIndex = previous.lastAppliedIndex;
-    if (
-      isUnsafeVerdict(event.verdict) &&
-      event.frameIndex > previousLastAppliedIndex &&
-      state.lastAppliedIndex === event.frameIndex
-    ) {
-      // Set before executing effects: applyVerdict reads this synchronously.
-      handle.lastUnsafePrediction = prediction;
-    }
-    this.execute(handle, effects, event.type);
+  private applyVisibility(handle: SessionHandle): void {
+    if (handle.state.phase === 'disposed') return;
+    const visible = !handle.suspended;
+    handle.lookahead?.setVisible(visible && documentVisible());
+    if (visible) handle.presenter.start();
+    else handle.presenter.stop();
+    if (handle.state.visible !== visible) this.dispatch(handle, { type: 'visibility', visible });
   }
 
-  private execute(handle: SessionHandle, effects: SessionEffect[], eventType = 'attach'): void {
+  private openTap(handle: SessionHandle, source: ResolvedVideoSource): void {
+    const tap = chooseTap(source);
+    if (!tap) {
+      this.tapResolved(handle, 'none', 'none');
+      return;
+    }
+    const threshold = scoreThresholdOf(handle);
+    handle.lookahead = openLookahead(
+      {
+        t: 'open',
+        sessionId: handle.sessionId,
+        tap,
+        live: isLiveDuration(handle.video),
+        scoreThreshold: threshold,
+        suspicionThreshold: threshold * SUSPICION_RATIO,
+        inputSize: currentInferenceCaptureSize(),
+        cacheKey: handle.cacheKey,
+        sourceUrl: handle.src,
+        hostname: handle.hostSettings.hostname,
+      },
+      {
+        reachable: kind => this.tapResolved(handle, kind, 'reachable'),
+        unreachable: reason => {
+          handle.lookahead = null;
+          this.tapResolved(handle, 'none', reason);
+        },
+        sample: sample => this.onLookaheadSample(handle, sample),
+        stat: stat => this.recordAnalysisStat(stat),
+        infer: request => this.forwardLookaheadInference(handle, request),
+      },
+    );
+    handle.lookahead.setVisible(!handle.suspended && documentVisible());
+    this.sendPlayhead(handle);
+  }
+
+  private tapResolved(handle: SessionHandle, tap: TapKind, reason: UnreachableReason | 'reachable' | 'none'): void {
+    if (handle.state.phase === 'disposed') return;
+    handle.tap = tap;
+    handle.video.setAttribute(VIDEO_TAP_ATTR, tap);
+    recordCounter(METRIC.videoTapSessions, 1, { [ATTR.videoTap]: tap, [ATTR.videoTapReason]: reason });
+    log.info('video.tap.resolved', { [ATTR.sessionId]: handle.sessionId, [ATTR.videoTap]: tap, reason });
+    this.dispatch(handle, { type: tap === 'none' ? 'tapUnreachable' : 'tapReachable' });
+  }
+
+  private recordAnalysisStat(stat: AnalysisStat): void {
+    if (stat.kind === 'analysed' || stat.kind === 'cacheHit') {
+      recordCounter(METRIC.lookaheadSamples, 1, {
+        [ATTR.lookaheadSampleSource]: stat.kind === 'cacheHit' ? 'cache' : 'analysed',
+      });
+      return;
+    }
+    recordCounter(METRIC.lookaheadFailures, 1, {
+      [ATTR.lookaheadFailureStage]: stat.kind === 'unitDemuxFailed' ? 'demux' : 'decode',
+    });
+  }
+
+  private forwardLookaheadInference(
+    handle: SessionHandle,
+    request: LookaheadInferenceRequest,
+  ): Promise<InferredSample | null> {
+    if (handle.state.phase === 'disposed') {
+      request.bitmap.close();
+      return Promise.resolve(null);
+    }
+    const frameIndex = handle.nextFrameIndex++;
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        handle.pendingLookahead.delete(frameIndex);
+        resolve(null);
+      }, LOOKAHEAD_INFERENCE_TIMEOUT_MS);
+      handle.pendingLookahead.set(frameIndex, sample => {
+        clearTimeout(timer);
+        resolve(sample);
+      });
+      this.sendFrame(handle, {
+        frameIndex,
+        timestampSec: request.pointUs / 1e6,
+        bitmap: request.bitmap,
+        originalWidth: request.originalWidth,
+        originalHeight: request.originalHeight,
+        sampleKind: 'lookahead',
+        priority: request.priority,
+      }).catch(() => {
+        handle.pendingLookahead.get(frameIndex)?.(null);
+        handle.pendingLookahead.delete(frameIndex);
+      });
+    });
+  }
+
+  private sendFrame(
+    handle: SessionHandle,
+    frame: {
+      frameIndex: number;
+      timestampSec: number;
+      bitmap: ImageBitmap;
+      originalWidth: number;
+      originalHeight: number;
+      sampleKind: FrameSampleKind;
+      priority: number;
+    },
+  ): Promise<void> {
+    return requestVideoFrameInference({
+      sample: {
+        sessionId: handle.sessionId,
+        frameIndex: frame.frameIndex,
+        videoUrl: handle.cacheKey || handle.src,
+        sourceUrl: handle.src,
+        timestampSec: frame.timestampSec,
+        bitmap: frame.bitmap,
+        originalWidth: frame.originalWidth,
+        originalHeight: frame.originalHeight,
+        capturedAt: performance.now(),
+      },
+      sampleKind: frame.sampleKind,
+      session: handle.trace,
+      hostname: handle.hostSettings.hostname,
+      priority: frame.priority,
+    });
+  }
+
+  private queueThumbnail(handle: SessionHandle): void {
+    const { video } = handle;
+    const capture = () => void this.captureThumbnail(handle);
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.poster) capture();
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    video.addEventListener('loadeddata', capture, { once: true });
+    const previous = handle.removeListeners;
+    handle.removeListeners = () => {
+      previous();
+      video.removeEventListener('loadeddata', capture);
+    };
+  }
+
+  private async captureThumbnail(handle: SessionHandle): Promise<void> {
+    if (handle.state.phase !== 'active' || handle.state.verdictSeen) return;
+    const captured = await captureThumbnailBitmap(handle.video);
+    await this.sendCaptured(handle, captured, THUMBNAIL_FRAME_INDEX, 0, 'thumbnail');
+  }
+
+  private async sendLiveSample(handle: SessionHandle, timestampSec: number): Promise<void> {
+    const frameIndex = handle.nextFrameIndex++;
+    const captured = await captureFrameBitmap(handle.video, timestampSec);
+    handle.pendingLive.set(frameIndex, { timestampSec, sentAt: performance.now() });
+    const sent = await this.sendCaptured(handle, captured, frameIndex, timestampSec, 'live');
+    if (sent) return;
+    handle.pendingLive.delete(frameIndex);
+    handle.live.settle();
+  }
+
+  private async sendCaptured(
+    handle: SessionHandle,
+    captured: CaptureResult,
+    frameIndex: number,
+    timestampSec: number,
+    sampleKind: FrameSampleKind,
+  ): Promise<boolean> {
+    if (handle.state.phase === 'disposed') {
+      captured.bitmap?.close();
+      return false;
+    }
+    if (!captured.bitmap || captured.bitmap.width === 0 || captured.bitmap.height === 0) {
+      captured.bitmap?.close();
+      this.dispatch(handle, { type: 'liveCaptureFailed', permanent: captured.failure === 'permanent' });
+      return false;
+    }
+    try {
+      await this.sendFrame(handle, {
+        frameIndex,
+        timestampSec,
+        bitmap: captured.bitmap,
+        originalWidth: handle.video.videoWidth,
+        originalHeight: handle.video.videoHeight,
+        sampleKind,
+        priority: sampleKind === 'thumbnail' ? INFERENCE_PRIORITY.videoThumbnail : INFERENCE_PRIORITY.liveFrame,
+      });
+      return true;
+    } catch (error) {
+      const permanent = error instanceof PermanentFrameTransferError;
+      log.warn('video.capture.failed', {
+        [ATTR.sessionId]: handle.sessionId,
+        [ATTR.capturePermanent]: permanent,
+        error,
+      });
+      this.dispatch(handle, { type: 'liveCaptureFailed', permanent });
+      return false;
+    }
+  }
+
+  private onPresentedFrame(handle: SessionHandle, mediaTimeSec: number): void {
+    const now = performance.now();
+    const { video } = handle;
+    if (handle.lastFrameAt !== null && !video.paused && handle.state.tap !== 'pending') {
+      const uncovered = handle.interpreter.verdictFor(mediaTimeSec).kind === 'none';
+      if (uncovered) recordCounter(METRIC.videoUncoveredPlayingMs, now - handle.lastFrameAt);
+    }
+    handle.lastFrameAt = now;
+    if (now - handle.lastProgressAt < PROGRESS_INTERVAL_MS) return;
+    handle.lastProgressAt = now;
+    const coverageAheadSec = handle.interpreter.coverageAheadOf(mediaTimeSec);
+    if (!video.paused) recordHistogram(METRIC.videoCoverageAheadSec, coverageAheadSec);
+    this.sendPlayhead(handle);
+    this.dispatch(handle, { type: 'progress', coverageAheadSec });
+  }
+
+  private sendPlayhead(handle: SessionHandle): void {
+    const { video } = handle;
+    handle.lookahead?.setPlayhead({
+      timeSec: video.currentTime,
+      playbackRate: video.playbackRate,
+      paused: video.paused,
+    });
+  }
+
+  private isPlayheadCovered(handle: SessionHandle): boolean {
+    const { video } = handle;
+    return handle.interpreter.verdictFor(video.currentTime, { paused: video.paused }).kind !== 'none';
+  }
+
+  private recordTransientRun(handle: SessionHandle, run: ResolvedRun): void {
+    recordCounter(METRIC.videoTransientRuns, 1, {
+      [ATTR.transientResolution]: run.resolution,
+      [ATTR.transientRunLength]: run.runLength,
+      [ATTR.transientTopProbability]: bucketOf(run.topProbability),
+      [ATTR.scoreThreshold]: scoreThresholdOf(handle),
+      [ATTR.transientMaxRun]: TRANSIENT_HIT_CONFIG.maxSuppressedRun,
+      [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
+      [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
+      [ATTR.transientPreMaskLeadSec]: PRE_MASK_LEAD_SEC,
+      ...(run.onsetGapSec !== null && { [ATTR.transientOnsetGapSec]: bucketOf(run.onsetGapSec) }),
+    });
+  }
+
+  private recordLiveTransient(handle: SessionHandle, resolution: TransientResolution): void {
+    recordCounter(METRIC.videoTransientRuns, 1, {
+      [ATTR.transientResolution]: `live_${resolution}`,
+      [ATTR.scoreThreshold]: scoreThresholdOf(handle),
+      [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
+      [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
+    });
+  }
+
+  private dispatch(handle: SessionHandle, event: SessionEvent): void {
+    const previous = handle.state;
+    const { state, effects } = reduce(previous, event);
+    handle.state = state;
+    if (previous.phase !== state.phase || previous.tap !== state.tap || previous.liveMasking !== state.liveMasking) {
+      log.info('video.session.transition', {
+        [ATTR.sessionId]: handle.sessionId,
+        [ATTR.hostname]: handle.hostSettings.hostname,
+        [ATTR.sessionFrom]: previous.phase,
+        [ATTR.sessionTo]: state.phase,
+        [ATTR.sessionEvent]: event.type,
+        tap: state.tap,
+        liveMasking: state.liveMasking,
+      });
+    }
+    this.execute(handle, effects);
+  }
+
+  private execute(handle: SessionHandle, effects: SessionEffect[]): void {
     const { video } = handle;
     for (const effect of effects) {
       switch (effect.kind) {
@@ -566,28 +658,30 @@ class VideoSessionRegistry {
         case 'clearBlur':
           clearWholeBlur(video);
           break;
-        case 'captureThumbnail':
-          this.sampler.captureThumbnail(handle);
+        case 'startLiveMasking':
+          handle.liveMaskingSince = performance.now();
+          handle.live.start();
           break;
-        case 'sendSample':
-          if (!this.resolveFromCache(handle, effect.frameIndex, effect.timestampSec)) {
-            void this.sampler.captureAndSend(handle, effect.frameIndex, effect.timestampSec);
-          }
+        case 'stopLiveMasking':
+          if (handle.liveMaskingSince !== null) handle.liveMaskingMs += performance.now() - handle.liveMaskingSince;
+          handle.liveMaskingSince = null;
+          handle.live.stop();
           break;
-        case 'applyVerdict':
-          if (!handle.suspended) this.presentation.applyVerdictOverlay(handle);
+        case 'requestLiveSample':
+          handle.live.requestOnce();
           break;
-        case 'applyVerdictThenClearBlur':
-          if (!handle.suspended) this.presentation.applyVerdictOverlay(handle, true);
+        case 'commitSample': {
+          const entry = handle.heldSamples.get(effect.sampleId);
+          handle.heldSamples.delete(effect.sampleId);
+          if (entry) handle.interpreter.record(entry, scoreThresholdOf(handle));
           break;
-        case 'clearVerdict':
-          this.presentation.clearVerdictOverlay(handle);
+        }
+        case 'discardSample':
+          handle.heldSamples.delete(effect.sampleId);
           break;
         case 'setStatus':
           clearProcessedStatus(video);
           video.setAttribute(PROCESSED_ATTR_MAP[STATUS_TO_PROCESSED[effect.status]], '');
-          // Safe↔unsafe flips move the button between the two host switches;
-          // 'skipped' (never analyzed) surfaces as the inverted (white) button.
           this.registerToggle(
             video,
             handle.hostSettings,
@@ -596,56 +690,8 @@ class VideoSessionRegistry {
             effect.status === 'skipped',
           );
           break;
-        case 'startTimer': {
-          const pending = handle.timers.get(effect.timer);
-          if (pending) clearTimeout(pending);
-          handle.timers.set(
-            effect.timer,
-            setTimeout(() => {
-              handle.timers.delete(effect.timer);
-              this.dispatch(handle, { type: 'timerFired', timer: effect.timer, at: performance.now() });
-            }, effect.ms),
-          );
-          break;
-        }
-        case 'cancelTimer': {
-          const pending = handle.timers.get(effect.timer);
-          if (pending) clearTimeout(pending);
-          handle.timers.delete(effect.timer);
-          break;
-        }
-        case 'stopTicker':
-          this.sampler.stopTicker(handle);
-          break;
-        case 'resumeTicker':
-          // Error-cooldown expiry: re-arm frame delivery, and if the video is
-          // mid-playback there will be no fresh 'play' event — synthesize one.
-          this.sampler.stopTicker(handle);
-          this.sampler.startTicker(handle);
-          if (!handle.suspended && !video.paused && !video.ended) {
-            this.dispatch(handle, { type: 'play', at: performance.now() });
-          }
-          break;
-        case 'startDvr':
-          this.presentation.startDvr(handle);
-          break;
-        case 'stopDvr':
-          this.presentation.stopDvr(handle, eventType);
-          break;
-        case 'drainDvr':
-          this.presentation.drainDvr(handle);
-          break;
-        case 'engageAudioRoute':
-          this.presentation.engageAudioRoute(handle);
-          break;
-        case 'releaseAudioRoute':
-          this.presentation.releaseAudioRoute(handle);
-          break;
-        case 'holdPageMute':
-          this.presentation.holdPageMute(handle);
-          break;
-        case 'releaseMuteHold':
-          this.presentation.releaseMuteHold(handle);
+        case 'transientResolved':
+          this.recordLiveTransient(handle, effect.resolution);
           break;
         case 'cleanup':
           this.teardown(handle);
@@ -656,60 +702,56 @@ class VideoSessionRegistry {
 
   private teardown(handle: SessionHandle): void {
     const { video } = handle;
-    this.sampler.teardown(handle);
+    if (handle.liveMaskingSince !== null) handle.liveMaskingMs += performance.now() - handle.liveMaskingSince;
+    recordHistogram(METRIC.videoLiveMaskingMs, handle.liveMaskingMs, { [ATTR.videoTap]: handle.tap ?? 'pending' });
+    handle.live.stop();
+    handle.lookahead?.close();
+    handle.lookahead = null;
+    handle.presenter.dispose();
+    for (const resolve of handle.pendingLookahead.values()) resolve(null);
+    handle.pendingLookahead.clear();
+    if (handle.pendingLive.size > 0) void cancelVideoSessionInference(handle.sessionId);
+    handle.pendingLive.clear();
+    handle.heldSamples.clear();
     this.suspension.clearGrace(handle);
-    this.presentation.stopDvr(handle, 'teardown');
-    for (const pending of handle.timers.values()) clearTimeout(pending);
-    handle.timers.clear();
     handle.removeListeners();
     this.suspension.unobserve(video);
-    videoMaskOverlays.clearMaskOverlay(video);
     clearWholeBlur(video);
     clearProcessedStatus(video);
-    releaseRelayAudio(video);
-    releaseMuteHold(video);
     releaseCorsVideoCache(video);
     unregisterQuickToggle(video);
     video.removeAttribute(SESSION_SRC_ATTR);
     video.removeAttribute(SESSION_ID_ATTR);
+    video.removeAttribute(VIDEO_TAP_ATTR);
     this.byId.delete(handle.sessionId);
-    if (this.byVideo.get(video) === handle) {
-      this.byVideo.delete(video);
-    }
+    if (this.byVideo.get(video) === handle) this.byVideo.delete(video);
   }
 
   private bindMediaEvents(handle: SessionHandle): void {
     const { video } = handle;
-    const now = () => performance.now();
-
     const onPlay = () => {
-      if (!handle.suspended) this.dispatch(handle, { type: 'play', at: now() });
+      this.sendPlayhead(handle);
+      this.dispatch(handle, { type: 'play' });
     };
-    const onPause = () => this.dispatch(handle, { type: 'pause', at: now(), atEnd: video.ended });
-    const onEnded = () => this.dispatch(handle, { type: 'ended', at: now() });
+    const onPause = () => {
+      this.sendPlayhead(handle);
+      this.dispatch(handle, { type: 'pause', covered: this.isPlayheadCovered(handle) });
+    };
     const loopRestarts = createLoopRestartDetector(loopingMediaOf(video));
     const onTimeUpdate = () => loopRestarts.observePlayback(video.currentTime, video.seeking);
     const onSeeked = () => {
-      const type = loopRestarts.isLoopRestart(video.currentTime) ? 'loopRestarted' : 'seeked';
-      this.dispatch(handle, { type, at: now(), timestampSec: video.currentTime });
+      this.sendPlayhead(handle);
+      if (loopRestarts.isLoopRestart(video.currentTime)) {
+        this.dispatch(handle, { type: 'loopRestarted' });
+        return;
+      }
+      this.dispatch(handle, { type: 'seeked', paused: video.paused, covered: this.isPlayheadCovered(handle) });
     };
-    // Raw site intent for the machine's audio-route policy (ADR 0002). While
-    // the relay module owns the element's audio output (hold or engaged
-    // relay), its intent tracker forwards site changes instead — the module's
-    // own writes must not read as intent.
-    const onVolumeChange = () => {
-      if (hasMuteIntent(video)) return;
-      const audible = !video.muted && video.volume > 0;
-      this.dispatch(handle, { type: audible ? 'unmuted' : 'muted', at: now() });
-    };
+    const onRateChange = () => this.sendPlayhead(handle);
     const onSourceChanged = () => {
       loopRestarts.reset();
       const current = resolveVideoSource(video);
       if (current && isSameVideoSource(handle, current)) return;
-      // New or removed source on the same element: the old VideoSession (and
-      // its blur, overlays, and status) dies with the content it described. A
-      // new session is born now, or once the next source resolves. 'emptied'
-      // matters because removeAttribute('src') + load() never fires loadstart.
       const settings = handle.hostSettings;
       this.dispose(video);
       this.attach(video, settings);
@@ -717,30 +759,23 @@ class VideoSessionRegistry {
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
-    video.addEventListener('ended', onEnded);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('timeupdate', onTimeUpdate);
-    video.addEventListener('volumechange', onVolumeChange);
+    video.addEventListener('ratechange', onRateChange);
     video.addEventListener('loadstart', onSourceChanged);
     video.addEventListener('emptied', onSourceChanged);
 
+    const previous = handle.removeListeners;
     handle.removeListeners = () => {
+      previous();
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
-      video.removeEventListener('ended', onEnded);
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('volumechange', onVolumeChange);
+      video.removeEventListener('ratechange', onRateChange);
       video.removeEventListener('loadstart', onSourceChanged);
       video.removeEventListener('emptied', onSourceChanged);
     };
-
-    if (!video.muted && video.volume > 0) {
-      this.dispatch(handle, { type: 'unmuted', at: now() });
-    }
-    if (!video.paused && !video.ended) {
-      onPlay();
-    }
   }
 }
 

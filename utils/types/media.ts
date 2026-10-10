@@ -28,8 +28,11 @@ export interface IImageMetadata {
   expires: string | null;
 }
 
+export type FrameSampleKind = 'thumbnail' | 'live' | 'lookahead';
+
 export interface IFrameMetadata extends IFrameSampleIdentity {
   kind: 'frame';
+  sampleKind: FrameSampleKind;
 }
 
 export interface IGifFrameMetadata {
@@ -100,6 +103,7 @@ export type IImageTransfer = IImageWithBitmap | IImageWithBlob | IImageWithUrl;
 // - Firefox: 'blob' only (structured clone with WebP compression)
 
 interface IVideoFrameTransferBase extends IFrameSampleIdentity {
+  sampleKind: FrameSampleKind;
   width: number; // Transferred frame width (may be resized)
   height: number; // Transferred frame height (may be resized)
   originalWidth: number; // Original video width (for prediction mapping)

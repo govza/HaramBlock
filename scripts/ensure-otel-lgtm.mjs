@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const COLLECTOR_URL = 'http://localhost:4318/v1/traces';
 const GRAFANA_URL = 'http://localhost:3001';
-const DASHBOARD_URL = `${GRAFANA_URL}/d/haramblock-dvr`;
+const DASHBOARD_URL = `${GRAFANA_URL}/d/haramblock-video`;
 const WAIT_TIMEOUT_MS = 90_000;
 const strict = process.argv.includes('--strict') || process.argv.includes('--clear');
 const down = process.argv.includes('--down');

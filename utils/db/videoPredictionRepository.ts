@@ -5,24 +5,26 @@ import { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository'
 import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 
-import type { ForcedVisibility, ICachedFrameSample, ICacheMetadata, IVideoPredictionRecord } from '@/utils/types';
+import type { ForcedVisibility, ICacheMetadata, IStoredVideoSample, IVideoPredictionRecord } from '@/utils/types';
 
-export function mergeFrameSamples(
-  existing: readonly ICachedFrameSample[],
-  incoming: readonly ICachedFrameSample[],
+export function mergeVideoSamples(
+  existing: readonly IStoredVideoSample[],
+  incoming: readonly IStoredVideoSample[],
   maxSamples = MAX_VERDICT_TIMELINE_ENTRIES,
-): ICachedFrameSample[] {
-  const byTimestamp = new Map<number, ICachedFrameSample>();
-  for (const sample of existing) byTimestamp.set(sample.timestampSec, sample);
-  for (const sample of incoming) byTimestamp.set(sample.timestampSec, sample);
-  const merged = [...byTimestamp.values()].sort((a, b) => a.timestampSec - b.timestampSec);
+): IStoredVideoSample[] {
+  const byPoint = new Map<number, IStoredVideoSample>();
+  for (const sample of existing) byPoint.set(sample.pointUs, sample);
+  for (const sample of incoming) byPoint.set(sample.pointUs, sample);
+  const merged = [...byPoint.values()].sort((a, b) => a.pointUs - b.pointUs);
   return merged.length > maxSamples ? merged.slice(merged.length - maxSamples) : merged;
 }
+
+export const allVideoSamples = (record: IVideoPredictionRecord): IStoredVideoSample[] =>
+  Object.values(record.samplesByModel).flat();
 
 export interface VideoPredictionOrigin {
   sourceUrl: string;
   hostname: string;
-  modelId: string;
   cacheMetadata: ICacheMetadata;
 }
 
@@ -40,21 +42,22 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
 
   async mergeSamples(
     videoUrl: string,
+    modelId: string,
     origin: VideoPredictionOrigin,
-    samples: readonly ICachedFrameSample[],
+    samples: readonly IStoredVideoSample[],
   ): Promise<void> {
     if (isCacheDisabled || samples.length === 0) return;
     await mediaCacheDb.transaction('rw', this.table, async () => {
       const existing = await this.table.get(videoUrl);
+      const samplesByModel = existing?.samplesByModel ?? {};
       const record: IVideoPredictionRecord = {
         videoUrl,
         sourceUrl: origin.sourceUrl,
         hostname: origin.hostname,
-        modelId: origin.modelId,
         forcedVisibility: existing?.forcedVisibility ?? 'auto',
         timestamp: Date.now(),
         cacheMetadata: existing?.cacheMetadata ?? origin.cacheMetadata,
-        samples: mergeFrameSamples(existing?.samples ?? [], samples),
+        samplesByModel: { ...samplesByModel, [modelId]: mergeVideoSamples(samplesByModel[modelId] ?? [], samples) },
       };
       await this.table.put(record);
     });
@@ -75,11 +78,10 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
             videoUrl,
             sourceUrl: origin.sourceUrl,
             hostname: origin.hostname,
-            modelId: origin.modelId,
             forcedVisibility,
             timestamp: Date.now(),
             cacheMetadata: origin.cacheMetadata,
-            samples: [],
+            samplesByModel: {},
           };
       await this.table.put(record);
     });
@@ -101,7 +103,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       .where('hostname')
       .equals(getEffectiveHostname(hostname))
       .modify(record => {
-        record.samples = [];
+        record.samplesByModel = {};
       });
   }
 }

@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 
-import type { IFramePrediction } from '@/utils/types';
+import type { IStoredVideoSample, IVideoPredictionRecord } from '@/utils/types';
 
 const repository = vi.hoisted(() => ({
   mergeSamples: vi.fn(() => Promise.resolve()),
   updateForcedVisibility: vi.fn(() => Promise.resolve()),
-  findValidByVideoUrl: vi.fn(() => Promise.resolve(undefined)),
+  findValidByVideoUrl: vi.fn((): Promise<IVideoPredictionRecord | undefined> => Promise.resolve(undefined)),
   touchAccessed: vi.fn(() => Promise.resolve()),
 }));
 
@@ -20,29 +20,22 @@ vi.mock('@/utils/db/videoPredictionRepository', () => ({
 vi.mock('@inference-runtime', () => ({ getCurrentModelId: () => 'sem-i320' }));
 
 const VIDEO_URL = 'https://example.com/video.mp4';
+const ORIGIN = { sourceUrl: VIDEO_URL, hostname: 'example.com' };
 
-function framePrediction(overrides: Partial<IFramePrediction> = {}): IFramePrediction {
+function sample(pointUs: number): IStoredVideoSample {
   return {
-    sessionId: 'session',
-    frameIndex: 1,
-    timestampSec: 1,
-    videoUrl: VIDEO_URL,
-    sourceUrl: VIDEO_URL,
-    src: '',
-    hostname: 'example.com',
-    width: 320,
-    height: 180,
+    pointUs,
     predictions: [],
-    maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 },
-    timestamp: 0,
-    cacheMetadata: { createdAt: 0, accessedAt: 0 },
-    processingTime: { fetchTime: 0, decodeTime: 0, queueTime: 0, inferenceTime: 0, e2eTime: 0, backend: 'webgpu' },
-    ...overrides,
+    input: { width: 320, height: 180, maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 } },
+    topUnsafeScore: 0.1,
   };
 }
 
-const mergedEntryCounts = () =>
-  repository.mergeSamples.mock.calls.map(call => (call as unknown as [string, unknown, unknown[]])[2].length);
+const mergedCalls = () =>
+  repository.mergeSamples.mock.calls.map(call => {
+    const [videoUrl, modelId, , samples] = call as unknown as [string, string, unknown, unknown[]];
+    return { videoUrl, modelId, count: samples.length };
+  });
 
 describe('VideoPredictionCacheService', () => {
   beforeEach(() => {
@@ -54,43 +47,56 @@ describe('VideoPredictionCacheService', () => {
     vi.useRealTimers();
   });
 
-  it('skips thumbnails and object-backed streams', async () => {
+  it('never stores object-backed streams', async () => {
     const service = new VideoPredictionCacheService();
-    service.record(framePrediction({ frameIndex: -1 }));
-    service.record(framePrediction({ videoUrl: 'srcobject:abc' }));
+    service.publish('srcobject:abc', ORIGIN, [sample(0)]);
     await vi.runAllTimersAsync();
     expect(repository.mergeSamples).not.toHaveBeenCalled();
   });
 
-  it('batches writes until the flush interval elapses', async () => {
+  it('batches publishes per video and model until the flush interval elapses', async () => {
     const service = new VideoPredictionCacheService();
-    service.record(framePrediction({ timestampSec: 1 }));
-    service.record(framePrediction({ timestampSec: 1.25 }));
+    service.publish(VIDEO_URL, ORIGIN, [sample(0)]);
+    service.publish(VIDEO_URL, ORIGIN, [sample(500_000)]);
     expect(repository.mergeSamples).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(mergedEntryCounts()).toEqual([2]);
+    expect(mergedCalls()).toEqual([{ videoUrl: VIDEO_URL, modelId: 'sem-i320', count: 2 }]);
   });
 
   it('flushes immediately once the entry threshold is reached', async () => {
     const service = new VideoPredictionCacheService();
-    for (let i = 0; i < 50; i++) service.record(framePrediction({ timestampSec: i * 0.25 }));
+    for (let i = 0; i < 50; i++) service.publish(VIDEO_URL, ORIGIN, [sample(i * 500_000)]);
     await Promise.resolve();
-    expect(mergedEntryCounts()).toEqual([50]);
+    expect(mergedCalls()).toEqual([{ videoUrl: VIDEO_URL, modelId: 'sem-i320', count: 50 }]);
   });
 
-  it('flushes pending verdicts before persisting a forced visibility', async () => {
+  it('flushes pending samples before persisting a forced visibility', async () => {
     const service = new VideoPredictionCacheService();
-    service.record(framePrediction());
-    await service.setForcedVisibility(VIDEO_URL, { sourceUrl: VIDEO_URL, hostname: 'example.com' }, 'blocked');
+    service.publish(VIDEO_URL, ORIGIN, [sample(0)]);
+    await service.setForcedVisibility(VIDEO_URL, ORIGIN, 'blocked');
     expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.updateForcedVisibility);
     expect(repository.updateForcedVisibility).toHaveBeenCalledWith(
       VIDEO_URL,
-      expect.objectContaining({ modelId: 'sem-i320', hostname: 'example.com' }),
+      expect.objectContaining({ hostname: 'example.com' }),
       'blocked',
     );
   });
 
-  it('returns empty verdicts on a miss without touching the row', async () => {
+  it('returns only the active model samples', async () => {
+    repository.findValidByVideoUrl.mockResolvedValueOnce({
+      videoUrl: VIDEO_URL,
+      sourceUrl: VIDEO_URL,
+      hostname: 'example.com',
+      forcedVisibility: 'auto',
+      timestamp: 0,
+      cacheMetadata: { createdAt: 0, accessedAt: 0 },
+      samplesByModel: { 'sem-i320': [sample(0)], 'sem-i448': [sample(500_000)] },
+    });
+    const service = new VideoPredictionCacheService();
+    await expect(service.getCached(VIDEO_URL)).resolves.toEqual({ samples: [sample(0)], forcedVisibility: 'auto' });
+  });
+
+  it('returns empty samples on a miss without touching the row', async () => {
     const service = new VideoPredictionCacheService();
     await expect(service.getCached(VIDEO_URL)).resolves.toEqual({ samples: [], forcedVisibility: 'auto' });
     expect(repository.touchAccessed).not.toHaveBeenCalled();

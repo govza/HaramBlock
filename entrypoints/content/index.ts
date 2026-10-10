@@ -11,6 +11,7 @@ import {
   injectPredictionDomStyles,
   injectVideoDiscoveryHidingStyles,
 } from '@/entrypoints/content/presentation/styleInjecting';
+import { connectMseHook } from '@/entrypoints/content/video/tap/lookaheadClient';
 import { getVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
 import { isExtensionContextValid } from '@/utils/extensionContext';
 import { backgroundRpc, onMessageChannelPermanentDeath, warmupMessageChannel } from '@/utils/messaging/content';
@@ -31,6 +32,7 @@ export default defineContentScript({
   async main() {
     const ct = document.contentType;
     if (!ct || (ct !== 'text/html' && ct !== 'application/xhtml+xml' && !ct.startsWith('image/'))) return;
+    connectMseHook();
 
     initClientTelemetry('content', batch => backgroundRpc.pushTelemetry(batch));
     const log = getLogger('content');
