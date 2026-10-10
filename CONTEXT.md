@@ -25,19 +25,16 @@ See [MEDIA_PROCESSING.md](docs/MEDIA_PROCESSING.md)
 permissions exempt background fetch from CORS), so the content script can decode it origin-clean.
 _Avoid_: proxy fetch, CORS bypass. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
-**Relay Audio**: Delayed audio for an origin-tainted video: a hidden audio element playing the
-video's original URL one Presentation Delay behind the live edge, while the page element is kept
-silent. _Avoid_: audio proxy, blob audio. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
-
 **Verdict Interpreter**: The single reader of a video's raw playback verdicts. Decides what covers
-each presented frame and classifies each new sample for the session machine, so masking and status
-share one confirmation rule. _Avoid_: verdict filter, smoothing. See
+each presented frame and classifies each Live Masking sample for the Video Session, so masking and
+status share one confirmation rule. _Avoid_: verdict filter, smoothing. See
 [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
 **Transient Hit**: A run of at most `maxSuppressedRun` consecutive low-confidence unsafe playback
 samples with a clean edge on each side (an adjacent clean sample, or a coverage gap before the run).
-Treated as clean everywhere — a model hallucination is never shown as a mask flash. _Avoid_: false
-positive, blip. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
+Treated as clean everywhere — a model hallucination is never shown as a mask flash. Under Live
+Masking a low-confidence unsafe sample is re-sampled at once instead. _Avoid_: false positive, blip.
+See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
 **Confident Hit**: An unsafe sample whose top detection probability reaches
 `min(scoreThreshold × confidenceCoefficient, confidenceCap)`. One Confident Hit makes its run a real
@@ -58,6 +55,10 @@ it — the whole session when no Bitstream Tap is reachable, otherwise only the 
 start, a seek past coverage, analysis falling behind). Masks apply behind the playhead, accepting a
 short leak when content turns unsafe. _Avoid_: realtime mode, overlay mode, fallback mode. See
 [ADR 0004](docs/adr/0004-bitstream-lookahead-replaces-continuous-dvr.md)
+
+**Mask Presenter**: The overlay above a natively playing video that shows the masks covering its
+extrapolated playhead, from 100 ms before an unsafe span to the span's end. _Avoid_: DVR, canvas
+player. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
 **Safe / Unsafe image**: An image without / with predictions. Unsafe images are masked when Forced
 Visibility is `'auto'`. _Avoid_: clean image, flagged image. See
@@ -92,7 +93,7 @@ append
 
 ### Lookahead sampling
 
-Not yet in a subsystem doc; the governing decision is
+Defined in full in [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md); the governing decision is
 [ADR 0004](docs/adr/0004-bitstream-lookahead-replaces-continuous-dvr.md).
 
 **Sample Lattice**: The fixed media times every client samples at, identical across browsers and
@@ -119,9 +120,5 @@ borderline hit
 playhead going from the tail back to the head. _Avoid_: loop seek
 
 **Loop Restart**: A `seeked` that is the browser's own Loop Wrap (tail → head, both ends within 0.5
-s × playback rate of the edges) rather than a user or page seek; it keeps the DVR running. _Avoid_:
-loop wrap (for the event)
-
-**Continuous Time**: Media time unwrapped across Loop Wraps, so it keeps growing while a looping
-video replays; DVR ring keys and presentation run on it, and it folds back to media time for verdict
-lookups. _Avoid_: unwrapped time, loop time
+s × playback rate of the edges) rather than a user or page seek; it keeps Verdict Timeline coverage
+instead of re-starting Live Masking like a seek. _Avoid_: loop wrap (for the event)

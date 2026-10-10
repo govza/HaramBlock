@@ -1,6 +1,6 @@
 # Bitstream lookahead analysis replaces the continuous DVR
 
-Status: proposed (2026-10-04) — supersedes ADR 0001 and ADR 0002 once a spike validates it
+Status: accepted (2026-10-10) — supersedes ADR 0001 and ADR 0002
 
 The continuous DVR (ADR 0001) re-presents every frame on a canvas. On Firefox the main thread
 observes only ~24-39 of 60 painted frames per second and pays ~10 ms per frame to read one, so any

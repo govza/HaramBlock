@@ -16,6 +16,10 @@ import { waitWithVideoDiagnostics } from '../utils/video.js';
  * layer's shadow root. Hidden slots stay in the DOM, so count by visibility.
  */
 const OVERLAY_STABLE_WINDOW_MS = 2000;
+const TAP_RESOLUTION_TIMEOUT = 20_000;
+const VIDEO_TAP_ATTR = 'data-hb-video-tap';
+const PRESENTED_WINDOW_SEC = 0.4;
+const RAF_ORDER_SLACK_SEC = 0.05;
 
 const countVisibleOnPage = async (selector: string): Promise<number> =>
   browser.execute((sel: string) => {
@@ -80,10 +84,6 @@ When('I inject and play an unsafe video', async () => {
   await injectAndPlayFixtureVideo('unsafe', 'src');
 });
 
-When('I inject and play a video that turns unsafe mid-playback', async () => {
-  await injectAndPlayFixtureVideo('turns-unsafe', 'src');
-});
-
 type VideoSourceMode = 'src' | 'source-child';
 
 const playTestVideo = async (): Promise<string | null> =>
@@ -105,7 +105,7 @@ const playTestVideo = async (): Promise<string | null> =>
       });
   }, Selectors.TEST_VIDEO);
 
-async function injectAndPlayFixtureVideo(fixture: VideoFixture, sourceMode: VideoSourceMode): Promise<void> {
+async function injectFixtureVideo(fixture: VideoFixture, sourceMode: VideoSourceMode): Promise<void> {
   await browser.execute(
     (url: string, mode: VideoSourceMode, videoSelector: string) => {
       const doc = globalThis.document;
@@ -129,7 +129,9 @@ async function injectAndPlayFixtureVideo(fixture: VideoFixture, sourceMode: Vide
     sourceMode,
     Selectors.TEST_VIDEO,
   );
+}
 
+async function startTestVideo(fixture: string): Promise<void> {
   let failure = await playTestVideo();
   if (failure === 'needs-activation') {
     await $(Selectors.TEST_VIDEO).click();
@@ -138,6 +140,11 @@ async function injectAndPlayFixtureVideo(fixture: VideoFixture, sourceMode: Vide
   if (failure) {
     throw new Error(`Failed to start the ${fixture} test video — ${failure}`);
   }
+}
+
+async function injectAndPlayFixtureVideo(fixture: VideoFixture, sourceMode: VideoSourceMode): Promise<void> {
+  await injectFixtureVideo(fixture, sourceMode);
+  await startTestVideo(fixture);
 }
 
 Then('the video is verdicted {string} within the inference timeout', async (verdict: string) => {
@@ -160,12 +167,13 @@ Then('the video is verdicted {string} within the inference timeout', async (verd
 
 Then('I should see at least {string} video mask overlays', async (count: string) => {
   const minExpected = parseInt(count, 10);
-  const canvasSelector = `${Selectors.VIDEO_SEGMENT_OVERLAY} canvas`;
-
-  await waitWithVideoDiagnostics(async () => (await countVisibleOnPage(canvasSelector)) >= minExpected, {
-    timeout: INFERENCE_TIMEOUT,
-    failureMessage: `Expected at least ${minExpected} video mask overlays, but timed out`,
-  });
+  await waitWithVideoDiagnostics(
+    async () => (await countVisibleOnPage(Selectors.VIDEO_SEGMENT_OVERLAY)) >= minExpected,
+    {
+      timeout: INFERENCE_TIMEOUT,
+      failureMessage: `Expected at least ${minExpected} video mask overlays, but timed out`,
+    },
+  );
 });
 
 Then('I should see exactly {string} video mask overlays', async (count: string) => {
@@ -179,76 +187,178 @@ Then('I should see exactly {string} video mask overlays', async (count: string) 
   }
 });
 
-/**
- * The DVR takes over once its first frame is buffered: its element-anchored
- * slot appears next to the video and the native element is visually hidden
- * (opacity 0), while the session keeps sampling at the live edge. Both are
- * checked in one poll tick: a looping video re-warms at every loop restart
- * (flush + re-warm), briefly revealing the native element again.
- */
-Then('the DVR canvas player replaces the native video', async () => {
-  const canvasSelector = `${Selectors.VIDEO_DVR_PLAYER} canvas`;
+Then('the video tap is {string}', async (tap: string) => {
   await waitWithVideoDiagnostics(
-    async () => {
-      if ((await countVisibleOnPage(canvasSelector)) === 0) return false;
-      const nativeOpacity = await browser.execute(
-        (sel: string) => globalThis.document.querySelector<HTMLVideoElement>(sel)?.style.opacity,
+    async () =>
+      (await browser.execute(
+        (sel: string, attr: string) => globalThis.document.querySelector(sel)?.getAttribute(attr) ?? null,
         Selectors.TEST_VIDEO,
-      );
-      return nativeOpacity === '0';
-    },
-    {
-      timeout: INFERENCE_TIMEOUT,
-      failureMessage: 'Expected the DVR canvas player to replace the native video, but timed out',
-    },
+        VIDEO_TAP_ATTR,
+      )) === tap,
+    { timeout: TAP_RESOLUTION_TIMEOUT, failureMessage: `Expected ${VIDEO_TAP_ATTR}="${tap}"` },
   );
 });
 
-/**
- * Whole-blur watcher: records (in-page) whether the machine's whole-video blur
- * class lands on the native element after the DVR canvas has taken over. The
- * continuous DVR composites verdicts into the running presentation, so the
- * blur may appear only before takeover (attachment / warm-up cover).
- */
-When('I watch the native video for whole-blur changes', async () => {
-  const failure = await browser.execute(
-    (videoSelector: string, dvrSelector: string, blurClass: string) => {
+When('I inject and play a {string} video through a minimal MSE appender', async (fixture: string) => {
+  await browser.execute(
+    (url: string, videoSelector: string) => {
+      const doc = globalThis.document;
+      const video = doc.createElement('video');
+      video.id = videoSelector.slice(1);
+      video.muted = true;
+      video.loop = true;
+      const mediaSource = new MediaSource();
+      video.src = URL.createObjectURL(mediaSource);
+      mediaSource.addEventListener(
+        'sourceopen',
+        () => {
+          const mime = [
+            'video/webm; codecs="vp9"',
+            'video/webm; codecs="vp8"',
+            'video/webm; codecs="av01.0.05M.08"',
+          ].find(type => MediaSource.isTypeSupported(type));
+          if (!mime) return;
+          const buffer = mediaSource.addSourceBuffer(mime);
+          void fetch(url)
+            .then(response => response.arrayBuffer())
+            .then(bytes => {
+              const chunkBytes = 256 * 1024;
+              let offset = 0;
+              const appendNext = () => {
+                if (offset >= bytes.byteLength) {
+                  mediaSource.endOfStream();
+                  return;
+                }
+                buffer.appendBuffer(bytes.slice(offset, offset + chunkBytes));
+                offset += chunkBytes;
+              };
+              buffer.addEventListener('updateend', appendNext);
+              appendNext();
+            });
+        },
+        { once: true },
+      );
+      doc.querySelector('main')?.append(video);
+      video.scrollIntoView({ block: 'center' });
+    },
+    buildVideoFixtureUrl(fixture as VideoFixture),
+    Selectors.TEST_VIDEO,
+  );
+  await startTestVideo(fixture);
+});
+
+When('I inject and play an {string} video from a plain blob URL', async (fixture: string) => {
+  const failure = await browser.executeAsync(
+    (url: string, videoSelector: string, done: (failure: string | null) => void) => {
+      const doc = globalThis.document;
+      fetch(url)
+        .then(response => response.blob())
+        .then(blob => {
+          const video = doc.createElement('video');
+          video.id = videoSelector.slice(1);
+          video.muted = true;
+          video.loop = true;
+          video.src = URL.createObjectURL(blob);
+          doc.querySelector('main')?.append(video);
+          video.scrollIntoView({ block: 'center' });
+          done(null);
+        })
+        .catch((error: Error) => done(error.message));
+    },
+    buildVideoFixtureUrl(fixture as VideoFixture),
+    Selectors.TEST_VIDEO,
+  );
+  if (failure) throw new Error(`Failed to load the ${fixture} fixture as a blob — ${failure}`);
+  await startTestVideo(fixture);
+});
+
+When('I inject a paused {string} video using {string}', async (fixture: string, mode: string) => {
+  await injectFixtureVideo(fixture as VideoFixture, mode as VideoSourceMode);
+});
+
+let firstUnsafePointSec: number | null = null;
+
+When('lookahead analysis has published an unsafe sample for the video', async () => {
+  firstUnsafePointSec = null;
+  await browser.waitUntil(
+    async () => {
+      firstUnsafePointSec = await readFirstUnsafePointSec();
+      return firstUnsafePointSec !== null;
+    },
+    { timeout: INFERENCE_TIMEOUT, interval: 2000, timeoutMsg: 'Lookahead never published an unsafe sample' },
+  );
+});
+
+When('I play the test video while recording mask visibility', async () => {
+  await browser.execute(
+    (videoSelector: string, overlaySelector: string) => {
       const doc = globalThis.document;
       const video = doc.querySelector<HTMLVideoElement>(videoSelector);
-      if (!video) return 'test video missing';
-      const state = {
-        takenOver: false,
-        blurAppliedAfterTakeover: false,
-        wasBlurred: video.classList.contains(blurClass),
+      const log: { t: number; visible: boolean }[] = [];
+      (globalThis as unknown as { __hbMaskLog?: typeof log }).__hbMaskLog = log;
+      const record = () => {
+        const overlay = doc.querySelector<HTMLElement>(overlaySelector);
+        if (video) log.push({ t: video.currentTime, visible: overlay?.checkVisibility() ?? false });
+        requestAnimationFrame(record);
       };
-      (globalThis as unknown as { __hbBlurWatch?: typeof state }).__hbBlurWatch = state;
-      new MutationObserver(() => {
-        const blurred = video.classList.contains(blurClass);
-        if (blurred && !state.wasBlurred && state.takenOver) state.blurAppliedAfterTakeover = true;
-        state.wasBlurred = blurred;
-      }).observe(video, { attributes: true, attributeFilter: ['class'] });
-      const poll = setInterval(() => {
-        if (doc.querySelector(`${dvrSelector} canvas`) && video.style.opacity === '0') {
-          state.takenOver = true;
-          clearInterval(poll);
-        }
-      }, 50);
-      return null;
+      requestAnimationFrame(record);
     },
     Selectors.TEST_VIDEO,
-    Selectors.VIDEO_DVR_PLAYER,
-    Selectors.WHOLE_BLUR_CLASS,
+    Selectors.VIDEO_SEGMENT_OVERLAY,
   );
-  if (failure) throw new Error(`Failed to install the whole-blur watcher — ${failure}`);
+  await startTestVideo('turns-unsafe');
 });
 
-Then('no whole-blur was applied after the DVR canvas took over', async () => {
-  const state = await browser.execute(
-    () =>
-      (globalThis as unknown as { __hbBlurWatch?: { takenOver: boolean; blurAppliedAfterTakeover: boolean } })
-        .__hbBlurWatch ?? null,
+Then('the mask was visible when playback reached the first unsafe sample', async () => {
+  const unsafeAt = firstUnsafePointSec;
+  if (unsafeAt === null) throw new Error('No unsafe sample was published');
+  const readLog = async () =>
+    browser.execute(
+      () => (globalThis as unknown as { __hbMaskLog?: { t: number; visible: boolean }[] }).__hbMaskLog ?? [],
+    );
+  await waitWithVideoDiagnostics(
+    async () => (await readLog()).some(entry => entry.t > unsafeAt + PRESENTED_WINDOW_SEC),
+    { timeout: INFERENCE_TIMEOUT, failureMessage: `Playback never passed the unsafe sample at ${unsafeAt}s` },
   );
-  if (!state) throw new Error('Whole-blur watcher was never installed');
-  expect(state.takenOver).toBe(true);
-  expect(state.blurAppliedAfterTakeover).toBe(false);
+  const presented = (await readLog()).filter(
+    entry => entry.t >= unsafeAt + RAF_ORDER_SLACK_SEC && entry.t <= unsafeAt + PRESENTED_WINDOW_SEC,
+  );
+  expect(presented.length).toBeGreaterThan(0);
+  expect(presented.filter(entry => !entry.visible)).toEqual([]);
 });
+
+async function readFirstUnsafePointSec(): Promise<number | null> {
+  const testWindow = await browser.getWindowHandle();
+  const extensionPath = await browser.getExtensionPath();
+  await browser.newWindow(`${extensionPath}/popup.html`);
+  try {
+    return await browser.executeAsync((done: (pointSec: number | null) => void) => {
+      const request = globalThis.indexedDB.open('MediaCacheDatabase');
+      request.onerror = () => done(null);
+      request.onsuccess = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('videoPredictions')) {
+          db.close();
+          done(null);
+          return;
+        }
+        const read = db.transaction('videoPredictions', 'readonly').objectStore('videoPredictions').getAll();
+        read.onsuccess = () => {
+          db.close();
+          const rows = read.result as {
+            samplesByModel: Record<string, { pointUs: number; predictions: unknown[] }[]>;
+          }[];
+          const unsafePoints = rows
+            .flatMap(row => Object.values(row.samplesByModel).flat())
+            .filter(sample => sample.predictions.length > 0)
+            .map(sample => sample.pointUs);
+          done(unsafePoints.length > 0 ? Math.min(...unsafePoints) / 1e6 : null);
+        };
+        read.onerror = () => done(null);
+      };
+    });
+  } finally {
+    await browser.closeWindow();
+    await browser.switchToWindow(testWindow);
+  }
+}

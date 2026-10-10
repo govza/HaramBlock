@@ -13,10 +13,9 @@ import type {
   SampleCachePort,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
-import type { ContentToHost, HookMessage, HostToContent, OpenAnalysis } from '@/utils/lookahead/protocol';
+import type { ContentToHost, HookCommand, HookMessage, HostToContent, OpenAnalysis } from '@/utils/lookahead/protocol';
 
 const SOURCE_WAIT_MS = 3_000;
-const MAX_BUFFERED_BYTES_PER_SOURCE = 48 * 1024 * 1024;
 
 export interface HostPorts {
   decoder(open: OpenAnalysis): DecoderPort;
@@ -24,13 +23,12 @@ export interface HostPorts {
   cache(open: OpenAnalysis): SampleCachePort;
   rangeSource(url: string): ByteRangeSource;
   send(message: HostToContent): void;
+  toHook(command: HookCommand): void;
 }
 
 interface HookedSource {
   objectUrl: string;
   live: boolean;
-  history: HookMessage[];
-  historyBytes: number;
   analysis: MseAnalysis | null;
 }
 
@@ -74,34 +72,13 @@ export class LookaheadHost {
       this.sources.set(message.sourceId, {
         objectUrl: message.objectUrl,
         live: message.live,
-        history: [],
-        historyBytes: 0,
         analysis: null,
       });
       this.waiters.get(message.objectUrl)?.(message.sourceId);
       return;
     }
-    const source = this.sources.get(message.sourceId);
-    if (!source) return;
-    if (source.analysis) {
-      replayInto(source.analysis, message);
-      return;
-    }
-    this.remember(source, message);
-  }
-
-  private remember(source: HookedSource, message: HookMessage): void {
-    if (message.t === 'append') {
-      const size = message.bytes.byteLength;
-      while (source.historyBytes + size > MAX_BUFFERED_BYTES_PER_SOURCE) {
-        const evictable = source.history.findIndex((entry, index) => entry.t === 'append' && index > 0);
-        if (evictable < 0) return;
-        const [evicted] = source.history.splice(evictable, 1);
-        if (evicted?.t === 'append') source.historyBytes -= evicted.bytes.byteLength;
-      }
-      source.historyBytes += size;
-    }
-    source.history.push(message);
+    const analysis = this.sources.get(message.sourceId)?.analysis;
+    if (analysis) replayInto(analysis, message);
   }
 
   handleContent(message: ContentToHost): void {
@@ -133,8 +110,10 @@ export class LookaheadHost {
     if (!analysis) return;
     this.sessions.delete(sessionId);
     analysis.stop();
-    for (const source of this.sources.values()) {
-      if (source.analysis === analysis) source.analysis = null;
+    for (const [sourceId, source] of this.sources) {
+      if (source.analysis !== analysis) continue;
+      source.analysis = null;
+      this.ports.toHook({ t: 'drop', sourceId });
     }
   }
 
@@ -178,9 +157,8 @@ export class LookaheadHost {
     source.analysis?.stop();
     source.analysis = analysis;
     this.sessions.set(open.sessionId, analysis);
-    for (const message of source.history.splice(0)) replayInto(analysis, message);
-    source.historyBytes = 0;
     this.ports.send({ t: 'reachable', sessionId: open.sessionId, tap: 'mse' });
+    this.ports.toHook({ t: 'want', sourceId });
   }
 
   private sourceFor(objectUrl: string): Promise<number | null> {

@@ -1,6 +1,6 @@
 # Direct-URL Relay Audio; the machine owns the audio route
 
-Status: accepted (2026-08-17)
+Status: superseded by ADR 0004 (2026-10-10); was accepted (2026-08-17)
 
 A `/code-review` of the Relay Fetch / Relay Audio branch confirmed 8 bugs that reduce to structural
 flaws: the Relay Fetch blob lived in `corsVideoCache` (a discard-anytime capture cache) while Relay

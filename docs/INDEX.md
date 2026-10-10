@@ -9,8 +9,8 @@ implementation details). If you’re a user, start with the project [`README.md`
 ## Start Here
 
 - **Domain vocabulary**: media terms (Verdict, Prediction, Fail-closed) in
-  [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md); video terms (VideoSession, DVR, …) in
-  [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
+  [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md); video terms (VideoSession, Lookahead Analysis, Live
+  Masking, …) in [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)
 - **Build / verify a release**: [SOURCE_CODE_REVIEW.md](SOURCE_CODE_REVIEW.md)
 - **Understand the overall architecture**:
   - [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md) (content script - runs on webpages)
@@ -24,7 +24,7 @@ implementation details). If you’re a user, start with the project [`README.md`
   [INFERENCE_PIPELINE.md](INFERENCE_PIPELINE.md)
 - **Batched inference benchmark results**: [PHASE2_RESULTS.md](PHASE2_RESULTS.md)
 - **Telemetry (structured logs, traces, metrics)**: [LOGGING.md](LOGGING.md); local Grafana stack +
-  DVR dashboard in [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md)
+  video dashboard in [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md)
 - **Running tests**: [TESTING.md](TESTING.md)
 - **Interactive browser debugging (launch, probe, iterate, clean up)**:
   [BROWSER_DEBUGGING.md](BROWSER_DEBUGGING.md); alternative Playwright MCP setup in

@@ -1,7 +1,13 @@
-import { isArrayBufferTag, MSE_HOOK_HANDSHAKE, type HookMessage, type WireChunk } from '@/utils/lookahead/protocol';
+import {
+  isArrayBufferTag,
+  MSE_HOOK_HANDSHAKE,
+  type HookCommand,
+  type HookMessage,
+  type WireChunk,
+} from '@/utils/lookahead/protocol';
 
 const INSTALLED = Symbol.for('haramblock.mseHook');
-const MAX_QUEUED_BYTES = 64 * 1024 * 1024;
+const MAX_RECORDED_BYTES_PER_SOURCE = 24 * 1024 * 1024;
 
 interface HookedBuffer {
   sourceId: number;
@@ -10,13 +16,62 @@ interface HookedBuffer {
 }
 
 interface Outbox {
-  send(message: HookMessage, transfer?: Transferable[]): void;
+  announce(message: Extract<HookMessage, { t: 'source' }>): void;
+  stream(message: Exclude<HookMessage, { t: 'source' }>, transfer?: Transferable[]): void;
 }
+
+interface Recorded {
+  message: Exclude<HookMessage, { t: 'source' }>;
+  transfer: Transferable[];
+  bytes: number;
+  keep: boolean;
+}
+
+interface SourceStream {
+  wanted: boolean;
+  recorded: Recorded[];
+  recordedBytes: number;
+  bufferedOnce: Set<number>;
+}
+
+const byteSizeOf = (message: HookMessage): number => {
+  if (message.t === 'append') return message.bytes.byteLength;
+  if (message.t === 'chunks') return message.chunks.reduce((total, chunk) => total + chunk.data.byteLength, 0);
+  return 0;
+};
 
 function createOutbox(target: Window): Outbox {
   let port: MessagePort | null = null;
-  const queue: { message: HookMessage; transfer: Transferable[] }[] = [];
-  let queuedBytes = 0;
+  const announcements: Extract<HookMessage, { t: 'source' }>[] = [];
+  const streams = new Map<number, SourceStream>();
+
+  const streamOf = (sourceId: number): SourceStream => {
+    let stream = streams.get(sourceId);
+    if (!stream) {
+      stream = { wanted: false, recorded: [], recordedBytes: 0, bufferedOnce: new Set() };
+      streams.set(sourceId, stream);
+    }
+    return stream;
+  };
+
+  const record = (stream: SourceStream, entry: Recorded) => {
+    stream.recorded.push(entry);
+    stream.recordedBytes += entry.bytes;
+    while (stream.recordedBytes > MAX_RECORDED_BYTES_PER_SOURCE) {
+      const evictable = stream.recorded.findIndex(recorded => recorded.bytes > 0 && !recorded.keep);
+      if (evictable < 0) break;
+      const [evicted] = stream.recorded.splice(evictable, 1);
+      stream.recordedBytes -= evicted?.bytes ?? 0;
+    }
+  };
+
+  const onCommand = (command: HookCommand) => {
+    const stream = streamOf(command.sourceId);
+    stream.wanted = command.t === 'want';
+    if (!stream.wanted || !port) return;
+    for (const recorded of stream.recorded.splice(0)) port.postMessage(recorded.message, recorded.transfer);
+    stream.recordedBytes = 0;
+  };
 
   target.addEventListener('message', event => {
     if (port || event.source !== target) return;
@@ -24,23 +79,27 @@ function createOutbox(target: Window): Outbox {
     const [received] = event.ports;
     if (!received) return;
     port = received;
-    for (const queued of queue.splice(0)) port.postMessage(queued.message, queued.transfer);
-    queuedBytes = 0;
+    port.onmessage = (commandEvent: MessageEvent<HookCommand>) => guard(() => onCommand(commandEvent.data));
+    for (const announcement of announcements.splice(0)) port.postMessage(announcement);
     target.postMessage({ [MSE_HOOK_HANDSHAKE]: 'ack' }, '*');
   });
   target.postMessage({ [MSE_HOOK_HANDSHAKE]: 'ready' }, '*');
 
   return {
-    send(message, transfer = []) {
-      if (port) {
+    announce(message) {
+      if (port) port.postMessage(message);
+      else announcements.push(message);
+    },
+    stream(message, transfer = []) {
+      const stream = streamOf(message.sourceId);
+      if (stream.wanted && port) {
         port.postMessage(message, transfer);
         return;
       }
-      if (message.t === 'append') {
-        if (queuedBytes + message.bytes.byteLength > MAX_QUEUED_BYTES) return;
-        queuedBytes += message.bytes.byteLength;
-      }
-      queue.push({ message, transfer });
+      const bytes = byteSizeOf(message);
+      const firstOfBuffer = bytes > 0 && !stream.bufferedOnce.has(message.bufferId);
+      if (firstOfBuffer) stream.bufferedOnce.add(message.bufferId);
+      record(stream, { message, transfer, bytes, keep: bytes === 0 || firstOfBuffer });
     },
   };
 }
@@ -119,7 +178,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
     const objectUrl = originalCreateObjectURL(object);
     guard(() => {
       if (object instanceof MediaSourceCtor) {
-        outbox.send({ t: 'source', sourceId: sourceIdOf(object), objectUrl, live: isYouTubeLive(target) });
+        outbox.announce({ t: 'source', sourceId: sourceIdOf(object), objectUrl, live: isYouTubeLive(target) });
       }
     });
     return objectUrl;
@@ -133,11 +192,11 @@ export function installMseHook(target: Window & typeof globalThis): void {
       const hooked: HookedBuffer = { sourceId: sourceIdOf(this), bufferId: nextId++, pending: [] };
       buffers.set(buffer, hooked);
       const mime = typeof type === 'string' ? type : '';
-      outbox.send({ t: 'buffer', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime });
+      outbox.stream({ t: 'buffer', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime });
       buffer.addEventListener('update', () =>
         guard(() => {
           for (const append of hooked.pending.splice(0)) {
-            outbox.send({ t: 'append', sourceId: hooked.sourceId, bufferId: hooked.bufferId, ...append }, [
+            outbox.stream({ t: 'append', sourceId: hooked.sourceId, bufferId: hooked.bufferId, ...append }, [
               append.bytes,
             ]);
           }
@@ -160,7 +219,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
     originalRemoveSourceBuffer.call(this, buffer);
     guard(() => {
       const hooked = buffers.get(buffer);
-      if (hooked) outbox.send({ t: 'removeBuffer', sourceId: hooked.sourceId, bufferId: hooked.bufferId });
+      if (hooked) outbox.stream({ t: 'removeBuffer', sourceId: hooked.sourceId, bufferId: hooked.bufferId });
     });
   };
 
@@ -194,7 +253,8 @@ export function installMseHook(target: Window & typeof globalThis): void {
       originalChangeType.call(this, type);
       guard(() => {
         const hooked = buffers.get(this);
-        if (hooked) outbox.send({ t: 'changeType', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime: type });
+        if (hooked)
+          outbox.stream({ t: 'changeType', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime: type });
       });
     };
   }
@@ -212,7 +272,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
           chunk => typeof EncodedVideoChunk === 'function' && chunk instanceof EncodedVideoChunk,
         );
         const wire = list.map(toWireChunk);
-        outbox.send(
+        outbox.stream(
           { t: 'chunks', sourceId: hooked.sourceId, bufferId: hooked.bufferId, config, chunks: wire },
           wire.map(chunk => chunk.data),
         );

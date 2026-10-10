@@ -21,6 +21,8 @@ export type HookMessage =
   | { t: 'chunks'; sourceId: number; bufferId: number; config: VideoDecoderConfig; chunks: WireChunk[] }
   | { t: 'removeBuffer'; sourceId: number; bufferId: number };
 
+export type HookCommand = { t: 'want'; sourceId: number } | { t: 'drop'; sourceId: number };
+
 export type TapRequest = { kind: 'mse'; objectUrl: string } | { kind: 'progressive'; url: string };
 
 export type TapKind = 'mse' | 'progressive' | 'none';
@@ -62,7 +64,8 @@ export type HostToContent =
       priority: number;
     }
   | { t: 'cacheRead'; requestId: number; sessionId: string }
-  | { t: 'cachePublish'; sessionId: string; samples: StoredSample[] };
+  | { t: 'cachePublish'; sessionId: string; samples: StoredSample[] }
+  | { t: 'toHook'; command: HookCommand };
 
 export const isArrayBufferTag = (value: unknown): value is ArrayBuffer =>
   Object.prototype.toString.call(value) === '[object ArrayBuffer]';

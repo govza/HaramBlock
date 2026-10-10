@@ -35,6 +35,13 @@ export class LookaheadHostService {
         inference: open => this.inferencePort(open),
         cache: open => this.cachePort(open),
         rangeSource: url => createRangeFetchSource(url),
+        toHook: command => {
+          try {
+            port.postMessage({ t: 'toHook', command });
+          } catch (error) {
+            log.debug('lookahead.port.send_failed', { error });
+          }
+        },
         send: message => {
           try {
             port.postMessage(message);

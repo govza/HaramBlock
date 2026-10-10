@@ -19,8 +19,8 @@ rather than being revealed. When analysis is permanently impossible, the media i
 (inference-impossible is not evidence of unsafe content). _Avoid_: fail-safe (ambiguous about
 direction)
 
-Video-processing vocabulary (VideoSession, Thumbnail, Frame Sample, Stale Prediction, DVR,
-Presentation Delay, Inertia Window) lives in [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md).
+Video-processing vocabulary (VideoSession, Thumbnail, Bitstream Tap, Lookahead Analysis, Live
+Masking, Sample Lattice, Verdict Timeline) lives in [VIDEO_PROCESSING.md](VIDEO_PROCESSING.md).
 
 ## Design Principles
 
@@ -121,8 +121,8 @@ The main orchestrator that combines DOM observation with image/video processing.
 - Subscribes to prediction broadcasts from background
 - Manages cleanup and resource disposal
 - Video sessions additionally suspend outside a 400 px viewport margin (after a 1 s grace period, so
-  boundary flapping cannot thrash the DVR), because feed players can remain connected and autoplay
-  after they have been scrolled away
+  boundary flapping cannot thrash Live Masking and lookahead priority), because feed players can
+  remain connected and autoplay after they have been scrolled away
 
 ### Communication (`communication/`)
 
