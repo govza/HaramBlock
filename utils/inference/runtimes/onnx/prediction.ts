@@ -116,6 +116,7 @@ function sliceBatchOutputs(outputs: TypedResults, index: number, batchSize: numb
 function buildImagePrediction(
   prepared: PreparedImage,
   rawPredictions: IElementPrediction[],
+  topUnsafeScore: number,
   backend: string,
   inferenceTime: number,
   inferenceEndAt: number,
@@ -146,6 +147,7 @@ function buildImagePrediction(
     width: imageWidth,
     height: imageHeight,
     predictions,
+    topUnsafeScore,
     timestamp: Date.now(),
     cacheMetadata,
     maskTransform,
@@ -220,7 +222,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
 
       ready.forEach((item, i) => {
         try {
-          const rawPredictions = postprocess({
+          const { predictions: rawPredictions, topUnsafeScore } = postprocess({
             results: sliceBatchOutputs(typedOutputs, i, ready.length),
             config,
             scoreThreshold: scoreThresholdFor(item.image.task),
@@ -231,6 +233,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
             result: buildImagePrediction(
               item.image,
               rawPredictions,
+              topUnsafeScore,
               backend,
               perImageInferenceTime,
               inferenceEndAt,

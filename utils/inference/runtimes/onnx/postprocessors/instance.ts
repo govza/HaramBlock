@@ -2,7 +2,7 @@ import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/b
 import { encodeMaskRLE } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';
 
-import type { PostprocessContext } from '@/utils/inference/runtimes/onnx/postprocessors/types';
+import type { PostprocessContext, PostprocessResult } from '@/utils/inference/runtimes/onnx/postprocessors/types';
 import type { IElementPrediction } from '@/utils/types';
 
 const log = getLogger('prediction');
@@ -32,7 +32,7 @@ export function processInstanceSegmentation({
   scoreThreshold,
   originalWidth,
   originalHeight,
-}: PostprocessContext): IElementPrediction[] {
+}: PostprocessContext): PostprocessResult {
   const [modelHeight, modelWidth] = config.imgsz;
   const { detections: detectionsName, masks: masksName } = config.outputNames;
 
@@ -40,10 +40,11 @@ export function processInstanceSegmentation({
   const masksOutput = results[masksName];
 
   const predictions: IElementPrediction[] = [];
+  let topUnsafeScore = 0;
 
   if (!detectionsOutput) {
     log.error('postprocess.tensor.missing', { tensorName: detectionsName, availableTensors: Object.keys(results) });
-    return predictions;
+    return { predictions, topUnsafeScore };
   }
 
   const masksDims = masksOutput?.dims as number[] | undefined;
@@ -99,7 +100,11 @@ export function processInstanceSegmentation({
     const confidence = detections[baseIdx + 4] ?? 0;
     const classId = Math.round(detections[baseIdx + 5] ?? 0);
 
-    if (confidence < scoreThreshold || !targetClassIndices.has(classId)) {
+    if (!targetClassIndices.has(classId)) {
+      continue;
+    }
+    topUnsafeScore = Math.max(topUnsafeScore, confidence);
+    if (confidence < scoreThreshold) {
       continue;
     }
 
@@ -172,5 +177,5 @@ export function processInstanceSegmentation({
     predictions.push(prediction);
   }
 
-  return predictions;
+  return { predictions, topUnsafeScore };
 }

@@ -1,17 +1,10 @@
 import {
-  DVR_OVERLAY_ATTR,
   GIF_MASK_OVERLAY_ATTR,
   IMAGE_MASK_OVERLAY_ATTR,
   VIDEO_MASK_OVERLAY_ATTR,
 } from '@/entrypoints/content/presentation/constants';
-import { SESSION_ID_ATTR } from '@/entrypoints/content/video/session/markers';
 
-const PREDECESSOR_OVERLAY_SELECTOR = [
-  DVR_OVERLAY_ATTR,
-  VIDEO_MASK_OVERLAY_ATTR,
-  IMAGE_MASK_OVERLAY_ATTR,
-  GIF_MASK_OVERLAY_ATTR,
-]
+const PREDECESSOR_OVERLAY_SELECTOR = [VIDEO_MASK_OVERLAY_ATTR, IMAGE_MASK_OVERLAY_ATTR, GIF_MASK_OVERLAY_ATTR]
   .map(attr => `[${attr}]`)
   .join(', ');
 
@@ -40,14 +33,5 @@ export const sweepPredecessorArtifacts = (): void => {
       liftInlineHide(overlay.previousElementSibling);
     }
     overlay.remove();
-  }
-
-  // The DVR hides the native element behind its canvases the same way. Lift
-  // it so a dead canvas cannot leave an invisible video, and so this
-  // instance's own DVR does not save the hidden state as the element's
-  // original opacity. Videos still carrying the session marker were never
-  // released by their owner.
-  for (const video of document.querySelectorAll(`video[${SESSION_ID_ATTR}]`)) {
-    liftInlineHide(video);
   }
 };

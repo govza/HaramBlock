@@ -14,7 +14,6 @@ export const PROCESSED_SKIPPED_ATTR = 'data-haramblock-processed-skipped';
  * predecessor sweep (lifecycle/predecessorSweep.ts) removes leftovers by
  * these markers, so they must stay in sync with the injecting modules.
  */
-export const DVR_OVERLAY_ATTR = 'data-video-dvr-player';
 export const VIDEO_MASK_OVERLAY_ATTR = 'data-video-mask-overlay';
 export const IMAGE_MASK_OVERLAY_ATTR = 'data-mask-overlay';
 export const GIF_MASK_OVERLAY_ATTR = 'data-gif-mask-player';

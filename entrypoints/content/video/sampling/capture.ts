@@ -94,7 +94,7 @@ export async function captureFrameBitmap(video: HTMLVideoElement, timestampSec: 
 /**
  * Preprocessing letterboxes the sampled frame to the active model's input size,
  * so pixels beyond it only inflate the capture→transfer→preprocess round-trip
- * (which sizes the DVR presentation delay). Cap the frame's longest side at that
+ * (which bounds how far Live Masking lags the playhead). Cap the frame's longest side at that
  * size — the letterbox scale binds on the longest side. Until the model is
  * known, fall back to the largest available input size; masks come back
  * relative to the sent dimensions, so overlay geometry is unaffected.
@@ -122,6 +122,11 @@ function trackInferenceCaptureSize(): void {
   captureSizeTracked = true;
   void refreshInferenceCaptureSize();
   onModelSettingsChange(() => void refreshInferenceCaptureSize());
+}
+
+export function currentInferenceCaptureSize(): number {
+  trackInferenceCaptureSize();
+  return inferenceCaptureSize;
 }
 
 async function drawToBitmap(video: HTMLVideoElement, timestampSec?: number): Promise<CaptureResult> {

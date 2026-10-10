@@ -12,7 +12,7 @@ export const COVERAGE_MAX_GAP_SEC = 2;
 
 export const BRIDGE_HORIZON_SEC = 3;
 
-export const PRE_MASK_LEAD_SEC = 0.15;
+export const PRE_MASK_LEAD_SEC = 0.1;
 
 export const TRANSIENT_HIT_CONFIG = {
   maxSuppressedRun: 3,

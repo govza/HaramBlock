@@ -2,7 +2,7 @@ import type { ByteRangeSource } from '@/utils/lookahead/ports';
 
 export const RANGE_BLOCK_BYTES = 64 * 1024;
 const MAX_CACHED_BLOCKS = 256;
-const MEDIA_CONTENT_TYPE = /^(video|audio)\/|^application\/(octet-stream|mp4|x-mpegurl|vnd\.apple\.mpegurl)/i;
+const MEDIA_CONTENT_TYPE = /^(video|audio)\/|^application\/(octet-stream|mp4)/i;
 
 export class RangeFetchRejectedError extends Error {
   override readonly name = 'RangeFetchRejectedError';

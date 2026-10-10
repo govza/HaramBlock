@@ -6,10 +6,9 @@ import { ATTR, getLogger } from '@/utils/telemetry';
 import {
   EMPTY_CACHED_VIDEO_PREDICTIONS,
   type ForcedVisibility,
-  type ICachedFrameSample,
   type ICachedVideoPredictions,
   type ICacheMetadata,
-  type IFramePrediction,
+  type IStoredVideoSample,
 } from '@/utils/types';
 
 const log = getLogger('videoPredictionCacheService');
@@ -18,12 +17,15 @@ const FLUSH_INTERVAL_MS = 2000;
 const FLUSH_ENTRY_THRESHOLD = 50;
 const UNCACHEABLE_URL_PREFIX = 'srcobject:';
 
-interface PendingWrite {
+export interface VideoSampleOrigin {
   sourceUrl: string;
   hostname: string;
+}
+
+interface PendingWrite extends VideoSampleOrigin {
+  videoUrl: string;
   modelId: string;
-  cacheMetadata: ICacheMetadata;
-  samples: ICachedFrameSample[];
+  samples: IStoredVideoSample[];
 }
 
 function currentModelId(): string {
@@ -45,23 +47,13 @@ export class VideoPredictionCacheService {
   private readonly pending = new Map<string, PendingWrite>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  record(prediction: IFramePrediction): void {
-    if (prediction.frameIndex < 0 || !isCacheableVideoUrl(prediction.videoUrl)) return;
+  publish(videoUrl: string, origin: VideoSampleOrigin, samples: readonly IStoredVideoSample[]): void {
+    if (samples.length === 0 || !isCacheableVideoUrl(videoUrl)) return;
     const modelId = currentModelId();
-    const write = this.pending.get(prediction.videoUrl) ?? {
-      sourceUrl: prediction.sourceUrl,
-      hostname: prediction.hostname,
-      modelId,
-      cacheMetadata: prediction.cacheMetadata,
-      samples: [],
-    };
-    write.modelId = modelId;
-    write.samples.push({
-      timestampSec: prediction.timestampSec,
-      predictions: prediction.predictions,
-      input: { width: prediction.width, height: prediction.height, maskTransform: prediction.maskTransform },
-    });
-    this.pending.set(prediction.videoUrl, write);
+    const key = `${videoUrl}\n${modelId}`;
+    const write = this.pending.get(key) ?? { videoUrl, modelId, ...origin, samples: [] };
+    write.samples.push(...samples);
+    this.pending.set(key, write);
     if (write.samples.length >= FLUSH_ENTRY_THRESHOLD) {
       void this.flush();
     } else {
@@ -76,19 +68,19 @@ export class VideoPredictionCacheService {
     this.repository.touchAccessed(videoUrl).catch((error: unknown) => {
       log.warn('cache.touch.failed', { [ATTR.src]: videoUrl, error });
     });
-    return { samples: record.samples, forcedVisibility: record.forcedVisibility };
+    return { samples: record.samplesByModel[currentModelId()] ?? [], forcedVisibility: record.forcedVisibility };
   }
 
   async setForcedVisibility(
     videoUrl: string,
-    origin: { sourceUrl: string; hostname: string },
+    origin: VideoSampleOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     if (!isCacheableVideoUrl(videoUrl)) return;
     await this.flush();
     await this.repository.updateForcedVisibility(
       videoUrl,
-      { ...origin, modelId: currentModelId(), cacheMetadata: defaultCacheMetadata() },
+      { ...origin, cacheMetadata: defaultCacheMetadata() },
       forcedVisibility,
     );
   }
@@ -98,13 +90,18 @@ export class VideoPredictionCacheService {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    const writes = [...this.pending];
+    const writes = [...this.pending.values()];
     this.pending.clear();
-    for (const [videoUrl, write] of writes) {
+    for (const write of writes) {
       try {
-        await this.repository.mergeSamples(videoUrl, write, write.samples);
+        await this.repository.mergeSamples(
+          write.videoUrl,
+          write.modelId,
+          { sourceUrl: write.sourceUrl, hostname: write.hostname, cacheMetadata: defaultCacheMetadata() },
+          write.samples,
+        );
       } catch (error) {
-        log.warn('cache.write.failed', { [ATTR.src]: videoUrl, error });
+        log.warn('cache.write.failed', { [ATTR.src]: write.videoUrl, error });
       }
     }
   }

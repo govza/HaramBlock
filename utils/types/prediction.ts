@@ -45,6 +45,7 @@ export interface IImagePrediction {
   width: number;
   height: number;
   predictions: IElementPrediction[];
+  topUnsafeScore?: number;
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
@@ -102,6 +103,7 @@ export interface IVideoFrameVerdict extends IVideoTimelinePosition {
   width: number; // Frame media width
   height: number; // Frame media height
   predictions: IElementPrediction[];
+  topUnsafeScore: number;
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata;
   maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
@@ -127,25 +129,25 @@ export interface IInferenceInputGeometry {
   maskTransform: IMaskTransform;
 }
 
-export interface ICachedFrameSample {
-  timestampSec: number;
+export interface IStoredVideoSample {
+  pointUs: number;
   predictions: IElementPrediction[];
   input: IInferenceInputGeometry;
+  topUnsafeScore: number;
 }
 
 export interface IVideoPredictionRecord {
   videoUrl: string;
   sourceUrl: string;
   hostname: string;
-  modelId: string;
   forcedVisibility: ForcedVisibility;
   timestamp: number;
   cacheMetadata: ICacheMetadata;
-  samples: ICachedFrameSample[];
+  samplesByModel: Record<string, IStoredVideoSample[]>;
 }
 
 export interface ICachedVideoPredictions {
-  samples: ICachedFrameSample[];
+  samples: IStoredVideoSample[];
   forcedVisibility: ForcedVisibility;
 }
 

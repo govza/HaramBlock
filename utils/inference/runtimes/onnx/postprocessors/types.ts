@@ -12,5 +12,10 @@ export interface PostprocessContext {
   originalHeight: number;
 }
 
+export interface PostprocessResult {
+  predictions: IElementPrediction[];
+  topUnsafeScore: number;
+}
+
 /** Converts raw model outputs into predictions. One implementation per model task. */
-export type Postprocessor = (ctx: PostprocessContext) => IElementPrediction[];
+export type Postprocessor = (ctx: PostprocessContext) => PostprocessResult;

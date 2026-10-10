@@ -1,26 +1,35 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeFrameSamples } from '@/utils/db/videoPredictionRepository';
+import { mergeVideoSamples } from '@/utils/db/videoPredictionRepository';
 
-import type { ICachedFrameSample } from '@/utils/types';
+import type { IStoredVideoSample } from '@/utils/types';
 
-function sample(timestampSec: number, unsafe = false): ICachedFrameSample {
+function sample(pointUs: number, unsafe = false): IStoredVideoSample {
   return {
-    timestampSec,
-    predictions: unsafe ? [{} as ICachedFrameSample['predictions'][number]] : [],
+    pointUs,
+    predictions: unsafe ? [{} as IStoredVideoSample['predictions'][number]] : [],
     input: { width: 640, height: 360, maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 } },
+    topUnsafeScore: unsafe ? 0.8 : 0.1,
   };
 }
 
-describe('mergeFrameSamples', () => {
-  it('sorts by timestamp and lets incoming samples replace existing ones', () => {
-    const merged = mergeFrameSamples([sample(2), sample(1)], [sample(2, true), sample(0.5)]);
-    expect(merged.map(e => e.timestampSec)).toEqual([0.5, 1, 2]);
+describe('mergeVideoSamples', () => {
+  it('keys samples by exact point, sorted, letting incoming samples replace existing ones', () => {
+    const merged = mergeVideoSamples(
+      [sample(2_000_000), sample(1_000_000)],
+      [sample(2_000_000, true), sample(500_000)],
+    );
+    expect(merged.map(e => e.pointUs)).toEqual([500_000, 1_000_000, 2_000_000]);
     expect(merged[2]?.predictions).toHaveLength(1);
   });
 
-  it('drops the oldest timestamps past the cap', () => {
-    const merged = mergeFrameSamples([sample(1), sample(2), sample(3)], [sample(4)], 2);
-    expect(merged.map(e => e.timestampSec)).toEqual([3, 4]);
+  it('keeps neighbouring points apart however close they are', () => {
+    const merged = mergeVideoSamples([sample(1_000_000)], [sample(1_062_500)]);
+    expect(merged.map(e => e.pointUs)).toEqual([1_000_000, 1_062_500]);
+  });
+
+  it('drops the earliest points past the cap', () => {
+    const merged = mergeVideoSamples([sample(1), sample(2), sample(3)], [sample(4)], 2);
+    expect(merged.map(e => e.pointUs)).toEqual([3, 4]);
   });
 });

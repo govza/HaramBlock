@@ -4,8 +4,8 @@ import {
   resetImageStyling,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
-import { clearWholeBlur } from '@/entrypoints/content/video/session/presentationAdapter';
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
+import { clearWholeBlur } from '@/entrypoints/content/video/session/wholeBlur';
 
 import type { ForcedVisibility, IHostSettings } from '@/utils/types';
 

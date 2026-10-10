@@ -16,6 +16,7 @@ import type {
   IHostSettings,
   IImagePrediction,
   ICachedVideoPredictions,
+  IStoredVideoSample,
   IImageTransfer,
   IVideoFrameTransfer,
   IGifFrameTransfer,
@@ -135,6 +136,15 @@ export class BackgroundRpc {
       log.error('video_cache.read.failed', { [ATTR.src]: videoUrl, error });
       throw error;
     }
+  }
+
+  publishVideoSamples(
+    videoUrl: string,
+    origin: { sourceUrl: string; hostname: string },
+    samples: IStoredVideoSample[],
+  ): Promise<void> {
+    this.videoPredictionCacheService.publish(videoUrl, origin, samples);
+    return Promise.resolve();
   }
 
   async updateVideoToggleState(
@@ -299,6 +309,7 @@ export class BackgroundRpc {
           frameIndex,
           sessionId: frameData.sessionId,
           timestampSec,
+          sampleKind: frameData.sampleKind,
         },
         priority,
         traceparent,
@@ -430,11 +441,6 @@ export class BackgroundRpc {
     const bytes = await this.mediaFetchService.fetchMediaBytes(url);
     if (!bytes) return null;
     return encodeBase64(new Uint8Array(bytes));
-  }
-
-  /** Sizes the content-side DVR ring budget; 'unknown' until the model loads. */
-  getInferenceBackend(): Promise<'webgpu' | 'wasm' | 'unknown'> {
-    return Promise.resolve(this.modelService.getInferenceBackend());
   }
 
   // ============ Subscription Methods (replaces onMessage listeners) ============

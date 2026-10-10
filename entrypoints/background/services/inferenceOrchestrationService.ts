@@ -18,7 +18,6 @@ import { SPAN } from '@/utils/telemetry/roundtrip';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
 import type { QueueService } from '@/entrypoints/background/services/queueService';
-import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type {
   FrameInferenceResult,
   GifFrameInferenceResult,
@@ -68,6 +67,7 @@ export type ScheduleArgs = {
   mediaMetadata: IMediaMetadata;
   priority: number;
   traceparent?: string;
+  onResult?: (result: IImagePrediction | Error) => void;
 };
 
 type TaskAttributes = ReturnType<typeof taskAttributes>;
@@ -122,6 +122,10 @@ function taskAttributes({ imageSrc, hostname, mediaMetadata }: TaskIdentity): Re
   return { ...base, [ATTR.sessionId]: mediaMetadata.sessionId, [ATTR.frameIndex]: mediaMetadata.frameIndex };
 }
 
+function isQueuedLiveFrame(mediaMetadata: IMediaMetadata): mediaMetadata is IFrameMetadata {
+  return mediaMetadata.kind === 'frame' && mediaMetadata.frameIndex >= 0 && mediaMetadata.sampleKind === 'live';
+}
+
 function modelAttributes(): Record<string, string> {
   return { [ATTR.backend]: getInferenceBackend(), [ATTR.modelId]: getCurrentModelId() ?? 'unknown' };
 }
@@ -134,6 +138,7 @@ export class InferenceOrchestrationService {
   private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
   private readonly inFlightImages = new Map<ImageTaskKey, { task: InferenceTask; started: boolean }>();
   private queueWaitSpans = new WeakMap<InferenceTask, Span>();
+  private readonly resultHandlers = new WeakMap<InferenceTask, (result: IImagePrediction | Error) => void>();
 
   // Batches concurrent queue tasks into one session.run for dynamic-batch models.
   private batchCollector = new BatchCollector<InferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
@@ -144,7 +149,6 @@ export class InferenceOrchestrationService {
   constructor(
     private queueService: QueueService,
     private imageCacheService: ImageCacheService,
-    private videoPredictionCacheService: VideoPredictionCacheService,
   ) {
     this.setupEventHandlers();
   }
@@ -245,8 +249,10 @@ export class InferenceOrchestrationService {
       task = baseTask;
     }
 
+    if (args.onResult) this.resultHandlers.set(task, args.onResult);
+
     let controller: AbortController | undefined;
-    if (mediaMetadata.kind === 'frame' && mediaMetadata.frameIndex >= 0) {
+    if (isQueuedLiveFrame(mediaMetadata)) {
       const previous = this.queuedPlaybackFrames.get(mediaMetadata.sessionId);
       if (previous) {
         // frameIndex is per-session monotonic, but arrival order is not (the
@@ -390,21 +396,21 @@ export class InferenceOrchestrationService {
   }
 
   private markPlaybackFrameStarted(task: InferenceTask): void {
-    if (task.mediaMetadata.kind !== 'frame' || task.mediaMetadata.frameIndex < 0) return;
+    if (!isQueuedLiveFrame(task.mediaMetadata)) return;
     const queued = this.queuedPlaybackFrames.get(task.mediaMetadata.sessionId);
     if (queued?.task === task) this.queuedPlaybackFrames.delete(task.mediaMetadata.sessionId);
   }
 
   private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     const traceparent = injectTraceparent(task.traceContext);
+    const resultHandler = this.resultHandlers.get(task);
+    if (resultHandler) {
+      resultHandler(imagePrediction);
+      return;
+    }
     try {
       if (task.mediaMetadata.kind === 'frame') {
         const framePrediction = this.toFramePrediction(imagePrediction, task.mediaMetadata);
-        try {
-          this.videoPredictionCacheService.record(framePrediction);
-        } catch (error) {
-          log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
-        }
         this.sendFrameResultsToContent([{ status: 'ok', prediction: framePrediction, traceparent }], task.hostname);
       } else if (task.mediaMetadata.kind === 'gifFrame') {
         const gifFramePrediction = this.toGifFramePrediction(imagePrediction, task.mediaMetadata);
@@ -438,6 +444,7 @@ export class InferenceOrchestrationService {
       timestampSec: frameMetadata.timestampSec,
       sessionId: frameMetadata.sessionId,
       predictions: imagePrediction.predictions,
+      topUnsafeScore: imagePrediction.topUnsafeScore ?? 0,
       width: imagePrediction.width,
       height: imagePrediction.height,
       hostname: imagePrediction.hostname,
@@ -470,6 +477,11 @@ export class InferenceOrchestrationService {
    * session's failed-frame tally.
    */
   private sendErrorToContent(task: InferenceTask, error: unknown): void {
+    const resultHandler = this.resultHandlers.get(task);
+    if (resultHandler) {
+      resultHandler(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     const reason = error instanceof Error ? error.message : String(error);
     const traceparent = injectTraceparent(task.traceContext);
     const { mediaMetadata } = task;

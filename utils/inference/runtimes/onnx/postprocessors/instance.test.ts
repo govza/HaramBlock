@@ -61,7 +61,7 @@ function protoTensorChannel0(value: number): TypedResults[string] {
   return { data, dims: [1, 32, PROTO, PROTO] };
 }
 
-function run(ctx: Partial<PostprocessContext> & { results: TypedResults }) {
+function runFull(ctx: Partial<PostprocessContext> & { results: TypedResults }) {
   return processInstanceSegmentation({
     config: makeConfig(),
     scoreThreshold: 0.5,
@@ -69,6 +69,10 @@ function run(ctx: Partial<PostprocessContext> & { results: TypedResults }) {
     originalHeight: 160,
     ...ctx,
   });
+}
+
+function run(ctx: Partial<PostprocessContext> & { results: TypedResults }) {
+  return runFull(ctx).predictions;
 }
 
 describe('processInstanceSegmentation — filtering', () => {
@@ -109,6 +113,22 @@ describe('processInstanceSegmentation — filtering', () => {
 
   it('returns no predictions for an empty detection list', () => {
     expect(run({ results: { output0: detectionsTensor([]) } })).toEqual([]);
+  });
+});
+
+describe('processInstanceSegmentation — top unsafe score', () => {
+  it('reports the best target-class confidence even when it stays below the threshold', () => {
+    const results: TypedResults = {
+      output0: detectionsTensor([
+        det({ x1: 0, y1: 0, x2: 160, y2: 160, conf: 0.9, cls: 1 }),
+        det({ x1: 0, y1: 0, x2: 160, y2: 160, conf: 0.3, cls: 0 }),
+      ]),
+      output1: protoTensorChannel0(1),
+    };
+
+    const { predictions, topUnsafeScore } = runFull({ results });
+    expect(predictions).toEqual([]);
+    expect(topUnsafeScore).toBeCloseTo(0.3);
   });
 });
 
@@ -162,7 +182,7 @@ describe('processInstanceSegmentation — letterbox offset removal and clamping'
       ]),
     };
 
-    const predictions = processInstanceSegmentation({
+    const { predictions } = processInstanceSegmentation({
       config: makeConfig(),
       scoreThreshold: 0.5,
       originalWidth: 320,
