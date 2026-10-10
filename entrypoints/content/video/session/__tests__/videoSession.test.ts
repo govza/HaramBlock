@@ -250,3 +250,48 @@ describe('Video Session: viewport', () => {
     expect(effects.map(kinds)).toEqual([['stopLiveMasking'], ['startLiveMasking']]);
   });
 });
+
+describe('Video Session: source change on the same media', () => {
+  const watched = [
+    { type: 'tapReachable' },
+    { type: 'play' },
+    { type: 'verdict', sampleId: 'a' },
+    { type: 'presented', unsafe: true },
+    { type: 'progress', coverageAheadSec: 8 },
+  ] as const;
+
+  it('re-opens the tap on a quality switch, keeping status and blur and without restarting Live Masking', () => {
+    const { last, state } = run([...watched, { type: 'sourceChanged', coverageAheadSec: 8 }]);
+
+    expect(last).toEqual([{ kind: 'reopenTap' }]);
+    expect(state).toMatchObject({ status: 'unsafe', blurred: false, liveMasking: false, verdictSeen: true });
+  });
+
+  it('keeps coverage while the new source resolves its tap', () => {
+    const { effects } = run([
+      ...watched,
+      { type: 'sourceChanged', coverageAheadSec: 8 },
+      { type: 'tapReachable' },
+      { type: 'progress', coverageAheadSec: 6 },
+    ]);
+
+    expect(effects.slice(-2).map(kinds)).toEqual([[], []]);
+  });
+
+  it('starts Live Masking when the new source lands where coverage is short', () => {
+    const { last } = run([...watched, { type: 'sourceChanged', coverageAheadSec: 0.5 }]);
+
+    expect(last).toEqual([{ kind: 'reopenTap' }, { kind: 'startLiveMasking' }]);
+  });
+
+  it('falls back to Live Masking when the new source has no reachable tap', () => {
+    const { last, state } = run([
+      ...watched,
+      { type: 'sourceChanged', coverageAheadSec: 8 },
+      { type: 'tapUnreachable' },
+    ]);
+
+    expect(last).toEqual([{ kind: 'startLiveMasking' }]);
+    expect(state.status).toBe('unsafe');
+  });
+});

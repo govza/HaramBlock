@@ -10,8 +10,11 @@ superseded the continuous DVR (ADRs [0001](adr/0001-continuous-dvr-and-relay-aud
 ## Vocabulary
 
 **VideoSession**: The binding of one video element to one resolved source. Born when the pipeline
-attaches to a video whose source is resolved; dies when the source changes or the element is
-removed. Pauses, replays, and seeks all happen inside one VideoSession. _Avoid_: playback session
+attaches to a video whose source is resolved; dies when the element is removed or its source changes
+to different media. A new source with the same verdict cache key (a YouTube quality switch is a new
+`MediaSource` on the same page) continues the session: Verdict Timeline, status and blur are kept
+and only the tap is re-opened; a finite duration that then differs by more than 1 s restarts it as
+new media. Pauses, replays, and seeks all happen inside one VideoSession. _Avoid_: playback session
 
 **Thumbnail**: The first-pass input for a video's initial verdict — its poster, or its first frame
 when no poster exists. Analysed before any playback. _Avoid_: poster (only one source of it)
@@ -121,13 +124,14 @@ Android (ADR [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)).
 
 `videoSession.ts` is a pure reducer like the machine it replaced, minus DVR and audio-route state.
 
-- **Events**: `tapReachable`, `tapUnreachable`, `play`, `pause{covered}`, `seeked{paused, covered}`,
-  `loopRestarted`, `progress{coverageAheadSec}`, `verdict{sampleId}` (lookahead or cache),
-  `thumbnailVerdict{unsafe}`, `liveSample{sampleId, verdict}`, `liveCaptureFailed{permanent}`,
-  `presented{unsafe}`, `visibility{visible}`, `dispose`.
+- **Events**: `tapReachable`, `tapUnreachable`, `sourceChanged{coverageAheadSec}`, `play`,
+  `pause{covered}`, `seeked{paused, covered}`, `loopRestarted`, `progress{coverageAheadSec}`,
+  `verdict{sampleId}` (lookahead or cache), `thumbnailVerdict{unsafe}`,
+  `liveSample{sampleId, verdict}`, `liveCaptureFailed{permanent}`, `presented{unsafe}`,
+  `visibility{visible}`, `dispose`.
 - **Effects**: `applyBlur`, `clearBlur`, `startLiveMasking`, `stopLiveMasking`, `requestLiveSample`,
-  `commitSample` / `discardSample` (move a held sample into the Verdict Timeline, or drop it),
-  `setStatus`, `transientResolved`, `cleanup`.
+  `reopenTap`, `commitSample` / `discardSample` (move a held sample into the Verdict Timeline, or
+  drop it), `setStatus`, `transientResolved`, `cleanup`.
 
 Rules:
 
@@ -174,6 +178,11 @@ it over the same port, and stops again on `drop`. Until then it records them per
 evicted oldest first, and the append after an eviction is flagged `discontinuity` so the unit cutter
 drops its partial bytes and resynchronises at the next WebM Cluster or fMP4 `moof`. A page whose
 videos are never processed therefore never ships its media out of the page.
+
+A session that closes and reopens on the same source (live detection on `durationchange`, a quality
+switch back, a Forced Visibility round-trip) does not get the buffer and init messages again: the
+host keeps the closed analysis's per-buffer unit cutters (with their init segments) on the source
+and the next analysis on it resumes them, resynchronising at the next unit.
 
 ### Progressive range fetch
 
@@ -305,8 +314,9 @@ See [LOGGING.md](LOGGING.md): `video.tap.resolved`, `video.session.transition`,
   and rely on Live Masking; DRM sources are handled like any unreadable source.
 - The overlay supports blur, grayscale and dark; the pixelation look is not available because the
   presenter never reads pixels.
-- When the `<video>` element itself goes fullscreen, sibling overlays are not rendered; player
-  containers that go fullscreen keep the mask.
+- When the `<video>` element itself goes fullscreen, sibling overlays are not rendered, so the
+  presenter masks the whole video with a `filter` on the element instead of region masks; player
+  containers that go fullscreen keep the region overlay.
 - The MAIN-world hook is page-visible and could be detected or fed spoofed bytes.
 - Cache sharing across clients, cut-detection triggers and opportunistic lattice densification are
   future work; v1 only keys samples so sharing can come later.

@@ -2,6 +2,7 @@ import {
   createMseAnalysis,
   createProgressiveAnalysis,
   type MseAnalysis,
+  type MseBuffers,
   type ProgressiveAnalysis,
 } from '@/utils/lookahead/analysis';
 
@@ -30,6 +31,7 @@ interface HookedSource {
   objectUrl: string;
   live: boolean;
   analysis: MseAnalysis | null;
+  released: MseBuffers;
 }
 
 type Analysis = MseAnalysis | ProgressiveAnalysis;
@@ -69,6 +71,7 @@ export class LookaheadHost {
   private readonly sources = new Map<number, HookedSource>();
   private readonly sessions = new Map<string, Analysis>();
   private readonly waiters = new Map<string, (sourceId: number) => void>();
+  private readonly latestOpens = new Map<string, OpenAnalysis>();
 
   constructor(private readonly ports: HostPorts) {}
 
@@ -78,6 +81,7 @@ export class LookaheadHost {
         objectUrl: message.objectUrl,
         live: message.live,
         analysis: null,
+        released: new Map(),
       });
       this.waiters.get(message.objectUrl)?.(message.sourceId);
       return;
@@ -111,12 +115,14 @@ export class LookaheadHost {
   }
 
   private close(sessionId: string): void {
+    this.latestOpens.delete(sessionId);
     const analysis = this.sessions.get(sessionId);
     if (!analysis) return;
     this.sessions.delete(sessionId);
     analysis.stop();
     for (const [sourceId, source] of this.sources) {
       if (source.analysis !== analysis) continue;
+      source.released = source.analysis.releaseBuffers();
       source.analysis = null;
       this.ports.toHook({ t: 'drop', sourceId });
     }
@@ -138,6 +144,7 @@ export class LookaheadHost {
 
   private async open(open: OpenAnalysis): Promise<void> {
     this.close(open.sessionId);
+    this.latestOpens.set(open.sessionId, open);
     const lookaheadPorts = {
       decoder: this.ports.decoder(open),
       inference: this.ports.inference(open),
@@ -147,19 +154,23 @@ export class LookaheadHost {
     const options = { live: open.live, suspicionThreshold: open.suspicionThreshold };
     if (open.tap.kind === 'progressive') {
       const analysis = createProgressiveAnalysis(lookaheadPorts, options, this.ports.rangeSource(open.tap.url));
+      this.latestOpens.delete(open.sessionId);
       this.sessions.set(open.sessionId, analysis);
       this.ports.send({ t: 'reachable', sessionId: open.sessionId, tap: 'progressive' });
       return;
     }
     const sourceId = await this.sourceFor(open.tap.objectUrl);
+    if (this.latestOpens.get(open.sessionId) !== open) return;
+    this.latestOpens.delete(open.sessionId);
     if (sourceId === null) {
       this.ports.send({ t: 'unreachable', sessionId: open.sessionId, reason: 'hook' });
       return;
     }
     const source = this.sources.get(sourceId);
     if (!source) return;
-    const analysis = createMseAnalysis(lookaheadPorts, { ...options, live: options.live || source.live });
-    source.analysis?.stop();
+    const previous = source.analysis?.releaseBuffers() ?? source.released;
+    const analysis = createMseAnalysis(lookaheadPorts, { ...options, live: options.live || source.live }, previous);
+    source.released = new Map();
     source.analysis = analysis;
     this.sessions.set(open.sessionId, analysis);
     this.ports.send({ t: 'reachable', sessionId: open.sessionId, tap: 'mse' });
