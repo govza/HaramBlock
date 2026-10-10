@@ -7,31 +7,34 @@ import {
 } from '@/utils/lookahead/protocol';
 
 const INSTALLED = Symbol.for('haramblock.mseHook');
-const MAX_RECORDED_BYTES_PER_SOURCE = 24 * 1024 * 1024;
+const MAX_RECORDED_BYTES_PER_SOURCE = 48 * 1024 * 1024;
 
 interface HookedBuffer {
   sourceId: number;
   bufferId: number;
+  audio: boolean;
   pending: { bytes: ArrayBuffer; timestampOffset: number }[];
 }
 
+type StreamedMessage = Exclude<HookMessage, { t: 'source' | 'overflow' }>;
+
 interface Outbox {
   announce(message: Extract<HookMessage, { t: 'source' }>): void;
-  stream(message: Exclude<HookMessage, { t: 'source' }>, transfer?: Transferable[]): void;
+  stream(message: StreamedMessage, transfer?: Transferable[]): void;
 }
 
 interface Recorded {
-  message: Exclude<HookMessage, { t: 'source' }>;
+  message: StreamedMessage;
   transfer: Transferable[];
-  bytes: number;
-  keep: boolean;
 }
 
 interface SourceStream {
   wanted: boolean;
+  resumable: boolean;
+  overflowed: boolean;
   recorded: Recorded[];
   recordedBytes: number;
-  bufferedOnce: Set<number>;
+  resyncBuffers: Set<number>;
 }
 
 const byteSizeOf = (message: HookMessage): number => {
@@ -39,6 +42,8 @@ const byteSizeOf = (message: HookMessage): number => {
   if (message.t === 'chunks') return message.chunks.reduce((total, chunk) => total + chunk.data.byteLength, 0);
   return 0;
 };
+
+const isAudioMime = (mime: string): boolean => mime.trim().toLowerCase().startsWith('audio/');
 
 function createOutbox(target: Window): Outbox {
   let port: MessagePort | null = null;
@@ -48,33 +53,70 @@ function createOutbox(target: Window): Outbox {
   const streamOf = (sourceId: number): SourceStream => {
     let stream = streams.get(sourceId);
     if (!stream) {
-      stream = { wanted: false, recorded: [], recordedBytes: 0, bufferedOnce: new Set() };
+      stream = {
+        wanted: false,
+        resumable: false,
+        overflowed: false,
+        recorded: [],
+        recordedBytes: 0,
+        resyncBuffers: new Set(),
+      };
       streams.set(sourceId, stream);
     }
     return stream;
   };
 
-  const record = (stream: SourceStream, entry: Recorded) => {
-    stream.recorded.push(entry);
-    stream.recordedBytes += entry.bytes;
+  const flagResync = (stream: SourceStream, message: StreamedMessage) => {
+    if (message.t !== 'append' || !stream.resyncBuffers.delete(message.bufferId)) return;
+    message.discontinuity = true;
+  };
+
+  const evictOldestAppends = (stream: SourceStream) => {
     while (stream.recordedBytes > MAX_RECORDED_BYTES_PER_SOURCE) {
-      const evictable = stream.recorded.findIndex(recorded => recorded.bytes > 0 && !recorded.keep);
-      if (evictable < 0) break;
-      const [evicted] = stream.recorded.splice(evictable, 1);
-      stream.recordedBytes -= evicted?.bytes ?? 0;
+      const oldest = stream.recorded.findIndex(recorded => byteSizeOf(recorded.message) > 0);
+      if (oldest < 0) return;
+      const [evicted] = stream.recorded.splice(oldest, 1);
+      if (!evicted) return;
+      stream.recordedBytes -= byteSizeOf(evicted.message);
+      stream.resyncBuffers.add(evicted.message.bufferId);
       const successor = stream.recorded
-        .slice(evictable)
-        .find(recorded => recorded.message.bufferId === evicted?.message.bufferId && recorded.message.t === 'append');
-      if (successor?.message.t === 'append') successor.message.discontinuity = true;
+        .slice(oldest)
+        .find(recorded => recorded.message.t === 'append' && recorded.message.bufferId === evicted.message.bufferId);
+      if (successor) flagResync(stream, successor.message);
     }
+  };
+
+  const overflow = (stream: SourceStream) => {
+    stream.overflowed = true;
+    stream.recorded = [];
+    stream.recordedBytes = 0;
+  };
+
+  const record = (stream: SourceStream, entry: Recorded) => {
+    if (stream.overflowed) return;
+    flagResync(stream, entry.message);
+    stream.recorded.push(entry);
+    stream.recordedBytes += byteSizeOf(entry.message);
+    if (stream.recordedBytes <= MAX_RECORDED_BYTES_PER_SOURCE) return;
+    if (stream.resumable) evictOldestAppends(stream);
+    else overflow(stream);
+  };
+
+  const replay = (sourceId: number, stream: SourceStream, to: MessagePort) => {
+    if (stream.overflowed) {
+      stream.wanted = false;
+      to.postMessage({ t: 'overflow', sourceId } satisfies HookMessage);
+      return;
+    }
+    stream.resumable = true;
+    for (const recorded of stream.recorded.splice(0)) to.postMessage(recorded.message, recorded.transfer);
+    stream.recordedBytes = 0;
   };
 
   const onCommand = (command: HookCommand) => {
     const stream = streamOf(command.sourceId);
     stream.wanted = command.t === 'want';
-    if (!stream.wanted || !port) return;
-    for (const recorded of stream.recorded.splice(0)) port.postMessage(recorded.message, recorded.transfer);
-    stream.recordedBytes = 0;
+    if (stream.wanted && port) replay(command.sourceId, stream, port);
   };
 
   target.addEventListener('message', event => {
@@ -84,7 +126,10 @@ function createOutbox(target: Window): Outbox {
     if (!received) return;
     port?.close();
     port = received;
-    for (const stream of streams.values()) stream.wanted = false;
+    for (const stream of streams.values()) {
+      stream.wanted = false;
+      stream.resumable = false;
+    }
     port.onmessage = (commandEvent: MessageEvent<HookCommand>) => guard(() => onCommand(commandEvent.data));
     for (const announcement of announcements) port.postMessage(announcement);
     target.postMessage({ [MSE_HOOK_HANDSHAKE]: 'ack' }, '*');
@@ -99,13 +144,11 @@ function createOutbox(target: Window): Outbox {
     stream(message, transfer = []) {
       const stream = streamOf(message.sourceId);
       if (stream.wanted && port) {
+        flagResync(stream, message);
         port.postMessage(message, transfer);
         return;
       }
-      const bytes = byteSizeOf(message);
-      const firstOfBuffer = bytes > 0 && !stream.bufferedOnce.has(message.bufferId);
-      if (firstOfBuffer) stream.bufferedOnce.add(message.bufferId);
-      record(stream, { message, transfer, bytes, keep: bytes === 0 || firstOfBuffer });
+      record(stream, { message, transfer });
     },
   };
 }
@@ -195,9 +238,14 @@ export function installMseHook(target: Window & typeof globalThis): void {
   sourceProto.addSourceBuffer = function addSourceBuffer(this: MediaSource, type: string): SourceBuffer {
     const buffer = originalAddSourceBuffer.call(this, type);
     guard(() => {
-      const hooked: HookedBuffer = { sourceId: sourceIdOf(this), bufferId: nextId++, pending: [] };
-      buffers.set(buffer, hooked);
       const mime = typeof type === 'string' ? type : '';
+      const hooked: HookedBuffer = {
+        sourceId: sourceIdOf(this),
+        bufferId: nextId++,
+        audio: isAudioMime(mime),
+        pending: [],
+      };
+      buffers.set(buffer, hooked);
       outbox.stream({ t: 'buffer', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime });
       buffer.addEventListener('update', () =>
         guard(() => {
@@ -235,7 +283,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
     let pending: { bytes: ArrayBuffer; timestampOffset: number } | null = null;
     guard(() => {
       const hooked = buffers.get(this);
-      const bytes = hooked ? sliceOf(data) : null;
+      const bytes = hooked && !hooked.audio ? sliceOf(data) : null;
       if (hooked && bytes) {
         pending = { bytes, timestampOffset: this.timestampOffset };
         hooked.pending.push(pending);
@@ -259,8 +307,9 @@ export function installMseHook(target: Window & typeof globalThis): void {
       originalChangeType.call(this, type);
       guard(() => {
         const hooked = buffers.get(this);
-        if (hooked)
-          outbox.stream({ t: 'changeType', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime: type });
+        if (!hooked) return;
+        hooked.audio = isAudioMime(type);
+        outbox.stream({ t: 'changeType', sourceId: hooked.sourceId, bufferId: hooked.bufferId, mime: type });
       });
     };
   }

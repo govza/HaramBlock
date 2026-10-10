@@ -174,10 +174,14 @@ spoofed bytes are an accepted risk.
 Bytes are pulled, not pushed: the hook announces every source (`source`: id, object URL, live) at
 once, but streams a source's buffer, append and chunk messages only after the host sends `want` for
 it over the same port, and stops again on `drop`. Until then it records them per source, bounded at
-24 MB: metadata and each buffer's first append (its init segment) are kept, later appends are
-evicted oldest first, and the append after an eviction is flagged `discontinuity` so the unit cutter
-drops its partial bytes and resynchronises at the next WebM Cluster or fMP4 `moof`. A page whose
-videos are never processed therefore never ships its media out of the page.
+48 MB. Before a source's first `want` nothing is evicted: a backlog that outgrows the cap is dropped
+whole, recording stops, and the next `want` is answered with `overflow`, which the host reports as
+unreachable (`overflow`) — Live Masking rather than analysis with holes. A source that was wanted
+and then dropped (its host keeps the resumable unit cutters and init segments) instead evicts its
+oldest appends past the cap and flags the next append of that buffer `discontinuity`, so the cutter
+resynchronises at the next WebM Cluster or fMP4 `moof`. A newly adopted port makes every source
+non-resumable again. Audio SourceBuffers are announced but their bytes are never recorded or
+streamed. A page whose videos are never processed therefore never ships its media out of the page.
 
 A session that closes and reopens on the same source (live detection on `durationchange`, a quality
 switch back, a Forced Visibility round-trip) does not get the buffer and init messages again: the
