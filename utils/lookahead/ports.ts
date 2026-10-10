@@ -62,7 +62,7 @@ export interface SampleCachePort {
   publish(samples: StoredSample[]): void;
 }
 
-export type UnreachableReason = 'hook' | 'fetch' | 'demux' | 'decode';
+export type UnreachableReason = 'hook' | 'overflow' | 'fetch' | 'demux' | 'decode';
 
 export type AnalysisStat =
   | { kind: 'analysed'; pointUs: number }

@@ -36,7 +36,7 @@ interface HookedSource {
 
 type Analysis = MseAnalysis | ProgressiveAnalysis;
 
-function replayInto(analysis: MseAnalysis, message: HookMessage): void {
+function replayInto(analysis: MseAnalysis, message: Exclude<HookMessage, { t: 'source' | 'overflow' }>): void {
   switch (message.t) {
     case 'buffer':
       analysis.addBuffer(String(message.bufferId), message.mime);
@@ -62,8 +62,6 @@ function replayInto(analysis: MseAnalysis, message: HookMessage): void {
     case 'removeBuffer':
       analysis.removeBuffer(String(message.bufferId));
       break;
-    case 'source':
-      break;
   }
 }
 
@@ -87,7 +85,17 @@ export class LookaheadHost {
       return;
     }
     const analysis = this.sources.get(message.sourceId)?.analysis;
-    if (analysis) replayInto(analysis, message);
+    if (!analysis) return;
+    if (message.t !== 'overflow') {
+      replayInto(analysis, message);
+      return;
+    }
+    const sessionId = this.sessionOf(analysis);
+    if (sessionId) this.unreachable(sessionId, 'overflow');
+  }
+
+  private sessionOf(analysis: Analysis): string | undefined {
+    return [...this.sessions].find(([, candidate]) => candidate === analysis)?.[0];
   }
 
   handleContent(message: ContentToHost): void {

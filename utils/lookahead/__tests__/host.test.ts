@@ -78,3 +78,57 @@ describe('Lookahead host: reopening a session on the same MSE source', () => {
     }
   });
 });
+
+describe('Lookahead host: opening an MSE session', () => {
+  it('reports the hook unreachable when no source is announced for the object URL within 3 s', async () => {
+    vi.useFakeTimers();
+    try {
+      const { host, sent, commands } = createHost();
+      host.handleContent(openMse('session'));
+      await vi.advanceTimersByTimeAsync(2_900);
+      expect(sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(sent).toEqual([{ t: 'unreachable', sessionId: 'session', reason: 'hook' }]);
+      expect(commands).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('wants the source and analyses the history the hook replays, init segment included', async () => {
+    const { host, harness, sent, commands } = createHost();
+    host.handleContent(openMse('session'));
+    host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, live: false });
+    await vi.waitFor(() => expect(commands).toEqual([{ t: 'want', sourceId: 1 }]));
+    expect(reachableSessions(sent)).toEqual(['session']);
+
+    host.handleHook({ t: 'buffer', sourceId: 1, bufferId: 2, mime: VP9_MIME });
+    host.handleHook({
+      t: 'append',
+      sourceId: 1,
+      bufferId: 2,
+      bytes: fixture('mse-vp9.webm').slice().buffer,
+      timestampOffset: 0,
+    });
+
+    await vi.waitFor(() =>
+      expect(harness.requestedPoints()).toEqual([
+        0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000, 3_500_000,
+      ]),
+    );
+  });
+
+  it('reports a source whose pre-open backlog overflowed unreachable and drops it', async () => {
+    const { host, sent, commands } = createHost();
+    host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, live: false });
+    host.handleContent(openMse('session'));
+    await vi.waitFor(() => expect(commands).toEqual([{ t: 'want', sourceId: 1 }]));
+
+    host.handleHook({ t: 'overflow', sourceId: 1 });
+
+    expect(sent.at(-1)).toEqual({ t: 'unreachable', sessionId: 'session', reason: 'overflow' });
+    expect(commands.at(-1)).toEqual({ t: 'drop', sourceId: 1 });
+  });
+});

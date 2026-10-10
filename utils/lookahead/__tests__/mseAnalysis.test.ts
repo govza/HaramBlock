@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import { chunked, CLEAN, createHarness, fixture, suspicious, unsafe } from '@/utils/lookahead/__tests__/harness';
 import { createMseAnalysis } from '@/utils/lookahead/analysis';
+
+import type { InferencePort } from '@/utils/lookahead/ports';
 
 const VP9_MIME = 'video/webm; codecs="vp9"';
 const H264_MIME = 'video/mp4; codecs="avc1.64000a"';
@@ -127,6 +129,37 @@ describe('Lookahead Analysis over an MSE Source', () => {
     await analysis.settled();
 
     expect(harness.requests).toEqual([]);
+  });
+
+  it('never drops a unit it has not analysed, however many arrive while inference is backed up', async () => {
+    const harness = createHarness();
+    const held: (() => void)[] = [];
+    let holding = true;
+    const inference: InferencePort = {
+      infer: request => {
+        harness.requests.push({ pointUs: request.pointUs, ptsUs: 0, priority: request.priority });
+        return new Promise(resolve => {
+          const answer = () => resolve(CLEAN);
+          if (holding) held.push(answer);
+          else answer();
+        });
+      },
+    };
+    const analysis = createMseAnalysis({ ...harness.ports, inference }, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    const copies = 20;
+    for (let copy = 0; copy < copies; copy += 1) analysis.append('v', fixture('mse-vp9.webm'), copy * 4);
+    await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    holding = false;
+    for (const answer of held.splice(0)) answer();
+    await analysis.settled();
+
+    const expected = Array.from({ length: copies }, (_, copy) =>
+      Array.from({ length: 8 }, (_, index) => copy * 4_000_000 + index * 500_000),
+    ).flat();
+    expect(new Set(harness.requestedPoints())).toEqual(new Set(expected));
   });
 });
 
