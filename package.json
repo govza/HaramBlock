@@ -73,6 +73,7 @@
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "js-yaml": "^5.2.3",
+    "mediabunny": "1.60.0",
     "onnxruntime-web": "^1.27.0",
     "p-queue": "^9.3.3",
     "react": "^19.2.8",
