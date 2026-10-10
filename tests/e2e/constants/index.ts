@@ -11,13 +11,11 @@ export const INFERENCE_TIMEOUT = 80_000;
 
 export const Selectors = {
   SEGMENT_OVERLAY: '[data-mask-overlay="unified-mask-overlay"]',
-  VIDEO_SEGMENT_OVERLAY: '[data-video-mask-overlay="unified-video-mask-overlay"]',
-  VIDEO_DVR_PLAYER: '[data-video-dvr-player="video-dvr-player"]',
+  VIDEO_SEGMENT_OVERLAY: '[data-video-mask-overlay="video-mask-presenter"]',
   BLACKLIST_ATTR: 'data-haramblock-blacklist',
   GALLERY_IMAGE: 'main img',
   EYE_TOGGLE: '.haramblock-eye-toggle',
   TEST_VIDEO: '#hb-e2e-video',
-  WHOLE_BLUR_CLASS: 'haramblock-initial-blur',
 } as const;
 
 export const GalleryMode = {

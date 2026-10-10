@@ -1,6 +1,7 @@
 # Continuous DVR for all processed videos; Relay Audio when the delay line cannot serve
 
-Status: accepted (2026-08-09, audio routing revised 2026-08-15)
+Status: superseded by ADR 0004 (2026-10-10); was accepted (2026-08-09, audio routing revised
+2026-08-15)
 
 Masked playback used to be a mode entered on an unsafe verdict, and every mode crossing produced a
 visible/audible switch (audio gap on engage, forward jump on release and pause). We decided to run

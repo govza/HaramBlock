@@ -14,7 +14,7 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
   const send = (message: HostToContent, transfer: Transferable[] = []) => contentPort.postMessage(message, transfer);
 
   const host = new LookaheadHost({
-    decoder: open => createWebCodecsDecoder(frame => toModelInputBitmap(frame, open.inputSize), 'prefer-hardware'),
+    decoder: open => createWebCodecsDecoder(frame => toModelInputBitmap(frame, open.inputSize)),
     inference: open => ({
       infer: ({ pointUs, frame, priority }) => {
         const { bitmap, originalWidth, originalHeight } = frame as BitmapFrame;
@@ -49,6 +49,7 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
     }),
     rangeSource: url => createRangeFetchSource(url),
     send,
+    toHook: command => hookPort.postMessage(command),
   });
 
   hookPort.onmessage = (event: MessageEvent<HookMessage>) => host.handleHook(event.data);

@@ -2,8 +2,9 @@
 # so the popup has no video target there and videos are never processed.
 @video @desktop-only
 Feature: Video Masking
-  Videos are adopted into VideoSessions, verdicted via Thumbnail and playback
-  Frame Samples, and masked protection-first (see docs/VIDEO_PROCESSING.md).
+  Videos play natively. Lookahead Analysis reads the bitstream through a
+  Bitstream Tap and masks unsafe spans before they are shown; Live Masking
+  covers videos whose bitstream is unreachable (see docs/VIDEO_PROCESSING.md).
 
   Background:
     Given I set the global policy to "process"
@@ -15,37 +16,35 @@ Feature: Video Masking
     Then the video is verdicted "unsafe" within the inference timeout
     And I should see at least "1" video mask overlays
 
-  Scenario: A playing safe video is verdicted clean without masking
+  Scenario: A progressive video is analysed through a range fetch and stays unmasked when clean
     Given I open the video test page with "sf-neutral" images
     When I inject and play a safe video using "src"
-    Then the video is verdicted "safe" within the inference timeout
+    Then the video tap is "progressive"
+    And the video is verdicted "safe" within the inference timeout
     And I should see exactly "0" video mask overlays
-
-  # Continuous DVR: every playing processed video presents through the delayed
-  # canvas from play onward, clean ones included (ADR 0001).
-  Scenario: A clean playing video is presented through the delayed DVR canvas
-    Given I open the video test page with "sf-neutral" images
-    When I inject and play a safe video using "src"
-    Then the video is verdicted "safe" within the inference timeout
-    And the DVR canvas player replaces the native video
 
   Scenario: A source-child video is adopted via loadstart and verdicted
     Given I open the video test page with "sf-neutral" images
     When I inject and play a safe video using "source-child"
     Then the video is verdicted "safe" within the inference timeout
 
-  Scenario: An unsafe playing video is presented through the delayed DVR canvas
-    Given I open the video test page with "nsf-female" images
-    When I inject and play an unsafe video
-    Then the video is verdicted "unsafe" within the inference timeout
-    And the DVR canvas player replaces the native video
+  Scenario: An MSE video is analysed through the append hook
+    Given I open the video test page with "sf-neutral" images
+    When I inject and play a "safe" video through a minimal MSE appender
+    Then the video tap is "mse"
+    And the video is verdicted "safe" within the inference timeout
 
-  # The continuous DVR is already presenting when the unsafe verdict lands, so
-  # it composites into the running canvas with no whole-blur mode switch.
-  Scenario: An unsafe verdict mid-playback composites without a whole-blur flash
+  Scenario: Lookahead masks an unsafe span before its first sampled frame is shown
     Given I open the video test page with "nsf-female" images
-    When I inject and play a video that turns unsafe mid-playback
-    And I watch the native video for whole-blur changes
-    Then the DVR canvas player replaces the native video
+    When I inject a paused "turns-unsafe" video using "src"
+    And lookahead analysis has published an unsafe sample for the video
+    And I play the test video while recording mask visibility
+    Then the mask was visible when playback reached the first unsafe sample
     And the video is verdicted "unsafe" within the inference timeout
-    And no whole-blur was applied after the DVR canvas took over
+
+  Scenario: A video with an unreachable bitstream falls back to Live Masking
+    Given I open the video test page with "nsf-female" images
+    When I inject and play an "unsafe" video from a plain blob URL
+    Then the video tap is "none"
+    And the video is verdicted "unsafe" within the inference timeout
+    And I should see at least "1" video mask overlays

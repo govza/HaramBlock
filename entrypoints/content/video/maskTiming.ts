@@ -6,8 +6,6 @@ export interface TransientHitConfig {
 
 export const SAMPLE_FLOOR_MS = 250;
 
-export const RELIEVED_SAMPLE_FLOOR_MS = 1000;
-
 export const COVERAGE_MAX_GAP_SEC = 2;
 
 export const BRIDGE_HORIZON_SEC = 3;

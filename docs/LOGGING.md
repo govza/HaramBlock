@@ -4,7 +4,7 @@ HaramBlock instruments itself with OpenTelemetry. One structured logging API rep
 consola logger and the WideEvent pipeline; traces describe every inference round-trip; a few metrics
 summarise throughput. All of it lives in `utils/telemetry/`.
 
-The local collector + Grafana stack and the DVR dashboard are documented in
+The local collector + Grafana stack and the video dashboard are documented in
 [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 ## Logging API
@@ -97,66 +97,22 @@ without nesting.
 
 Video frames get a round-trip span with a single `inference.send` child, plus
 `hb.media.timestamp_sec`. Every VideoSession also opens a `video.session` umbrella trace: its
-round-trips link to it (same `hb.session.trace_id` + span link shape as `page.session`) and each DVR
-start opens a `video.dvr.warmup` span under it that ends at `bufferReady` (`hb.status` =
-ready|aborted).
+round-trips link to it (same `hb.session.trace_id` + span link shape as `page.session`). Live
+Masking and Thumbnail frames, and on Chrome the lookahead frames the host iframe forwards through
+the content script, all ride that round-trip path.
 
-## Video session + DVR events
+## Video session events
 
-All carry `hb.session.id`; DVR events add `hb.dvr.store` (raw|encoded) and `hb.dvr.tap` (tap|rvfc).
+All carry `hb.session.id`.
 
-- `video.session.transition` - every phase / DVR sub-state / audio-route change (`hb.session.from`,
-  `hb.session.to`, `hb.session.event`, `hb.session.dvr`, `hb.session.audio_route`).
-- `video.dvr.start` / `video.dvr.stop` - `hb.dvr.delay_sec`, `hb.dvr.covered`, `hb.dvr.reason` on
-  stop (the machine event that stopped it). Start also carries `hb.dvr.tap_reason` (tap, or why the
-  push tap is unavailable: no_track_processor | no_capture_stream | capture_stream_failed |
-  no_video_track | processor_failed - Firefox always reports `no_track_processor`) and the source
-  geometry `hb.media.native_width` / `hb.media.native_height` / `hb.media.display_width`. Every
-  lifecycle record carries `hb.dvr.store_reason` (encoded | probing | ineligible | session_cap |
-  webcodecs_unsupported | released_before_probe | codec_error): why the store is on its current
-  backing, read at stop for the final answer.
-- `video.dvr.delay_raised` - `hb.dvr.from_sec`, `hb.dvr.to_sec`, `hb.dvr.cause`
-  (verdict|store_stall).
-- `video.dvr.tap_changed` - `hb.dvr.from`, `hb.dvr.to` (tap|rvfc): the effective capture path
-  switched mid-run (a tap went silent and rVFC took over, or the tap came back). `hb.dvr.tap` on
-  every DVR record reflects the effective path, not just whether a tap driver exists.
-- `video.dvr.store_demoted`, `video.dvr.underrun`, `video.dvr.budget_degraded` /
-  `video.dvr.budget_recovered` (ladder step, `hb.budget.*`).
-- `dvr.frame_converter.failed` (warn) - the Firefox decoded-frame worker died or stopped answering
-  (`detail`: the worker error, or `timeout` after `CONVERSION_TIMEOUT_MS`; `pending`: frames it
-  stranded). The ring keeps running with main-thread draws for the rest of that run.
-- `dvr.frame_converter.unavailable` (warn) - the worker could not be constructed at all (`error`:
-  the message; on Trusted-Types pages such as YouTube it is a CSP sink violation). The run draws on
-  the main thread from the start.
-- `dvr.frame_converter.transfer_failed` (debug) - posting one decoded frame to the worker threw
-  (`error`); that frame is drawn on the main thread and the worker keeps serving the rest.
-- `video.dvr.ring_flushed` - the frame store emptied itself mid-run: `hb.dvr.cause` (backstep: the
-  capture key went backwards past `STALE_FRAME_TOLERANCE_SEC` (0.5 s, a loop restart or a seek
-  without a `seeked` event); store: codec reconfiguration; swap: raw <-> encoded exchange),
-  `hb.dvr.from_sec` / `hb.dvr.to_sec` (previous and offending capture key) and
-  `hb.dvr.span_lost_sec` (buffered media the flush discarded). Every flush costs a pinned refill of
-  `D` seconds, so this is the first thing to check behind a freeze.
-- `video.audio.route` - `hb.audio.route.result` (attempt|delayLine|relay|deferred|unavailable).
-- `video.capture.failed` - `hb.capture.stage`, `hb.capture.permanent`.
-- `video.dvr.anomaly` + `video.dvr.tick` - the last 5 s of per-tick records (`hb.dvr.tick.*`),
-  dumped under one `hb.dvr.anomaly.id` when presented fps < 0.75 x captured over 2 s (the first 2 s
-  after a run starts or playback resumes are warm-up and never trip it), a long task > 100 ms during
-  playback, an analysis underrun, or a stall-driven D raise. One dump per 10 s per session.
-  Thresholds live in `entrypoints/content/video/dvr/probeCore.ts`. Each tick also records
-  `hb.dvr.tick.wall_gap_ms` (wall time since the previous frame delivery) and
-  `hb.dvr.tick.media_delta` (mediaTime advance of that delivery): a delta of two frame intervals is
-  a source frame the browser never delivered, a negative delta is a backstep (see
-  `hb.dvr.source_backsteps`), a wall gap well above the frame interval is a late callback. The
-  presenter side carries `hb.dvr.tick.outcome` (new | repeat | miss - a miss is a target the store
-  could not serve, invisible in the old boolean), `hb.dvr.tick.pinned` (held on the earliest frame
-  because the ring does not yet span `D`) and `hb.dvr.tick.ring_span_sec`. `hb.dvr.tick.present_ms`
-  splits into `present_base_ms` (the frame draw) and `present_mask_ms` (the mask pass) so a slow
-  present can be blamed on the source or on the masks; `hb.dvr.tick.store_lookahead` is how many
-  decoded (or converting) frames the encoded store holds ahead of the cursor - 0 means the presenter
-  is eating frames the moment they land. `hb.dvr.tick.present_source` names what the base draw
-  consumed (`bitmap` from the converter worker, `video-frame` straight from the decoder, `live` from
-  the element, `none` on a tick that drew nothing, `other` for any other canvas source), so a slow
-  base draw can be tied to the source kind rather than guessed.
+- `video.session.transition` - every phase, tap-state or Live Masking change of the Video Session
+  reducer (`hb.session.from`, `hb.session.to`, `hb.session.event`, plus `tap`
+  (pending|reachable|unreachable) and `liveMasking`).
+- `video.tap.resolved` - the Bitstream Tap outcome: `hb.video.tap` (mse|progressive|none) and
+  `reason` (reachable, `none` when no tap applies to the source, or the unreachable reason
+  hook|fetch|demux|decode).
+- `video.capture.failed` (warn) - a Live Masking or Thumbnail capture/transfer failed
+  (`hb.capture.permanent`; permanent = canvas taint).
 
 ## Metrics
 
@@ -164,82 +120,35 @@ Content scripts have no meter provider: `recordGauge` / `recordHistogram` / `rec
 (`utils/telemetry/metrics.ts`) forward metric records over the same RPC batch and the background
 owns the instruments (`exporters/metricInstruments.ts`; gauge samples expire 5 s after their last
 update, counters are monotonic and add each forwarded value). Metric names are declared once in
-`METRIC`. All DVR-side metrics are emitted by the DVR probe
-(`entrypoints/content/video/dvr/probe.ts`) per 1 s window; the run, presenter and audio modules feed
-it through ports and never call the metric API themselves.
+`METRIC`.
 
-All DVR metrics carry `hb.browser` (chrome|firefox) so the two capture pipelines (encoded/tap vs
-raw/rVFC) can be compared in one query.
+**Video coverage** (content, `entrypoints/content/video/session/registry.ts`):
 
-**Per-session gauges** (attrs `hb.session.id`, `hb.dvr.store`, `hb.dvr.tap`): `hb.dvr.captured_fps`,
-`hb.dvr.source_fps` (distinct mediaTime deliveries per window - the rate the browser actually handed
-frames to us, before the capture throttle), `hb.dvr.ticks_deduped` (deliveries that repeated the
-previous mediaTime; observed ~0 on both browsers - Firefox's rVFC also fires only for new frames),
-`hb.dvr.capture_width` / `hb.dvr.capture_height` (the ring capture size actually applied - budget
-ladder tier or native on the encoded store) next to `hb.dvr.native_width` / `hb.dvr.native_height`
-(the element's `videoWidth` / `videoHeight` at the window flush; capture above native is an
-upscale), `hb.dvr.main_thread_ms` (capture + present time the DVR spent on the main thread inside
-the 1 s window - the DVR's own share of the frame budget), `hb.dvr.presented_fps`,
-`hb.dvr.frame_repeat_ratio`, `hb.dvr.delay_sec`, `hb.dvr.ring_bytes`, `hb.dvr.ring_span_sec`,
-`hb.dvr.playback_active` (1 while the presenter advances, 0 while paused / ended / warming - every
-window, so 0 fps is never ambiguous), `hb.dvr.verdict_margin_sec` (D minus the observed round-trip
-p90; only while active) and `hb.audio.drift_ms` (+ `hb.audio.route`; relay: audio element vs
-`currentTime - D`, delay line: DelayNode ramp vs wanted D). Histograms `hb.dvr.capture_ms` (split
-into `hb.dvr.capture_draw_ms` + `hb.dvr.capture_transfer_ms` on the raw store: drawImage vs
-transferToImageBitmap; both 0 on the encoded store), `hb.dvr.present_ms`, `hb.dvr.tick_gap_ms` (wall
-gap between consecutive new-frame deliveries), `hb.main_thread.long_task_ms` (while any DVR
-presents) and `hb.main_thread.loop_lag_ms` (drift of a 250 ms `setTimeout` sampled while any DVR
-presents and the tab is visible; one timer shared by all sessions). Firefox has no `longtask`
-observer, so there the loop lag stands in for it: a lag > 100 ms counts as the window's longest task
-for the health definition and trips the `long_task` anomaly.
-
-**Rollup counters** (attrs `hb.dvr.store`, `hb.dvr.tap` - never `hb.session.id`, so fleet panels
-stay readable at 25+ sessions). Emitted only for active windows unless noted:
-
-- `hb.dvr.active_windows`, `hb.dvr.healthy_windows` - the health definition below.
-- `hb.dvr.freeze_windows` - active window with no new frame presented.
-- `hb.dvr.frames_dropped` - `captured - presented_new - presented_repeat`, clamped at 0.
-- `hb.dvr.source_frames_skipped` - mediaTime advanced by more than 1.5 frame intervals between two
-  deliveries: the source produced frames the browser never handed to rVFC / the tap. Frame interval
-  = smallest positive mediaTime delta seen since the last seek.
-- `hb.dvr.ticks_late` - a new-frame delivery arrived more than 1.5 frame intervals of wall time
-  after the previous one (callback held back by main-thread work).
-- `hb.dvr.source_backsteps{hb.dvr.backstep_frames}` - deliveries whose mediaTime went backwards, by
-  size in frame intervals (`1` | `2` | `3+` | `seek`; seek = more than `BACKSTEP_SEEK_FRAMES` or no
-  interval learnt yet). One- and two-frame backsteps are the browser re-delivering an older frame
-  (Firefox rVFC does this every 15-40 s) and are absorbed by the store's `STALE_FRAME_TOLERANCE_SEC`
-  (0.5 s absolute; the `3+` bucket's upper bound at 24 fps, so the two only coincide at that rate) -
-  they count here but do not flush. A backstep beyond the tolerance, or more than
-  `MAX_CONSECUTIVE_STALE_FRAMES` sub-tolerance backsteps in a row (a natively looping clip shorter
-  than the tolerance), becomes a `video.dvr.ring_flushed`.
-- `hb.dvr.pinned_windows` - active windows in which the presenter held the earliest buffered frame
-  because the ring did not yet span `D` (warm-up, seek re-warm, or a flush refilling). A frozen
-  window that is also pinned is a ring refill; a frozen window that is not is a decode / present
-  problem.
-- `hb.dvr.ring_flushes{hb.dvr.cause}` - one per `video.dvr.ring_flushed`.
-- `hb.audio.route_windows`, `hb.audio.underruns`, `hb.audio.unavailable_windows` - all with
-  `hb.audio.route` (none|pending|delayLine|relay|deferred|unavailable). Underruns are delay-line
-  AudioContext interruptions plus relay `waiting` events and hard resync seeks.
-- `hb.dvr.anomalies{hb.dvr.cause}` - one per `video.dvr.anomaly` dump.
-- `hb.dvr.runs_started`, `hb.dvr.runs_stopped{hb.dvr.reason}` - alongside `video.dvr.start` /
-  `video.dvr.stop`.
-
-**Warmup**: `hb.dvr.warmup_ms` (histogram, `hb.status` ready|aborted) where the `video.dvr.warmup`
-span ends.
+- `hb.video.tap.sessions` (counter) - one per resolved session tap, by `hb.video.tap`
+  (mse|progressive|none) and `hb.video.tap.reason` (reachable, none, or hook|fetch|demux|decode).
+- `hb.video.coverage_ahead_sec` (histogram) - Verdict Timeline coverage ahead of a playing playhead,
+  sampled every 250 ms. Live Masking starts under 1.5 s and stops at 5 s.
+- `hb.video.uncovered_playing_ms` (counter) - playing time with no verdict covering the presented
+  frame (Verdict Interpreter lookup `none`), once the tap has resolved.
+- `hb.video.live_masking_ms` (histogram, `hb.video.tap`) - total Live Masking time of one session,
+  recorded at teardown.
+- `hb.lookahead.samples` (counter, `hb.lookahead.sample_source` analysed|cache) - lookahead samples
+  inferred vs answered from the verdict cache; the rate is samples per second, the split is the
+  cache hit ratio.
+- `hb.lookahead.failures` (counter, `hb.lookahead.failure_stage` demux|decode) - Analysis Unit demux
+  and decode failures (each also ends the tap: Live Masking takes over).
+- `hb.video.transient_runs` (counter) - Transient Hit resolutions. Lookahead runs judged by the
+  Verdict Interpreter carry `hb.transient.resolution` suppressed|confident|long|late with run
+  length, top probability and the `TRANSIENT_HIT_CONFIG` in effect; Live Masking re-samples add the
+  `live_suppressed` / `live_confirmed` bucket.
 
 **Sampler** (`entrypoints/content/communication/sender.ts`, attrs `hb.transfer.kind`):
 `hb.sampler.encode_ms` (histogram, + `hb.session.id`) - `bitmapToCompressedBlob` WebP encode on the
 content main thread for the Firefox blob transport; `hb.sampler.frames_sent` (counter) - inference
 frames handed to the background per transfer kind.
 
-**Health definition** (one place: `HEALTHY_*` in `entrypoints/content/video/dvr/probeCore.ts`,
-quoted by the dashboard queries): a 1 s window is healthy when `playback_active == 1`,
-`presented_new + presented_repeat >= 0.9 x captured`, no long task > 100 ms, no freeze and no audio
-underrun. Health % = healthy windows / active windows; with zero active windows the tiles read "no
-data", never "healthy".
-
-Inference side: `hb.inference.roundtrip_ms` (histogram, content) and `hb.inference.queue_depth`
-(gauge, background).
+Inference side: `hb.inference.roundtrip_ms` (histogram, content; Live Masking frames, capture to
+verdict) and `hb.inference.queue_depth` (gauge, background).
 
 - `hb.inference.run.duration` (histogram, ms) - per task, by `hb.media.kind` / `hb.status`.
 - `hb.inference.requests` (counter) - by `hb.media.kind` / `hb.status` (success|error|cached).

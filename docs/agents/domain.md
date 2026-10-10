@@ -8,7 +8,7 @@ codebase.
 - **`docs/INDEX.md`** — the documentation entry point; it maps topics to the right doc.
 - **Domain vocabulary** lives inside the subsystem docs, not in a standalone glossary:
   - media terms (Verdict, Prediction, Fail-closed, …) in `docs/MEDIA_PROCESSING.md`
-  - video terms (VideoSession, DVR, …) in `docs/VIDEO_PROCESSING.md`
+  - video terms (VideoSession, Lookahead Analysis, Live Masking, …) in `docs/VIDEO_PROCESSING.md`
 - **`CONTEXT.md`** at the repo root and **`docs/adr/`**, if they exist — read ADRs that touch the
   area you're about to work in.
 

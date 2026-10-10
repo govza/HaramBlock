@@ -1,723 +1,309 @@
 # Video Processing Architecture
 
-This document describes how HaramBlock detects, samples, and masks `<video>` content — the
+This document describes how HaramBlock detects, analyses, and masks `<video>` content — the
 architecture, the vocabulary, and the design decisions behind it. General (non-video) vocabulary
-(Verdict, Prediction, Fail-closed) is defined in [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md).
+(Verdict, Prediction, Fail-closed) is defined in [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md). The
+governing decision is ADR [0004](adr/0004-bitstream-lookahead-replaces-continuous-dvr.md), which
+superseded the continuous DVR (ADRs [0001](adr/0001-continuous-dvr-and-relay-audio.md),
+[0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)).
 
 ## Vocabulary
 
 **VideoSession**: The binding of one video element to one resolved source. Born when the pipeline
 attaches to a video whose source is resolved; dies when the source changes or the element is
-removed. Pauses, replays, and seeks all happen inside a single VideoSession. _Avoid_: playback
-session, playback run
+removed. Pauses, replays, and seeks all happen inside one VideoSession. _Avoid_: playback session
 
-**Thumbnail**: The first-pass input for a video's initial verdict — its poster image, or its first
-frame when no poster exists. Analyzed before any playback. _Avoid_: poster (that is only one source
-of a thumbnail)
+**Thumbnail**: The first-pass input for a video's initial verdict — its poster, or its first frame
+when no poster exists. Analysed before any playback. _Avoid_: poster (only one source of it)
 
-**Frame Sample**: A single playback frame captured from a video and sent for inference. Frame
-Samples are ordered within their VideoSession by a monotonic capture counter. _Avoid_: frame grab,
-screenshot
+**Bitstream Tap**: The source of a video's encoded media for Lookahead Analysis — the MSE append
+hook (`mse`) or a cookie-less range fetch of a Progressive Source (`progressive`). No tap (`none`)
+means Live Masking for the whole session. _Avoid_: stream hook, demuxer
 
-**Stale Prediction**: A prediction that must not be applied: it belongs to a dead VideoSession, or
-an older Frame Sample than one already applied. _Avoid_: late result, outdated frame
+**Lookahead Analysis**: Decoding a few frames per second of the encoded bitstream ahead of the
+playhead, off the page, and inferring them so verdicts exist before the native element paints the
+frames they describe. _Avoid_: prefetch, DVR
 
-**DVR**: The delayed presentation for all processed playback: from `play` onward the video element
-keeps decoding while a canvas presents buffered frames one Presentation Delay behind the live edge,
-compositing frame and mask in the same draw. Not a mode entered on unsafe verdicts — every playing
-processed video presents through it (ADR [0001](adr/0001-continuous-dvr-and-relay-audio.md)).
-_Avoid_: canvas player (that is the GIF mechanism), delay overlay, masked mode
+**Live Masking**: Sampling page pixels at the playhead whenever no lookahead verdict covers it (play
+start, a seek past coverage, analysis falling behind) or no tap is reachable. Masks land just behind
+the playhead; a short leak when content turns unsafe is accepted. _Avoid_: realtime mode
 
-**Presentation Delay (D)**: How far behind the live edge the DVR presents, sized so a frame's
-verdict resolves before the frame is shown. Derived per DVR run from Verdict Timeline coverage and
-observed round-trips, then latched until the next discontinuity. _Avoid_: lag, latency (those
-describe the problem, not the mechanism)
+**Analysis Unit**: One top-level WebM Cluster or one fMP4 `moof`…`mdat` pair of an MSE Source, cut
+from each SourceBuffer's byte stream (not from appends) and demuxed as init segment + unit. _Avoid_:
+segment, chunk, append
 
-**Verdict Timeline**: The session-lifetime, media-time-keyed verdict history. Survives DVR
-stop/start, seeks, and loop restarts; live inference writes it today, the shared verdict cache will
-write it tomorrow — readers cannot tell the difference. _Avoid_: verdict track (the old per-DVR-run
-structure)
+**Sample Lattice / Lattice Point**: The fixed media times every client samples at: level 0 every 0.5
+s, each further level halving the spacing down to 62.5 ms; levels nest. A Lattice Point is one such
+time in integer µs; its sample describes the frame presented at that time (the last frame with PTS ≤
+t, in page media time). _Avoid_: grid, cadence, tick
 
-**Verdict Interpreter**: The only reader of the Verdict Timeline's raw verdicts
-(`dvr/verdictInterpreter.ts`). It answers "what covers the frame at media time t" for the DVR player
-and classifies each new playback sample (`clean | confirmedClean | tentative | unsafe`) for the
-machine, so presentation and status share one confirmation rule. _Avoid_: verdict filter
+**Keyframe Point**: On a long-GOP Progressive Source, a Keyframe's PTS rounded up to the next µs,
+used instead of Lattice Points so samples never pay a GOP Prefix download each. _Avoid_: keyframe
+sample
 
-**Transient Hit**: A run of at most `maxSuppressedRun` consecutive unsafe playback samples, none a
-Confident Hit, closed by an adjacent clean sample (within `COVERAGE_MAX_GAP_SEC`) and preceded by a
-clean sample or a coverage gap (a far seek landing is a clean start). Treated as clean everywhere —
-presented frames, mask hold/bridging, status. _Avoid_: false positive, blip
+**Refinement Probe**: A sample on a finer lattice level: at the midpoint between two neighbouring
+stored samples that disagree (repeated down to 62.5 ms), or half the sample's own lattice spacing on
+each side of a Suspicious Clean sample. Both plans derive from stored labels and scores only, so
+every reader of the same samples plans the same probes. _Avoid_: bisection sample
 
-**Confident Hit**: An unsafe sample whose top detection probability reaches
-`min(scoreThreshold × confidenceCoefficient, confidenceCap)`; it makes its run a real hit however
-short. _Avoid_: strong hit
+**Suspicious Clean**: A clean sample whose top unsafe score is at least the suspicion threshold
+(half the strictness score threshold). _Avoid_: near miss
 
-**Bridge Horizon**: How far ahead an upcoming unsafe verdict can be and still merge its mask
-geometry into a frame's cover; further out it contributes no geometry. Between verdicts the
-clean-cut rule governs: a mask spans exactly unsafe-sample → next confirmed clean verdict, and any
-verdict behind covers forward at any distance (clean presents clean, unsafe keeps its own mask). The
-video analog of GIF mask inertia. _Avoid_: tolerance, slack, inertia window (the old cadence-derived
-bound)
+**Verdict Timeline**: The session-lifetime, media-time-keyed sample history
+(`timeline/verdictTimeline.ts`). Lookahead, cached and Live Masking samples are indistinguishable in
+it; two samples at the same media time keep the unsafe one. _Avoid_: verdict track
+
+**Verdict Interpreter**: The only reader of the Verdict Timeline (`timeline/verdictInterpreter.ts`).
+It answers "what covers the frame presented at media time t" for the Mask Presenter and classifies
+Live Masking samples (`clean | tentative | confident`) for the session. _Avoid_: verdict filter
+
+**Transient Hit**: A run of at most `maxSuppressedRun` consecutive low-confidence unsafe samples,
+none a Confident Hit, closed by an adjacent clean sample and preceded by a clean sample or a
+coverage gap. Treated as clean when presented. Under Live Masking a low-confidence unsafe sample
+triggers an immediate re-sample instead of a mask. _Avoid_: false positive, blip
+
+**Confident Hit**: An unsafe sample whose top probability reaches
+`min(scoreThreshold × confidenceCoefficient, confidenceCap)`; it masks however short its run.
+
+**Bridge Horizon**: How far ahead an upcoming unsafe sample still merges its mask geometry into the
+cover of the current frame (3 s).
+
+**Loop Wrap / Loop Restart**: A Loop Wrap is a backward jump of more than half the duration in a
+looping video's media time. A Loop Restart is a `seeked` that is the browser's own Loop Wrap (both
+ends within 0.5 s × playback rate of the edges); it keeps coverage instead of re-entering Live
+Masking like a seek.
+
+**Mask Presenter**: The overlay above the natively playing video that shows the masks covering its
+extrapolated playhead (`presenter/maskPresenter.ts`). _Avoid_: DVR, canvas player
 
 ## Overview
 
-Every video×resolved-source binding is a **VideoSession** driven by an explicit state machine:
+The page's `<video>` plays natively and untouched — its own frame rate, no delay, page-owned audio.
+For every attached video:
 
-```
-ATTACHED ──capture thumbnail──► THUMBNAILING
- (blur on)                          │ verdict OR fail-closed timeout
-                                    ▼
-             play ┌──────────── STANDBY ◄──── sendFailed, transient (capture failed;
-                  ▼               ▲            blur kept, still playable)
-              SAMPLING ──pause/ended (the DVR keeps presenting; see the DVR section)
-               │  (rVFC loop; seeked → immediate one-shot sample,
-               │   also fires from STANDBY while paused)
-               │ MAX_CONSECUTIVE_ERRORS or sendFailed(permanent)
-               ▼
-             ERROR (ALLOW: blur cleared, status skipped, loop stopped;
-              transient streaks retry after a cooldown, canvas taint is terminal)
-
-DVR presenting ──audible audio with no obtainable route──► ERROR (terminal: status skipped, no DVR, no masking)
-any state ──source change / element removed──► DISPOSED (terminal)
-```
-
-Orthogonal to the phase, the machine tracks the DVR sub-state (`dvr: off | warming | presenting`):
-`play` starts it, and it survives pause, `ended`, and clean streaks — see the DVR section for its
-lifecycle and exits.
+1. The registry chooses a Bitstream Tap from the resolved source (`tap/tapChoice.ts`): a `blob:` URL
+   → MSE; an `http(s)` URL → progressive; `srcObject`, native HLS (`.m3u8`), `data:` and anything
+   else → none.
+2. Lookahead Analysis (`utils/lookahead/`) reads the tap, decodes sampled frames off the page, and
+   sends them through the shared inference pipeline. Each sample fills the Verdict Timeline.
+3. The Mask Presenter runs on rAF, asks the Verdict Interpreter what covers the extrapolated
+   playhead, and shows or hides a compositor-only overlay.
+4. Live Masking samples page pixels whenever coverage ahead of the playhead runs short, or for the
+   whole session when no tap is reachable.
 
 Before a VideoSession exists, document-start bootstrap styles hide light-DOM videos and Reddit's
-`<shreddit-player>` host. After settings arrive, a narrower discovery guard remains active for
-video-enabled policies: newly inserted videos/player hosts stay hidden until discovery has applied
-either blacklist styling or the attachment/pending-source blur, then
-`data-haramblock-video-discovered` reveals them. This covers the interval before an asynchronously
-attached shadow root can be observed without delaying the pipeline until `DOMContentLoaded`.
-
-Key invariants:
-
-- **Thumbnail = Frame Sample #−1.** Races between the thumbnail verdict and playback samples are
-  resolved by ordering, not special cases.
-- **Monotonic staleness filter.** A prediction applies only if it belongs to the live session and
-  its `frameIndex` is greater than the last applied one. Late redeliveries can never clear a mask a
-  newer unsafe sample applied.
-- **Fail-closed with self-heal.** No verdict → the video stays blurred; but every fail-closed state
-  remains exit-able by a newer sample, so recovery is automatic once inference returns.
-- **Inference-impossible = allow.** Fail-closed blur applies only while a verdict is genuinely
-  pending. When analysis cannot happen — a permanent capture failure (CORS-tainted canvas) or an
-  unbroken transient-failure streak — the session enters ERROR: blur cleared, status `skipped`,
-  native playback un-blurred. Being unable to analyze a video is not evidence that it is unsafe.
-  Permanent failures are terminal; a transient streak (busy inference backend, suspended event page)
-  retries after `ERROR_RETRY_COOLDOWN_MS` (30 s) — an outage must not disable protection for the
-  rest of the tab's lifetime.
-- **Asymmetric hysteresis.** An unsafe sample masks instantly; the mask clears only on a
-  `confirmedClean` verdict — a clean sample whose predecessor on the Verdict Timeline is not a hit.
-  The one exception is a Transient Hit while the DVR presents: the delay lets the Verdict
-  Interpreter see the run's closing clean sample before the run's first frame is shown, so a short
-  low-confidence run is presented clean and never flips status (`tentative` verdicts wait for the
-  run to resolve). Before the DVR presents, on paused DOM-overlay frames, and for the Thumbnail a
-  `tentative` verdict still masks instantly.
-- **Audible audio must have a delayed route** (ADRs
-  [0001](adr/0001-continuous-dvr-and-relay-audio.md),
-  [0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)): every video is
-  attached, and when the WebAudio delay line is unavailable, **Relay Audio** plays the video's
-  original URL at `currentTime − D` instead. The policy is a reducer-owned `audioRoute` axis: while
-  a route is `pending`, an audible session rides a bounded-silence mute hold; protection withdraws
-  (finalized `skipped`) only when the delay line is permanently unavailable, the relay element
-  terminally failed to play, and the video is audibly unmuted. Permanently desynced audible audio is
-  still judged worse than absent protection.
-- **Withdrawn on Firefox for Android** (ADR
-  [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)): Gecko's opaque-surface readback
-  returns empty pixels for every capture API on Android, so the `videoProcessingAvailable`
-  capability flag gates discovery (`entrypoints/content/core/mediaRouting.ts`) and videos are never
-  attached, hidden, or styled there. Images and GIFs are unaffected.
+`<shreddit-player>` host until discovery has applied blacklist styling or the attachment blur, then
+`data-haramblock-video-discovered` reveals them. Video processing stays withdrawn on Firefox for
+Android (ADR [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)).
 
 ## Components
 
-| Component            | File                                                                                                                | Role                                                                                                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure state machine   | `entrypoints/content/video/session/machine.ts`                                                                      | `(state, event) → (state, effects)`; no DOM, timers, or transport                                                                                                                                  |
-| Registry (lifecycle) | `entrypoints/content/video/session/registry.ts`                                                                     | Owns live sessions, routes predictions by sessionId, dispatch loop routing effects to the modules below                                                                                            |
-| Session state        | `entrypoints/content/video/session/handle.ts`                                                                       | `SessionHandle`: per-session mutable record shared by the modules                                                                                                                                  |
-| Frame sampler        | `entrypoints/content/video/session/frameSampler.ts`                                                                 | Frame ticker, thumbnail readiness, capture+send rounds, sampling bookkeeping                                                                                                                       |
-| Forced presentation  | `entrypoints/content/video/session/forcedPresentation.ts`                                                           | Quick-toggle overrides: static visible/blocked presentation with no session behind it                                                                                                              |
-| Viewport suspension  | `entrypoints/content/video/session/viewportSuspension.ts`                                                           | IntersectionObserver suspend/resume with grace period                                                                                                                                              |
-| Presentation adapter | `entrypoints/content/video/session/presentationAdapter.ts`                                                          | Whole blur, serialized mask overlays, audio route execution, DVR run lifecycle                                                                                                                     |
-| DVR run              | `entrypoints/content/video/dvr/run.ts`                                                                              | One DVR run behind five ports: store + presenter + capture drivers, latched D and its growth, budget demand; session-lifetime state in/out via carry                                               |
-| Discovery            | `entrypoints/content/core/VideoProcessor.ts`                                                                        | Routes discovered videos: blacklist styling or registry attachment                                                                                                                                 |
-| Frame Sample model   | `entrypoints/content/video/sampling/sample.ts`                                                                      | Separates live routing identity from reusable media-timeline identity                                                                                                                              |
-| Frame capture        | `entrypoints/content/video/sampling/capture.ts`                                                                     | Canvas capture, poster extraction, CORS workaround                                                                                                                                                 |
-| Transport            | `entrypoints/content/communication/sender.ts`                                                                       | `requestVideoFrameInference` (Chrome: ImageBitmap, Firefox: WebP blob)                                                                                                                             |
-| Overlays             | `entrypoints/content/presentation/videoMaskOverlay.ts`                                                              | Segmentation mask rendering (paused/standby verdicts)                                                                                                                                              |
-| DVR presenter        | `entrypoints/content/presentation/videoDvrPlayer.ts`                                                                | Delayed masked canvas playback (playback verdicts)                                                                                                                                                 |
-| Verdict Interpreter  | `entrypoints/content/video/dvr/verdictInterpreter.ts`                                                               | Transient Hit suppression, per-frame cover lookup for the player, per-sample classification for the machine, run-resolution telemetry                                                              |
-| DVR buffers          | `entrypoints/content/video/dvr/{frameStore,rawFrameRing,encodedFrameRing,decodedFrameConverter,verdictTimeline}.ts` | Media-time-keyed frame store (raw ImageBitmap ring or WebCodecs-encoded ring behind one `DvrFrameStore` interface, Firefox off-thread decoded-frame conversion) + session-lifetime verdict history |
-| DVR capture tap      | `entrypoints/content/video/dvr/captureTap.ts`                                                                       | Full-rate ring capture via `captureStream` + `MediaStreamTrackProcessor`; rVFC ticks are the fallback                                                                                              |
-| DVR store selection  | `entrypoints/content/video/dvr/frameStoreFactory.ts`                                                                | Per-DVR-run capability probe, encoded-session concurrency cap, mid-run raw fallback on codec errors                                                                                                |
-| DVR memory budget    | `entrypoints/content/video/dvr/ringBudget.ts`                                                                       | Global backend-tiered byte budget with a shared quality-degradation ladder                                                                                                                         |
-| DVR audio delay      | `entrypoints/content/video/dvr/audioDelay.ts`                                                                       | WebAudio DelayNode routing + the delayability check                                                                                                                                                |
-| DVR relay audio      | `entrypoints/content/video/dvr/relayAudio.ts`                                                                       | Delayed audio for origin-tainted sources: hidden `<audio>` on the original URL at `currentTime − D`; also owns the pending-route mute hold (ADR 0002)                                              |
-| DVR drain clock      | `entrypoints/content/video/dvr/drain.ts`                                                                            | Plays out the buffered tail at 1x after `ended`, then pins the final frame                                                                                                                         |
-| Background routing   | `entrypoints/background/services/inferenceOrchestrationService.ts`                                                  | Emits `IFramePrediction[]` keyed by `mediaMetadata.kind`                                                                                                                                           |
-| Prediction cache     | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`           | Buffered persistence of playback verdicts per cache key; read by the registry on attach                                                                                                            |
+| Component             | File                                                                                                      | Role                                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Video Session reducer | `entrypoints/content/video/session/videoSession.ts`                                                       | Pure `(state, event) → (state, effects)`; no DOM, timers or transport                                      |
+| Registry              | `entrypoints/content/video/session/registry.ts`                                                           | Session lifecycle, media events, result routing, effect execution, telemetry                               |
+| Viewport suspension   | `entrypoints/content/video/session/viewportSuspension.ts`                                                 | IntersectionObserver suspend/resume (400 px margin, 1 s grace)                                             |
+| Forced presentation   | `entrypoints/content/video/session/forcedPresentation.ts`                                                 | Quick Toggle overrides (Forced Visibility) with no session behind them                                     |
+| Mask Presenter        | `entrypoints/content/video/presenter/{maskPresenter,presentationClock,maskClipPath}.ts`                   | rAF overlay, extrapolated playhead clock, mask grid → `clip-path`                                          |
+| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                           | rVFC/rAF ticker, one sample in flight, 250 ms floor, one-shot re-samples                                   |
+| Page capture          | `entrypoints/content/video/sampling/capture.ts`                                                           | Model-input-sized capture, poster extraction, CORS clone and Relay Fetch tiers                             |
+| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                              | Sample history, coverage ahead, per-frame cover lookup, Transient Hit rules                                |
+| Lookahead client      | `entrypoints/content/video/tap/lookaheadClient.ts`                                                        | Hook handshake, host connection (Chrome iframe / Firefox port), cache and inference forwarding             |
+| MSE hook              | `entrypoints/mseHook.content.ts`, `utils/lookahead/mseHook.ts`                                            | MAIN-world `MediaSource` / `SourceBuffer` hook at `document_start`                                         |
+| Analysis core         | `utils/lookahead/{analysis,byteStream,demux,lattice,progressiveFile}.ts`                                  | DOM-free: unit cutter, mediabunny demux, Sample Lattice, scheduling, cache-first lookup, Refinement Probes |
+| Host runtime          | `utils/lookahead/{host,webCodecsDecoder,rangeFetchSource,protocol}.ts`                                    | Source registry and per-session analyses; WebCodecs decode; range fetch; wire protocol                     |
+| Chrome host           | `entrypoints/lookahead-host/`                                                                             | Hidden extension iframe running the host runtime                                                           |
+| Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                 | Host runtime in the event page, fed over `runtime.connect`                                                 |
+| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts` | Buffered persistence of lookahead samples per video identity and model                                     |
+| Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                              | Blacklist styling or registry attachment                                                                   |
 
-### The pure machine
+## The Video Session reducer
 
-`machine.ts` is a reducer with an injected notion of time: events carry `at` timestamps and timers
-are requested as effects (`startTimer`/`cancelTimer`), so every behavior is unit-testable without
-fake DOM or real clocks. Its effect vocabulary:
+`videoSession.ts` is a pure reducer like the machine it replaced, minus DVR and audio-route state.
 
-`applyBlur` · `clearBlur` · `captureThumbnail` · `sendSample{frameIndex,timestampSec}` ·
-`applyVerdict` · `clearVerdict` · `setStatus{safe|unsafe|skipped}` · `startTimer`/`cancelTimer` ·
-`stopTicker` · `startDvr`/`stopDvr` · `cleanup`
+- **Events**: `tapReachable`, `tapUnreachable`, `play`, `pause{covered}`, `seeked{paused, covered}`,
+  `loopRestarted`, `progress{coverageAheadSec}`, `verdict{sampleId}` (lookahead or cache),
+  `thumbnailVerdict{unsafe}`, `liveSample{sampleId, verdict}`, `liveCaptureFailed{permanent}`,
+  `presented{unsafe}`, `visibility{visible}`, `dispose`.
+- **Effects**: `applyBlur`, `clearBlur`, `startLiveMasking`, `stopLiveMasking`, `requestLiveSample`,
+  `commitSample` / `discardSample` (move a held sample into the Verdict Timeline, or drop it),
+  `setStatus`, `transientResolved`, `cleanup`.
 
-Session constants (in `machine.ts`; mask timing constants live in `video/maskTiming.ts`):
+Rules:
 
-| Constant                 | Value  | Meaning                                                                                    |
-| ------------------------ | ------ | ------------------------------------------------------------------------------------------ |
-| `THUMBNAIL_TIMEOUT_MS`   | 10 000 | Fail-closed clock, started at the **first actual send**; one retry, then finalized blocked |
-| `SAMPLE_TIMEOUT_MS`      | 3 000  | Frees the single in-flight slot when a verdict is lost                                     |
-| `WATCHDOG_MS`            | 5 000  | Mid-playback verdict silence → whole-video re-blur                                         |
-| `MAX_CONSECUTIVE_ERRORS` | 10     | Transient capture/send failures before ERROR (finalized as allow)                          |
+- **Live Masking hand-off**: on while the tap is pending or unreachable; with a reachable tap it
+  starts when coverage ahead drops under `LIVE_MASKING_START_COVERAGE_SEC` (1.5 s) and stops only at
+  `LIVE_MASKING_STOP_COVERAGE_SEC` (5 s). A real seek resets coverage to 0 until the next
+  `progress`; a Loop Restart does not. Offscreen sessions and tainted pixels never live-mask.
+- **Initial blur**: the attachment blur stays only until the first verdict of any kind (Thumbnail,
+  lookahead, cache or live). The uncovered playhead before any live verdict plays unmasked — the
+  accepted leak.
+- **Transient Hits under Live Masking**: a `tentative` live sample is held and re-sampled at once. A
+  second unsafe sample commits both (`live_confirmed`); a clean one drops the held sample
+  (`live_suppressed`). A `confident` live sample commits instantly.
+- **Status** flips to unsafe when the presenter reports an unsafe span presented, not when its
+  verdict arrives ahead; a presented clean span flips it back to safe.
+- **Paused frames**: a pause or paused seek on an uncovered frame requests one live sample.
+- **Tainted page pixels** (permanent capture failure): with no tap, the session finalises `skipped`
+  and un-blurred; with a tap, Live Masking stops, uncovered spans play un-blurred until lookahead
+  covers them, and status follows the presented spans.
 
-### The registry / DOM adapter
+## Bitstream Taps and hosts
 
-The adapter side is four modules sharing a per-session `SessionHandle` (`handle.ts`): `registry.ts`
-owns lifecycle and the dispatch loop, and routes each machine effect to the module that executes it
-— `frameSampler.ts` (capture and transport), `viewportSuspension.ts` (offscreen suspend/resume), and
-`presentationAdapter.ts` (blur, overlays, DVR). Together they bind each session to the real world:
+### MSE hook
 
-- **Attachment** (`attach`): creates the session, applies the initial blur, binds media events
-  (`play`, `pause`, `ended`, `seeked`, `loadstart`, `emptied`), starts the frame ticker, and signals
-  Thumbnail readiness — a `poster` is tried immediately; if it fails to load, capture fails closed
-  (no frame is drawn below `HAVE_CURRENT_DATA`) and readiness is re-signaled on `loadeddata`, where
-  the machine re-captures only a still verdict-less session. `preload="none"` without a poster idles
-  in ATTACHED (nothing rendered, blur on) until data or playback arrives. A video whose source is
-  not resolved yet is held in a registry-owned pending set: re-discovery refreshes its host
-  settings, and `dispose`/`disposeAll` cancel the wait so it cannot outlive the pipeline.
-- **Frame ticker**: `requestVideoFrameCallback` — fires only when a new frame is actually presented
-  (stalled/paused videos produce no captures). Its `mediaTime` is carried by the machine's
-  `frameAvailable` event into the `sendSample` effect, so async capture and transport never reread a
-  later `video.currentTime`. Firefox keeps counting `mediaTime` across a native loop (past the
-  duration), so the ticker folds it back by whole durations (`foldToMediaTime`); sampling and the
-  Verdict Timeline use that folded time, while the DVR run unwraps it again into a Continuous Time
-  ring key (see Loop continuity). An rAF loop gated on playback state is the fallback for engines
-  without rVFC.
-- **Viewport lifecycle**: a shared `IntersectionObserver` keeps sessions within 400 px of the
-  viewport active. Scrolled-away videos retain their verdict state but stop their frame ticker and
-  release any DVR player, audio delay, and frame ring. Leaving the margin only suspends after a 1 s
-  grace period (`VIDEO_SUSPEND_GRACE_MS`) so boundary flapping in a virtualized feed cannot thrash
-  the DVR; re-entry resumes immediately. Boxless players (`display:none` behind a poster overlay)
-  never intersect and are exempt — their thumbnail still captures eagerly so a reveal finds its
-  verdict ready. Thumbnail capture is otherwise deferred while offscreen and replayed on re-entry
-  whenever the session is still verdict-less; a playback sample deflected during suspension marks
-  the session for a re-sample, which a paused re-entry fires as a synthetic seek (a playing one
-  re-enters sampling anyway). A suspend also bumps a per-session capture epoch so a capture that was
-  in flight across it can never send its stale frame after resume. Re-entry restarts sampling and
-  playback presentation under the existing fail-closed blur. This is essential for virtualized feeds
-  such as Reddit, whose old autoplay players often remain connected to the DOM after scrolling away.
-- **Result routing** (`handleResults`): looks up the session by `sessionId` (echoed through the
-  inference pipeline in `IFrameMetadata`); unknown sessions are dropped. No DOM queries — two
-  same-URL videos have independent sessions. An inference-error result dispatches transient
-  `sendFailed`, freeing the in-flight slot immediately instead of waiting out the sample timeout.
-- **Source changes**: a `loadstart` or `emptied` whose URL or `srcObject` no longer matches the
-  session disposes it and attaches a fresh one (immediately, or once the next source resolves). This
-  covers `<source>`-children swaps, MSE attachment, object-backed streams, and
-  `removeAttribute('src') + load()` teardowns — the last fires `emptied` but never `loadstart`.
-- **Sampling transport**: a failed capture or send dispatches `sendFailed`, as does an
-  inference-error reply from the background. `sampling/capture.ts` distinguishes **permanent**
-  failures (`SecurityError` — the canvas is CORS-tainted and can never be read) from **transient**
-  ones (no frame data yet, zero dimensions): permanent finalizes the session as allow immediately,
-  transient counts consecutive failures toward ERROR. Each capture+send round is capped by
-  `CAPTURE_SEND_TIMEOUT_MS` (10 s, `frameSampler.ts`) so a never-settling CORS-clone or poster load
-  cannot occupy the in-flight slot forever. Capture stages have shorter internal deadlines as well:
-  poster load/bitmap creation, CORS clone load/seek, and frame bitmap creation fail independently. A
-  CORS clone mirrors active playback after its first exact seek, avoiding a network-backed random
-  seek for every sample; every draw still verifies the selected media time. When the CORS clone
-  fails (server sends no CORS headers), a **Relay Fetch** tier engages before giving up: the
-  background fetches the media bytes CORS-exempt (`mediaFetchService.ts`, dedicated
-  `MEDIA_DOWNLOAD_MAX_BYTES` cap and an abort-based whole-download timeout), and the clone plays
-  them from a page-origin `blob:` URL so the canvas stays origin-clean. Only when Relay Fetch also
-  fails (opaque error, over budget) does the source stay tainted and the permanent-failure path
-  finalize the session as allow. Firefox clone seeks resolve from either media events or observable
-  ready-state/time convergence, and initial success is reported only after that convergence. A
-  stalled cached clone is evicted so later samples can recreate it instead of timing out forever.
-  Video thumbnails use queue priority 20 and playback samples priority 10, below visible images
-  (30), so autoplay cannot indefinitely hold newly discovered page images behind its frame backlog.
-  The background retains at most one not-yet-started playback frame per `sessionId`: a newer frame
-  aborts and releases the older queued bitmap, while a frame arriving out of order (the cancel RPC
-  and frame payloads ride different transports) is dropped rather than replacing a fresher queued
-  one. Suspending or disposing a session cancels that queued frame explicitly (skipped when the
-  session never sent a playback frame — the cancel would be a guaranteed no-op RPC); inference
-  already running is allowed to finish and its session-routed result is harmless if the session has
-  gone away. Firefox discovers some canvas taint only when its WebP transfer calls
-  `OffscreenCanvas.convertToBlob()` (`createImageBitmap()` may still succeed); that
-  write-only-canvas exception is also permanent, so the session stops retrying immediately.
+A MAIN-world content script (`world: 'MAIN'`, `document_start`, all frames) wraps
+`URL.createObjectURL` (to map a `MediaSource` to its `blob:` URL), `addSourceBuffer` /
+`removeSourceBuffer`, `SourceBuffer.appendBuffer`, `changeType`, and `appendEncodedChunks` when
+present. Completion is tracked on `update`, registered inside `addSourceBuffer` before the page sees
+the SourceBuffer; each completed append's `slice()` is transferred (never copied again) with the
+`timestampOffset` read at append time; `abort`/`error` drop it. ArrayBuffers are recognised by type
+tag, not `instanceof`. A quality switch is a new `MediaSource`, hooked like any other. YouTube's
+player response marks live and post-live DVR sources. Every hook body is guarded so a failure can
+never break the page's player.
 
-Each Frame Sample has two deliberately separate identities:
+The hook and the isolated content script start in unspecified order, so they handshake over
+`window.postMessage`: the hook announces `ready`; the content script offers a `MessagePort` (`port`)
+eagerly and again on `ready` until the hook answers `ack`. The hook and port are page-visible;
+spoofed bytes are an accepted risk.
 
-- **Live routing** — `sessionId + frameIndex`; used for staleness and delivery to the current
-  VideoSession, never suitable as a persistent key.
-- **Media timeline** — `videoUrl + timestampSec`; stable across VideoSessions for the same media and
-  the key of the persisted verdict cache. `videoUrl` is the session's **cache key**
-  (`verdictCacheKey.ts`): the media URL for file-backed sources, the page URL without its fragment
-  for `blob:` (MSE) sources such as YouTube (query kept whole: a differing query only misses the
-  cache, while dropping params could merge distinct videos); the unmodified media URL travels
-  alongside as `sourceUrl` and is stored on the row. Object-backed (`srcObject`) streams use a
-  session-local, non-cacheable label. A `CapturedFrameSample` attaches pixels, source dimensions,
-  and capture time to both identities.
+Bytes are pulled, not pushed: the hook announces every source (`source`: id, object URL, live) at
+once, but streams a source's buffer, append and chunk messages only after the host sends `want` for
+it over the same port, and stops again on `drop`. Until then it records them per source, bounded at
+24 MB: metadata and each buffer's first append (its init segment) are kept, later appends are
+evicted oldest first. A page whose videos are never processed therefore never ships its media out of
+the page.
 
-### Verdict cache
+### Progressive range fetch
 
-Playback predictions persist in the `videoPredictions` table of `MediaCacheDatabase`
-(`utils/db/db.ts`) as one row per cache key holding its Frame Sample `samples`: `timestampSec`,
-predictions, and `input` (the inference input bitmap size plus its mask transform, i.e. the
-coordinate space the masks are in; it is per sample because the capture size follows the active
-model). The row also carries the `modelId` of the last write, the user's `forcedVisibility`
-quick-toggle for that video (restored on attach, so a "show"/"block" choice survives reloads; the
-in-memory `ForcedPresentation` override stays the runtime source of truth), and
-`cacheMetadata.accessedAt`, refreshed on every read. `VideoPredictionCacheService` (background)
-buffers each `IFramePrediction` and merges the batch into the row every 2 s or 50 samples,
-deduplicating by `timestampSec` and capping at `MAX_VERDICT_TIMELINE_ENTRIES` (oldest timestamps
-drop first). Rows expire by the same clamped `maxAge` rule as image predictions (`cacheUtils.ts`,
-30–90 days) and are swept at background startup.
+`rangeFetchSource.ts` fetches with `credentials: 'omit'` and `referrerPolicy: 'no-referrer'` in 64
+KB blocks; the size comes from the first block's `Content-Range`, so there is no separate probe. A
+first request that is not `206`, a `401`/`403`, or a non-media body makes the bitstream unreachable.
+mediabunny reads the file through a `CustomSource` over it, so the index is read once and media
+ranges only for GOPs that are actually analysed.
 
-On attach the registry fetches the row by cache key and seeds the session's Verdict Timeline with it
-(live entries win within 1 ms) and marks confident cached hits against the current strictness, so a
-locally answered sample is judged by the same transient-run rules as a live one. Changing strictness
-in the popup empties the site's rows (keeping `forcedVisibility`). The cache key is re-derived
-before each use; if the page URL moved under a blob source (SPA navigation racing attach), the
-session drops its seeded entries and stops caching. A persisted override is not re-applied on the
-attach the user's own toggle triggered. When the machine asks for a sample whose `timestampSec` has
-a seeded (cached, never live) verdict within `CACHED_VERDICT_MAX_GAP_SEC` (0.25 s, one sampling
-floor), the registry answers it locally: no capture, transfer, or inference. It dispatches
-`sampleSent` and `predictionReceived` with a synthetic `IFramePrediction` bound to the live
-`sessionId + frameIndex`, so masking, DVR start, and the watchdog behave exactly as for a live
-verdict, and the coverage-derived `D` drops to `COVERED_DVR_DELAY_MS`. Uncovered ranges fall through
-to live sampling and their verdicts extend the row. Thumbnails (frame −1) always go live; beyond the
-strictness clear, no media-revision or model-identity invalidation is applied.
+### Hosts
 
-Paused seeks retain their selected `timestampSec` while another sample is in flight. The cached CORS
-decoder also waits for its seek to that timestamp to complete before drawing, keeping the timeline
-identity attached to the pixels it actually supplies.
+| Browser | Host                                                        | Byte ingress                                              | Frame egress                                                                                                                                             |
+| ------- | ----------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chrome  | hidden `lookahead-host.html` iframe in a closed shadow root | hook port transferred straight into the iframe            | `createImageBitmap` resized to the model input, transferred to the content script, sent as the `bitmap` video-frame transfer (`sampleKind: 'lookahead'`) |
+| Firefox | background event page (`LookaheadHostService`)              | hook → content script → `runtime.connect('hb-lookahead')` | same bitmap handed to `scheduleInferenceTask` in-process with an `onResult` callback; no Blob encode                                                     |
 
-### Discovery
+Both run `LookaheadHost` (`utils/lookahead/host.ts`): it maps object URLs to hooked sources, and an
+`open` for an MSE Source sends `want` so the hook replays what it recorded and then streams live;
+`close` sends `drop`. An `open` for an object URL waits up to 3 s for its source; none means
+unreachable (`hook`). Decoding uses WebCodecs (`no-preference` on Chrome, `prefer-software` on
+Firefox); decoded `VideoFrame`s are closed right after the bitmap hand-off. On Chrome the host
+reaches inference and the cache through the content script (`infer` / `cacheRead` / `cachePublish`
+messages); on Firefox it calls the services directly.
 
-`VideoProcessor` (`core/VideoProcessor.ts`) is intentionally thin:
+## Lookahead Analysis
 
-- **Blacklist policy** → blacklist styling only, no inference, no session.
-- **Everything else** → `videoSessions.attach(video, hostSettings)`. The registry itself waits out
-  videos with no resolved source yet (`<video><source …>`, MSE, late `src` assignment) via a
-  `loadstart` listener; a non-null `srcObject` is itself a resolved source even though it has no
-  URL, so discovery holds no state of its own. The wait is blurred: a src-less video still displays
-  its poster, and attachment keeps the blur — there is no unprotected gap between discovery and
-  ATTACHED.
+- **Cutting**: a streaming top-level reader per SourceBuffer (`byteStream.ts`) cuts Clusters (known
+  or unknown size) and `moof`+`mdat` pairs across arbitrary append boundaries, and seals a new init
+  segment whenever one appears. Each unit is demuxed as init + unit with mediabunny; demuxed PTS +
+  `timestampOffset` is page media time — never `buffered`.
+- **Sampling**: an MSE unit covering `[first PTS, last PTS + duration)` asks for the level-0 Lattice
+  Points inside it. A Progressive Source asks, per GOP, for Lattice Points where the GOP is ≤ 1 s
+  and its Keyframe Point otherwise, within a 60 s window ahead of the playhead, refilled as it
+  advances and paused while offscreen. MSE run-ahead is uncapped and driven by appends; units are
+  never dropped unanalysed.
+- **Ordering**: the next decode job takes the source holding the earliest point at or after the
+  playhead; within it, points at or after the playhead go first in playback order, then the rest. At
+  most 6 inferences are in flight.
+- **Cache first**: cached samples are loaded before any decode; a cached point is never decoded and
+  a fully cached progressive range is never fetched. Refinement Probes missing from cached samples
+  are computed and published.
+- **Failures**: a unit that fails to demux or a decoder that fails reports the bitstream unreachable
+  (`demux` / `decode`) and ends the analysis — Live Masking takes over.
 
-## DVR: continuous delayed presentation
+### Priorities
 
-DOM overlays cannot mask moving content: a verdict describes a frame displayed one inference
-round-trip ago. So processed playback presents **delayed**: the `<video>` element keeps decoding
-while a canvas presents buffered frames a Presentation Delay `D` behind the live edge — far enough
-back that every presented frame's verdict is already resolved. The DVR is **continuous** (ADR
-[0001](adr/0001-continuous-dvr-and-relay-audio.md)): it starts on `play`, before any verdict exists,
-and runs for the rest of playback. Because the delayed canvas and delayed audio are already in place
-when an unsafe verdict lands, the verdict composites into the running presentation with no visible
-or audible mode switch, and a clean streak clears masks without ever leaving the DVR — the
-engage-gap and release-jump glitches of the old enter-on-unsafe design cannot occur.
+`utils/constants/inference.ts`: `liveFrame` 40, `visibleImage` 30, `lookaheadUrgent` 25 (slack —
+time until the playhead reaches the sample — under 5 s), `videoThumbnail` 20, `videoFrame` 10
+(lookahead with slack), `offscreenImage` 0 (lookahead while the video is offscreen or the tab is
+hidden). The background keeps the one-queued-frame-per-session rule for live frames only.
 
-`D` is **derived per DVR run and latched** (`dvr/delay.ts`, `deriveDvrDelayMs`): at every DVR
-(re)start — including the stopDvr/startDvr pair a seek re-warm goes through — the Verdict Timeline
-is consulted first. A range whose coverage extends at least 2×the adaptive estimate ahead needs no
-inference wait and gets `COVERED_DVR_DELAY_MS` (300 ms — replays and re-visited seeks all but skip
-the warm-up pause); an uncovered range gets the adaptive estimate: ~p90 of the session's observed
-sample→verdict round-trips plus headroom, clamped to [1.2 s, 4 s] (1.5 s until round-trips are
-observed). Within a continuous playback run D **only ever grows**: each verdict re-derives it, and a
-larger result is adopted (`raiseDelayIfLagging`) so a run that latched too small a D — no
-round-trips observed yet at the first `play`, or a covered range whose coverage ran out — does not
-present verdict-less, whole-blurred frames for the rest of the run. Growing D slides presentation
-further behind the live edge (repeating a moment of already-seen video, within the ring horizon); it
-never shrinks, so presentation never jumps forward into content no verdict describes. A genuinely
-covered range still re-derives the small covered D, so it is left alone. Inference sample captures
-are capped at the active model's input size (`sampling/capture.ts`, longest side, refreshed on model
-switches) so the round-trip itself — and therefore `D` — stays small on HD videos. Frame and mask
-are composited in the same draw, mirroring the GIF player.
+### Sampling contract and cache
 
-Both lag sources feed the same let-D-grow path, and lag that D cannot absorb becomes a machine
-event. A **store stall** — the frame store missing `frameAt` on a media time it covers, exposed as
-the monotonic `coveredMisses()` counter on the store contract (the raw ring never advances it) — is
-read on the per-verdict sync and raises D, so a slow store buys itself headroom by sliding further
-behind the live edge instead of pinning a frozen frame. "Covers" reaches to the newest _captured_
-time, not just the newest encoded chunk: an encode pipeline running behind the live edge starves
-presentation exactly like a slow decoder. The raise is the larger of a fixed step and the measured
-capture→presentable lag, and each DVR run starts with a one-delta holdoff so the decoder's warm-up
-priming misses never count. Stall-driven raises also persist as a session-lifetime floor under the
-derived D (`dvrStallFloorSec`): a store that proved it cannot serve the small covered D must not
-re-limp through the same raises after every seek re-warm. An **analysis underrun** — the derived D
-clamped at its ceiling while coverage ahead of the playhead still trails the latched D
-(`isAnalysisUnderrun`), sustained over `UNDERRUN_VERDICT_STREAK` consecutive verdicts — dispatches
-`analysisUnderrun` to the machine: the first widens the sampling floor to `RELIEVED_SAMPLE_FLOOR_MS`
-(fewer samples relieve inference pressure), and a second sustained underrun after relief demotes the
-session out of the DVR terminally — this machine cannot analyze fast enough, and
-inference-impossible is allow, not block.
+A sample is identified by (video identity, `modelId`, point in integer µs); readers accept a stored
+sample only for its exact point. The `videoPredictions` table holds one row per video identity (the
+media URL, or the page URL without fragment for `blob:` sources — `verdictCacheKey.ts`) with
+`samplesByModel[modelId]`: `{ pointUs, predictions, input, topUnsafeScore }`, clean samples
+included. `topUnsafeScore` is the best target-class score from the postprocessor regardless of the
+threshold. The service buffers publishes per (video, model) and merges every 2 s or 50 samples. The
+row also keeps the video's Forced Visibility. Dexie schema v2 clears the old video rows. Live and
+post-live sessions (YouTube flags, or an infinite duration) neither read nor publish; Live Masking
+samples are never cached. Changing strictness empties a site's samples.
 
-Lifecycle (`machine.ts` `dvr: off | warming | presenting`, executed by the presentation adapter):
+## Mask Presenter
 
-- **`play`** → `startDvr`: the presentation adapter derives and latches `D`, registers the session's
-  demand with the global ring budget, and creates a `DvrFrameStore` via the frame-store factory: a
-  raw ImageBitmap ring immediately (capped at ~30 fps by the budget ladder's tier), upgraded
-  in-place to the WebCodecs-encoded ring when the async WebCodecs probe passes (`prefer-hardware` on
-  Chrome; `no-preference` on Firefox, whose release builds expose no hardware encoder and run the
-  software encoder off the main thread in a media process) (native-resolution `VideoFrame` captures
-  at the source's **native frame rate**, bitrate-shaped demand, ~50-100x smaller; the upgrade flush
-  re-warms like a seek). On Firefox the encoded ring hands every decoded `VideoFrame` to a blob
-  worker that draws it onto an `OffscreenCanvas` and returns an `ImageBitmap`
-  (`dvr/decodedFrameConverter.ts`): Gecko has no GPU path from a decoded frame to a canvas, so any
-  `drawImage`, `createImageBitmap`, or WebGL upload of one converts its YUV planes to RGB on the
-  calling thread (~16 ms per 1080p frame on the presenter's rAF tick, ~2 ms once it draws the
-  worker's bitmap instead; the conversion costs ~30 ms of extra decode-ahead latency). Conversions
-  in flight count against the decode lookahead, and a conversion landing after a rewarm or
-  discontinuity is discarded. Content scripts can only spawn blob/data workers, which a page CSP may
-  block — a `worker-src`/`script-src` without `blob:` fails the worker asynchronously (the converter
-  strands the frames in flight and passes later frames through), and Trusted Types enforcement
-  (YouTube: `require-trusted-types-for 'script'`) makes the `Worker` constructor throw outright, so
-  the ring runs without a converter (`dvr.frame_converter.unavailable`). No workaround exists on
-  such pages: a `moz-extension:` worker URL never loads from a content script, an extension-origin
-  iframe (which can host workers) never receives a transferred `VideoFrame`, and `VideoFrame.copyTo`
-  does the same readback on the calling thread as a draw. Firefox therefore also asks the decoder
-  for `prefer-software`: a hardware-decoded frame is read back from the GPU before its colour
-  conversion (~15 ms per 1080p draw), a software-decoded one only converted (~7 ms), and the
-  software H.264 decoder runs off the main thread either way. Chrome draws a decoded frame in well
-  under a millisecond and runs without a converter. Ring capture is driven by a full-rate **capture
-  tap** (`dvr/captureTap.ts`: `captureStream()` + `MediaStreamTrackProcessor`, every decoded frame,
-  keyed by `video.currentTime` at delivery) with the rVFC tick as the standing fallback — Firefox
-  has no `MediaStreamTrackProcessor`, so it always captures on rVFC alone — rVFC alone misses frames
-  on 60 fps sources (~43/60 observed), and it resumes capturing automatically whenever the tap is
-  absent or stalls (media-time liveness window, no explicit health protocol). The intent split:
-  **inference samples stay small** (model-input-sized, ~4 fps, `sampling/capture.ts`), while
-  **presented frames are full video frames at the native rate** when the encoded store carries the
-  ring. The active path is exposed as `data-hb-dvr-store="raw|encoded"` on the video element; a
-  codec error swaps back to a fresh raw ring and marks the session webcodecs-ineligible. The warm-up
-  is whole-blurred: the DOM overlay of an already-masked session would lag the moving content, a
-  verdict-less session simply keeps its attachment blur, and a safe-verdicted session is covered too
-  because the pinned earliest frame is no cover until the player has captured a frame and injected
-  its canvas — the native element renders live for those first ticks. `bufferReady` lifts it as soon
-  as the canvas takes over, and a clean playback verdict is the escape when capture never succeeds.
-  The one uncovered case is a deliberately allowed session (status `skipped`), whose finalize
-  cleared the blur on purpose. The session's Verdict Timeline (every playback verdict, keyed by
-  `timestampSec`) already exists on the handle and is shared with the player read-only.
-- **`bufferReady`** (first buffered frame; the player inserted its canvas and hid the native
-  element) → `presenting`: blur and any leftover DOM overlay are swapped out. While the buffer is
-  still shorter than `D`, presentation pins on the earliest buffered frame — whole-blurred until a
-  playback verdict covers it — like a rebuffering pause (the audio delay-line fill produces a
-  matching gap), then runs `D` behind the live edge. While presenting, per-verdict `applyVerdict`
-  DOM renders are suppressed — the player composites masks itself. Audio is routed through a
-  WebAudio `DelayNode` at the same `D` (`dvr/audioDelay.ts`), keeping lip-sync; a permanent capture
-  failure withdraws protection entirely (see the audio precondition below).
-- **Unsafe verdict while playing**: no transition — the verdict lands in the Verdict Timeline and
-  the already-running presentation composites its masks `D` later. Only a DVR still `warming`
-  (canvas not yet presenting) gets an interim whole-blur cover.
-- **Per presented frame** (`videoDvrPlayer.ts` asking the Verdict Interpreter): Transient Hits are
-  read as clean first. The judgement is made once, when a run's first frame is presented, and
-  latched for the whole run: if the run's closing clean verdict has not arrived by then the whole
-  run masks (no mid-run cut; D is not raised for it) and the machine gets `lateHitPresented`, which
-  flips the status to unsafe. New evidence for a latched Transient Hit, such as a re-sampled
-  Confident Hit or a run that grows past `maxSuppressedRun`, overturns the suppression. Every
-  latched run is counted on `hb.video.transient_runs` by resolution
-  (`suppressed | confident | long | late`) with its length, top probability, score threshold, and
-  the `TRANSIENT_HIT_CONFIG` in effect. Then the **clean-cut rule** — a mask exists exactly on the
-  span around its unsafe sample up to the next clean verdict's timestamp. It starts
-  `PRE_MASK_LEAD_SEC` before the unsafe sample, and never after a clean verdict that a following
-  clean verdict confirms; because presentation runs `D` behind the live edge, that confirming
-  verdict has normally already arrived by the time the clean frame is presented, so the streak costs
-  no extra trail. An unconfirmed clean verdict (nothing after it yet, or an unsafe verdict right
-  after) does not cut — the mask holds, fail closed. Frames between two unsafe samples composite the
-  union of both bounding masks (RLE-decoded once, pixelated content + destination-in; the pixelated
-  copy is sampled from the already-drawn base canvas, never from the frame, which on Firefox would
-  pay its YUV conversion a second time) — inertia over the unknown motion in between; an upcoming
-  unsafe verdict beyond the Bridge Horizon contributes no geometry. **Any verdict behind covers
-  forward at any distance** (closest verdict wins): a clean one presents clean (no mask geometry to
-  go stale), an unsafe one keeps masking with its own geometry — masked content beats hiding the
-  whole frame — so a paused frame or a coverage hole after a seek presents instead of
-  whole-blurring. There is no fail-open exception for a session the machine already cleared: the
-  clearing verdict there is the Thumbnail, which describes the poster and carries no media time, so
-  it must never present playback frames it does not describe — that let Shorts' unsafe first frame
-  show unmasked for a full round-trip. Only genuine verdict silence — no verdict behind at all,
-  including frames that precede an upcoming unsafe sample — whole-blurs (the cost is a short blur
-  over the pinned frame on a clean video's first play; re-warms into covered ranges present clean
-  immediately). Lookups binary-search the timestamp-ordered timeline and read the bounding
-  neighbors, so per-tick cost stays constant rather than growing with the session. Sampling
-  continues at the live edge throughout.
-- **Clean streak while presenting**: clears the logical mask/status, nothing else — the DVR is the
-  permanent presentation for the rest of playback. Clean frames draw plainly via the Verdict
-  Timeline; no live-edge jump, no re-warm flash when detections are intermittent.
-- **Pause**: never exits the DVR. The media clock freezes, so the canvas holds the delayed frame the
-  viewer was actually seeing; `play` resumes presentation without a re-warm. The sampling
-  bookkeeping winds down, and the audio route is dropped (`releaseAudioRoute`) and re-engaged on
-  resume (`audioRoute` back to `pending` + `engageAudioRoute`): a `DelayNode` runs on the audio
-  clock, not the media clock, so a line left attached would drain its buffered `D` seconds of speech
-  over the frozen frame. Resume therefore costs `D` seconds of silence while the fresh line refills
-  — the buffered tail is gone either way. The exception is the pause Chrome fires just before
-  `ended` (`atEnd` on the event): there the route is kept, because its buffered audio is the
-  soundtrack of the picture tail the drain is about to replay — dropping it would play every natural
-  ending mute.
-- **`ended`** → `drainDvr`: the presenter switches to a drain clock (`dvr/drain.ts`) that advances
-  the presented media time at 1x wall rate from where presentation froze to the newest buffered
-  frame, then holds that final frame — the ending plays out ~`D` late instead of being cut off. A
-  DVR still `warming` at `ended` has no tail to drain and `bufferReady` can never fire, so it hands
-  back to the DOM overlay instead of latching its warm-up blur forever.
-- **Seek**: a Loop Restart (`loopRestarted` event) is not a seek — it samples the new frame and
-  keeps the DVR running (see Loop continuity). Any other seek is a ring discontinuity → flush and
-  re-warm (stopDvr/startDvr) with a freshly derived `D` — the store itself treats a backwards
-  capture key within `STALE_FRAME_TOLERANCE_SEC` (0.5 s) as a re-delivered stale frame (dropped,
-  buffer kept) and only flushes on a larger step — small when the seek lands in a range the timeline
-  already covers, so re-visited content barely pauses. The warm-up cover is re-established under the
-  same fail-closed rule: whole-blur while masked or verdict-pending; a resumed skipped session stays
-  deliberately uncovered.
-- **Exits**: viewport suspension (offscreen sessions must return their ring memory; a masked session
-  hands back to the precise DOM overlay before the native element is revealed), disposal, terminal
-  ERROR, source change, and the undelayable-audio demotion. Pause, `ended`, and clean streaks are
-  **not** exits. The Verdict Timeline itself survives every exit; only the ring and player are
-  discarded.
-- **DVR unavailable but analysis works** (buffer capture throws `SecurityError` while the CORS-clone
-  sampling path still delivers verdicts): the warm-up whole-blur simply stays while masked or
-  verdict-pending; the clean-streak `clearBlur` is the un-blur escape, since `bufferReady` can never
-  lift the blur there. Only analysis-impossible finalizes as allow.
+- Every rAF it computes `currentTime + min(now − lastChangeSeen, 100 ms) × playbackRate`
+  (`MAX_EXTRAPOLATION_SEC`), folded modulo the duration for looping videos. It never uses rVFC
+  `mediaTime`, which Firefox does not wrap on loop.
+- The Verdict Interpreter answers for that time: masks start `PRE_MASK_LEAD_SEC` (100 ms) before an
+  unsafe sample and end at the clean sample that closes the span (the clean-cut rule, no trailing
+  pad); an unconfirmed clean sample (nothing after it yet) keeps the mask, which is the Live Masking
+  hysteresis. A sample behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s);
+  paused frames mask a tentative sample instantly.
+- The overlay is a div homed next to the video (the shared overlay positioning helpers, shadow-DOM
+  aware) with `backdrop-filter` built from the host's masking settings and a `clip-path: path()`
+  built from the RLE mask grids mapped onto the rendered content rect. No page pixels are read, so
+  presenting costs no main-thread draw. An unsafe Thumbnail is shown the same way until playback
+  starts.
+- It reports `presented{unsafe}` transitions to the session and feeds `progress` every 250 ms.
 
-The precise mask overlay (`videoMaskOverlay.ts`) still renders static-frame verdicts whenever the
-DVR is off: before first play, and after a viewport suspension hands the element back. While the DVR
-is warming or presenting, it owns masking even for a paused frame.
+## Live Masking
 
-### Audio routing
+`LiveSampler` ticks on rVFC (rAF fallback), sends one capture at a time no closer than 250 ms
+(`SAMPLE_FLOOR_MS`), and frees its slot on the verdict or after 3 s. Captures reuse
+`sampling/capture.ts`: model-input-sized bitmaps, the CORS clone tier and the Relay Fetch tier for
+cross-origin sources, poster extraction for the Thumbnail. Transfers use the existing video-frame
+path (Chrome bitmap over the MessageChannel, Firefox WebP blob) with `sampleKind` `live` or
+`thumbnail`.
 
-Delayed picture with live audio means permanent lip-sync desync, and switching audio routes
-mid-playback is audible — so audible audio must ride a delayed route while the DVR presents (ADRs
-[0001](adr/0001-continuous-dvr-and-relay-audio.md),
-[0002](adr/0002-direct-url-relay-audio-and-machine-owned-audio-route.md)). The policy lives in the
-reducer as the `audioRoute` axis (`none | pending | delayLine | relay`): `bufferReady`, resume, and
-every verdict while `pending` emit `engageAudioRoute`; the adapter reports one `audioEngageResult`
-per attempt, and the reducer alone decides engaged/retry/withdraw. An engage tries, in order:
+## DOM markers and status
 
-- **WebAudio delay line** (`dvr/audioDelay.ts`): `createMediaElementSource` → `DelayNode` at `D`.
-  Only for delayable sources (`isAudioDelayable`) — WebAudio zeroes origin-tainted samples.
-- **Relay Audio** (`dvr/relayAudio.ts`): for undelayable sources, a hidden `<audio>` plays the
-  video's **original URL** at `currentTime − D` (media playback needs no CORS — no blob, no
-  download); the page element is silenced (`volume = 0`, so site mute writes stay observable) while
-  engaged, the site's muted/volume intent mirrored onto the relay element (async-safe pending-writes
-  counter) and restored on release. Drift syncs every 500 ms: hard seek beyond 0.25 s, rate nudge
-  inside it; the DVR drain keeps the tail playing `D` more wall-clock seconds.
-- **Pending and audible** → `holdPageMute`: bounded silence (not desynced live audio, not lost
-  protection) while the route comes up — covering both the relay element's buffering window and the
-  deferred-`AudioContext` pre-gesture window.
-- **No route obtainable and audibly unmuted** (delay line permanently unavailable AND the relay
-  element terminally failed) → finalize `skipped`: DVR and masking torn down, native playback
-  restored with the site's audio intent. A muted video has no audio to desync: it stays protected
-  and `pending`; the unmute moment (raw `unmuted`/`muted` intent events) re-holds and retries.
-- **Transient outcomes** (suspended `AudioContext` awaiting its gesture, relay element buffering
-  timeout or recoverable media error) report `deferred`: the route stays `pending` and the next
-  verdict retries. The retry is not optional: a deferred engage left alone would present delayed
-  picture against live audio, the same permanent desync this routing exists to prevent.
+- `data-hb-video-tap` — `mse`, `progressive` or `none`, set when the tap resolves.
+- `data-hb-session-id`, `data-hb-src` — the session binding (also used by the predecessor sweep).
+- `data-haramblock-processed-safe | -unsafe | -skipped` — exactly one after the first verdict;
+  `skipped` only for tainted pixels with no tap. All are removed on disposal.
+- `[data-video-mask-overlay="video-mask-presenter"]` — the presenter overlay (`display:none` while
+  nothing is masked). The attachment blur uses the shared `haramblock-initial-blur` class.
 
-### Memory: the global ring budget
+## Telemetry
 
-All active rings share one byte budget (`dvr/ringBudget.ts`), tiered by the active inference backend
-as a hardware proxy — WebGPU → 1 GB global / 768 MB per session, WASM → 128 MB for both (the WASM
-tier fails safe until the backend, known in the background at model load, arrives with host
-settings). The ladder's full tier has **no width ceiling**: capture is capped by the rendered size
-in device pixels (up to native), so an embedded player buffers cheaply while a fullscreen 1080p one
-captures at full resolution — pixels the viewer cannot see are wasted bytes, everything they can see
-is captured when the byte budget allows. When the projected demand of all registered sessions
-exceeds the budget, every session degrades down a shared ladder — capture width ∞ (display-capped) →
-1280 → 640 → 480 → 320 px, then capture rate (raw ~30 → ~15 fps; encoded native → ~30 fps — its byte
-demand is bitrate-shaped, so native rate costs no ring memory), then ring horizon shrink — and
-recovers in reverse as sessions release (suspension, disposal). Demand is projected from registered
-geometry rather than measured from live ring bytes, so degradation and recovery are immediate; a
-session that started its DVR before metadata landed re-registers as soon as the real frame geometry
-arrives, so the projection cannot stay stuck on the fallback 16:9 estimate — and a materially
-resized player (embedded → fullscreen crosses the 1.25× hysteresis) re-registers its display-derived
-cap the same way. Per-session, the ring stays bounded by `D`+slack, the backend-tiered session cap,
-and the budget-derived capture scale (`dvr/captureScale.ts`): the largest capture size — up to
-min(display size, the ladder's width ceiling) — whose frames still let the ring span `D`+slack
-inside the byte cap. On Firefox the raw ring's ceiling is additionally held at 960 px
-(`FIREFOX_RAW_CAPTURE_MAX_WIDTH`): a native-width raw ring holds ~570 MB of RGBA in the content
-process (200 MB at 960 px), and Firefox's `drawImage` from a video is source-bound (~10 ms per 720p
-source frame, 15–18 ms per 1080p, at either capture width), so the ceiling buys memory headroom
-rather than main-thread time; the encoded ring captures at native resolution regardless (its present
-cost is moved off the main thread by the decoded-frame converter instead). A live ring never shrinks
-below its latched `D`, or presentation would strand on the warm-up frame. The presenter's base
-canvas backs at device-pixel resolution (capped at the buffered frame's own width) and draws in
-whole device pixels through the identity transform (`toDevicePixels`), so a frame that matches the
-backing store is a 1:1 blit; on Firefox both presenter canvases are created with
-`willReadFrequently` so that blit stays a memcpy into a software canvas instead of a texture upload.
-Only the mask canvas keeps `image-rendering: pixelated` (its blockiness is the masking effect
-itself).
-
-Both video presentations (mask overlay and DVR canvas) are **DOM-injected** overlay divs homed as
-the video's next sibling with the video's own z-index (see
-[MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)), so player chrome that renders above the video —
-controls, captions, menus — also renders above the mask. (A `+1` z-index in an ancestor container
-out-stacked `z-index: auto` chrome layers on Facebook Reels; fixed-position videos still use
-container injection.) The mask overlay uses the shared renderer machinery (parent-aware
-`ResizeObserver`, mutation-batch classification, re-homing); the DVR presenter syncs its geometry
-per tick of its own draw loop instead — including re-homing itself when the site re-parents the
-player (YouTube's watch-page boot).
-
-**Shadow-DOM players** (Reddit's `<shreddit-player>`) work end to end: discovery pierces open shadow
-roots — including roots attached long after insertion by async-loaded components (see `DomObserver`
-in [MEDIA_PROCESSING.md](MEDIA_PROCESSING.md)) — and both presentations inject via
-`resolveInjectionContext`, which handles the video being a direct child of the shadow root
-(`parentElement` is null there: the overlay lives inside the shadow tree, positioned against the
-shadow host). Closed shadow roots remain out of reach.
-
-## Processed status attributes
-
-Set by the machine's `setStatus` effect (contract kept from the previous pipeline):
-
-- `data-haramblock-processed-safe` — no unsafe content in the latest applied verdict
-- `data-haramblock-processed-unsafe` — unsafe content detected (or fail-closed blocked)
-- `data-haramblock-processed-skipped` — processing impossible (terminal ERROR: video plays
-  un-blurred)
-
-Exactly one is present after finalization; all are removed on disposal. The initial blur uses the
-shared `haramblock-initial-blur` class.
-
-## Design rationale
-
-Condensed from the two architecture decisions this pipeline is built on (issue #53, PRs #69/#70).
-
-### A pure per-session state machine, routed by session, fail-closed
-
-Issue #53 reported the old pipeline as unreliable: `<source>`-children and `preload="none"` videos
-were never picked up, late predictions could clear a mask a newer unsafe frame had just applied,
-seeks left stale masks, and a dead service worker left videos blurred forever (or unprotected
-mid-playback). These were consequences of the design — implicit state scattered across `dataset`
-flags, a rAF/token-bucket loop paced by a global timing event, URL-based DOM queries for result
-routing — so it was rearchitected rather than patched into the VideoSession machine described above.
-
-Considered and rejected:
-
-- **Patching the existing loop** — each symptom had a point fix, but the implicit-state design kept
-  regenerating new races.
-- **Session = playback run or seek-delimited epoch** — per-run identities orphan in-flight
-  predictions and fragment any future prediction cache; monotonic frameIndex ordering makes seek
-  races benign without discarding valid results.
-- **URL-based routing with added validation** — same-URL videos sharing verdicts is a correctness
-  hazard, and routing stays coupled to `dataset` attributes.
-- **Symmetric temporal smoothing** — requiring N positive samples before masking shows unsafe frames
-  while "warming up", contradicting the protection-first stance.
-
-Accepted consequence: same-URL videos on one page each run their own session and duplicate inference
-cost; routing correctness wins.
-
-### DVR delayed presentation; allow on inference-impossible
-
-The session machine made masking reliable but not synchronous: a DOM overlay applied "now" describes
-a frame displayed one inference round-trip ago, so on a playing video the mask chases the content
-and unsafe regions leak between samples. The GIF pipeline avoids this by deferring playback until
-verdicts exist, compositing frame + mask atomically, and stretching each verdict with inertia — the
-DVR gives video those same three properties (see the DVR section above).
-
-Considered and rejected:
-
-- **Predictive overlays** (extrapolate mask motion) — guessing where unsafe content moved is exactly
-  the failure mode the pipeline exists to prevent.
-- **Pause playback until verdicts arrive** (the GIF model literally) — videos are long and streamed;
-  freezing playback per sample is unusable, and sites fight scripted pauses.
-- **Block on inference-impossible** — permanently blurring everything the pipeline cannot read (most
-  cross-origin videos without CORS headers) breaks far more legitimate content than it protects;
-  hence ERROR = allow.
-- **Buffer every playing video pre-emptively** — rejected here for its per-video memory cost in the
-  common safe case, then **adopted after all** by ADR
-  [0001](adr/0001-continuous-dvr-and-relay-audio.md): the engage/release switches of
-  DVR-only-while-masked proved worse than the cost, which the global backend-tiered ring budget now
-  bounds. This bullet is kept as history; the ADR supersedes it.
-
-Accepted consequences (per ADR 0001): every processed video pays ~`D` of pinned start, is watched
-`D` behind the live edge (including live streams), and costs capture/canvas CPU plus bounded ring
-memory while playing; the seek bar reads `D` ahead of the picture; endings complete ~`D` late; sites
-where audio cannot be delayed receive no protection at all.
-
-### Measured: masking without the ring (2026-10)
-
-"Drop the DVR and mask as verdicts arrive" was measured end to end (RTX 3080 Ti, WebGPU, warm
-model): round-trip p50 73–108 ms, p99 ≤ 169 ms; sampling runs ~4 samples/s. A ring-less mask
-therefore lags content by ~330–450 ms, and a cold start (WebGPU warm-up) by over a second. Ring-less
-masking is leak-free only if every frame is analyzed within one frame interval (16–41 ms), so the
-ring stays — the sampling interval, not inference, dominates. Use `hb.inference.roundtrip_ms` for
-end-to-end figures; the Tempo `inference.roundtrip` span ends at the RPC ack. Capture + WebP encode
-(26–53 ms) costs about as much as inference itself (33–46 ms).
-
-| Round-trip ms p50 / p90 / p99 (Firefox 157, `sem-i448`) | Value                |
-| ------------------------------------------------------- | -------------------- |
-| Gallery 720p safe                                       | 73 / 101 / 157       |
-| Gallery 720p unsafe                                     | 76 / 82 / 98         |
-| YouTube 1080p                                           | 108 / 126 / 169      |
-| Cold first page (WebGPU warm-up queue wait)             | p90 ~1600, max ~3100 |
-
-### Measured: raw-ring frame drops (2026-10)
-
-The raw ring's synchronous main-thread `drawImage(video)` capture (10–15 ms per frame) and its
-`DVR_CAPTURE_INTERVAL_SEC` throttle lose frames: 1080p60 sources present at ~20–27 fps, and
-rVFC-driven capture also misses frames when the render step slips (`getVideoPlaybackQuality()`
-reports 0 dropped — the loss is ours). The encoded ring captures a `VideoFrame` at native cadence
-and encodes off the main thread (on Chrome 1080p60 at 60 fps, ~6 ms/s more main thread), so it is
-the default in every build (`frameStoreFactory.ts`). Raw remains the automatic fallback, explained
-by `hb_dvr_store_reason`; cross-origin videos without CORS (`SecurityError` on `new VideoFrame`)
-always stay raw.
-
-| Source (RTX 3080 Ti)               | Raw ring                    | Encoded ring                         |
-| ---------------------------------- | --------------------------- | ------------------------------------ |
-| YouTube 1080p60, Firefox           | ~20 fps, ~0.5 ms draw/frame | ~24–25 fps, ~12 ms draw/frame        |
-| Gallery 720p24, Firefox            | ≤28 lost / 20 s             | n/a — cross-origin without CORS, raw |
-| Same-origin 1080p60, Chrome Canary | ~27 fps, 12 ms/s            | 60 fps, 18 ms/s                      |
-| Raw capture cost per frame         | ~10 ms 720p, 15–18 ms 1080p | -                                    |
-
-Open gaps: on Firefox YouTube the encoded ring does not fix the drops — Trusted Types block the
-decoded-frame converter worker, so every decoded frame is colour-converted on the main thread.
-Chrome figures are Canary with a local file; YouTube on stable Chrome and several concurrent videos
-against `ENCODED_SESSION_CAP` are untested. Encoder start-up: Firefox's encoder emits nothing until
-~17 frames are queued and outputs them reordered, costing ~0.7 s at 24 fps (~1.7 s at 10 fps) of
-extra warm-up on every DVR start.
-
-### Loop continuity
-
-A native Loop Wrap fires `seeked`; treating it as a seek rebuilt the DVR each loop and froze short
-looping clips. The registry dispatches a Loop Restart as its own `loopRestarted` event instead of
-`seeked` (`video/loopClock.ts` `createLoopRestartDetector`), and the machine samples it without
-restarting the DVR. Browsers report the head-of-loop position in a `timeupdate` before `seeked`,
-with `seeking` already false (measured on Chrome and Firefox), so the detector ignores a wrap-sized
-backward jump and classifies against the tail position. Both edges are 0.5 s of media time scaled by
-`playbackRate` (never below 0.5 s): `timeupdate` fires on a wall-clock cadence (~250 ms), so at 4×
-the last tail report can land a full second before the end. Inside the run, rVFC keys, tap keys and
-`currentTime` all pass through one shared `createLoopUnwrapper`, so ring keys and the presenter's
-`PlaybackClock` always agree on the loop even when one source keeps reading while the others stall
-(a hidden tab stops rAF and rVFC but not the tap). The unwrapper picks the earliest loop that puts a
-reading no more than `min(0.5 s, duration/2)` behind the last one: a slightly late reading from
-another source stays on the previous loop, anything further back counts as the next loop. Verdict
-lookups fold back to media time (`foldToMediaTime`). A real seek still restarts the run.
+See [LOGGING.md](LOGGING.md): `video.tap.resolved`, `video.session.transition`,
+`hb.video.tap.sessions`, `hb.video.coverage_ahead_sec`, `hb.video.uncovered_playing_ms`,
+`hb.video.live_masking_ms`, `hb.lookahead.samples`, `hb.lookahead.failures`,
+`hb.video.transient_runs`. The Grafana dashboard is described in
+[DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 ## Testing
 
-- **Unit** (`entrypoints/content/video/session/__tests__/machine.test.ts`): every machine behavior —
-  attachment, timeout-at-first-send, verdict finalization, retry-then-blocked, pacing, staleness,
-  hysteresis, watchdog re-blur + self-heal, lost-sample slot recovery, paused-seek one-shots,
-  terminal allow (error streak + permanent failures), terminal disposal, play-preempts-thumbnail,
-  and the continuous-DVR lifecycle (start on play, warm-up cover rules, bufferReady, clean streak
-  staying in the DVR, pause hold, ended drain, seek re-warm, loop wrap keeping the DVR, suspension
-  hand-back, undelayable-audio demotion, dispose). `entrypoints/content/video/dvr/__tests__/` covers
-  the shared `DvrFrameStore` contract run against both the raw and (mock-codec) encoded rings
-  (selection, eviction, discontinuity flush, release), encoded-ring specifics (GOP keyframing,
-  decode-ahead, backpressure drops, keyframe re-warm, codec-error teardown), the store factory's
-  selection matrix (probe × concurrency cap × prior error × flag), the VerdictTimeline
-  (coverage-ahead, entry cap), the Verdict Interpreter (clean-cut rule, inertia merging, Transient
-  Hit suppression, Confident Hit overturn, per-run latching, sample classification, run-resolution
-  reports), coverage-derived delay derivation, the budget-derived capture scale, the global ring
-  budget's degradation ladder, the drain clock, the presented-fps simulation harness parameterized
-  over both stores, and the run's continuous loop keys and presenter clock (`run.test.ts`).
-  `entrypoints/content/video/__tests__/loopClock.test.ts` covers loop unwrapping, `isLoopWrap`,
-  `isLoopRestartSeek` and the registry's loop-restart detector.
-- **E2E** (`tests/e2e/features/video.feature`): real-browser masking of a poster-verdicted video,
-  the `<source>`-child discovery path, DVR canvas takeover on a clean playing video, and an unsafe
-  verdict landing mid-playback compositing into the running DVR without a whole-blur flash.
+- **Lookahead Analysis core** (`utils/lookahead/__tests__/`): recorded fixture bytes (WebM VP9 and
+  fMP4 H.264 MSE captures, long- and short-GOP progressive MP4s) with fake decoder, inference and
+  cache ports — exact µs Lattice Points, units cut across arbitrary appends, `timestampOffset`,
+  playhead-first order, slack priorities, cache-first, live bypass, Refinement and Suspicious Clean
+  probes, Keyframe Points, window refill, unreachable fetch/demux; plus the range fetch and lattice
+  math.
+- **Video Session reducer** (`entrypoints/content/video/session/__tests__/videoSession.test.ts`):
+  hand-off hysteresis, unreachable tap, Transient/Confident Hits, status on presentation, paused
+  frames, Loop Restart, initial blur, tainted rules, viewport.
+- **Timeline and presenter** (`timeline/__tests__/`, `presenter/__tests__/`): clean-cut rule,
+  carry-forward bound, paused frames, live classification; extrapolated clock and clip paths.
+- **E2E** (`tests/e2e/features/video.feature`): poster masking, the progressive and MSE taps
+  (`data-hb-video-tap`), a mask visible when playback reaches the first unsafe lookahead sample, and
+  Live Masking on a plain-`blob:` source. YouTube forward seeks are a manual dev-build check.
 
-## Future enhancements
+## Known limits and out of scope
 
-- **Verdict cache invalidation** — the persisted verdict cache keys by media URL / page URL only;
-  media revision and model identity could be added if stale hits become a problem in practice.
+- Native HLS on Chrome, `srcObject` streams and worker MSE (`MediaSourceHandle`) have no tap in v1
+  and rely on Live Masking; DRM sources are handled like any unreadable source.
+- The overlay supports blur, grayscale and dark; the pixelation look is not available because the
+  presenter never reads pixels.
+- When the `<video>` element itself goes fullscreen, sibling overlays are not rendered; player
+  containers that go fullscreen keep the mask.
+- The MAIN-world hook is page-visible and could be detected or fed spoofed bytes.
+- Cache sharing across clients, cut-detection triggers and opportunistic lattice densification are
+  future work; v1 only keys samples so sharing can come later.

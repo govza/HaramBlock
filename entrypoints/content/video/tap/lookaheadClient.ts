@@ -71,6 +71,10 @@ function hookPortOrNew(): MessagePort {
 }
 
 function onHostMessage(message: HostToContent): void {
+  if (message.t === 'toHook') {
+    hookPort?.postMessage(message.command);
+    return;
+  }
   if (message.t === 'cacheRead') {
     const session = sessions.get(message.sessionId);
     void readCache(session?.open).then(samples =>

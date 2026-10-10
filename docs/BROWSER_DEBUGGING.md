@@ -5,8 +5,8 @@ up. The primary setup is the **chrome-devtools MCP attached to the WXT dev brows
 remote debugging port 9222) — server configuration lives in [AI_DEVELOPMENT.md](AI_DEVELOPMENT.md).
 The alternative setup is the **Playwright MCP with a static build** — see
 [PLAYWRIGHT.md](PLAYWRIGHT.md). The techniques in this playbook apply to either; tool names below
-are the chrome-devtools ones. For what the extension reports about itself while you drive it (DVR
-fps, inference latency, anomaly dumps, traces) open the local Grafana stack -
+are the chrome-devtools ones. For what the extension reports about itself while you drive it (tap
+kind, coverage ahead, Live Masking time, inference latency, traces) open the local Grafana stack -
 [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 ## The Debug Loop
@@ -78,23 +78,24 @@ Firefox runs a different transport (Blob over `browser.runtime`, see
 
 The extension marks everything it touches, so page-side `evaluate_script` can audit its state:
 
-| Marker                                            | Where       | Meaning                                                                       |
-| ------------------------------------------------- | ----------- | ----------------------------------------------------------------------------- |
-| `data-haramblock-instance`                        | `<html>`    | Instance sentinel nonce; a changed value means a successor instance took over |
-| `data-haramblock-processed-safe/-unsafe/-skipped` | media       | Verdict landed for the element                                                |
-| `data-haramblock-video-discovered`                | video/host  | Video attached to a session                                                   |
-| `[data-mask-overlay="unified-mask-overlay"]`      | overlay div | Image mask overlay                                                            |
-| `[data-video-mask-overlay]`                       | overlay div | Video mask overlay                                                            |
-| `[data-gif-mask-player]`                          | overlay div | Animated-GIF mask player                                                      |
-| `[data-video-dvr-player]`                         | overlay div | DVR presenter overlay                                                         |
-| `data-hb-presented-frames`                        | DVR overlay | Distinct buffered frames drawn; diff over time = presented fps ground truth   |
+| Marker                                             | Where       | Meaning                                                                       |
+| -------------------------------------------------- | ----------- | ----------------------------------------------------------------------------- |
+| `data-haramblock-instance`                         | `<html>`    | Instance sentinel nonce; a changed value means a successor instance took over |
+| `data-haramblock-processed-safe/-unsafe/-skipped`  | media       | Verdict landed for the element                                                |
+| `data-haramblock-video-discovered`                 | video/host  | Video attached to a session                                                   |
+| `[data-mask-overlay="unified-mask-overlay"]`       | overlay div | Image mask overlay                                                            |
+| `[data-video-mask-overlay="video-mask-presenter"]` | overlay div | Mask Presenter overlay (`display:none` while nothing is masked)               |
+| `[data-gif-mask-player]`                           | overlay div | Animated-GIF mask player                                                      |
+| `data-hb-video-tap`                                | video       | Bitstream Tap: `mse`, `progressive` or `none` (Live Masking only)             |
+| `data-hb-session-id`                               | video       | VideoSession id; matches `hb_session_id` in telemetry                         |
 
-**The DVR tell:** a `[data-video-dvr-player]` overlay present with an **empty** base-canvas
-`style.filter` is the happy path (verdicts are matching frames). A **persistent blur filter** on the
-base canvas means the presenter is fail-closed — verdicts are not reaching or not matching the
-frames. The DVR overlay persists across pause, clean streaks, and `ended` (continuous DVR) — it is
-replaced by a `[data-video-mask-overlay]` only when the video leaves the viewport; that suspension
-handover is normal, not a failure.
+**The lookahead tells:** `data-hb-video-tap` resolves within a few seconds of attachment. `none` on
+a `blob:` source means the MSE hook never saw a `MediaSource` for it (a plain Blob, worker MSE, or a
+failed hook); `none` on a network URL means the cookie-less range fetch was rejected or the file did
+not demux. On Chrome the analysis runs in a hidden `lookahead-host.html` iframe inside a closed
+shadow root appended to `<body>`; inspect it from `chrome://inspect` → Other. On Firefox it runs in
+the background event page (`about:debugging` → Inspect). The page's own `<video>` is never hidden or
+redrawn; a masked span shows only as the presenter overlay above it.
 
 ## Test Pages
 

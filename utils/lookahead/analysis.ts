@@ -513,32 +513,30 @@ export interface ProgressiveAnalysis {
 class ProgressiveSource implements PointSource {
   readonly startUs = 0;
   readonly arrivedAt = 0;
+  private readonly samplePoints: number[];
 
   constructor(
     private readonly scheduler: SampleScheduler,
     private readonly file: ProgressiveFile,
     private readonly windowUs: number,
-  ) {}
+  ) {
+    this.samplePoints = file.gops.flatMap(gop => gop.points);
+  }
 
   get endUs(): number {
     return this.file.durationUs + 1;
   }
 
-  private windowBounds(): [number, number] {
+  windowPredicate(): (pointUs: number) => boolean {
     const playheadUs = this.scheduler.currentPlayhead().timeSec * 1e6;
-    const points = this.file.gops.flatMap(gop => gop.points);
-    const startUs = points.filter(point => point <= playheadUs).at(-1) ?? 0;
-    return [startUs, playheadUs + this.windowUs];
-  }
-
-  inWindow(pointUs: number): boolean {
-    const [startUs, endUs] = this.windowBounds();
-    return pointUs >= startUs && pointUs < endUs;
+    const startUs = this.samplePoints.findLast(point => point <= playheadUs) ?? 0;
+    const endUs = playheadUs + this.windowUs;
+    return pointUs => pointUs >= startUs && pointUs < endUs;
   }
 
   pointsToSample(): number[] {
     if (!this.scheduler.isVisible()) return [];
-    return this.file.gops.flatMap(gop => gop.points).filter(point => this.inWindow(point));
+    return this.samplePoints.filter(this.windowPredicate());
   }
 
   nextBatch(orderedPoints: readonly number[]): number[] {
@@ -569,8 +567,7 @@ export function createProgressiveAnalysis(
   const refresh = () => {
     if (!source) return;
     const current = source;
-    if (scheduler.isVisible()) scheduler.pruneWanted(point => current.inWindow(point));
-    else scheduler.pruneWanted(() => false);
+    scheduler.pruneWanted(scheduler.isVisible() ? current.windowPredicate() : () => false);
     scheduler.refreshWanted(current);
   };
 
