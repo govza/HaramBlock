@@ -71,6 +71,8 @@ const LOOKAHEAD_INFERENCE_TIMEOUT_MS = 30_000;
 const SUSPICION_RATIO = 0.5;
 const ATTRIBUTE_BUCKET = 0.05;
 
+const FAILURE_STAGE = { unitDemuxFailed: 'demux', decodeFailed: 'decode', cacheReadFailed: 'cache' } as const;
+
 const bucketOf = (value: number): number => Math.round(value / ATTRIBUTE_BUCKET) * ATTRIBUTE_BUCKET;
 
 const scoreThresholdOf = (handle: SessionHandle): number => strictnessToScoreThreshold(handle.hostSettings.strictness);
@@ -194,6 +196,7 @@ class VideoSessionRegistry {
       }),
       live: new LiveSampler({ video, sample: timestampSec => void this.sendLiveSample(handle, timestampSec) }),
       lookahead: null,
+      lookaheadLive: false,
       tap: null,
       nextFrameIndex: 0,
       pendingLive: new Map(),
@@ -396,12 +399,13 @@ class VideoSessionRegistry {
       return;
     }
     const threshold = scoreThresholdOf(handle);
+    handle.lookaheadLive = isLiveDuration(handle.video);
     handle.lookahead = openLookahead(
       {
         t: 'open',
         sessionId: handle.sessionId,
         tap,
-        live: isLiveDuration(handle.video),
+        live: handle.lookaheadLive,
         scoreThreshold: threshold,
         suspicionThreshold: threshold * SUSPICION_RATIO,
         inputSize: currentInferenceCaptureSize(),
@@ -441,7 +445,7 @@ class VideoSessionRegistry {
       return;
     }
     recordCounter(METRIC.lookaheadFailures, 1, {
-      [ATTR.lookaheadFailureStage]: stat.kind === 'unitDemuxFailed' ? 'demux' : 'decode',
+      [ATTR.lookaheadFailureStage]: FAILURE_STAGE[stat.kind],
     });
   }
 
@@ -748,6 +752,13 @@ class VideoSessionRegistry {
       this.dispatch(handle, { type: 'seeked', paused: video.paused, covered: this.isPlayheadCovered(handle) });
     };
     const onRateChange = () => this.sendPlayhead(handle);
+    const onDurationChange = () => {
+      const source = resolveVideoSource(video);
+      if (!handle.lookahead || handle.lookaheadLive || !isLiveDuration(video) || !source) return;
+      handle.lookahead.close();
+      handle.lookahead = null;
+      this.openTap(handle, source);
+    };
     const onSourceChanged = () => {
       loopRestarts.reset();
       const current = resolveVideoSource(video);
@@ -762,6 +773,7 @@ class VideoSessionRegistry {
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ratechange', onRateChange);
+    video.addEventListener('durationchange', onDurationChange);
     video.addEventListener('loadstart', onSourceChanged);
     video.addEventListener('emptied', onSourceChanged);
 
@@ -773,6 +785,7 @@ class VideoSessionRegistry {
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ratechange', onRateChange);
+      video.removeEventListener('durationchange', onDurationChange);
       video.removeEventListener('loadstart', onSourceChanged);
       video.removeEventListener('emptied', onSourceChanged);
     };

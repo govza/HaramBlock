@@ -82,6 +82,26 @@ describe('Lookahead Analysis over an MSE Source', () => {
     );
   });
 
+  it.each([
+    ['WebM', VP9_MIME, 'mse-vp9.webm', [0x1f, 0x43, 0xb6, 0x75]],
+    ['fMP4', H264_MIME, 'mse-h264.mp4', [0x6d, 0x6f, 0x6f, 0x66]],
+  ])('resumes at the next %s unit after bytes went missing', async (_label, mime, file, unitMarker) => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', mime);
+    const bytes = fixture(file);
+    const marker = unitMarker;
+    const firstUnit = indexOfBytes(bytes, marker);
+    const secondUnit = indexOfBytes(bytes.subarray(firstUnit + 4), marker) + firstUnit + 4;
+    const unitStart = marker[0] === 0x6d ? 4 : 0;
+    analysis.append('v', bytes.slice(0, firstUnit - unitStart + 300), 0);
+    analysis.append('v', bytes.slice(secondUnit - unitStart - 100), 0, true);
+    await analysis.settled();
+
+    expect(harness.unreachable).toEqual([]);
+    expect(harness.requestedPoints().filter(point => point >= 2_000_000).length).toBeGreaterThan(0);
+  });
+
   it('cuts WebCodecs chunk appends into units at keyframes', async () => {
     const harness = createHarness();
     const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });

@@ -60,6 +60,10 @@ class GrowableBytes {
     return this.buffer.subarray(0, this.length);
   }
 
+  clear(): void {
+    this.length = 0;
+  }
+
   take(count: number): Uint8Array {
     const taken = this.buffer.slice(0, count);
     this.buffer.copyWithin(0, count, this.length);
@@ -106,6 +110,23 @@ function readElementHeader(bytes: Uint8Array, offset: number): ElementHeader | n
 
 type WebmState = 'top' | 'segment';
 
+function indexOfMarker(bytes: Uint8Array, markers: readonly (readonly number[])[], from = 0): number {
+  for (let index = from; index < bytes.length; index++) {
+    if (markers.some(marker => marker.every((byte, offset) => bytes[index + offset] === byte))) return index;
+  }
+  return -1;
+}
+
+const WEBM_RESYNC_MARKERS = [
+  [0x1f, 0x43, 0xb6, 0x75],
+  [0x1a, 0x45, 0xdf, 0xa3],
+];
+const MP4_RESYNC_MARKERS = [
+  [0x6d, 0x6f, 0x6f, 0x66],
+  [0x66, 0x74, 0x79, 0x70],
+];
+const MP4_SIZE_FIELD_BYTES = 4;
+
 class WebmCutter {
   private readonly pending = new GrowableBytes();
   private initParts: Uint8Array[] = [];
@@ -114,12 +135,33 @@ class WebmCutter {
   private state: WebmState = 'top';
   private segmentEnd: number | null = null;
   private consumed = 0;
+  private resyncing = false;
+
+  resync(): void {
+    this.pending.clear();
+    this.resyncing = true;
+  }
 
   push(chunk: Uint8Array): CutResult {
     this.pending.push(chunk);
     const result: CutResult = { inits: [], units: [] };
+    if (this.resyncing && !this.skipToUnitStart()) return result;
     while (this.step(result));
     return result;
+  }
+
+  private skipToUnitStart(): boolean {
+    const bytes = this.pending.view();
+    const start = indexOfMarker(bytes, WEBM_RESYNC_MARKERS);
+    if (start < 0) {
+      this.pending.take(Math.max(0, bytes.length - 3));
+      return false;
+    }
+    this.pending.take(start);
+    this.resyncing = false;
+    this.state = 'segment';
+    this.segmentEnd = null;
+    return true;
   }
 
   private step(result: CutResult): boolean {
@@ -208,10 +250,30 @@ class Mp4Cutter {
   private init: InitSegment | null = null;
   private generation = 0;
   private fragment: Uint8Array[] = [];
+  private resyncing = false;
+
+  resync(): void {
+    this.pending.clear();
+    this.fragment = [];
+    this.resyncing = true;
+  }
+
+  private skipToUnitStart(): boolean {
+    const bytes = this.pending.view();
+    const marker = indexOfMarker(bytes, MP4_RESYNC_MARKERS, MP4_SIZE_FIELD_BYTES);
+    if (marker < 0) {
+      this.pending.take(Math.max(0, bytes.length - MP4_SIZE_FIELD_BYTES - 3));
+      return false;
+    }
+    this.pending.take(marker - MP4_SIZE_FIELD_BYTES);
+    this.resyncing = false;
+    return true;
+  }
 
   push(chunk: Uint8Array): CutResult {
     this.pending.push(chunk);
     const result: CutResult = { inits: [], units: [] };
+    if (this.resyncing && !this.skipToUnitStart()) return result;
     for (;;) {
       const box = this.nextBox();
       if (!box) break;
@@ -261,6 +323,7 @@ class Mp4Cutter {
 
 export interface UnitCutter {
   push(chunk: Uint8Array): CutResult;
+  resync(): void;
 }
 
 export function createUnitCutter(kind: ContainerKind): UnitCutter {

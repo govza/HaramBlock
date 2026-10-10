@@ -68,7 +68,8 @@ export type AnalysisStat =
   | { kind: 'analysed'; pointUs: number }
   | { kind: 'cacheHit'; pointUs: number }
   | { kind: 'unitDemuxFailed' }
-  | { kind: 'decodeFailed' };
+  | { kind: 'decodeFailed' }
+  | { kind: 'cacheReadFailed' };
 
 export interface LookaheadEvents {
   sample(sample: StoredSample): void;

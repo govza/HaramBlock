@@ -29,7 +29,6 @@ export const SPAN = {
   apply: 'inference.apply',
   pageSession: 'page.session',
   videoSession: 'video.session',
-  dvrWarmup: 'video.dvr.warmup',
 } as const;
 
 export type MediaKind = 'image' | 'gif' | 'frame';

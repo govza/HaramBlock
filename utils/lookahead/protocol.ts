@@ -17,7 +17,14 @@ export type HookMessage =
   | { t: 'source'; sourceId: number; objectUrl: string; live: boolean }
   | { t: 'buffer'; sourceId: number; bufferId: number; mime: string }
   | { t: 'changeType'; sourceId: number; bufferId: number; mime: string }
-  | { t: 'append'; sourceId: number; bufferId: number; bytes: ArrayBuffer; timestampOffset: number }
+  | {
+      t: 'append';
+      sourceId: number;
+      bufferId: number;
+      bytes: ArrayBuffer;
+      timestampOffset: number;
+      discontinuity?: boolean;
+    }
   | { t: 'chunks'; sourceId: number; bufferId: number; config: VideoDecoderConfig; chunks: WireChunk[] }
   | { t: 'removeBuffer'; sourceId: number; bufferId: number };
 

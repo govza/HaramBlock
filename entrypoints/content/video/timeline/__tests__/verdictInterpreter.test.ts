@@ -104,7 +104,7 @@ describe('VerdictInterpreter clean-cut rule', () => {
     expect(bridged.kind).toBe('unsafe');
 
     expect(track.verdictFor(3.5 + 0.9).kind).toBe('unsafe');
-    expect(track.verdictFor(3.5 + 10)).toEqual({ kind: 'none' });
+    expect(track.verdictFor(3.5 + 10)).toEqual({ kind: 'unsafe', entries: [last] });
 
     const cleanTrack = new VerdictInterpreter();
     add(cleanTrack, entry(1, false));
@@ -153,6 +153,15 @@ describe('VerdictInterpreter clean-cut rule', () => {
 
     expect(track.verdictFor(1.75)).toEqual({ kind: 'clean' });
     expect(track.verdictFor(2.1)).toEqual({ kind: 'clean' });
+  });
+
+  it('holds an unsafe verdict at the frontier until a confirmed clean verdict, however far behind', () => {
+    const track = new VerdictInterpreter();
+    const unsafe = entry(10, true);
+    add(track, entry(9.5, false));
+    add(track, unsafe);
+
+    expect(track.verdictFor(10 + COVERAGE_MAX_GAP_SEC + 3)).toEqual({ kind: 'unsafe', entries: [unsafe] });
   });
 
   it('carries a verdict behind the playhead forward only within the coverage gap', () => {

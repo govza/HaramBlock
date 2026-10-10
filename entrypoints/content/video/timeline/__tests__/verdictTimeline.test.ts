@@ -30,11 +30,8 @@ describe('VerdictTimeline', () => {
     const timeline = new VerdictTimeline();
     for (const t of [1, 1.5, 2, 2.5, 3]) timeline.add(entry(t, false));
 
-    // Mid-range: covered up to the last chained verdict.
     expect(timeline.coverageAheadOf(1.2, 1)).toBeCloseTo(1.8);
-    // Past the last verdict: nothing ahead.
     expect(timeline.coverageAheadOf(3.5, 1)).toBe(0);
-    // Far from any verdict: uncovered.
     expect(timeline.coverageAheadOf(10, 1)).toBe(0);
   });
 
@@ -42,9 +39,7 @@ describe('VerdictTimeline', () => {
     const timeline = new VerdictTimeline();
     for (const t of [1, 1.5, 2, 5, 5.5]) timeline.add(entry(t, false));
 
-    // The 2→5 gap breaks the chain even though later verdicts exist.
     expect(timeline.coverageAheadOf(1.2, 1)).toBeCloseTo(0.8);
-    // Starting inside the later cluster sees only that cluster.
     expect(timeline.coverageAheadOf(4.8, 1)).toBeCloseTo(0.7);
   });
 
@@ -52,7 +47,6 @@ describe('VerdictTimeline', () => {
     const timeline = new VerdictTimeline();
     for (const t of [10, 10.5, 11, 11.5, 12]) timeline.add(entry(t, false));
 
-    // A seek back to 10 finds the watched range still covered.
     expect(timeline.coverageAheadOf(10, 1)).toBeCloseTo(2);
   });
 });

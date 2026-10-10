@@ -171,8 +171,9 @@ Bytes are pulled, not pushed: the hook announces every source (`source`: id, obj
 once, but streams a source's buffer, append and chunk messages only after the host sends `want` for
 it over the same port, and stops again on `drop`. Until then it records them per source, bounded at
 24 MB: metadata and each buffer's first append (its init segment) are kept, later appends are
-evicted oldest first. A page whose videos are never processed therefore never ships its media out of
-the page.
+evicted oldest first, and the append after an eviction is flagged `discontinuity` so the unit cutter
+drops its partial bytes and resynchronises at the next WebM Cluster or fMP4 `moof`. A page whose
+videos are never processed therefore never ships its media out of the page.
 
 ### Progressive range fetch
 
@@ -233,8 +234,9 @@ media URL, or the page URL without fragment for `blob:` sources — `verdictCach
 included. `topUnsafeScore` is the best target-class score from the postprocessor regardless of the
 threshold. The service buffers publishes per (video, model) and merges every 2 s or 50 samples. The
 row also keeps the video's Forced Visibility. Dexie schema v2 clears the old video rows. Live and
-post-live sessions (YouTube flags, or an infinite duration) neither read nor publish; Live Masking
-samples are never cached. Changing strictness empties a site's samples.
+post-live sessions (YouTube flags, or an infinite duration — a duration that turns infinite after
+attach re-opens the tap as live) neither read nor publish; Live Masking samples are never cached.
+Changing strictness empties a site's samples.
 
 ## Mask Presenter
 
@@ -244,8 +246,9 @@ samples are never cached. Changing strictness empties a site's samples.
 - The Verdict Interpreter answers for that time: masks start `PRE_MASK_LEAD_SEC` (100 ms) before an
   unsafe sample and end at the clean sample that closes the span (the clean-cut rule, no trailing
   pad); an unconfirmed clean sample (nothing after it yet) keeps the mask, which is the Live Masking
-  hysteresis. A sample behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s);
-  paused frames mask a tentative sample instantly.
+  hysteresis. A sample behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s),
+  except at the frontier (nothing known after it), where an unsafe sample holds until a confirmed
+  clean sample arrives however late; paused frames mask a tentative sample instantly.
 - The overlay is a div homed next to the video (the shared overlay positioning helpers, shadow-DOM
   aware) with `backdrop-filter` built from the host's masking settings and a `clip-path: path()`
   built from the RLE mask grids mapped onto the rendered content rect. No page pixels are read, so
