@@ -78,21 +78,23 @@ function createOutbox(target: Window): Outbox {
   };
 
   target.addEventListener('message', event => {
-    if (port || event.source !== target) return;
+    if (event.source !== target) return;
     if ((event.data as Record<string, unknown> | null)?.[MSE_HOOK_HANDSHAKE] !== 'port') return;
     const [received] = event.ports;
     if (!received) return;
+    port?.close();
     port = received;
+    for (const stream of streams.values()) stream.wanted = false;
     port.onmessage = (commandEvent: MessageEvent<HookCommand>) => guard(() => onCommand(commandEvent.data));
-    for (const announcement of announcements.splice(0)) port.postMessage(announcement);
+    for (const announcement of announcements) port.postMessage(announcement);
     target.postMessage({ [MSE_HOOK_HANDSHAKE]: 'ack' }, '*');
   });
   target.postMessage({ [MSE_HOOK_HANDSHAKE]: 'ready' }, '*');
 
   return {
     announce(message) {
-      if (port) port.postMessage(message);
-      else announcements.push(message);
+      announcements.push(message);
+      port?.postMessage(message);
     },
     stream(message, transfer = []) {
       const stream = streamOf(message.sourceId);
