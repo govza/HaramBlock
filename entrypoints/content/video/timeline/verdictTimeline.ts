@@ -12,6 +12,13 @@ export interface VerdictEntry {
   height: number;
 }
 
+export interface MediaExtent {
+  durationSec: number;
+  loops: boolean;
+}
+
+const UNBOUNDED_MEDIA: MediaExtent = { durationSec: Number.POSITIVE_INFINITY, loops: false };
+
 export const MAX_TIMELINE_ENTRIES = MAX_VERDICT_TIMELINE_ENTRIES;
 const SAME_TIME_TOLERANCE_SEC = 0.000_001;
 
@@ -37,18 +44,31 @@ export class VerdictTimeline {
     return index - 1;
   }
 
-  coverageAheadOf(fromSec: number, maxGapSec = COVERAGE_MAX_GAP_SEC): number {
+  coverageAheadOf(fromSec: number, media = UNBOUNDED_MEDIA, maxGapSec = COVERAGE_MAX_GAP_SEC): number {
+    const { durationSec } = media;
+    const reach = this.contiguousReachFrom(fromSec, maxGapSec);
+    if (reach === null) return 0;
+    const reachesMediaEnd = Number.isFinite(durationSec) && durationSec > 0 && reach >= durationSec - maxGapSec;
+    if (!reachesMediaEnd) return Math.max(0, reach - fromSec);
+    if (!media.loops) return Number.POSITIVE_INFINITY;
+    const wrappedReach = this.contiguousReachFrom(0, maxGapSec);
+    if (wrappedReach === null) return Math.max(0, durationSec - fromSec);
+    if (wrappedReach >= fromSec - maxGapSec) return Number.POSITIVE_INFINITY;
+    return Math.max(0, durationSec - fromSec) + wrappedReach;
+  }
+
+  private contiguousReachFrom(fromSec: number, maxGapSec: number): number | null {
     let last: number | null = null;
     for (const entry of this.entries) {
       if (entry.timestampSec < fromSec - maxGapSec) continue;
       if (last === null) {
-        if (entry.timestampSec > fromSec + maxGapSec) return 0;
+        if (entry.timestampSec > fromSec + maxGapSec) return null;
       } else if (entry.timestampSec - last > maxGapSec) {
         break;
       }
       last = entry.timestampSec;
     }
-    return last === null ? 0 : Math.max(0, last - fromSec);
+    return last;
   }
 
   indexAfter(mediaTime: number): number {

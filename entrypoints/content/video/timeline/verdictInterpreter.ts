@@ -5,7 +5,11 @@ import {
   TRANSIENT_HIT_CONFIG,
   type TransientHitConfig,
 } from '@/entrypoints/content/video/maskTiming';
-import { VerdictTimeline, type VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
+import {
+  VerdictTimeline,
+  type MediaExtent,
+  type VerdictEntry,
+} from '@/entrypoints/content/video/timeline/verdictTimeline';
 
 import type { LiveVerdict } from '@/entrypoints/content/video/session/videoSession';
 
@@ -74,8 +78,8 @@ export class VerdictInterpreter {
     }
   }
 
-  coverageAheadOf(fromSec: number): number {
-    return this.timeline.coverageAheadOf(fromSec);
+  coverageAheadOf(fromSec: number, media: MediaExtent): number {
+    return this.timeline.coverageAheadOf(fromSec, media);
   }
 
   verdictFor(mediaTime: number, options: VerdictForOptions = {}): VerdictLookup {
