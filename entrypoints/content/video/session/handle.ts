@@ -18,7 +18,7 @@ export interface SessionHandle {
   readonly sessionId: string;
   readonly video: HTMLVideoElement;
   readonly srcObject: HTMLVideoElement['srcObject'];
-  readonly src: string;
+  src: string;
   readonly cacheKey: string;
   readonly trace: UmbrellaSession;
   hostSettings: IHostSettings;
@@ -28,6 +28,8 @@ export interface SessionHandle {
   readonly live: LiveSampler;
   lookahead: LookaheadSession | null;
   lookaheadLive: boolean;
+  mediaDurationSec: number | null;
+  verifyMediaOnDuration: boolean;
   tap: TapKind | null;
   nextFrameIndex: number;
   readonly pendingLive: Map<number, PendingLiveSample>;

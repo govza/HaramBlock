@@ -67,6 +67,7 @@ const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
 
 const THUMBNAIL_FRAME_INDEX = -1;
 const PROGRESS_INTERVAL_MS = 250;
+const SAME_MEDIA_DURATION_TOLERANCE_SEC = 1;
 const LOOKAHEAD_INFERENCE_TIMEOUT_MS = 30_000;
 const SUSPICION_RATIO = 0.5;
 const ATTRIBUTE_BUCKET = 0.05;
@@ -96,6 +97,16 @@ function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): 
   return source.srcObject
     ? handle.srcObject === source.srcObject
     : handle.srcObject === null && handle.src === source.url;
+}
+
+function continuesSameMedia(handle: SessionHandle, source: ResolvedVideoSource): boolean {
+  return (
+    handle.state.phase === 'active' &&
+    handle.srcObject === null &&
+    source.srcObject === null &&
+    handle.cacheKey !== '' &&
+    toVerdictCacheKey(source.url) === handle.cacheKey
+  );
 }
 
 const isLiveDuration = (video: HTMLVideoElement): boolean => video.duration === Number.POSITIVE_INFINITY;
@@ -143,13 +154,18 @@ class VideoSessionRegistry {
     if (this.forced.reconcile(video, source, hostSettings)) return;
 
     const existing = this.byVideo.get(video);
-    if (existing) {
-      if (isSameVideoSource(existing, source) && existing.state.phase !== 'disposed') {
+    if (existing && existing.state.phase !== 'disposed') {
+      if (isSameVideoSource(existing, source)) {
         existing.hostSettings = hostSettings;
         return;
       }
-      this.dispose(video);
+      if (continuesSameMedia(existing, source)) {
+        existing.hostSettings = hostSettings;
+        this.changeSource(existing, source);
+        return;
+      }
     }
+    if (existing) this.dispose(video);
 
     const handle = this.createHandle(video, source, hostSettings);
     this.byId.set(handle.sessionId, handle);
@@ -168,6 +184,41 @@ class VideoSessionRegistry {
     this.queueThumbnail(handle);
     this.openTap(handle, source);
     this.restoreForcedVisibility(handle);
+  }
+
+  private changeSource(handle: SessionHandle, source: ResolvedVideoSource): void {
+    const { video } = handle;
+    log.info('video.session.source_changed', { [ATTR.sessionId]: handle.sessionId, [ATTR.src]: source.url });
+    handle.src = source.url;
+    handle.verifyMediaOnDuration = handle.mediaDurationSec !== null;
+    video.setAttribute(SESSION_SRC_ATTR, handle.src);
+    this.dispatch(handle, {
+      type: 'sourceChanged',
+      coverageAheadSec: this.coverageAheadOf(handle, video.currentTime),
+    });
+  }
+
+  private restartIfDifferentMedia(handle: SessionHandle): boolean {
+    const before = handle.mediaDurationSec;
+    const now = handle.video.duration;
+    if (!Number.isFinite(now)) return false;
+    handle.mediaDurationSec = now;
+    if (!handle.verifyMediaOnDuration || before === null) return false;
+    handle.verifyMediaOnDuration = false;
+    if (Math.abs(now - before) <= SAME_MEDIA_DURATION_TOLERANCE_SEC) return false;
+    const settings = handle.hostSettings;
+    this.dispose(handle.video);
+    this.attach(handle.video, settings);
+    return true;
+  }
+
+  private reopenTap(handle: SessionHandle): void {
+    handle.lookahead?.close();
+    handle.lookahead = null;
+    handle.tap = null;
+    handle.video.removeAttribute(VIDEO_TAP_ATTR);
+    const source = resolveVideoSource(handle.video);
+    if (source) this.openTap(handle, source);
   }
 
   private createHandle(video: HTMLVideoElement, source: ResolvedVideoSource, hostSettings: IHostSettings) {
@@ -197,6 +248,8 @@ class VideoSessionRegistry {
       live: new LiveSampler({ video, sample: timestampSec => void this.sendLiveSample(handle, timestampSec) }),
       lookahead: null,
       lookaheadLive: false,
+      mediaDurationSec: Number.isFinite(video.duration) ? video.duration : null,
+      verifyMediaOnDuration: false,
       tap: null,
       nextFrameIndex: 0,
       pendingLive: new Map(),
@@ -681,6 +734,9 @@ class VideoSessionRegistry {
         case 'requestLiveSample':
           handle.live.requestOnce();
           break;
+        case 'reopenTap':
+          this.reopenTap(handle);
+          break;
         case 'commitSample': {
           const entry = handle.heldSamples.get(effect.sampleId);
           handle.heldSamples.delete(effect.sampleId);
@@ -765,19 +821,13 @@ class VideoSessionRegistry {
     };
     const onRateChange = () => this.sendPlayhead(handle);
     const onDurationChange = () => {
-      const source = resolveVideoSource(video);
-      if (!handle.lookahead || handle.lookaheadLive || !isLiveDuration(video) || !source) return;
-      handle.lookahead.close();
-      handle.lookahead = null;
-      this.openTap(handle, source);
+      if (this.restartIfDifferentMedia(handle)) return;
+      if (!handle.lookahead || handle.lookaheadLive || !isLiveDuration(video)) return;
+      this.reopenTap(handle);
     };
     const onSourceChanged = () => {
       loopRestarts.reset();
-      const current = resolveVideoSource(video);
-      if (current && isSameVideoSource(handle, current)) return;
-      const settings = handle.hostSettings;
-      this.dispose(video);
-      this.attach(video, settings);
+      if (resolveVideoSource(video)) this.attach(video, handle.hostSettings);
     };
 
     video.addEventListener('play', onPlay);

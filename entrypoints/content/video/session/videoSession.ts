@@ -24,6 +24,7 @@ export interface VideoSessionState {
 export type SessionEvent =
   | { type: 'tapReachable' }
   | { type: 'tapUnreachable' }
+  | { type: 'sourceChanged'; coverageAheadSec: number }
   | { type: 'play' }
   | { type: 'pause'; covered: boolean }
   | { type: 'seeked'; paused: boolean; covered: boolean; coverageAheadSec: number }
@@ -43,6 +44,7 @@ export type SessionEffect =
   | { kind: 'startLiveMasking' }
   | { kind: 'stopLiveMasking' }
   | { kind: 'requestLiveSample' }
+  | { kind: 'reopenTap' }
   | { kind: 'commitSample'; sampleId: string }
   | { kind: 'discardSample'; sampleId: string }
   | { kind: 'setStatus'; status: SessionStatus }
@@ -90,6 +92,11 @@ function reduceActive(state: VideoSessionState, event: SessionEvent): ReduceResu
       return releaseTaintedCover({ state: { ...state, tap: 'reachable' }, effects: [] });
     case 'tapUnreachable':
       return state.pixelsTainted ? finalizeSkipped(state) : unchanged({ ...state, tap: 'unreachable' });
+    case 'sourceChanged':
+      return {
+        state: { ...state, coverageAheadSec: event.coverageAheadSec, pausedFrameSampled: false },
+        effects: [{ kind: 'reopenTap' }],
+      };
     case 'play':
       return unchanged({ ...state, pausedFrameSampled: false });
     case 'pause':

@@ -9,6 +9,7 @@ import {
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { maskClipPath } from '@/entrypoints/content/video/presenter/maskClipPath';
 import { createPresentationClock } from '@/entrypoints/content/video/presenter/presentationClock';
+import { isNativeFullscreen, VideoFilterMask } from '@/entrypoints/content/video/presenter/videoFilterMask';
 import { buildMaskingFilter } from '@/utils/masking';
 
 import type { VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
@@ -38,8 +39,10 @@ export class MaskPresenter {
   private geometry: Geometry = { key: '', path: null };
   private filter = '';
   private presentedUnsafe: boolean | null = null;
+  private readonly videoFilterMask: VideoFilterMask;
 
   constructor(private readonly options: MaskPresenterOptions) {
+    this.videoFilterMask = new VideoFilterMask(options.video);
     options.video.addEventListener('playing', this.onPlaying);
   }
 
@@ -103,6 +106,11 @@ export class MaskPresenter {
 
   private show(entries: readonly VerdictEntry[]): void {
     const { video } = this.options;
+    if (isNativeFullscreen(video)) {
+      this.showAsVideoFilter(entries);
+      return;
+    }
+    this.videoFilterMask.clear();
     const context = resolveInjectionContext(video);
     if (!context) return;
     const overlay = this.ensureOverlay();
@@ -134,9 +142,20 @@ export class MaskPresenter {
     this.shownEntries = entries;
   }
 
+  private showAsVideoFilter(entries: readonly VerdictEntry[]): void {
+    this.hideOverlay();
+    this.videoFilterMask.apply(buildMaskingFilter(this.options.masking()));
+    this.shownEntries = entries;
+  }
+
   private hide(): void {
-    if (this.overlay) this.overlay.style.display = 'none';
+    this.hideOverlay();
+    this.videoFilterMask.clear();
     this.shownEntries = null;
+  }
+
+  private hideOverlay(): void {
+    if (this.overlay) this.overlay.style.display = 'none';
   }
 
   private ensureOverlay(): HTMLDivElement {

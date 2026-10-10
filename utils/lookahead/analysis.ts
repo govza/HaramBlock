@@ -414,6 +414,16 @@ interface BufferState {
   chunkConfig: VideoDecoderConfig | null;
 }
 
+export type MseBuffers = ReadonlyMap<string, BufferState>;
+
+function resumedBuffers(released: MseBuffers): Map<string, BufferState> {
+  const buffers = new Map<string, BufferState>();
+  for (const [bufferId, state] of released) {
+    buffers.set(bufferId, { cutter: state.cutter, chunkGroup: [], chunkConfig: state.chunkConfig });
+  }
+  return buffers;
+}
+
 export interface MseAnalysis {
   addBuffer(bufferId: string, mime: string): void;
   changeType(bufferId: string, mime: string): void;
@@ -423,12 +433,17 @@ export interface MseAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   stop(): void;
+  releaseBuffers(): MseBuffers;
   settled(): Promise<void>;
 }
 
-export function createMseAnalysis(ports: LookaheadPorts, options: LookaheadOptions): MseAnalysis {
+export function createMseAnalysis(
+  ports: LookaheadPorts,
+  options: LookaheadOptions,
+  resumeFrom: MseBuffers = new Map(),
+): MseAnalysis {
   const scheduler = new SampleScheduler(ports, options);
-  const buffers = new Map<string, BufferState>();
+  const buffers = resumedBuffers(resumeFrom);
   let arrivals = 0;
   let demuxChain: Promise<void> = Promise.resolve();
 
@@ -496,6 +511,11 @@ export function createMseAnalysis(ports: LookaheadPorts, options: LookaheadOptio
     setPlayhead: playhead => scheduler.setPlayhead(playhead),
     setVisible: visible => scheduler.setVisible(visible),
     stop: () => scheduler.stop(),
+    releaseBuffers: () => {
+      scheduler.stop();
+      for (const state of buffers.values()) state.cutter?.resync();
+      return buffers;
+    },
     settled: async () => {
       await demuxChain;
       await scheduler.settled();
