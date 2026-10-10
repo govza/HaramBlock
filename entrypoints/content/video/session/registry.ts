@@ -591,8 +591,10 @@ class VideoSessionRegistry {
     handle.lastFrameAt = now;
     if (now - handle.lastProgressAt < PROGRESS_INTERVAL_MS) return;
     handle.lastProgressAt = now;
-    const coverageAheadSec = handle.interpreter.coverageAheadOf(mediaTimeSec);
-    if (!video.paused) recordHistogram(METRIC.videoCoverageAheadSec, coverageAheadSec);
+    const coverageAheadSec = this.coverageAheadOf(handle, mediaTimeSec);
+    if (!video.paused && Number.isFinite(coverageAheadSec)) {
+      recordHistogram(METRIC.videoCoverageAheadSec, coverageAheadSec);
+    }
     this.sendPlayhead(handle);
     this.dispatch(handle, { type: 'progress', coverageAheadSec });
   }
@@ -604,6 +606,11 @@ class VideoSessionRegistry {
       playbackRate: video.playbackRate,
       paused: video.paused,
     });
+  }
+
+  private coverageAheadOf(handle: SessionHandle, mediaTimeSec: number): number {
+    const { video } = handle;
+    return handle.interpreter.coverageAheadOf(mediaTimeSec, { durationSec: video.duration, loops: video.loop });
   }
 
   private isPlayheadCovered(handle: SessionHandle): boolean {
@@ -749,7 +756,12 @@ class VideoSessionRegistry {
         this.dispatch(handle, { type: 'loopRestarted' });
         return;
       }
-      this.dispatch(handle, { type: 'seeked', paused: video.paused, covered: this.isPlayheadCovered(handle) });
+      this.dispatch(handle, {
+        type: 'seeked',
+        paused: video.paused,
+        covered: this.isPlayheadCovered(handle),
+        coverageAheadSec: this.coverageAheadOf(handle, video.currentTime),
+      });
     };
     const onRateChange = () => this.sendPlayhead(handle);
     const onDurationChange = () => {

@@ -129,8 +129,8 @@ describe('Video Session: paused frames', () => {
     const { effects } = run([
       { type: 'pause', covered: false },
       { type: 'pause', covered: false },
-      { type: 'seeked', paused: true, covered: true },
-      { type: 'seeked', paused: true, covered: false },
+      { type: 'seeked', paused: true, covered: true, coverageAheadSec: 3 },
+      { type: 'seeked', paused: true, covered: false, coverageAheadSec: 0 },
     ]);
 
     expect(effects.map(kinds)).toEqual([['requestLiveSample'], [], [], ['requestLiveSample']]);
@@ -147,10 +147,43 @@ describe('Video Session: loops and seeks', () => {
     expect(state.liveMasking).toBe(false);
   });
 
-  it('treats a real seek as uncovered until coverage is reported again', () => {
-    const { last } = run([...covered, { type: 'seeked', paused: false, covered: false }]);
+  it('starts Live Masking on a seek into uncovered media', () => {
+    const { last } = run([...covered, { type: 'seeked', paused: false, covered: false, coverageAheadSec: 0 }]);
 
     expect(last).toEqual([{ kind: 'startLiveMasking' }]);
+  });
+
+  it('keeps Live Masking off on a backward seek into covered media', () => {
+    const { last, state } = run([...covered, { type: 'seeked', paused: false, covered: true, coverageAheadSec: 2 }]);
+
+    expect(last).toEqual([]);
+    expect(state.liveMasking).toBe(false);
+  });
+});
+
+describe('Video Session: coverage to the media end', () => {
+  it('stops Live Masking on a fully analysed clip shorter than 5 s', () => {
+    const { state, last } = run([
+      { type: 'tapReachable' },
+      { type: 'play' },
+      { type: 'progress', coverageAheadSec: Number.POSITIVE_INFINITY },
+    ]);
+
+    expect(last).toEqual([{ kind: 'stopLiveMasking' }]);
+    expect(state.liveMasking).toBe(false);
+  });
+
+  it('does not restart Live Masking in the covered tail of a video or loop', () => {
+    const { all } = run([
+      { type: 'tapReachable' },
+      { type: 'play' },
+      { type: 'progress', coverageAheadSec: 8 },
+      { type: 'progress', coverageAheadSec: Number.POSITIVE_INFINITY },
+      { type: 'loopRestarted' },
+      { type: 'progress', coverageAheadSec: Number.POSITIVE_INFINITY },
+    ]);
+
+    expect(kinds(all)).toEqual(['stopLiveMasking']);
   });
 });
 

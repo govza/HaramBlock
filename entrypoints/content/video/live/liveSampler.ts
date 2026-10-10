@@ -82,7 +82,7 @@ function startFrameTicker(video: HTMLVideoElement, onFrame: (at: number, mediaTi
   const tick = () => {
     rafId = requestAnimationFrame(tick);
     if (video.paused || video.ended || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
-    onFrame(performance.now(), video.currentTime);
+    onFrame(performance.now(), foldToMediaTime(video.currentTime, video.duration));
   };
   rafId = requestAnimationFrame(tick);
   return () => {

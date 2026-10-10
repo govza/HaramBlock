@@ -26,7 +26,7 @@ export type SessionEvent =
   | { type: 'tapUnreachable' }
   | { type: 'play' }
   | { type: 'pause'; covered: boolean }
-  | { type: 'seeked'; paused: boolean; covered: boolean }
+  | { type: 'seeked'; paused: boolean; covered: boolean; coverageAheadSec: number }
   | { type: 'loopRestarted' }
   | { type: 'progress'; coverageAheadSec: number }
   | { type: 'verdict'; sampleId: string }
@@ -95,7 +95,7 @@ function reduceActive(state: VideoSessionState, event: SessionEvent): ReduceResu
     case 'pause':
       return samplePausedFrame(state, event.covered);
     case 'seeked': {
-      const next = { ...state, coverageAheadSec: 0, pausedFrameSampled: false };
+      const next = { ...state, coverageAheadSec: event.coverageAheadSec, pausedFrameSampled: false };
       return event.paused ? samplePausedFrame(next, event.covered) : unchanged(next);
     }
     case 'loopRestarted':
