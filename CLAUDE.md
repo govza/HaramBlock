@@ -13,8 +13,8 @@
 
 ### Issue tracker
 
-Issues and PRDs live in the repo's GitHub Issues (`govza/HaramBlock`), managed via the `gh` CLI. See
-`docs/agents/issue-tracker.md`.
+Issues and specs live as local markdown files under `.scratch/<feature>/` (gitignored); no GitHub
+issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
