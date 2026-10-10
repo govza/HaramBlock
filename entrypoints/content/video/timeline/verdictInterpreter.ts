@@ -82,8 +82,10 @@ export class VerdictInterpreter {
     const bridgeHorizonSec = options.bridgeHorizonSec ?? BRIDGE_HORIZON_SEC;
     const after = this.timeline.indexAfter(mediaTime);
     const behind = this.timeline.at(after - 1);
-    const previous = behind && mediaTime - behind.timestampSec <= COVERAGE_MAX_GAP_SEC ? behind : undefined;
     const next = this.timeline.at(after);
+    const heldAtFrontier = !next && (behind?.unsafe === true || this.timeline.at(after - 2)?.unsafe === true);
+    const withinGap = behind !== undefined && mediaTime - behind.timestampSec <= COVERAGE_MAX_GAP_SEC;
+    const previous = withinGap || heldAtFrontier ? behind : undefined;
     const nextIsHit = next ? this.isHit(after) : false;
 
     if (!previous) {

@@ -68,7 +68,7 @@ export class SampleScheduler {
         }
         for (const sample of cached) this.ports.events.sample(sample);
       } catch {
-        this.cacheReady = true;
+        this.ports.events.stat?.({ kind: 'cacheReadFailed' });
       }
     }
     this.cacheReady = true;
@@ -417,7 +417,7 @@ interface BufferState {
 export interface MseAnalysis {
   addBuffer(bufferId: string, mime: string): void;
   changeType(bufferId: string, mime: string): void;
-  append(bufferId: string, bytes: Uint8Array, timestampOffsetSec: number): void;
+  append(bufferId: string, bytes: Uint8Array, timestampOffsetSec: number, discontinuity?: boolean): void;
   appendChunks(bufferId: string, config: VideoDecoderConfig, chunks: readonly EncodedSample[]): void;
   removeBuffer(bufferId: string): void;
   setPlayhead(playhead: Playhead): void;
@@ -474,9 +474,10 @@ export function createMseAnalysis(ports: LookaheadPorts, options: LookaheadOptio
       const kind = containerKindOf(mime);
       buffers.set(bufferId, { cutter: kind ? createUnitCutter(kind) : null, chunkGroup: [], chunkConfig: null });
     },
-    append(bufferId, bytes, timestampOffsetSec) {
+    append(bufferId, bytes, timestampOffsetSec, discontinuity = false) {
       const cutter = bufferFor(bufferId)?.cutter;
       if (!cutter || scheduler.isStopped) return;
+      if (discontinuity) cutter.resync();
       const offsetUs = Math.round(timestampOffsetSec * 1e6);
       for (const unit of cutter.push(bytes).units) enqueueDemux(unit, offsetUs);
     },

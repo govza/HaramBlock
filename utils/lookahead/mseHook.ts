@@ -62,6 +62,10 @@ function createOutbox(target: Window): Outbox {
       if (evictable < 0) break;
       const [evicted] = stream.recorded.splice(evictable, 1);
       stream.recordedBytes -= evicted?.bytes ?? 0;
+      const successor = stream.recorded
+        .slice(evictable)
+        .find(recorded => recorded.message.bufferId === evicted?.message.bufferId && recorded.message.t === 'append');
+      if (successor?.message.t === 'append') successor.message.discontinuity = true;
     }
   };
 

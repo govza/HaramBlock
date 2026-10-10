@@ -27,6 +27,7 @@ export interface SessionHandle {
   readonly presenter: MaskPresenter;
   readonly live: LiveSampler;
   lookahead: LookaheadSession | null;
+  lookaheadLive: boolean;
   tap: TapKind | null;
   nextFrameIndex: number;
   readonly pendingLive: Map<number, PendingLiveSample>;

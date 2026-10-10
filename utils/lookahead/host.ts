@@ -43,7 +43,12 @@ function replayInto(analysis: MseAnalysis, message: HookMessage): void {
       analysis.changeType(String(message.bufferId), message.mime);
       break;
     case 'append':
-      analysis.append(String(message.bufferId), new Uint8Array(message.bytes), message.timestampOffset);
+      analysis.append(
+        String(message.bufferId),
+        new Uint8Array(message.bytes),
+        message.timestampOffset,
+        message.discontinuity,
+      );
       break;
     case 'chunks':
       analysis.appendChunks(
