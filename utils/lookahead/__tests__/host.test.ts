@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createHarness, fixture } from '@/utils/lookahead/__tests__/harness';
+import { createHarness, fileSource, fixture } from '@/utils/lookahead/__tests__/harness';
 import { LookaheadHost } from '@/utils/lookahead/host';
 
 import type { ByteRangeSource } from '@/utils/lookahead/ports';
@@ -9,7 +9,7 @@ import type { HookCommand, HostToContent, OpenAnalysis } from '@/utils/lookahead
 const VP9_MIME = 'video/webm; codecs="vp9"';
 const OBJECT_URL = 'blob:https://example.test/source';
 
-function createHost() {
+function createHost(rangeSource: ByteRangeSource = {} as ByteRangeSource) {
   const harness = createHarness();
   const sent: HostToContent[] = [];
   const commands: HookCommand[] = [];
@@ -17,7 +17,7 @@ function createHost() {
     decoder: () => harness.ports.decoder,
     inference: () => harness.ports.inference,
     cache: () => harness.ports.cache,
-    rangeSource: () => ({}) as ByteRangeSource,
+    rangeSource: () => rangeSource,
     send: message => sent.push(message),
     toHook: command => commands.push(command),
   });
@@ -130,5 +130,38 @@ describe('Lookahead host: opening an MSE session', () => {
 
     expect(sent.at(-1)).toEqual({ t: 'unreachable', sessionId: 'session', reason: 'overflow' });
     expect(commands.at(-1)).toEqual({ t: 'drop', sourceId: 1 });
+  });
+});
+
+const openProgressive = (sessionId: string): OpenAnalysis => ({
+  ...openMse(sessionId),
+  tap: { kind: 'progressive', url: 'https://example.test/video.mp4' },
+  live: false,
+});
+
+describe('Lookahead host: opening a progressive session', () => {
+  it('reports the progressive tap reachable only once the first range request succeeds', async () => {
+    let answerFirstRange: (size: number) => void = () => undefined;
+    const bytes = fixture('progressive-short-gop.mp4');
+    const { source } = fileSource(bytes);
+    const { host, sent } = createHost({
+      size: () => new Promise(resolve => (answerFirstRange = resolve)),
+      read: (start, end) => source.read(start, end),
+    });
+    host.handleContent(openProgressive('session'));
+    await Promise.resolve();
+    expect(sent).toEqual([]);
+
+    answerFirstRange(bytes.length);
+
+    await vi.waitFor(() => expect(sent[0]).toEqual({ t: 'reachable', sessionId: 'session', tap: 'progressive' }));
+  });
+
+  it('reports a rejected first range request unreachable without ever reporting it reachable', async () => {
+    const { source } = fileSource(fixture('progressive-short-gop.mp4'), { failFirst: true });
+    const { host, sent } = createHost(source);
+    host.handleContent(openProgressive('session'));
+
+    await vi.waitFor(() => expect(sent).toEqual([{ t: 'unreachable', sessionId: 'session', reason: 'fetch' }]));
   });
 });

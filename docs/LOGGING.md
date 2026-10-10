@@ -124,8 +124,9 @@ update, counters are monotonic and add each forwarded value). Metric names are d
 
 **Video coverage** (content, `entrypoints/content/video/session/registry.ts`):
 
-- `hb.video.tap.sessions` (counter) - one per resolved session tap, by `hb.video.tap`
-  (mse|progressive|none) and `hb.video.tap.reason` (reachable, none, or hook|fetch|demux|decode).
+- `hb.video.tap.sessions` (counter) - one per session tap, at its first resolution, by
+  `hb.video.tap` (mse|progressive|none) and `hb.video.tap.reason` (reachable, none, hook or fetch).
+  A later demux/decode failure counts in `hb.lookahead.failures`; a later overflow is only logged.
 - `hb.video.coverage_ahead_sec` (histogram) - Verdict Timeline coverage ahead of a playing playhead,
   sampled every 250 ms. Live Masking starts under 1.5 s and stops at 5 s.
 - `hb.video.uncovered_playing_ms` (counter) - playing time with no verdict covering the presented

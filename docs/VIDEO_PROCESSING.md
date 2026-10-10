@@ -220,8 +220,8 @@ messages); on Firefox it calls the services directly.
 - **Sampling**: an MSE unit covering `[first PTS, last PTS + duration)` asks for the level-0 Lattice
   Points inside it. A Progressive Source asks, per GOP, for Lattice Points where the GOP is ≤ 1 s
   and its Keyframe Point otherwise, within a 60 s window ahead of the playhead, refilled as it
-  advances and paused while offscreen. MSE run-ahead is uncapped and driven by appends; units are
-  never dropped unanalysed.
+  advances and paused while offscreen. Refinement Probes beyond the window wait until it reaches
+  them. MSE run-ahead is uncapped and driven by appends; units are never dropped unanalysed.
 - **Ordering**: the next decode job takes the source holding the earliest point at or after the
   playhead; within it, points at or after the playhead go first in playback order, then the rest. At
   most 6 inferences are in flight.
@@ -280,7 +280,8 @@ path (Chrome bitmap over the MessageChannel, Firefox WebP blob) with `sampleKind
 
 ## DOM markers and status
 
-- `data-hb-video-tap` — `mse`, `progressive` or `none`, set when the tap resolves.
+- `data-hb-video-tap` — `mse`, `progressive` or `none`, set when the tap resolves; `progressive`
+  only once the first range request succeeds.
 - `data-hb-session-id`, `data-hb-src` — the session binding (also used by the predecessor sweep).
 - `data-haramblock-processed-safe | -unsafe | -skipped` — exactly one after the first verdict;
   `skipped` only for tainted pixels with no tap. All are removed on disposal.

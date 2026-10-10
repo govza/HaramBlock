@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLEAN, createHarness, fileSource, fixture } from '@/utils/lookahead/__tests__/harness';
+import { CLEAN, createHarness, fileSource, fixture, suspicious, unsafe } from '@/utils/lookahead/__tests__/harness';
 import { createProgressiveAnalysis } from '@/utils/lookahead/analysis';
 
 const OPTIONS = { live: false, suspicionThreshold: 0.25 };
@@ -26,6 +26,50 @@ describe('Lookahead Analysis over a Progressive Source', () => {
 
     expect(harness.requestedPoints()).toEqual([0, 5_000_000, 10_000_000]);
     expect(harness.requests.map(request => request.ptsUs)).toEqual([0, 5_000_000, 10_000_000]);
+  });
+
+  it.each(['90000', '15360'])(
+    'samples the keyframe itself when a %s Hz keyframe PTS falls between microseconds',
+    async timescale => {
+      const harness = createHarness();
+      const { source } = fileSource(fixture(`progressive-timescale-${timescale}.mp4`));
+      const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+      analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
+      await analysis.settled();
+
+      expect(harness.requestedPoints()).toEqual([0, 1_033_334, 2_066_667]);
+      expect(harness.requests.map(request => request.ptsUs)).toEqual([0, 1_033_333, 2_066_667]);
+      expect(harness.jobs.map(job => job.packets.length)).toEqual([1, 1, 1]);
+    },
+  );
+
+  it('decodes a refinement probe inside a long GOP from its keyframe', async () => {
+    const harness = createHarness({ verdictAt: pointUs => (pointUs === 5_000_000 ? unsafe() : CLEAN) });
+    const { source } = fileSource(fixture('progressive-long-gop.mp4'));
+    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
+    await analysis.settled();
+
+    const probeJob = harness.jobs.find(job => job.targets.some(target => target.pointUs === 2_500_000));
+    expect(probeJob?.packets[0]).toMatchObject({ type: 'key', timestampUs: 0 });
+    expect(probeJob?.packets.at(-1)?.timestampUs).toBe(2_500_000);
+  });
+
+  it('keeps a probe beyond the window and runs it once the window reaches it', async () => {
+    const harness = createHarness({ verdictAt: pointUs => (pointUs === 1_000_000 ? suspicious() : CLEAN) });
+    const { source } = fileSource(fixture('progressive-short-gop.mp4'));
+    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source, { windowSec: 1.1 });
+    analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: false });
+    await analysis.settled();
+    expect(harness.requestedPoints()).toEqual([0, 500_000, 1_000_000, 750_000]);
+
+    analysis.setPlayhead({ timeSec: 0.1, playbackRate: 1, paused: false });
+    await analysis.settled();
+    expect(harness.requestedPoints()).not.toContain(1_250_000);
+
+    analysis.setPlayhead({ timeSec: 0.5, playbackRate: 1, paused: false });
+    await analysis.settled();
+    expect(harness.requestedPoints()).toContain(1_250_000);
   });
 
   it('samples short GOPs at Lattice Points', async () => {

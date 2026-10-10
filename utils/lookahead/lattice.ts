@@ -1,7 +1,9 @@
 export const LEVEL0_SPACING_US = 500_000;
 export const FINEST_SPACING_US = 62_500;
 
-export const toPointUs = (seconds: number): number => Math.ceil(Math.round(seconds * 1e7) / 10);
+const FLOAT_NOISE_US = 1e-3;
+
+export const toPointUs = (seconds: number): number => Math.ceil(seconds * 1e6 - FLOAT_NOISE_US);
 
 export const pointToSec = (pointUs: number): number => pointUs / 1e6;
 

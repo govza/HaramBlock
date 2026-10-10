@@ -11,6 +11,8 @@ describe('Sample Lattice', () => {
   it('keys a Keyframe Point by its PTS rounded up to the next µs', () => {
     expect(toPointUs(5.0000004)).toBe(5_000_001);
     expect(toPointUs(2)).toBe(2_000_000);
+    expect(toPointUs(29 / 15_360)).toBe(1_889);
+    expect(toPointUs(0.5)).toBe(500_000);
   });
 
   it('probes the midpoint of two level-0 neighbours on the next level', () => {

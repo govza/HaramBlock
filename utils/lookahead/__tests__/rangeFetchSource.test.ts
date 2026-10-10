@@ -64,4 +64,22 @@ describe('Progressive range fetch', () => {
 
     await expect(source.size()).rejects.toThrow();
   });
+
+  it.each([
+    ['a full-body 200', { status: 200 }],
+    ['a non-media body', { status: 206, headers: { 'Content-Type': 'text/html' } }],
+    ['a body without a total size', { status: 206, headers: { 'Content-Type': 'video/mp4' } }],
+  ])('cancels the body of %s first response instead of downloading it', async (_label, init) => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    const fetchFn = () => Promise.resolve(new Response(body, init));
+    const source = createRangeFetchSource('https://media.test/v.mp4', { fetchFn, blockSize: 64 });
+
+    await expect(source.size()).rejects.toThrow();
+    expect(cancelled).toBe(true);
+  });
 });
