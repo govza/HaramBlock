@@ -751,9 +751,10 @@ class VideoSessionRegistry {
     handle.lookahead?.close();
     handle.lookahead = null;
     handle.presenter.dispose();
+    const hasQueuedInference = handle.pendingLive.size > 0 || handle.pendingLookahead.size > 0;
     for (const resolve of handle.pendingLookahead.values()) resolve(null);
     handle.pendingLookahead.clear();
-    if (handle.pendingLive.size > 0) void cancelVideoSessionInference(handle.sessionId);
+    if (hasQueuedInference) void cancelVideoSessionInference(handle.sessionId);
     handle.pendingLive.clear();
     handle.heldSamples.clear();
     this.suspension.clearGrace(handle);

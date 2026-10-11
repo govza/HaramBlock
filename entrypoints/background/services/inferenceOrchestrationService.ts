@@ -126,6 +126,10 @@ function isQueuedLiveFrame(mediaMetadata: IMediaMetadata): mediaMetadata is IFra
   return mediaMetadata.kind === 'frame' && mediaMetadata.frameIndex >= 0 && mediaMetadata.sampleKind === 'live';
 }
 
+function lookaheadSessionOf(mediaMetadata: IMediaMetadata): string | null {
+  return mediaMetadata.kind === 'frame' && mediaMetadata.sampleKind === 'lookahead' ? mediaMetadata.sessionId : null;
+}
+
 function modelAttributes(): Record<string, string> {
   return { [ATTR.backend]: getInferenceBackend(), [ATTR.modelId]: getCurrentModelId() ?? 'unknown' };
 }
@@ -136,6 +140,7 @@ export class InferenceOrchestrationService {
   private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
   /** At most one not-yet-started playback frame is retained per video session. */
   private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
+  private readonly queuedLookaheadFrames = new Map<string, Map<InferenceTask, AbortController>>();
   private readonly inFlightImages = new Map<ImageTaskKey, { task: InferenceTask; started: boolean }>();
   private queueWaitSpans = new WeakMap<InferenceTask, Span>();
   private readonly resultHandlers = new WeakMap<InferenceTask, (result: IImagePrediction | Error) => void>();
@@ -252,6 +257,7 @@ export class InferenceOrchestrationService {
     if (args.onResult) this.resultHandlers.set(task, args.onResult);
 
     let controller: AbortController | undefined;
+    const lookaheadSessionId = lookaheadSessionOf(mediaMetadata);
     if (isQueuedLiveFrame(mediaMetadata)) {
       const previous = this.queuedPlaybackFrames.get(mediaMetadata.sessionId);
       if (previous) {
@@ -271,6 +277,9 @@ export class InferenceOrchestrationService {
       }
       controller = new AbortController();
       this.queuedPlaybackFrames.set(mediaMetadata.sessionId, { task, controller });
+    } else if (lookaheadSessionId !== null) {
+      controller = new AbortController();
+      this.trackLookaheadFrame(lookaheadSessionId, task, controller);
     }
 
     this.queueWaitSpans.set(
@@ -281,6 +290,7 @@ export class InferenceOrchestrationService {
     if (inFlightKey) this.inFlightImages.set(inFlightKey, { task, started: false });
     this.queueService.enqueue(task, controller?.signal, inFlightKey).catch(error => {
       if (inFlightKey) this.inFlightImages.delete(inFlightKey);
+      this.untrackLookaheadFrame(task);
       if (controller?.signal.aborted) {
         this.endQueueWait(task, 'aborted');
         return;
@@ -387,6 +397,7 @@ export class InferenceOrchestrationService {
 
   /** Abort and release a playback frame that has not started inference yet. */
   cancelVideoSession(sessionId: string): void {
+    this.cancelLookaheadFrames(sessionId);
     const queued = this.queuedPlaybackFrames.get(sessionId);
     if (!queued) return;
     this.queuedPlaybackFrames.delete(sessionId);
@@ -395,7 +406,33 @@ export class InferenceOrchestrationService {
     this.endQueueWait(queued.task, 'aborted');
   }
 
+  private cancelLookaheadFrames(sessionId: string): void {
+    const queued = this.queuedLookaheadFrames.get(sessionId);
+    if (!queued) return;
+    this.queuedLookaheadFrames.delete(sessionId);
+    for (const [task, controller] of queued) {
+      controller.abort();
+      task.bitmap?.close();
+      this.endQueueWait(task, 'aborted');
+    }
+  }
+
+  private trackLookaheadFrame(sessionId: string, task: InferenceTask, controller: AbortController): void {
+    const queued = this.queuedLookaheadFrames.get(sessionId) ?? new Map<InferenceTask, AbortController>();
+    queued.set(task, controller);
+    this.queuedLookaheadFrames.set(sessionId, queued);
+  }
+
+  private untrackLookaheadFrame(task: InferenceTask): void {
+    const sessionId = lookaheadSessionOf(task.mediaMetadata);
+    if (sessionId === null) return;
+    const queued = this.queuedLookaheadFrames.get(sessionId);
+    if (!queued?.delete(task) || queued.size > 0) return;
+    this.queuedLookaheadFrames.delete(sessionId);
+  }
+
   private markPlaybackFrameStarted(task: InferenceTask): void {
+    this.untrackLookaheadFrame(task);
     if (!isQueuedLiveFrame(task.mediaMetadata)) return;
     const queued = this.queuedPlaybackFrames.get(task.mediaMetadata.sessionId);
     if (queued?.task === task) this.queuedPlaybackFrames.delete(task.mediaMetadata.sessionId);
