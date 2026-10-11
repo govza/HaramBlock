@@ -109,6 +109,31 @@ describe('VideoPredictionCacheService', () => {
     expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.readSamples);
   });
 
+  it('reads only after a flush already writing has committed its samples', async () => {
+    repository.findValidByVideoUrl.mockResolvedValueOnce(META);
+    let commitWrite = () => {};
+    repository.mergeSamples.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          commitWrite = resolve;
+        }),
+    );
+    const service = new VideoPredictionCacheService();
+    service.publish(
+      VIDEO_URL,
+      ORIGIN,
+      Array.from({ length: 50 }, (_, index) => sample(index)),
+    );
+    const read = service.getCached(VIDEO_URL);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(repository.readSamples).not.toHaveBeenCalled();
+
+    commitWrite();
+    await read;
+
+    expect(repository.readSamples).toHaveBeenCalled();
+  });
+
   it('reads the forced visibility without loading samples', async () => {
     repository.findValidByVideoUrl.mockResolvedValueOnce(META);
     const service = new VideoPredictionCacheService();
