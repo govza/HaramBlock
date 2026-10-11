@@ -1,5 +1,9 @@
 import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 
+/**
+ * The page's own inline `filter` declaration, saved before the fullscreen mask overrides it and
+ * restored on clear.
+ */
 interface SavedFilter {
   value: string;
   priority: string;

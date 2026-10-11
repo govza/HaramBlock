@@ -2,6 +2,10 @@ import { COVERAGE_MAX_GAP_SEC } from '@/entrypoints/content/video/maskTiming';
 
 import type { IElementPrediction, IMaskTransform } from '@/utils/types';
 
+/**
+ * One sample in the Verdict Timeline (lookahead, cached or live), already judged under the
+ * reader's score threshold.
+ */
 export interface VerdictEntry {
   timestampSec: number;
   unsafe: boolean;
@@ -11,6 +15,9 @@ export interface VerdictEntry {
   height: number;
 }
 
+/**
+ * Media length and looping, so coverage ahead can count to the media end and wrap loops.
+ */
 export interface MediaExtent {
   durationSec: number;
   loops: boolean;

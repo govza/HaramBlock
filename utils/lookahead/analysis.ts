@@ -28,6 +28,10 @@ const MAX_INFLIGHT_INFERENCES = 6;
 const MAX_RETAINED_UNITS = 64;
 const MAX_UNPUBLISHED_SAMPLES = 2_000;
 
+/**
+ * A span of media the scheduler can sample from: one MSE Analysis Unit, or a whole Progressive Source windowed around
+ * the playhead.
+ */
 export interface PointSource {
   readonly startUs: number;
   readonly endUs: number;
@@ -462,6 +466,9 @@ export function jobForPoints(
   return { config, packets: decodable.slice(0, lastNeeded + 1), targets };
 }
 
+/**
+ * Per-SourceBuffer analysis state; the cutter survives a session close so a reopened analysis resumes the stream.
+ */
 interface BufferState {
   cutter: UnitCutter | null;
   chunkGroup: EncodedSample[];
@@ -489,6 +496,10 @@ function resumedBuffers(released: MseBuffers): Map<string, BufferState> {
   return buffers;
 }
 
+/**
+ * Lookahead Analysis of one MSE source, fed the hook's SourceBuffer messages and sampling the Analysis Units they
+ * complete.
+ */
 export interface MseAnalysis {
   addBuffer(bufferId: string, mime: string): void;
   changeType(bufferId: string, mime: string): void;
@@ -601,6 +612,9 @@ export function createMseAnalysis(
 }
 
 const DEFAULT_WINDOW_SEC = 60;
+/**
+ * Lookahead Analysis of a Progressive Source, sampling a window ahead of the playhead with range reads.
+ */
 export interface ProgressiveAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;

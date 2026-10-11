@@ -9,12 +9,20 @@ export class UnreachableFetchError extends Error {
   override readonly name = 'UnreachableFetchError';
 }
 
+/**
+ * One keyframe-to-keyframe span of a Progressive Source and the points sampled in it: Lattice Points for short GOPs,
+ * only the Keyframe Point for long ones.
+ */
 export interface ProgressiveGop {
   startUs: number;
   endUs: number;
   points: number[];
 }
 
+/**
+ * A Progressive Source opened over range reads: its GOP index and on-demand decode jobs that fetch only the packets
+ * they need.
+ */
 export interface ProgressiveFile {
   readonly durationUs: number;
   readonly gops: readonly ProgressiveGop[];

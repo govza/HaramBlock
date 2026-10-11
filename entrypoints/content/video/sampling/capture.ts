@@ -337,6 +337,10 @@ function captureDimensions(
   return { width: Math.round(nativeWidth * scale), height: Math.round(nativeHeight * scale) };
 }
 
+/**
+ * Shared canvas that page captures draw into before `createImageBitmap`; leased to one capture at a
+ * time.
+ */
 export interface DrawingSurface {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;

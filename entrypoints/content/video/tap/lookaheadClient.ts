@@ -26,6 +26,9 @@ const log = getLogger('lookaheadClient');
 
 const MIN_PORT_LIFETIME_FOR_REOPEN_MS = 5_000;
 
+/**
+ * A frame the lookahead host decoded and wants inferred through the shared pipeline.
+ */
 export interface LookaheadInferenceRequest {
   pointUs: number;
   bitmap: ImageBitmap;
@@ -34,6 +37,9 @@ export interface LookaheadInferenceRequest {
   priority: number;
 }
 
+/**
+ * Callbacks through which a lookahead host reports to the VideoSession that opened the analysis.
+ */
 export interface LookaheadHandlers {
   reachable(tap: Exclude<TapKind, 'none'>): void;
   unreachable(reason: UnreachableReason): void;
@@ -42,6 +48,9 @@ export interface LookaheadHandlers {
   infer(request: LookaheadInferenceRequest): Promise<InferredSample | null>;
 }
 
+/**
+ * Content-side control of one open Lookahead Analysis.
+ */
 export interface LookaheadSession {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
@@ -49,6 +58,10 @@ export interface LookaheadSession {
   close(): void;
 }
 
+/**
+ * Transport to the lookahead host: the hidden iframe's port on Chrome, the event page's runtime port
+ * on Firefox.
+ */
 interface HostLink {
   send(message: ContentToHost, transfer?: Transferable[]): void;
 }
@@ -57,6 +70,10 @@ let hookPort: MessagePort | null = null;
 let hookAcknowledged = false;
 let listeningToHook = false;
 let link: HostLink | null = null;
+/**
+ * An open analysis as the client remembers it, so it can be re-opened with its latest playhead,
+ * visibility and liveness after the Firefox host reconnects.
+ */
 interface ClientSession {
   open: OpenAnalysis;
   handlers: LookaheadHandlers;

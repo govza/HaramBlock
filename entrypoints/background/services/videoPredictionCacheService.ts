@@ -17,11 +17,17 @@ const FLUSH_INTERVAL_MS = 2000;
 const FLUSH_ENTRY_THRESHOLD = 50;
 const UNCACHEABLE_URL_PREFIX = 'srcobject:';
 
+/**
+ * Where published samples came from, stored on the video's meta row.
+ */
 export interface VideoSampleOrigin {
   sourceUrl: string;
   hostname: string;
 }
 
+/**
+ * Samples buffered for one video and model until the next flush.
+ */
 interface PendingWrite extends VideoSampleOrigin {
   videoUrl: string;
   modelId: string;

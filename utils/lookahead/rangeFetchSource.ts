@@ -8,6 +8,9 @@ export class RangeFetchRejectedError extends Error {
   override readonly name = 'RangeFetchRejectedError';
 }
 
+/**
+ * Test seams for the range fetcher.
+ */
 interface RangeFetchOptions {
   fetchFn?: typeof fetch;
   blockSize?: number;

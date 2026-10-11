@@ -37,6 +37,9 @@ export function mergeVideoSamples(
 export const isVideoCacheFresh = (record: { cacheMetadata: ICacheMetadata }, now = Date.now()): boolean =>
   isValidPrediction({ cacheMetadata: { ...record.cacheMetadata, createdAt: record.cacheMetadata.accessedAt } }, now);
 
+/**
+ * Fields written to a video's meta row when samples or a forced visibility create it.
+ */
 export interface VideoPredictionOrigin {
   sourceUrl: string;
   hostname: string;

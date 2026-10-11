@@ -11,6 +11,9 @@ import type { Liveness } from '@/utils/lookahead/ports';
 const INSTALLED = Symbol.for('haramblock.mseHook');
 const MAX_RECORDED_BYTES_PER_SOURCE = 48 * 1024 * 1024;
 
+/**
+ * Hook-side bookkeeping for one page SourceBuffer, holding copied appends until the browser confirms them on `update`.
+ */
 interface HookedBuffer {
   sourceId: number;
   bufferId: number;
@@ -21,27 +24,44 @@ interface HookedBuffer {
 type AnnouncedMessage = Extract<HookMessage, { t: 'source' | 'liveness' }>;
 type StreamedMessage = Exclude<HookMessage, { t: 'source' | 'liveness' | 'overflow' }>;
 
+/**
+ * The hook's sending side: announcements go to every port, streamed messages only to a source the host wants (otherwise
+ * recorded).
+ */
 interface Outbox {
   announce(message: AnnouncedMessage): void;
   stream(message: StreamedMessage, transfer?: Transferable[]): void;
 }
 
+/**
+ * A streamed message held for a source nobody wants yet, replayed in order on the next `want`.
+ */
 interface Recorded {
   message: StreamedMessage;
   transfer: Transferable[];
   pinned?: boolean;
 }
 
+/**
+ * Init-segment bytes kept for a buffer so a replacement port's host can decode it without the original appends.
+ */
 interface InitPiece {
   bytes: ArrayBuffer;
   timestampOffset: number;
 }
 
+/**
+ * What a new host needs to resume a buffer it never saw created: its `buffer` message and latest init segment.
+ */
 interface BufferPreamble {
   bufferMessage: Extract<HookMessage, { t: 'buffer' }>;
   init: InitPiece[];
 }
 
+/**
+ * Per-source pull state of the hook: whether it is wanted, its recorded backlog, and which buffers need a resync or
+ * re-introduction.
+ */
 interface SourceStream {
   wanted: boolean;
   resumable: boolean;
@@ -287,6 +307,9 @@ function sliceOf(data: unknown): ArrayBuffer | null {
   return null;
 }
 
+/**
+ * The fields of YouTube's player response that tell a live or post-live DVR stream from VOD.
+ */
 interface YouTubeVideoDetails {
   videoId?: string;
   isLive?: boolean;

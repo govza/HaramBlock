@@ -13,6 +13,9 @@ export const LOOKAHEAD_HOST_PAGE = '/lookahead-host.html' as const;
 
 export type FirefoxPortMessage = { k: 'hook'; m: HookMessage } | { k: 'content'; m: ContentToHost };
 
+/**
+ * An `EncodedVideoChunk` from `appendEncodedChunks`, copied into a transferable buffer for the host.
+ */
 export interface WireChunk {
   type: 'key' | 'delta';
   timestampUs: number;
@@ -44,6 +47,10 @@ export type TapRequest = { kind: 'mse'; objectUrl: string } | { kind: 'progressi
 
 export type TapKind = 'mse' | 'progressive' | 'none';
 
+/**
+ * The content script's request to start Lookahead Analysis for a VideoSession; re-sending it for the same session
+ * replaces the analysis.
+ */
 export interface OpenAnalysis {
   t: 'open';
   sessionId: string;

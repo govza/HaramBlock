@@ -20,6 +20,9 @@ import type { ContentToHost, HookCommand, HookMessage, HostToContent, OpenAnalys
 
 const SOURCE_WAIT_MS = 3_000;
 
+/**
+ * Environment the Lookahead host needs: per-session analysis ports plus links to the content script and the MSE hook.
+ */
 export interface HostPorts {
   decoder(open: OpenAnalysis): DecoderPort;
   inference(open: OpenAnalysis): InferencePort;
@@ -29,6 +32,10 @@ export interface HostPorts {
   toHook(command: HookCommand): void;
 }
 
+/**
+ * A `MediaSource` the hook announced, the analysis it currently feeds, and the buffers kept from its last analysis for
+ * resumption.
+ */
 interface HookedSource {
   objectUrl: string;
   liveness: Liveness;

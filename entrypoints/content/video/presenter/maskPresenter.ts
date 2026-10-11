@@ -17,6 +17,10 @@ import type { VerdictForOptions, VerdictInterpreter } from '@/entrypoints/conten
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
 import type { IMaskingSettings } from '@/utils/types';
 
+/**
+ * What the Mask Presenter needs from its VideoSession: the video it overlays, the Verdict
+ * Interpreter it queries each frame, and callbacks reporting what it presented.
+ */
 export interface MaskPresenterOptions {
   video: HTMLVideoElement;
   interpreter: VerdictInterpreter;
@@ -26,6 +30,10 @@ export interface MaskPresenterOptions {
   onFrame(mediaTimeSec: number): void;
 }
 
+/**
+ * Last applied overlay placement and clip path; `key` changes when position or size changes, so
+ * styles are rewritten only then.
+ */
 interface Geometry {
   key: string;
   path: string | null;

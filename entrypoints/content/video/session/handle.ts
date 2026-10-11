@@ -9,11 +9,19 @@ import type { TapKind } from '@/utils/lookahead/protocol';
 import type { UmbrellaSession } from '@/utils/telemetry/roundtrip';
 import type { IHostSettings } from '@/utils/types';
 
+/**
+ * A Live Masking frame sent for inference and awaiting its result.
+ */
 export interface PendingLiveSample {
   timestampSec: number;
   sentAt: number;
 }
 
+/**
+ * Mutable runtime state of one VideoSession held by the registry: the pure reducer state plus
+ * everything impure around it (presenter, Live Masking sampler, lookahead session, in-flight
+ * inference, listeners and telemetry).
+ */
 export interface SessionHandle {
   readonly sessionId: string;
   readonly video: HTMLVideoElement;
