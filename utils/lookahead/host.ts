@@ -76,7 +76,7 @@ function replayInto(
 export class LookaheadHost {
   private readonly sources = new Map<number, HookedSource>();
   private readonly sessions = new Map<string, Analysis>();
-  private readonly waiters = new Map<string, (sourceId: number) => void>();
+  private readonly waiters = new Map<string, Set<(sourceId: number) => void>>();
   private readonly latestOpens = new Map<string, OpenAnalysis>();
   private readonly contentLiveness = new Map<string, Liveness>();
 
@@ -90,7 +90,7 @@ export class LookaheadHost {
         analysis: null,
         released: new Map(),
       });
-      this.waiters.get(message.objectUrl)?.(message.sourceId);
+      for (const notify of this.waiters.get(message.objectUrl) ?? []) notify(message.sourceId);
       return;
     }
     if (message.t === 'liveness') {
@@ -242,15 +242,16 @@ export class LookaheadHost {
       if (source.objectUrl === objectUrl) return Promise.resolve(sourceId);
     }
     return new Promise(resolve => {
-      const timer = setTimeout(() => {
-        this.waiters.delete(objectUrl);
-        resolve(null);
-      }, SOURCE_WAIT_MS);
-      this.waiters.set(objectUrl, sourceId => {
+      const waiting = this.waiters.get(objectUrl) ?? new Set();
+      this.waiters.set(objectUrl, waiting);
+      const settle = (sourceId: number | null) => {
         clearTimeout(timer);
-        this.waiters.delete(objectUrl);
+        waiting.delete(settle);
+        if (waiting.size === 0 && this.waiters.get(objectUrl) === waiting) this.waiters.delete(objectUrl);
         resolve(sourceId);
-      });
+      };
+      const timer = setTimeout(() => settle(null), SOURCE_WAIT_MS);
+      waiting.add(settle);
     });
   }
 }
