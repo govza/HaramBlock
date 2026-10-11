@@ -50,7 +50,7 @@ each side of a Suspicious Clean sample. Both plans derive from stored labels and
 every reader of the same samples plans the same probes. _Avoid_: bisection sample
 
 **Suspicious Clean**: A clean sample whose top unsafe score is at least the suspicion threshold
-(half the strictness score threshold). _Avoid_: near miss
+(half the reader's own score threshold) but below the threshold itself. _Avoid_: near miss
 
 **Verdict Timeline**: The session-lifetime, media-time-keyed sample history
 (`timeline/verdictTimeline.ts`). Lookahead, cached and Live Masking samples are indistinguishable in
@@ -110,12 +110,13 @@ Android (ADR [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)).
 | Host runtime          | `utils/lookahead/{host,webCodecsDecoder,rangeFetchSource,protocol}.ts`                                    | Source registry and per-session analyses; WebCodecs decode; range fetch; wire protocol                     |
 | Chrome host           | `entrypoints/lookahead-host/`                                                                             | Hidden extension iframe running the host runtime                                                           |
 | Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                 | Host runtime in the event page, fed over `runtime.connect`                                                 |
-| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts` | Buffered persistence of lookahead samples per video identity and model                                     |
+| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts` | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
+| Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                   | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
 | Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                              | Blacklist styling or registry attachment                                                                   |
 
 ## The Video Session reducer
 
-`videoSession.ts` is a pure reducer like the machine it replaced, minus DVR and audio-route state.
+`videoSession.ts` is a pure reducer: no DOM, timers or transport.
 
 - **Events**: `tapReachable`, `tapUnreachable`, `sourceChanged{coverageAheadSec}`, `play`,
   `pause{covered}`, `seeked{paused, covered}`, `loopRestarted`, `progress{coverageAheadSec}`,
@@ -248,17 +249,33 @@ hidden). The background keeps the one-queued-frame-per-session rule for live fra
 ### Sampling contract and cache
 
 A sample is identified by (video identity, `modelId`, point in integer µs); readers accept a stored
-sample only for its exact point. The `videoPredictions` table holds one row per video identity (the
-media URL, or the page URL without fragment for `blob:` sources — `verdictCacheKey.ts`) with
-`samplesByModel[modelId]`: `{ pointUs, predictions, input, topUnsafeScore }`, clean samples
-included. `topUnsafeScore` is the best target-class score from the postprocessor regardless of the
-threshold. The service buffers publishes per (video, model) and merges every 2 s or 50 samples. The
-row also keeps the video's Forced Visibility. Dexie schema v2 clears the old video rows. Live and
-post-live sessions neither read nor publish; Live Masking samples are never cached. A session's
-liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's duration
-(infinite → `live`, finite → `vod`, unset → `unknown`), re-sent on every `durationchange`. Samples
-analysed while it is `unknown` are held, published once it is `vod`, and dropped if it turns `live`;
-`live` is final for the session. Changing strictness empties a site's samples.
+sample only for its exact point. Video frames are inferred at the floor threshold
+(`MIN_SCORE_THRESHOLD`, 0.05) whatever the site's strictness, so a stored sample means the same to
+every reader: `{ pointUs, scores, input, topUnsafeScore }`, clean samples included. `scores` is raw
+— `detections` (instance models, floor detections) or `grid` (semantic models, an `IScoreGrid` of
+uint8 value-runs for per-cell probability and class id, `utils/scoreGrid.ts`). `topUnsafeScore` is
+the best target-class score. Each reader applies its own strictness on read (`predictionsAt` /
+`isUnsafeAt` in `utils/lookahead/sampleScores.ts`) when building the Verdict Timeline and planning
+Refinement Probes; the suspicion threshold is `suspicionThresholdOf` (half the reader's threshold).
+Changing strictness rebuilds the content pipeline, so new sessions re-read the same samples under
+the new threshold; video samples are never cleared for it.
+
+Dexie schema v3 splits the cache. `videoPredictions` holds one meta row per video identity (the
+media URL, or the page URL without fragment for `blob:` sources — `verdictCacheKey.ts`) with the
+video's Forced Visibility, cache metadata and `sampleCounts` per model (for the Cache Browser).
+`videoSamples` holds the samples in 5-minute media-time buckets keyed
+`[videoUrl+modelId+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There is no per-video sample cap;
+expiry follows the meta row's `accessedAt`, and an expired video is purged before a merge.
+`getVideoForcedVisibility` reads the meta row alone. The service buffers publishes per (video,
+model) and merges every 2 s or 50 samples; `getCached` flushes pending writes first. The Verdict
+Timeline keeps at most 4000 entries and evicts the one farthest from the playhead; evicted spans are
+not re-read from the cache.
+
+Live and post-live sessions neither read nor publish; Live Masking samples are never cached. A
+session's liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's
+duration (infinite → `live`, finite → `vod`, unset → `unknown`), re-sent on every `durationchange`.
+Samples analysed while it is `unknown` are held, published once it is `vod`, and dropped if it turns
+`live`; `live` is final for the session.
 
 ## Mask Presenter
 

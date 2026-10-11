@@ -11,8 +11,8 @@ state is **session-scoped, never persisted**:
 - State lives in the `VideoSessionRegistry` per (element × resolved source). A source change
   drops the override; two elements playing the same URL toggle independently. This also makes
   blob:/MSE sources (YouTube) work — no stable URL is needed.
-- `'visible'` is fully hands-off: the VideoSession is disposed (no sampling, no inference, no
-  DVR, no audio delay). Returning to `'auto'` re-adopts the video for a fresh verdict.
+- `'visible'` is fully hands-off: the VideoSession is disposed (no lookahead, no Live Masking,
+  no inference, no masks). Returning to `'auto'` re-adopts the video for a fresh verdict.
 - `'blocked'` disposes the session and applies the blacklist-style whole-video mask.
 - Entry point: `videoSessions.setForcedVisibility(video, next)` — wired as the registration's
   per-element `onToggle`, since there is no src-keyed store to route through. Forced videos

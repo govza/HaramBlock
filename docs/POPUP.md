@@ -124,7 +124,8 @@ A slider controlling the AI detection confidence threshold (0-100%). Higher valu
 confidence before flagging content.
 
 **Side effect**: Changing strictness clears the image cache for the current hostname, forcing
-re-inference with the new threshold.
+re-inference with the new threshold. Video samples are kept: they store raw floor scores and each
+reader applies the new threshold on read ([VIDEO_PROCESSING.md](VIDEO_PROCESSING.md)).
 
 ### BlurIntensity / PixelationScale
 

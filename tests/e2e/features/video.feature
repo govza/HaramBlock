@@ -40,6 +40,7 @@ Feature: Video Masking
     And lookahead analysis has published an unsafe sample for the video
     And I play the test video while recording mask visibility
     Then the mask was visible when playback reached the first unsafe sample
+    And no mask was visible over the clean span before it
     And the video is verdicted "unsafe" within the inference timeout
 
   Scenario: A video with an unreachable bitstream falls back to Live Masking

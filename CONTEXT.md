@@ -25,20 +25,18 @@ See [MEDIA_PROCESSING.md](docs/MEDIA_PROCESSING.md)
 permissions exempt background fetch from CORS), so the content script can decode it origin-clean.
 _Avoid_: proxy fetch, CORS bypass. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
-**Verdict Interpreter**: The single reader of a video's raw playback verdicts. Decides what covers
-each presented frame and classifies each Live Masking sample for the Video Session, so masking and
-status share one confirmation rule. _Avoid_: verdict filter, smoothing. See
+**Video Session**: One video element playing one media source, from adoption to disposal: its
+Bitstream Tap, Live Masking, Verdict Timeline and status. A same-media source change (a YouTube
+quality switch) keeps it. _Avoid_: video machine, video processor. See
 [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
-**Transient Hit**: A run of at most `maxSuppressedRun` consecutive low-confidence unsafe playback
-samples with a clean edge on each side (an adjacent clean sample, or a coverage gap before the run).
-Treated as clean everywhere — a model hallucination is never shown as a mask flash. Under Live
-Masking a low-confidence unsafe sample is re-sampled at once instead. _Avoid_: false positive, blip.
-See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
+**Verdict Timeline**: A Video Session's media-time-keyed history of samples — lookahead, cached and
+Live Masking alike; two samples at the same time keep the unsafe one. _Avoid_: verdict track. See
+[VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
-**Confident Hit**: An unsafe sample whose top detection probability reaches
-`min(scoreThreshold × confidenceCoefficient, confidenceCap)`. One Confident Hit makes its run a real
-hit, however short. _Avoid_: strong hit. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
+**Verdict Interpreter**: The single reader of a video's raw playback verdicts. Decides what covers
+each presented frame, so masking and status share one reading of the verdicts. _Avoid_: verdict
+filter, smoothing. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
 **Lookahead Analysis**: Analysing a video's encoded bitstream ahead of its playhead, so verdicts
 exist before the native element paints the frames they describe; the page's video and audio play
@@ -115,6 +113,9 @@ _Avoid_: bisection sample, extra sample
 **Suspicious Clean**: A clean sample whose top unsafe probability is above the suspicion threshold
 but below the unsafe threshold; it triggers Refinement Probes on both sides. _Avoid_: near miss,
 borderline hit
+
+**Suspicion Threshold**: A fixed fraction of the reader's own score threshold; the lower edge of
+Suspicious Clean. _Avoid_: borderline band, near-miss threshold
 
 **Loop Wrap**: A backward jump in a looping video's media time of more than half its duration — the
 playhead going from the tail back to the head. _Avoid_: loop seek
