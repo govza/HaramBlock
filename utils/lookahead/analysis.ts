@@ -27,6 +27,24 @@ export const URGENT_SLACK_SEC = 5;
 const MAX_INFLIGHT_INFERENCES = 6;
 const MAX_RETAINED_UNITS = 64;
 const MAX_UNPUBLISHED_SAMPLES = 2_000;
+const REPLAY_BEHIND_US = 30e6;
+const REPLAY_AHEAD_US = 300e6;
+
+/**
+ * A half-open span of media time, in microseconds, whose known samples the reader was last sent.
+ */
+interface TimeWindowUs {
+  startUs: number;
+  endUs: number;
+}
+
+const replayWindowAround = (playhead: Playhead): TimeWindowUs => {
+  const playheadUs = playhead.timeSec * 1e6;
+  return { startUs: playheadUs - REPLAY_BEHIND_US, endUs: playheadUs + REPLAY_AHEAD_US };
+};
+
+const isWithin = (window: TimeWindowUs, pointUs: number): boolean =>
+  pointUs >= window.startUs && pointUs < window.endUs;
 
 /**
  * A span of media the scheduler can sample from: one MSE Analysis Unit, or a whole Progressive Source windowed around
@@ -61,6 +79,7 @@ export class SampleScheduler {
   private idleWaiters: (() => void)[] = [];
   private liveness: Liveness;
   private unpublished: StoredSample[] = [];
+  private replayWindow: TimeWindowUs | null = null;
 
   constructor(
     private readonly ports: LookaheadPorts,
@@ -79,6 +98,7 @@ export class SampleScheduler {
           this.cachedUnreported.add(sample.pointUs);
         }
         for (const sample of cached) this.ports.events.sample(sample);
+        this.replayWindow = replayWindowAround(this.playhead);
       } catch {
         this.ports.events.stat?.({ kind: 'cacheReadFailed' });
       }
@@ -98,7 +118,23 @@ export class SampleScheduler {
 
   setPlayhead(playhead: Playhead): void {
     this.playhead = playhead;
+    this.replayKnownAroundPlayhead();
     this.schedulePump();
+  }
+
+  /**
+   * Re-sends known samples entering the window around the playhead: the reader's Verdict Timeline
+   * is capped and may have evicted them, and they are never inferred again.
+   */
+  private replayKnownAroundPlayhead(): void {
+    if (!this.cacheReady) return;
+    const previous = this.replayWindow;
+    const next = replayWindowAround(this.playhead);
+    this.replayWindow = next;
+    for (const sample of this.sortedKnown()) {
+      if (!isWithin(next, sample.pointUs) || (previous && isWithin(previous, sample.pointUs))) continue;
+      this.ports.events.sample(sample);
+    }
   }
 
   currentPlayhead(): Playhead {

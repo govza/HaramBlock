@@ -133,4 +133,21 @@ describe('Lookahead Analysis over a Progressive Source', () => {
     const mediaStart = mdatOffset(bytes) + 16;
     expect(reads.filter(([, end]) => end > mediaStart)).toEqual([]);
   });
+
+  it('re-sends known samples as the playhead approaches them, so an evicted verdict returns', async () => {
+    const far = { pointUs: 400_000_000, ...CLEAN };
+    const harness = createHarness({ cached: [{ pointUs: 0, ...CLEAN }, far] });
+    const { source } = fileSource(fixture('progressive-short-gop.mp4'));
+    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
+    await analysis.settled();
+    const emittedFar = () => harness.emitted.filter(sample => sample.pointUs === far.pointUs).length;
+    expect(emittedFar()).toBe(1);
+
+    analysis.setPlayhead({ timeSec: 390, playbackRate: 1, paused: true });
+    analysis.setPlayhead({ timeSec: 391, playbackRate: 1, paused: true });
+    await analysis.settled();
+
+    expect(emittedFar()).toBe(2);
+  });
 });
