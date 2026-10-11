@@ -3,6 +3,10 @@ import { decodeMaskRLE } from '@/utils/rle';
 
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
 
+/**
+ * Rectangle of unsafe mask-grid cells merged across rows, turned into one `clip-path` subpath.
+ * Coordinates are cell indices, end-exclusive.
+ */
 interface CellRect {
   x0: number;
   x1: number;

@@ -1,21 +1,34 @@
 export type ContainerKind = 'webm' | 'mp4';
 
+/**
+ * A SourceBuffer's init segment (EBML header + Segment info, or `ftyp` + `moov`) that its Analysis Units are demuxed
+ * against.
+ */
 export interface InitSegment {
   readonly generation: number;
   readonly bytes: Uint8Array;
 }
 
+/**
+ * Marks where, within an Analysis Unit, bytes from an append with a different `timestampOffset` begin.
+ */
 export interface OffsetSpan {
   readonly fromByte: number;
   readonly offsetUs: number;
 }
 
+/**
+ * One cut Analysis Unit (a WebM Cluster or an fMP4 `moof`…`mdat` pair) with the init it decodes against.
+ */
 export interface AnalysisUnitBytes {
   readonly init: InitSegment;
   readonly bytes: Uint8Array;
   readonly offsets: readonly OffsetSpan[];
 }
 
+/**
+ * What one push into a unit cutter completed: init segments in arrival order and the Analysis Units cut after them.
+ */
 export interface CutResult {
   inits: InitSegment[];
   units: AnalysisUnitBytes[];
@@ -44,6 +57,9 @@ export function containerKindOf(mime: string): ContainerKind | null {
   return null;
 }
 
+/**
+ * The byte range one append occupies in the cutter's stream and the `timestampOffset` it was appended with.
+ */
 interface AppendRecord {
   startPosition: number;
   endPosition: number;
@@ -102,6 +118,9 @@ class GrowableBytes {
   }
 }
 
+/**
+ * An EBML variable-length integer and how many bytes it took.
+ */
 interface VintRead {
   value: number;
   length: number;
@@ -124,6 +143,9 @@ function readVint(bytes: Uint8Array, offset: number, keepMarker: boolean): VintR
   return { value, length, unknown: !keepMarker && allOnes };
 }
 
+/**
+ * A parsed EBML element header.
+ */
 interface ElementHeader {
   id: number;
   headerLength: number;
@@ -375,6 +397,9 @@ class Mp4Cutter {
   }
 }
 
+/**
+ * Cuts one SourceBuffer's byte stream (not its appends) into Analysis Units, whatever the append boundaries.
+ */
 export interface UnitCutter {
   push(chunk: Uint8Array, offsetUs?: number): CutResult;
   endOfStream(): CutResult;

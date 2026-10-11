@@ -1,5 +1,9 @@
 import type { AnalysisFrame, DecodedTarget, DecodeJob, DecoderPort } from '@/utils/lookahead/ports';
 
+/**
+ * A decoded frame downscaled to the model input as a transferable bitmap, keeping the source dimensions for mask
+ * mapping.
+ */
 export interface BitmapFrame extends AnalysisFrame {
   bitmap: ImageBitmap;
   originalWidth: number;

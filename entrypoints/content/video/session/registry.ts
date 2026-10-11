@@ -116,6 +116,10 @@ function continuesSameMedia(handle: SessionHandle, source: ResolvedVideoSource):
 
 const documentVisible = (): boolean => globalThis.document?.visibilityState !== 'hidden';
 
+/**
+ * A video attached before its source resolved: the settings to attach with once it does, and how
+ * to stop waiting.
+ */
 interface PendingAttachment {
   hostSettings: IHostSettings;
   cancel: () => void;

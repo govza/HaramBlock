@@ -3,6 +3,10 @@ import { SAMPLE_FLOOR_MS } from '@/entrypoints/content/video/maskTiming';
 
 export const LIVE_SAMPLE_TIMEOUT_MS = 3_000;
 
+/**
+ * Wiring for the Live Masking sampler: the video whose page pixels it samples and the callback that
+ * captures one sample.
+ */
 export interface LiveSamplerOptions {
   video: HTMLVideoElement;
   sample(timestampSec: number): void;

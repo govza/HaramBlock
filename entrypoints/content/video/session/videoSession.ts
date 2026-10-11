@@ -7,6 +7,9 @@ export type TapState = 'pending' | 'reachable' | 'unreachable';
 export type SessionPhase = 'active' | 'skipped' | 'disposed';
 export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 
+/**
+ * Pure state of one VideoSession, advanced only by the reducer.
+ */
 export interface VideoSessionState {
   phase: SessionPhase;
   tap: TapState;
@@ -21,6 +24,9 @@ export interface VideoSessionState {
   unsafeSeen: boolean;
 }
 
+/**
+ * Birth options for a VideoSession.
+ */
 export interface VideoSessionOptions {
   unsafeSeen?: boolean;
 }
@@ -53,6 +59,9 @@ export type SessionEffect =
   | { kind: 'setStatus'; status: SessionStatus }
   | { kind: 'cleanup' };
 
+/**
+ * Next state plus the side effects the registry must execute, in order.
+ */
 export interface ReduceResult {
   state: VideoSessionState;
   effects: SessionEffect[];

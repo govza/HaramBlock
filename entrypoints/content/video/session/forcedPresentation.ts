@@ -25,6 +25,10 @@ function matchesForcedSource(entry: ForcedEntry, source: ResolvedVideoSource): b
   return source.srcObject ? entry.srcObject === source.srcObject : entry.srcObject === null && entry.url === source.url;
 }
 
+/**
+ * Registry callbacks that Forced Presentation uses to hand a video back to a VideoSession or drop
+ * its session when a Quick Toggle override is set or cleared.
+ */
 export interface ForcedPresentationPorts {
   attach: (video: HTMLVideoElement, hostSettings: IHostSettings) => void;
   disposeSession: (video: HTMLVideoElement) => void;

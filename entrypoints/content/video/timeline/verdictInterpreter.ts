@@ -7,6 +7,9 @@ import {
 
 export type VerdictLookup = { kind: 'unsafe'; entries: VerdictEntry[] } | { kind: 'clean' } | { kind: 'none' };
 
+/**
+ * Mode-dependent rules for a Verdict Interpreter lookup.
+ */
 export interface VerdictForOptions {
   bridgeHorizonSec?: number;
   holdUntilConfirmedClean?: boolean;

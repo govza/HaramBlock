@@ -1,8 +1,16 @@
+/**
+ * Read-only view of the media properties that decide whether a backward jump in media time is a
+ * Loop Wrap.
+ */
 export interface LoopingMedia {
   duration(): number;
   loops(): boolean;
 }
 
+/**
+ * Media view for Loop Restart detection; the playback rate scales how close to the loop edges a
+ * seek must land.
+ */
 export interface LoopRestartMedia extends LoopingMedia {
   playbackRate(): number;
 }
@@ -42,6 +50,10 @@ export function isLoopRestartSeek(media: LoopRestartMedia, previousTime: number 
   );
 }
 
+/**
+ * Tracks the last playback position so a `seeked` can be classified as the browser's own Loop
+ * Restart rather than a user seek, which would otherwise reset coverage.
+ */
 export interface LoopRestartDetector {
   observePlayback(currentTime: number, seeking: boolean): void;
   isLoopRestart(currentTime: number): boolean;

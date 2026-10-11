@@ -1,3 +1,6 @@
+/**
+ * The media a video element currently plays: a `srcObject` stream or a URL.
+ */
 export interface ResolvedVideoSource {
   srcObject: HTMLVideoElement['srcObject'];
   url: string;

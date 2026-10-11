@@ -4,6 +4,9 @@ import { concat, type AnalysisUnitBytes } from '@/utils/lookahead/byteStream';
 
 import type { EncodedSample } from '@/utils/lookahead/ports';
 
+/**
+ * An Analysis Unit demuxed into decodable packets in page media time.
+ */
 export interface DemuxedUnit {
   config: VideoDecoderConfig;
   packets: EncodedSample[];
