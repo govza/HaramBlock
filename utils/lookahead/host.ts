@@ -195,7 +195,7 @@ export class LookaheadHost {
       cache: this.ports.cache(open),
       events: this.events(open),
     };
-    const options = { liveness: open.liveness, suspicionThreshold: open.suspicionThreshold };
+    const options = { liveness: open.liveness, scoreThreshold: open.scoreThreshold };
     if (open.tap.kind === 'progressive') {
       const bytes = this.ports.rangeSource(open.tap.url);
       let reported = false;

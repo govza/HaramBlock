@@ -3,11 +3,15 @@ import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
 import { acquireModelRuntime, getBackend, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
-import { getPostprocessor, type TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors';
-import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
+import {
+  getPostprocessor,
+  type PostprocessResult,
+  type TypedResults,
+} from '@/utils/inference/runtimes/onnx/postprocessors';
+import { MIN_SCORE_THRESHOLD, strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger } from '@/utils/telemetry';
 
-import type { IImagePrediction, IMaskTransform, IElementPrediction } from '@/utils/types';
+import type { IImagePrediction, IMaskTransform } from '@/utils/types';
 import type { InferenceTask } from '@/utils/types/model';
 
 const log = getLogger('prediction');
@@ -31,7 +35,10 @@ interface PreparedImage {
   queueTime: number;
 }
 
+const isVideoFrame = (task: InferenceTask): boolean => task.mediaMetadata.kind === 'frame';
+
 function scoreThresholdFor(task: InferenceTask): number {
+  if (isVideoFrame(task)) return MIN_SCORE_THRESHOLD;
   return strictnessToScoreThreshold(task.hostSettings.strictness);
 }
 
@@ -115,8 +122,7 @@ function sliceBatchOutputs(outputs: TypedResults, index: number, batchSize: numb
 
 function buildImagePrediction(
   prepared: PreparedImage,
-  rawPredictions: IElementPrediction[],
-  topUnsafeScore: number,
+  { predictions: rawPredictions, topUnsafeScore, scoreGrid }: PostprocessResult,
   backend: string,
   inferenceTime: number,
   inferenceEndAt: number,
@@ -161,6 +167,7 @@ function buildImagePrediction(
       batchSize,
     },
     forcedVisibility: 'auto',
+    ...(scoreGrid && { scoreGrid }),
   };
 }
 
@@ -222,18 +229,18 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
 
       ready.forEach((item, i) => {
         try {
-          const { predictions: rawPredictions, topUnsafeScore } = postprocess({
+          const postprocessed = postprocess({
             results: sliceBatchOutputs(typedOutputs, i, ready.length),
             config,
             scoreThreshold: scoreThresholdFor(item.image.task),
             originalWidth: item.image.imageWidth,
             originalHeight: item.image.imageHeight,
+            includeScoreGrid: isVideoFrame(item.image.task),
           });
           results[item.index] = {
             result: buildImagePrediction(
               item.image,
-              rawPredictions,
-              topUnsafeScore,
+              postprocessed,
               backend,
               perImageInferenceTime,
               inferenceEndAt,

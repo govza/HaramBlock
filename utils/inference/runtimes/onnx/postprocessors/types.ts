@@ -1,4 +1,4 @@
-import type { IElementPrediction, ModelMetadata } from '@/utils/types';
+import type { IElementPrediction, IScoreGrid, ModelMetadata } from '@/utils/types';
 
 /** Raw ONNX Runtime output tensors, narrowed to the numeric shape postprocessors consume. */
 export type TypedResults = Record<string, { data: ArrayLike<number>; dims: readonly number[] }>;
@@ -10,11 +10,13 @@ export interface PostprocessContext {
   scoreThreshold: number;
   originalWidth: number;
   originalHeight: number;
+  includeScoreGrid?: boolean;
 }
 
 export interface PostprocessResult {
   predictions: IElementPrediction[];
   topUnsafeScore: number;
+  scoreGrid?: IScoreGrid;
 }
 
 /** Converts raw model outputs into predictions. One implementation per model task. */

@@ -138,6 +138,15 @@ export class BackgroundRpc {
     }
   }
 
+  async getVideoForcedVisibility(videoUrl: string): Promise<ForcedVisibility> {
+    try {
+      return await this.videoPredictionCacheService.getForcedVisibility(videoUrl);
+    } catch (error) {
+      log.error('video_cache.read.failed', { [ATTR.src]: videoUrl, error });
+      throw error;
+    }
+  }
+
   publishVideoSamples(
     videoUrl: string,
     origin: { sourceUrl: string; hostname: string },

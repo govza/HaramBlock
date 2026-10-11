@@ -8,7 +8,6 @@ import {
 import { demuxUnit, type DemuxedUnit } from '@/utils/lookahead/demux';
 import { latticePointsIn, latticeSpacingOf, probeBetween } from '@/utils/lookahead/lattice';
 import {
-  isUnsafeSample,
   type ByteRangeSource,
   type DecodeJob,
   type DecodedTarget,
@@ -22,6 +21,7 @@ import {
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
 import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from '@/utils/lookahead/progressiveFile';
+import { isUnsafeAt, suspicionThresholdOf } from '@/utils/lookahead/sampleScores';
 
 export const URGENT_SLACK_SEC = 5;
 const MAX_INFLIGHT_INFERENCES = 6;
@@ -41,6 +41,7 @@ export interface PointSource {
 
 export class SampleScheduler {
   private readonly known = new Map<number, StoredSample>();
+  private readonly unsafeAtPoint = new Map<number, boolean>();
   private readonly cachedUnreported = new Set<number>();
   private readonly wanted = new Set<number>();
   private readonly inflight = new Set<number>();
@@ -194,6 +195,7 @@ export class SampleScheduler {
 
   private recordKnown(sample: StoredSample): void {
     this.known.set(sample.pointUs, sample);
+    this.unsafeAtPoint.set(sample.pointUs, isUnsafeAt(sample, this.options.scoreThreshold));
     this.wanted.delete(sample.pointUs);
   }
 
@@ -201,15 +203,19 @@ export class SampleScheduler {
     return [...this.known.values()].sort((a, b) => a.pointUs - b.pointUs);
   }
 
+  private isUnsafe(sample: StoredSample): boolean {
+    return this.unsafeAtPoint.get(sample.pointUs) ?? false;
+  }
+
   private isSuspiciousClean(sample: StoredSample): boolean {
-    return !isUnsafeSample(sample) && sample.topUnsafeScore >= this.options.suspicionThreshold;
+    return !this.isUnsafe(sample) && sample.topUnsafeScore >= suspicionThresholdOf(this.options.scoreThreshold);
   }
 
   private planRefinements(): void {
     const samples = this.sortedKnown();
     samples.forEach((sample, index) => {
       const next = samples[index + 1];
-      if (next && isUnsafeSample(sample) !== isUnsafeSample(next)) {
+      if (next && this.isUnsafe(sample) !== this.isUnsafe(next)) {
         this.wantProbe(sample.pointUs, next.pointUs);
       }
       if (this.isSuspiciousClean(sample)) {

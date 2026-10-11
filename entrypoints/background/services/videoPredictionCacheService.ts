@@ -63,12 +63,20 @@ export class VideoPredictionCacheService {
 
   async getCached(videoUrl: string): Promise<ICachedVideoPredictions> {
     if (!isCacheableVideoUrl(videoUrl)) return EMPTY_CACHED_VIDEO_PREDICTIONS;
+    await this.flush();
     const record = await this.repository.findValidByVideoUrl(videoUrl);
     if (!record) return EMPTY_CACHED_VIDEO_PREDICTIONS;
     this.repository.touchAccessed(videoUrl).catch((error: unknown) => {
       log.warn('cache.touch.failed', { [ATTR.src]: videoUrl, error });
     });
-    return { samples: record.samplesByModel[currentModelId()] ?? [], forcedVisibility: record.forcedVisibility };
+    const samples = await this.repository.readSamples(videoUrl, currentModelId());
+    return { samples, forcedVisibility: record.forcedVisibility };
+  }
+
+  async getForcedVisibility(videoUrl: string): Promise<ForcedVisibility> {
+    if (!isCacheableVideoUrl(videoUrl)) return 'auto';
+    const record = await this.repository.findValidByVideoUrl(videoUrl);
+    return record?.forcedVisibility ?? 'auto';
   }
 
   async setForcedVisibility(

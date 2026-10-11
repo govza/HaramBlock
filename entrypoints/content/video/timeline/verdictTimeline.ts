@@ -1,5 +1,4 @@
 import { COVERAGE_MAX_GAP_SEC } from '@/entrypoints/content/video/maskTiming';
-import { MAX_VERDICT_TIMELINE_ENTRIES } from '@/utils/constants/video';
 
 import type { IElementPrediction, IMaskTransform } from '@/utils/types';
 
@@ -19,13 +18,13 @@ export interface MediaExtent {
 
 const UNBOUNDED_MEDIA: MediaExtent = { durationSec: Number.POSITIVE_INFINITY, loops: false };
 
-export const MAX_TIMELINE_ENTRIES = MAX_VERDICT_TIMELINE_ENTRIES;
+export const MAX_TIMELINE_ENTRIES = 4000;
 const SAME_TIME_TOLERANCE_SEC = 0.000_001;
 
 export class VerdictTimeline {
   private entries: VerdictEntry[] = [];
 
-  add(entry: VerdictEntry): number {
+  add(entry: VerdictEntry, playheadSec = entry.timestampSec): void {
     let index = this.entries.length;
     while (index > 0) {
       const previous = this.entries[index - 1];
@@ -34,14 +33,18 @@ export class VerdictTimeline {
     }
     const sameTime = this.entries[index - 1];
     if (sameTime && Math.abs(sameTime.timestampSec - entry.timestampSec) <= SAME_TIME_TOLERANCE_SEC) {
-      if (sameTime.unsafe && !entry.unsafe) return index - 1;
-      this.entries[index - 1] = entry;
-      return index - 1;
+      if (!sameTime.unsafe || entry.unsafe) this.entries[index - 1] = entry;
+      return;
     }
     this.entries.splice(index, 0, entry);
-    if (this.entries.length <= MAX_TIMELINE_ENTRIES) return index;
-    this.entries.shift();
-    return index - 1;
+    if (this.entries.length > MAX_TIMELINE_ENTRIES) this.evictFarthestFrom(playheadSec);
+  }
+
+  private evictFarthestFrom(playheadSec: number): void {
+    const first = this.entries[0]?.timestampSec ?? playheadSec;
+    const last = this.entries.at(-1)?.timestampSec ?? playheadSec;
+    if (playheadSec - first >= last - playheadSec) this.entries.shift();
+    else this.entries.pop();
   }
 
   coverageAheadOf(fromSec: number, media = UNBOUNDED_MEDIA, maxGapSec = COVERAGE_MAX_GAP_SEC): number {

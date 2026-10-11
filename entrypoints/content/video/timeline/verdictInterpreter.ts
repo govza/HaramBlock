@@ -15,8 +15,8 @@ export interface VerdictForOptions {
 export class VerdictInterpreter {
   private readonly timeline = new VerdictTimeline();
 
-  record(entry: VerdictEntry): void {
-    this.timeline.add(entry);
+  record(entry: VerdictEntry, playheadSec?: number): void {
+    this.timeline.add(entry, playheadSec);
   }
 
   coverageAheadOf(fromSec: number, media: MediaExtent): number {

@@ -49,7 +49,6 @@ export interface OpenAnalysis {
   sessionId: string;
   tap: TapRequest;
   liveness: Liveness;
-  suspicionThreshold: number;
   inputSize: number;
   cacheKey: string;
   sourceUrl: string;

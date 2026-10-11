@@ -27,11 +27,9 @@ import {
   type UmbrellaSession,
 } from '@/utils/telemetry/roundtrip';
 import {
-  EMPTY_CACHED_VIDEO_PREDICTIONS,
   type ForcedVisibility,
   type IHostSettings,
   type IImagePrediction,
-  type ICachedVideoPredictions,
   type IImageMetadata,
   type IImageTransfer,
   type IVideoFrameTransfer,
@@ -76,12 +74,12 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
   }
 }
 
-export async function requestCachedVideoPredictions(videoUrl: string): Promise<ICachedVideoPredictions> {
+export async function requestVideoForcedVisibility(videoUrl: string): Promise<ForcedVisibility> {
   try {
-    return (await backgroundRpc.getCachedVideoPredictions(videoUrl)) || EMPTY_CACHED_VIDEO_PREDICTIONS;
+    return await backgroundRpc.getVideoForcedVisibility(videoUrl);
   } catch (error) {
-    log.error('cached_video_verdicts.request.failed', { [ATTR.src]: videoUrl, error });
-    return EMPTY_CACHED_VIDEO_PREDICTIONS;
+    log.error('video_forced_visibility.request.failed', { [ATTR.src]: videoUrl, error });
+    return 'auto';
   }
 }
 

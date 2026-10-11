@@ -9,6 +9,7 @@ const repository = vi.hoisted(() => ({
   updateForcedVisibility: vi.fn(() => Promise.resolve()),
   findValidByVideoUrl: vi.fn((): Promise<IVideoPredictionRecord | undefined> => Promise.resolve(undefined)),
   touchAccessed: vi.fn(() => Promise.resolve()),
+  readSamples: vi.fn((): Promise<IStoredVideoSample[]> => Promise.resolve([])),
 }));
 
 vi.mock('@/utils/db/videoPredictionRepository', () => ({
@@ -25,7 +26,7 @@ const ORIGIN = { sourceUrl: VIDEO_URL, hostname: 'example.com' };
 function sample(pointUs: number): IStoredVideoSample {
   return {
     pointUs,
-    predictions: [],
+    scores: { kind: 'detections', detections: [] },
     input: { width: 320, height: 180, maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 } },
     topUnsafeScore: 0.1,
   };
@@ -82,18 +83,37 @@ describe('VideoPredictionCacheService', () => {
     );
   });
 
-  it('returns only the active model samples', async () => {
-    repository.findValidByVideoUrl.mockResolvedValueOnce({
-      videoUrl: VIDEO_URL,
-      sourceUrl: VIDEO_URL,
-      hostname: 'example.com',
-      forcedVisibility: 'auto',
-      timestamp: 0,
-      cacheMetadata: { createdAt: 0, accessedAt: 0 },
-      samplesByModel: { 'sem-i320': [sample(0)], 'sem-i448': [sample(500_000)] },
-    });
+  const META: IVideoPredictionRecord = {
+    videoUrl: VIDEO_URL,
+    sourceUrl: VIDEO_URL,
+    hostname: 'example.com',
+    forcedVisibility: 'blocked',
+    timestamp: 0,
+    cacheMetadata: { createdAt: 0, accessedAt: 0 },
+    sampleCounts: { 'sem-i320': 1 },
+  };
+
+  it('reads the active model samples from their buckets', async () => {
+    repository.findValidByVideoUrl.mockResolvedValueOnce(META);
+    repository.readSamples.mockResolvedValueOnce([sample(0)]);
     const service = new VideoPredictionCacheService();
-    await expect(service.getCached(VIDEO_URL)).resolves.toEqual({ samples: [sample(0)], forcedVisibility: 'auto' });
+    await expect(service.getCached(VIDEO_URL)).resolves.toEqual({ samples: [sample(0)], forcedVisibility: 'blocked' });
+    expect(repository.readSamples).toHaveBeenCalledWith(VIDEO_URL, 'sem-i320');
+  });
+
+  it('flushes pending samples before reading, so a reopened session never re-infers them', async () => {
+    repository.findValidByVideoUrl.mockResolvedValueOnce(META);
+    const service = new VideoPredictionCacheService();
+    service.publish(VIDEO_URL, ORIGIN, [sample(0)]);
+    await service.getCached(VIDEO_URL);
+    expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.readSamples);
+  });
+
+  it('reads the forced visibility without loading samples', async () => {
+    repository.findValidByVideoUrl.mockResolvedValueOnce(META);
+    const service = new VideoPredictionCacheService();
+    await expect(service.getForcedVisibility(VIDEO_URL)).resolves.toBe('blocked');
+    expect(repository.readSamples).not.toHaveBeenCalled();
   });
 
   it('returns empty samples on a miss without touching the row', async () => {

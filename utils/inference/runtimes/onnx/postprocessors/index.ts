@@ -16,6 +16,7 @@ export function getPostprocessor(task: ModelMetadata['task']): Postprocessor {
 
 export type {
   PostprocessContext,
+  PostprocessResult,
   Postprocessor,
   TypedResults,
 } from '@/utils/inference/runtimes/onnx/postprocessors/types';
