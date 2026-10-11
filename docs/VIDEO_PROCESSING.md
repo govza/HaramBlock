@@ -179,16 +179,19 @@ dropped whole, recording stops, and the next `want` is answered with `overflow`,
 reports as unreachable (`overflow`) — Live Masking rather than analysis with holes. A source that
 was wanted and then dropped (its host keeps the resumable unit cutters and init segments) instead
 evicts its oldest appends past the cap and flags the next append of that buffer `discontinuity`, so
-the cutter resynchronises at the next WebM Cluster or fMP4 `moof`. A newly adopted port makes every
-source non-resumable again, and its new host never saw what went to the old port: on the first
-`want` over the new port the hook re-sends each live buffer's `buffer` message (with its current
-mime) and its latest init segment (copies of the append starting with the EBML magic, or of an
-`ftyp` append plus the `moov` append that follows it), then flags that buffer's next append —
-recorded or live — `discontinuity`. On Firefox the content script offers the hook a fresh port as
-soon as the event page's runtime port disconnects, so the hook stops streaming into the dead relay,
-records again, and replays its announcements to the next event page. Audio SourceBuffers are
-announced but their bytes are never recorded or streamed. A page whose videos are never processed
-therefore never ships its media out of the page.
+the cutter resynchronises at the next WebM Cluster or fMP4 `moof`; an evicted append that carried an
+init segment leaves its init bytes behind. A newly adopted port keeps each source's resumability,
+but its new host never saw what went to the old port: on the first `want` over the new port the hook
+re-sends each live buffer's `buffer` message (with its current mime) and its latest init segment
+(the EBML header up to the first Cluster, or the `ftyp`/`moov` boxes before the first media box,
+kept from the appends that carried them), then flags that buffer's next append — recorded or live —
+`discontinuity`. On Firefox the content script offers the hook a fresh port as soon as the event
+page's runtime port disconnects, so the hook stops streaming into the dead relay, records again, and
+replays its announcements to the next event page; the content script reconnects and re-opens its
+sessions (with their last playhead, visibility and liveness) unless the port died within 5 s of
+connecting, in which case they are reported unreachable (`hook`). Audio SourceBuffers are announced
+but their bytes are never recorded or streamed. A page whose videos are never processed therefore
+never ships its media out of the page.
 
 A session that closes and reopens on the same source (a quality switch back, a Forced Visibility
 round-trip) does not get the buffer and init messages again: the host keeps the closed analysis's
@@ -351,11 +354,13 @@ is described in [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 - Native HLS on Chrome, `srcObject` streams and worker MSE (`MediaSourceHandle`) have no tap in v1
   and rely on Live Masking; DRM sources are handled like any unreadable source.
-- The overlay supports blur, grayscale and dark; the pixelation look is not available because the
-  presenter never reads pixels.
+- The overlay pixelates masked regions by drawing the presented frame into a low-resolution canvas
+  (block size from `pixelationScale`, tint from the masking filter); when the frame cannot be drawn
+  it falls back to the masking `backdrop-filter`.
 - When the `<video>` element itself goes fullscreen, sibling overlays are not rendered, so the
-  presenter masks the whole video with a `filter` on the element instead of region masks; player
-  containers that go fullscreen keep the region overlay.
+  presenter masks the whole video with the masking `filter` on the element instead of region masks —
+  whole frame, not pixelated; player containers that go fullscreen keep the pixelated region
+  overlay.
 - The MAIN-world hook is page-visible and could be detected or fed spoofed bytes.
 - Cache sharing across clients, cut-detection triggers and opportunistic lattice densification are
   future work; v1 only keys samples so sharing can come later.

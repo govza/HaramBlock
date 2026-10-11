@@ -24,6 +24,8 @@ import type {
 
 const log = getLogger('lookaheadClient');
 
+const MIN_PORT_LIFETIME_FOR_REOPEN_MS = 5_000;
+
 export interface LookaheadInferenceRequest {
   pointUs: number;
   bitmap: ImageBitmap;
@@ -55,7 +57,15 @@ let hookPort: MessagePort | null = null;
 let hookAcknowledged = false;
 let listeningToHook = false;
 let link: HostLink | null = null;
-const sessions = new Map<string, { open: OpenAnalysis; handlers: LookaheadHandlers }>();
+interface ClientSession {
+  open: OpenAnalysis;
+  handlers: LookaheadHandlers;
+  playhead?: Playhead;
+  visible?: boolean;
+  liveness?: Liveness;
+}
+
+const sessions = new Map<string, ClientSession>();
 
 function offerHookPort(): void {
   const channel = new MessageChannel();
@@ -160,7 +170,32 @@ function connectChromeHost(): HostLink {
   return { send: (message, transfer = []) => channel.port1.postMessage(message, transfer) };
 }
 
+function resendSession(host: HostLink, session: ClientSession): void {
+  const { sessionId } = session.open;
+  host.send(session.open);
+  if (session.playhead) host.send({ t: 'playhead', sessionId, playhead: session.playhead });
+  if (session.visible !== undefined) host.send({ t: 'visible', sessionId, visible: session.visible });
+  if (session.liveness) host.send({ t: 'liveness', sessionId, liveness: session.liveness });
+}
+
+function abandonSessions(): void {
+  for (const { handlers } of sessions.values()) handlers.unreachable('hook');
+  sessions.clear();
+}
+
+function reopenSessions(): void {
+  try {
+    const host = hostLink();
+    for (const session of sessions.values()) resendSession(host, session);
+  } catch (error) {
+    log.debug('lookahead.port.reconnect_failed', { error });
+    link = null;
+    abandonSessions();
+  }
+}
+
 function connectFirefoxHost(): HostLink {
+  const connectedAt = performance.now();
   const port = browser.runtime.connect({ name: LOOKAHEAD_PORT_NAME });
   const post = (message: FirefoxPortMessage) => {
     try {
@@ -173,8 +208,9 @@ function connectFirefoxHost(): HostLink {
   port.onDisconnect.addListener(() => {
     link = null;
     offerHookPort();
-    for (const { handlers } of sessions.values()) handlers.unreachable('hook');
-    sessions.clear();
+    if (sessions.size === 0) return;
+    if (performance.now() - connectedAt < MIN_PORT_LIFETIME_FOR_REOPEN_MS) abandonSessions();
+    else reopenSessions();
   });
   hookPortOrNew().onmessage = (event: MessageEvent<HookMessage>) => post({ k: 'hook', m: event.data });
   return { send: message => post({ k: 'content', m: message }) };
@@ -186,13 +222,23 @@ function hostLink(): HostLink {
 }
 
 export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): LookaheadSession {
-  sessions.set(open.sessionId, { open, handlers });
+  const session: ClientSession = { open, handlers };
+  sessions.set(open.sessionId, session);
   const host = hostLink();
   host.send(open);
   return {
-    setPlayhead: playhead => link?.send({ t: 'playhead', sessionId: open.sessionId, playhead }),
-    setVisible: visible => link?.send({ t: 'visible', sessionId: open.sessionId, visible }),
-    setLiveness: liveness => link?.send({ t: 'liveness', sessionId: open.sessionId, liveness }),
+    setPlayhead: playhead => {
+      session.playhead = playhead;
+      link?.send({ t: 'playhead', sessionId: open.sessionId, playhead });
+    },
+    setVisible: visible => {
+      session.visible = visible;
+      link?.send({ t: 'visible', sessionId: open.sessionId, visible });
+    },
+    setLiveness: liveness => {
+      session.liveness = liveness;
+      link?.send({ t: 'liveness', sessionId: open.sessionId, liveness });
+    },
     close: () => {
       if (!sessions.delete(open.sessionId)) return;
       link?.send({ t: 'close', sessionId: open.sessionId });
