@@ -131,7 +131,7 @@ class VideoSessionRegistry {
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
   private readonly userToggledCacheKeys = new WeakMap<HTMLVideoElement, string>();
-  private readonly unsafeCacheKeys = new Set<string>();
+  private readonly unsafeStrictnessByCacheKey = new Map<string, number>();
   private documentVisibilityBound = false;
 
   private readonly forced = new ForcedPresentation({
@@ -174,7 +174,6 @@ class VideoSessionRegistry {
         return;
       }
     }
-    if (existing && strictnessChanged) this.unsafeCacheKeys.delete(existing.cacheKey);
     if (existing) this.dispose(video);
 
     const handle = this.createHandle(video, source, hostSettings);
@@ -184,7 +183,9 @@ class VideoSessionRegistry {
     video.setAttribute(SESSION_ID_ATTR, handle.sessionId);
     this.registerToggle(video, hostSettings, 'auto', false);
 
-    const born = createVideoSession({ unsafeSeen: this.unsafeCacheKeys.has(handle.cacheKey) });
+    const born = createVideoSession({
+      unsafeSeen: this.unsafeStrictnessByCacheKey.get(handle.cacheKey) === hostSettings.strictness,
+    });
     handle.state = born.state;
     this.execute(handle, born.effects);
 
@@ -217,7 +218,7 @@ class VideoSessionRegistry {
     handle.verifyMediaOnDuration = false;
     if (Math.abs(now - before) <= SAME_MEDIA_DURATION_TOLERANCE_SEC) return false;
     const settings = handle.hostSettings;
-    this.unsafeCacheKeys.delete(handle.cacheKey);
+    this.unsafeStrictnessByCacheKey.delete(handle.cacheKey);
     this.dispose(handle.video);
     this.attach(handle.video, settings);
     return true;
@@ -731,7 +732,9 @@ class VideoSessionRegistry {
           break;
         }
         case 'setStatus':
-          if (effect.status === 'unsafe' && handle.cacheKey) this.unsafeCacheKeys.add(handle.cacheKey);
+          if (effect.status === 'unsafe' && handle.cacheKey) {
+            this.unsafeStrictnessByCacheKey.set(handle.cacheKey, handle.hostSettings.strictness);
+          }
           clearProcessedStatus(video);
           video.setAttribute(PROCESSED_ATTR_MAP[STATUS_TO_PROCESSED[effect.status]], '');
           this.registerToggle(
