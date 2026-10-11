@@ -378,6 +378,42 @@ describe('MSE hook: a replacement port', () => {
     expect(received.find(message => message.t === 'buffer')).toMatchObject({ mime: 'video/mp4; codecs="avc1.64001f"' });
   });
 
+  it('gives the new port only the init bytes of an append that carried media after them', async () => {
+    const CLUSTER = [0x1f, 0x43, 0xb6, 0x75, 0x09];
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource();
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, [...WEBM_INIT, ...CLUSTER]);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(appendsOf(received)).toEqual([WEBM_INIT]));
+  });
+
+  it('gives the new port only the ftyp and moov boxes of an fMP4 append that carried a fragment too', async () => {
+    const FTYP = [0, 0, 0, 8, 0x66, 0x74, 0x79, 0x70];
+    const MOOV = [0, 0, 0, 8, 0x6d, 0x6f, 0x6f, 0x76];
+    const MOOF = [0, 0, 0, 8, 0x6d, 0x6f, 0x6f, 0x66];
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource('video/mp4; codecs="avc1.64001f"');
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, [...FTYP, ...MOOV, ...MOOF]);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(appendsOf(received)).toEqual([[...FTYP, ...MOOV]]));
+  });
+
   it('gives the new port nothing of a buffer the page removed', async () => {
     const { connect, openSource, received } = newPage();
     const first = connect();

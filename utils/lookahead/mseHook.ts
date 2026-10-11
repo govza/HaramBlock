@@ -72,13 +72,46 @@ const initPieceKindOf = (bytes: ArrayBuffer): InitPieceKind | null => {
   return null;
 };
 
+const WEBM_CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
+const MP4_MEDIA_BOXES = new Set(['moof', 'mdat', 'sidx', 'styp', 'emsg', 'prft']);
+
+const webmInitLength = (view: Uint8Array): number => {
+  for (let offset = 0; offset + WEBM_CLUSTER_ID.length <= view.length; offset++) {
+    if (WEBM_CLUSTER_ID.every((byte, index) => view[offset + index] === byte)) return offset;
+  }
+  return view.length;
+};
+
+const mp4BoxSize = (data: DataView, offset: number): number => {
+  const size = data.getUint32(offset);
+  if (size === 0) return data.byteLength - offset;
+  if (size === 1 && offset + 16 <= data.byteLength) return Number(data.getBigUint64(offset + 8));
+  return size;
+};
+
+const mp4InitLength = (bytes: ArrayBuffer): number => {
+  const data = new DataView(bytes);
+  let offset = 0;
+  while (offset + 8 <= bytes.byteLength) {
+    const boxType = String.fromCharCode(...new Uint8Array(bytes, offset + 4, 4));
+    if (MP4_MEDIA_BOXES.has(boxType)) return offset;
+    const size = mp4BoxSize(data, offset);
+    if (size < 8) return bytes.byteLength;
+    offset += size;
+  }
+  return bytes.byteLength;
+};
+
+const initBytesOf = (bytes: ArrayBuffer, kind: InitPieceKind): ArrayBuffer =>
+  bytes.slice(0, kind === 'webm' ? webmInitLength(new Uint8Array(bytes)) : mp4InitLength(bytes));
+
 const isLoneFtyp = (init: InitPiece[]): boolean =>
   init.length === 1 && init[0] !== undefined && initPieceKindOf(init[0].bytes) === 'ftyp';
 
 const trackInitPiece = (preamble: BufferPreamble, append: Extract<StreamedMessage, { t: 'append' }>) => {
   const kind = initPieceKindOf(append.bytes);
   if (!kind) return;
-  const piece = { bytes: append.bytes.slice(0), timestampOffset: append.timestampOffset };
+  const piece = { bytes: initBytesOf(append.bytes, kind), timestampOffset: append.timestampOffset };
   preamble.init = kind === 'moov' && isLoneFtyp(preamble.init) ? [...preamble.init, piece] : [piece];
 };
 
