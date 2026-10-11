@@ -1,81 +1,22 @@
-import {
-  BRIDGE_HORIZON_SEC,
-  COVERAGE_MAX_GAP_SEC,
-  PRE_MASK_LEAD_SEC,
-  TRANSIENT_HIT_CONFIG,
-  type TransientHitConfig,
-} from '@/entrypoints/content/video/maskTiming';
+import { BRIDGE_HORIZON_SEC, COVERAGE_MAX_GAP_SEC, PRE_MASK_LEAD_SEC } from '@/entrypoints/content/video/maskTiming';
 import {
   VerdictTimeline,
   type MediaExtent,
   type VerdictEntry,
 } from '@/entrypoints/content/video/timeline/verdictTimeline';
 
-import type { LiveVerdict } from '@/entrypoints/content/video/session/videoSession';
-
 export type VerdictLookup = { kind: 'unsafe'; entries: VerdictEntry[] } | { kind: 'clean' } | { kind: 'none' };
-
-export type RunResolution = 'suppressed' | 'confident' | 'long' | 'late';
-
-export interface ResolvedRun {
-  resolution: RunResolution;
-  runLength: number;
-  topProbability: number;
-  onsetGapSec: number | null;
-}
 
 export interface VerdictForOptions {
   bridgeHorizonSec?: number;
-  paused?: boolean;
-}
-
-export interface VerdictInterpreterOptions {
-  config?: TransientHitConfig;
-  onRunResolved?: (run: ResolvedRun) => void;
-}
-
-interface UnsafeRun {
-  firstIndex: number;
-  lastIndex: number;
-  overLimit: boolean;
-  confident: boolean;
-  closedByClean: boolean;
-}
-
-type RunDecision = 'hit' | 'suppressed' | 'undecided';
-
-interface HitJudgement {
-  run: UnsafeRun | null;
-  inherited: RunDecision;
-  hit: boolean;
+  holdUntilConfirmedClean?: boolean;
 }
 
 export class VerdictInterpreter {
   private readonly timeline = new VerdictTimeline();
-  private readonly config: TransientHitConfig;
-  private readonly onRunResolved: (run: ResolvedRun) => void;
-  private readonly confidentEntries = new WeakSet<VerdictEntry>();
-  private readonly latchedHits = new WeakMap<VerdictEntry, boolean>();
 
-  constructor(options: VerdictInterpreterOptions = {}) {
-    this.config = options.config ?? TRANSIENT_HIT_CONFIG;
-    this.onRunResolved = options.onRunResolved ?? (() => {});
-  }
-
-  record(entry: VerdictEntry, scoreThreshold: number): void {
-    this.markIfConfident(entry, scoreThreshold);
+  record(entry: VerdictEntry): void {
     this.timeline.add(entry);
-  }
-
-  classifyLive(entry: VerdictEntry, scoreThreshold: number): LiveVerdict {
-    if (!entry.unsafe) return 'clean';
-    return topProbability(entry) >= this.confidentProbability(scoreThreshold) ? 'confident' : 'tentative';
-  }
-
-  private markIfConfident(entry: VerdictEntry, scoreThreshold: number): void {
-    if (entry.unsafe && topProbability(entry) >= this.confidentProbability(scoreThreshold)) {
-      this.confidentEntries.add(entry);
-    }
   }
 
   coverageAheadOf(fromSec: number, media: MediaExtent): number {
@@ -84,135 +25,31 @@ export class VerdictInterpreter {
 
   verdictFor(mediaTime: number, options: VerdictForOptions = {}): VerdictLookup {
     const bridgeHorizonSec = options.bridgeHorizonSec ?? BRIDGE_HORIZON_SEC;
+    const holdUntilConfirmedClean = options.holdUntilConfirmedClean ?? false;
     const after = this.timeline.indexAfter(mediaTime);
     const behind = this.timeline.at(after - 1);
+    const before = this.timeline.at(after - 2);
     const next = this.timeline.at(after);
-    const heldAtFrontier = !next && (behind?.unsafe === true || this.timeline.at(after - 2)?.unsafe === true);
+    const nextContinuesCoverage = this.areAdjacent(after - 1, after);
+    const heldAtFrontier =
+      holdUntilConfirmedClean && !nextContinuesCoverage && (behind?.unsafe === true || before?.unsafe === true);
     const withinGap = behind !== undefined && mediaTime - behind.timestampSec <= COVERAGE_MAX_GAP_SEC;
     const previous = withinGap || heldAtFrontier ? behind : undefined;
-    const nextIsHit = next ? this.isHit(after) : false;
 
     if (!previous) {
-      if (next && !nextIsHit && next.timestampSec - mediaTime <= COVERAGE_MAX_GAP_SEC) return { kind: 'clean' };
+      if (next && !next.unsafe && next.timestampSec - mediaTime <= COVERAGE_MAX_GAP_SEC) return { kind: 'clean' };
       return { kind: 'none' };
     }
 
-    const nextNear = next && nextIsHit && next.timestampSec - mediaTime <= bridgeHorizonSec ? next : null;
+    const nextNear = next?.unsafe && next.timestampSec - mediaTime <= bridgeHorizonSec ? next : null;
 
-    if (options.paused && previous.unsafe) return unsafeLookup(previous, nextNear);
-
-    if (this.latchPresentedHit(after - 1)) return unsafeLookup(previous, nextNear);
-
-    const before = this.timeline.at(after - 2);
-    if (before && this.latchPresentedHit(after - 2) && (!next || nextIsHit)) return unsafeLookup(before, nextNear);
-    if (
-      next &&
-      next.timestampSec - mediaTime <= PRE_MASK_LEAD_SEC &&
-      this.areAdjacent(after - 1, after) &&
-      this.latchPresentedHit(after)
-    ) {
+    if (previous.unsafe) return unsafeLookup(previous, nextNear);
+    const cleanUnconfirmed = !nextContinuesCoverage || next?.unsafe === true;
+    if (holdUntilConfirmedClean && before?.unsafe && cleanUnconfirmed) return unsafeLookup(before, nextNear);
+    if (next?.unsafe && next.timestampSec - mediaTime <= PRE_MASK_LEAD_SEC && nextContinuesCoverage) {
       return { kind: 'unsafe', entries: [next] };
     }
     return { kind: 'clean' };
-  }
-
-  private confidentProbability(scoreThreshold: number): number {
-    return Math.min(scoreThreshold * this.config.confidenceCoefficient, this.config.confidenceCap);
-  }
-
-  private isHit(index: number): boolean {
-    return this.judgeHit(index)?.hit ?? false;
-  }
-
-  private latchPresentedHit(index: number): boolean {
-    const judgement = this.judgeHit(index);
-    if (!judgement) return false;
-    const { run, inherited, hit } = judgement;
-    if (run && decisionOf(hit) !== inherited) {
-      this.latchRun(run, index, hit);
-      this.reportResolution(run, index);
-    }
-    return hit;
-  }
-
-  private judgeHit(index: number): HitJudgement | null {
-    const entry = this.timeline.at(index);
-    if (!entry?.unsafe) return null;
-    if (this.latchedHits.get(entry) === true) return { run: null, inherited: 'hit', hit: true };
-
-    const run = this.unsafeRunAround(index);
-    const inherited = this.latchedDecisionIn(run);
-    const hit = run.overLimit || run.confident || isHitDecision(inherited, run);
-    return { run, inherited, hit };
-  }
-
-  private reportResolution(run: UnsafeRun, presentedIndex: number): void {
-    const startsRun = presentedIndex === run.firstIndex && !this.isAdjacentUnsafe(run.firstIndex - 1, run.firstIndex);
-    if (run.overLimit && !startsRun) return;
-    this.onRunResolved({
-      resolution: resolutionOf(run),
-      runLength: run.lastIndex - run.firstIndex + 1,
-      topProbability: this.topProbabilityOf(run),
-      onsetGapSec: this.onsetGapOf(run),
-    });
-  }
-
-  private onsetGapOf(run: UnsafeRun): number | null {
-    const preceding = this.timeline.at(run.firstIndex - 1);
-    const first = this.timeline.at(run.firstIndex);
-    if (!preceding || !first || preceding.unsafe || !this.areAdjacent(run.firstIndex - 1, run.firstIndex)) return null;
-    return first.timestampSec - preceding.timestampSec;
-  }
-
-  private topProbabilityOf(run: UnsafeRun): number {
-    return this.membersOf(run).reduce((top, member) => Math.max(top, topProbability(member)), 0);
-  }
-
-  private latchedDecisionIn(run: UnsafeRun): RunDecision {
-    const latched = this.membersOf(run).map(member => this.latchedHits.get(member));
-    if (latched.includes(true)) return 'hit';
-    if (latched.includes(false)) return 'suppressed';
-    return 'undecided';
-  }
-
-  private latchRun(run: UnsafeRun, presentedIndex: number, hit: boolean): void {
-    if (run.overLimit) {
-      const presented = this.timeline.at(presentedIndex);
-      if (presented) this.latchedHits.set(presented, hit);
-      return;
-    }
-    for (const member of this.membersOf(run)) this.latchedHits.set(member, hit);
-  }
-
-  private membersOf(run: Pick<UnsafeRun, 'firstIndex' | 'lastIndex'>): VerdictEntry[] {
-    const members: VerdictEntry[] = [];
-    for (let i = run.firstIndex; i <= run.lastIndex; i++) {
-      const member = this.timeline.at(i);
-      if (member) members.push(member);
-    }
-    return members;
-  }
-
-  private unsafeRunAround(index: number): UnsafeRun {
-    const limit = this.config.maxSuppressedRun;
-    let firstIndex = index;
-    while (index - firstIndex < limit && this.isAdjacentUnsafe(firstIndex - 1, firstIndex)) firstIndex--;
-    let lastIndex = index;
-    while (lastIndex - index < limit && this.isAdjacentUnsafe(lastIndex + 1, lastIndex)) lastIndex++;
-
-    const confident = this.membersOf({ firstIndex, lastIndex }).some(member => this.confidentEntries.has(member));
-    const closing = this.timeline.at(lastIndex + 1);
-    return {
-      firstIndex,
-      lastIndex,
-      overLimit: lastIndex - firstIndex + 1 > limit,
-      confident,
-      closedByClean: closing !== undefined && !closing.unsafe && this.areAdjacent(lastIndex, lastIndex + 1),
-    };
-  }
-
-  private isAdjacentUnsafe(candidateIndex: number, anchorIndex: number): boolean {
-    return this.timeline.at(candidateIndex)?.unsafe === true && this.areAdjacent(candidateIndex, anchorIndex);
   }
 
   private areAdjacent(indexA: number, indexB: number): boolean {
@@ -224,24 +61,4 @@ export class VerdictInterpreter {
 
 function unsafeLookup(anchor: VerdictEntry, nextNear: VerdictEntry | null): VerdictLookup {
   return { kind: 'unsafe', entries: nextNear ? [anchor, nextNear] : [anchor] };
-}
-
-function decisionOf(hit: boolean): RunDecision {
-  return hit ? 'hit' : 'suppressed';
-}
-
-function isHitDecision(inherited: RunDecision, run: UnsafeRun): boolean {
-  if (inherited === 'undecided') return !run.closedByClean;
-  return inherited === 'hit';
-}
-
-function resolutionOf(run: UnsafeRun): RunResolution {
-  if (run.confident) return 'confident';
-  if (run.overLimit) return 'long';
-  if (!run.closedByClean) return 'late';
-  return 'suppressed';
-}
-
-function topProbability(entry: VerdictEntry): number {
-  return entry.predictions.reduce((top, prediction) => Math.max(top, prediction.probability), 0);
 }

@@ -126,8 +126,6 @@ nothing plays)
 - _Taps by kind and unreachable reason_ - `hb_video_tap` × `hb_video_tap_reason`.
 - _Uncovered playing ms / s and failures_ - uncovered rate next to failures by stage.
 - _Live Masking time per session p50 / p90_ - by tap kind; `none` sessions mask live throughout.
-- _Transient Hit resolutions (content)_ - `hb.video.transient_runs` by resolution, including the
-  Live Masking `live_suppressed` / `live_confirmed` buckets.
 
 **Inference**
 

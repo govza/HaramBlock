@@ -12,7 +12,6 @@ import {
 import { registerQuickToggle, unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
 import { LiveSampler } from '@/entrypoints/content/video/live/liveSampler';
 import { createLoopRestartDetector, loopingMediaOf } from '@/entrypoints/content/video/loopClock';
-import { PRE_MASK_LEAD_SEC, TRANSIENT_HIT_CONFIG } from '@/entrypoints/content/video/maskTiming';
 import { MaskPresenter } from '@/entrypoints/content/video/presenter/maskPresenter';
 import {
   captureFrameBitmap,
@@ -31,14 +30,14 @@ import {
   type SessionEffect,
   type SessionEvent,
   type SessionStatus,
-  type TransientResolution,
+  verdictOptionsOf,
 } from '@/entrypoints/content/video/session/videoSession';
 import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { applyWholeBlur, clearWholeBlur } from '@/entrypoints/content/video/session/wholeBlur';
 import { openLookahead, type LookaheadInferenceRequest } from '@/entrypoints/content/video/tap/lookaheadClient';
 import { chooseTap } from '@/entrypoints/content/video/tap/tapChoice';
-import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/timeline/verdictInterpreter';
+import { VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import {
   livenessOfDuration,
@@ -76,11 +75,8 @@ const PROGRESS_INTERVAL_MS = 250;
 const SAME_MEDIA_DURATION_TOLERANCE_SEC = 1;
 const LOOKAHEAD_INFERENCE_TIMEOUT_MS = 30_000;
 const SUSPICION_RATIO = 0.5;
-const ATTRIBUTE_BUCKET = 0.05;
 
 const FAILURE_STAGE = { unitDemuxFailed: 'demux', decodeFailed: 'decode', cacheReadFailed: 'cache' } as const;
-
-const bucketOf = (value: number): number => Math.round(value / ATTRIBUTE_BUCKET) * ATTRIBUTE_BUCKET;
 
 const scoreThresholdOf = (handle: SessionHandle): number => strictnessToScoreThreshold(handle.hostSettings.strictness);
 
@@ -128,6 +124,7 @@ class VideoSessionRegistry {
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
   private readonly userToggledCacheKeys = new WeakMap<HTMLVideoElement, string>();
+  private readonly unsafeCacheKeys = new Set<string>();
   private documentVisibilityBound = false;
 
   private readonly forced = new ForcedPresentation({
@@ -178,7 +175,7 @@ class VideoSessionRegistry {
     video.setAttribute(SESSION_ID_ATTR, handle.sessionId);
     this.registerToggle(video, hostSettings, 'auto', false);
 
-    const born = createVideoSession();
+    const born = createVideoSession({ unsafeSeen: this.unsafeCacheKeys.has(handle.cacheKey) });
     handle.state = born.state;
     this.execute(handle, born.effects);
 
@@ -211,6 +208,7 @@ class VideoSessionRegistry {
     handle.verifyMediaOnDuration = false;
     if (Math.abs(now - before) <= SAME_MEDIA_DURATION_TOLERANCE_SEC) return false;
     const settings = handle.hostSettings;
+    this.unsafeCacheKeys.delete(handle.cacheKey);
     this.dispose(handle.video);
     this.attach(handle.video, settings);
     return true;
@@ -227,7 +225,7 @@ class VideoSessionRegistry {
 
   private createHandle(video: HTMLVideoElement, source: ResolvedVideoSource, hostSettings: IHostSettings) {
     const sessionId = generateNonce();
-    const interpreter = new VerdictInterpreter({ onRunResolved: run => this.recordTransientRun(handle, run) });
+    const interpreter = new VerdictInterpreter();
     const handle: SessionHandle = {
       sessionId,
       video,
@@ -245,6 +243,7 @@ class VideoSessionRegistry {
       presenter: new MaskPresenter({
         video,
         interpreter,
+        verdictOptions: () => verdictOptionsOf(handle.state),
         masking: () => handle.hostSettings.masking,
         onPresented: unsafe => this.dispatch(handle, { type: 'presented', unsafe }),
         onFrame: mediaTimeSec => this.onPresentedFrame(handle, mediaTimeSec),
@@ -308,8 +307,7 @@ class VideoSessionRegistry {
   private applyLiveSample(handle: SessionHandle, prediction: IFramePrediction): void {
     const entry = toEntry(prediction.timestampSec, toInferred(prediction));
     const sampleId = this.holdSample(handle, entry);
-    const verdict = handle.interpreter.classifyLive(entry, scoreThresholdOf(handle));
-    this.dispatch(handle, { type: 'liveSample', sampleId, verdict });
+    this.dispatch(handle, { type: 'liveSample', sampleId });
   }
 
   private holdSample(handle: SessionHandle, entry: VerdictEntry): string {
@@ -643,7 +641,7 @@ class VideoSessionRegistry {
     const now = performance.now();
     const { video } = handle;
     if (handle.lastFrameAt !== null && !video.paused && handle.state.tap !== 'pending') {
-      const uncovered = handle.interpreter.verdictFor(mediaTimeSec).kind === 'none';
+      const uncovered = handle.interpreter.verdictFor(mediaTimeSec, verdictOptionsOf(handle.state)).kind === 'none';
       if (uncovered) recordCounter(METRIC.videoUncoveredPlayingMs, now - handle.lastFrameAt);
     }
     handle.lastFrameAt = now;
@@ -673,30 +671,7 @@ class VideoSessionRegistry {
 
   private isPlayheadCovered(handle: SessionHandle): boolean {
     const { video } = handle;
-    return handle.interpreter.verdictFor(video.currentTime, { paused: video.paused }).kind !== 'none';
-  }
-
-  private recordTransientRun(handle: SessionHandle, run: ResolvedRun): void {
-    recordCounter(METRIC.videoTransientRuns, 1, {
-      [ATTR.transientResolution]: run.resolution,
-      [ATTR.transientRunLength]: run.runLength,
-      [ATTR.transientTopProbability]: bucketOf(run.topProbability),
-      [ATTR.scoreThreshold]: scoreThresholdOf(handle),
-      [ATTR.transientMaxRun]: TRANSIENT_HIT_CONFIG.maxSuppressedRun,
-      [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
-      [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
-      [ATTR.transientPreMaskLeadSec]: PRE_MASK_LEAD_SEC,
-      ...(run.onsetGapSec !== null && { [ATTR.transientOnsetGapSec]: bucketOf(run.onsetGapSec) }),
-    });
-  }
-
-  private recordLiveTransient(handle: SessionHandle, resolution: TransientResolution): void {
-    recordCounter(METRIC.videoTransientRuns, 1, {
-      [ATTR.transientResolution]: `live_${resolution}`,
-      [ATTR.scoreThreshold]: scoreThresholdOf(handle),
-      [ATTR.transientConfidenceCoefficient]: TRANSIENT_HIT_CONFIG.confidenceCoefficient,
-      [ATTR.transientConfidenceCap]: TRANSIENT_HIT_CONFIG.confidenceCap,
-    });
+    return handle.interpreter.verdictFor(video.currentTime, verdictOptionsOf(handle.state)).kind !== 'none';
   }
 
   private dispatch(handle: SessionHandle, event: SessionEvent): void {
@@ -745,13 +720,11 @@ class VideoSessionRegistry {
         case 'commitSample': {
           const entry = handle.heldSamples.get(effect.sampleId);
           handle.heldSamples.delete(effect.sampleId);
-          if (entry) handle.interpreter.record(entry, scoreThresholdOf(handle));
+          if (entry) handle.interpreter.record(entry);
           break;
         }
-        case 'discardSample':
-          handle.heldSamples.delete(effect.sampleId);
-          break;
         case 'setStatus':
+          if (effect.status === 'unsafe' && handle.cacheKey) this.unsafeCacheKeys.add(handle.cacheKey);
           clearProcessedStatus(video);
           video.setAttribute(PROCESSED_ATTR_MAP[STATUS_TO_PROCESSED[effect.status]], '');
           this.registerToggle(
@@ -761,9 +734,6 @@ class VideoSessionRegistry {
             effect.status === 'unsafe',
             effect.status === 'skipped',
           );
-          break;
-        case 'transientResolved':
-          this.recordLiveTransient(handle, effect.resolution);
           break;
         case 'cleanup':
           this.teardown(handle);
