@@ -130,6 +130,8 @@ function lookaheadSessionOf(mediaMetadata: IMediaMetadata): string | null {
   return mediaMetadata.kind === 'frame' && mediaMetadata.sampleKind === 'lookahead' ? mediaMetadata.sessionId : null;
 }
 
+const CANCELLED_SESSION_MEMORY = 256;
+
 function modelAttributes(): Record<string, string> {
   return { [ATTR.backend]: getInferenceBackend(), [ATTR.modelId]: getCurrentModelId() ?? 'unknown' };
 }
@@ -141,6 +143,7 @@ export class InferenceOrchestrationService {
   /** At most one not-yet-started playback frame is retained per video session. */
   private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
   private readonly queuedLookaheadFrames = new Map<string, Map<InferenceTask, AbortController>>();
+  private readonly cancelledSessionIds = new Set<string>();
   private readonly inFlightImages = new Map<ImageTaskKey, { task: InferenceTask; started: boolean }>();
   private queueWaitSpans = new WeakMap<InferenceTask, Span>();
   private readonly resultHandlers = new WeakMap<InferenceTask, (result: IImagePrediction | Error) => void>();
@@ -255,6 +258,12 @@ export class InferenceOrchestrationService {
     }
 
     if (args.onResult) this.resultHandlers.set(task, args.onResult);
+    if (mediaMetadata.kind === 'frame' && this.cancelledSessionIds.has(mediaMetadata.sessionId)) {
+      task.bitmap?.close();
+      this.rejectAborted(task);
+      log.debug('inference.frame.dropped', { ...attributes, reason: 'session cancelled' }, traceContext);
+      return;
+    }
 
     let controller: AbortController | undefined;
     const lookaheadSessionId = lookaheadSessionOf(mediaMetadata);
@@ -293,6 +302,7 @@ export class InferenceOrchestrationService {
       this.untrackLookaheadFrame(task);
       if (controller?.signal.aborted) {
         this.endQueueWait(task, 'aborted');
+        this.rejectAborted(task);
         return;
       }
       this.endQueueWait(task, 'error');
@@ -395,8 +405,12 @@ export class InferenceOrchestrationService {
     }
   }
 
-  /** Abort and release a playback frame that has not started inference yet. */
+  /**
+   * Abort and release a disposed session's not-yet-started frames. The session is remembered so
+   * frames still in transit on another transport are dropped on arrival.
+   */
   cancelVideoSession(sessionId: string): void {
+    this.rememberCancelledSession(sessionId);
     this.cancelLookaheadFrames(sessionId);
     const queued = this.queuedPlaybackFrames.get(sessionId);
     if (!queued) return;
@@ -404,6 +418,17 @@ export class InferenceOrchestrationService {
     queued.controller.abort();
     queued.task.bitmap?.close();
     this.endQueueWait(queued.task, 'aborted');
+  }
+
+  private rememberCancelledSession(sessionId: string): void {
+    this.cancelledSessionIds.add(sessionId);
+    if (this.cancelledSessionIds.size <= CANCELLED_SESSION_MEMORY) return;
+    const oldest = this.cancelledSessionIds.values().next().value;
+    if (oldest !== undefined) this.cancelledSessionIds.delete(oldest);
+  }
+
+  private rejectAborted(task: InferenceTask): void {
+    this.resultHandlers.get(task)?.(new Error('Video session inference cancelled'));
   }
 
   private cancelLookaheadFrames(sessionId: string): void {
