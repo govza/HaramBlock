@@ -44,7 +44,7 @@ export class MaskPresenter {
   private overlay: HTMLDivElement | null = null;
   private rafId: number | null = null;
   private thumbnail: VerdictEntry | null = null;
-  private playbackStarted = false;
+  private playbackStarted: boolean;
   private shownEntries: readonly VerdictEntry[] | null = null;
   private geometry: Geometry = { key: '', path: null };
   private filter = '';
@@ -55,6 +55,7 @@ export class MaskPresenter {
   constructor(private readonly options: MaskPresenterOptions) {
     this.videoFilterMask = new VideoFilterMask(options.video);
     this.pixelation = new PixelationLayer(options.video);
+    this.playbackStarted = !options.video.paused || options.video.played.length > 0;
     options.video.addEventListener('playing', this.onPlaying);
   }
 

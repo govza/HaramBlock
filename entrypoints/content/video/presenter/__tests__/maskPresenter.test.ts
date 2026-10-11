@@ -32,9 +32,10 @@ function renderFrame(): void {
   for (const frame of pending) frame(performance.now());
 }
 
-function mount() {
+function mount(prepareVideo: (video: HTMLVideoElement) => void = () => {}) {
   const container = document.createElement('div');
   const video = document.createElement('video');
+  prepareVideo(video);
   container.appendChild(video);
   document.body.appendChild(container);
   placeAt(container, rect(0, 0, 800, 600));
@@ -225,5 +226,25 @@ describe('Mask Presenter effect', () => {
 
     expect(canvasOf(document)?.style.display).toBe('none');
     expect(overlayOf(document)?.style.getPropertyValue('backdrop-filter')).toContain('blur');
+  });
+});
+
+describe('Mask Presenter thumbnail', () => {
+  it('masks with the unsafe thumbnail before playback starts', () => {
+    lookup = { kind: 'none' };
+    const { presenter } = mount();
+    presenter.setThumbnail(UNSAFE);
+    renderFrame();
+
+    expect(overlayOf(document)?.style.display).toBe('block');
+  });
+
+  it('ignores the thumbnail when attached to a video that is already playing', () => {
+    lookup = { kind: 'none' };
+    const { presenter } = mount(video => Object.defineProperty(video, 'paused', { configurable: true, value: false }));
+    presenter.setThumbnail(UNSAFE);
+    renderFrame();
+
+    expect(overlayOf(document)?.style.display ?? 'none').toBe('none');
   });
 });
