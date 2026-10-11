@@ -46,6 +46,7 @@ export class VideoPredictionCacheService {
   private readonly repository = new VideoPredictionRepository();
   private readonly pending = new Map<string, PendingWrite>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushed: Promise<void> = Promise.resolve();
 
   publish(videoUrl: string, origin: VideoSampleOrigin, samples: readonly IStoredVideoSample[]): void {
     if (samples.length === 0 || !isCacheableVideoUrl(videoUrl)) return;
@@ -93,13 +94,18 @@ export class VideoPredictionCacheService {
     );
   }
 
-  async flush(): Promise<void> {
+  flush(): Promise<void> {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     const writes = [...this.pending.values()];
     this.pending.clear();
+    this.flushed = this.flushed.then(() => this.write(writes));
+    return this.flushed;
+  }
+
+  private async write(writes: PendingWrite[]): Promise<void> {
     for (const write of writes) {
       try {
         await this.repository.mergeSamples(
