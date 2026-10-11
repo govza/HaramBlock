@@ -20,6 +20,7 @@ const TAP_RESOLUTION_TIMEOUT = 20_000;
 const VIDEO_TAP_ATTR = 'data-hb-video-tap';
 const PRESENTED_WINDOW_SEC = 0.4;
 const RAF_ORDER_SLACK_SEC = 0.05;
+const PRE_MASK_LEAD_SEC = 0.1;
 
 const countVisibleOnPage = async (selector: string): Promise<number> =>
   browser.execute((sel: string) => {
@@ -78,10 +79,6 @@ When('I inject a video using the first gallery image as poster', async () => {
 
 When('I inject and play a safe video using {string}', async (mode: string) => {
   await injectAndPlayFixtureVideo('safe', mode as VideoSourceMode);
-});
-
-When('I inject and play an unsafe video', async () => {
-  await injectAndPlayFixtureVideo('unsafe', 'src');
 });
 
 type VideoSourceMode = 'src' | 'source-child';
@@ -309,22 +306,44 @@ When('I play the test video while recording mask visibility', async () => {
   await startTestVideo('turns-unsafe');
 });
 
+type MaskLogEntry = { t: number; visible: boolean };
+
+const readMaskLog = async (): Promise<MaskLogEntry[]> =>
+  browser.execute(() => (globalThis as unknown as { __hbMaskLog?: MaskLogEntry[] }).__hbMaskLog ?? []);
+
+const requireFirstUnsafePointSec = (): number => {
+  if (firstUnsafePointSec === null) throw new Error('No unsafe sample was published');
+  return firstUnsafePointSec;
+};
+
+const entriesBeforeFirstReaching = (log: MaskLogEntry[], mediaTimeSec: number): MaskLogEntry[] => {
+  const firstReach = log.findIndex(entry => entry.t >= mediaTimeSec);
+  return firstReach === -1 ? log : log.slice(0, firstReach);
+};
+
 Then('the mask was visible when playback reached the first unsafe sample', async () => {
-  const unsafeAt = firstUnsafePointSec;
-  if (unsafeAt === null) throw new Error('No unsafe sample was published');
-  const readLog = async () =>
-    browser.execute(
-      () => (globalThis as unknown as { __hbMaskLog?: { t: number; visible: boolean }[] }).__hbMaskLog ?? [],
-    );
+  const unsafeAt = requireFirstUnsafePointSec();
   await waitWithVideoDiagnostics(
-    async () => (await readLog()).some(entry => entry.t > unsafeAt + PRESENTED_WINDOW_SEC),
+    async () => (await readMaskLog()).some(entry => entry.t > unsafeAt + PRESENTED_WINDOW_SEC),
     { timeout: INFERENCE_TIMEOUT, failureMessage: `Playback never passed the unsafe sample at ${unsafeAt}s` },
   );
-  const presented = (await readLog()).filter(
+  const presented = (await readMaskLog()).filter(
     entry => entry.t >= unsafeAt + RAF_ORDER_SLACK_SEC && entry.t <= unsafeAt + PRESENTED_WINDOW_SEC,
   );
   expect(presented.length).toBeGreaterThan(0);
   expect(presented.filter(entry => !entry.visible)).toEqual([]);
+});
+
+Then('no mask was visible over the clean span before it', async () => {
+  const publishedAfterPlayback = await readFirstUnsafePointSec();
+  const unsafeAt = Math.min(requireFirstUnsafePointSec(), publishedAfterPlayback ?? Infinity);
+  const cleanSpanEnd = unsafeAt - PRE_MASK_LEAD_SEC - RAF_ORDER_SLACK_SEC;
+  const isPlaying = (entry: MaskLogEntry) => entry.t > 0;
+  const cleanSpan = entriesBeforeFirstReaching(await readMaskLog(), unsafeAt).filter(
+    entry => isPlaying(entry) && entry.t <= cleanSpanEnd,
+  );
+  expect(cleanSpan.length).toBeGreaterThan(0);
+  expect(cleanSpan.filter(entry => entry.visible)).toEqual([]);
 });
 
 const DEFAULT_SCORE_THRESHOLD = 0.2;
