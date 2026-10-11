@@ -53,23 +53,29 @@ interface HostLink {
 
 let hookPort: MessagePort | null = null;
 let hookAcknowledged = false;
+let listeningToHook = false;
 let link: HostLink | null = null;
 const sessions = new Map<string, { open: OpenAnalysis; handlers: LookaheadHandlers }>();
 
 function offerHookPort(): void {
   const channel = new MessageChannel();
+  hookPort?.close();
   hookPort = channel.port1;
+  hookAcknowledged = false;
   globalThis.window.postMessage({ [MSE_HOOK_HANDSHAKE]: 'port' }, '*', [channel.port2]);
 }
 
 export function connectMseHook(): void {
   if (hookPort) return;
-  globalThis.window.addEventListener('message', event => {
-    if (event.source !== globalThis.window) return;
-    const signal = (event.data as Record<string, unknown> | null)?.[MSE_HOOK_HANDSHAKE];
-    if (signal === 'ack') hookAcknowledged = true;
-    if (signal === 'ready' && !hookAcknowledged && !link) offerHookPort();
-  });
+  if (!listeningToHook) {
+    listeningToHook = true;
+    globalThis.window.addEventListener('message', event => {
+      if (event.source !== globalThis.window) return;
+      const signal = (event.data as Record<string, unknown> | null)?.[MSE_HOOK_HANDSHAKE];
+      if (signal === 'ack') hookAcknowledged = true;
+      if (signal === 'ready' && !hookAcknowledged && !link) offerHookPort();
+    });
+  }
   offerHookPort();
 }
 
@@ -166,6 +172,7 @@ function connectFirefoxHost(): HostLink {
   port.onMessage.addListener(raw => onHostMessage(raw as HostToContent));
   port.onDisconnect.addListener(() => {
     link = null;
+    offerHookPort();
     for (const { handlers } of sessions.values()) handlers.unreachable('hook');
     sessions.clear();
   });
