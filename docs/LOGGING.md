@@ -138,10 +138,6 @@ update, counters are monotonic and add each forwarded value). Metric names are d
   cache hit ratio.
 - `hb.lookahead.failures` (counter, `hb.lookahead.failure_stage` demux|decode) - Analysis Unit demux
   and decode failures (each also ends the tap: Live Masking takes over).
-- `hb.video.transient_runs` (counter) - Transient Hit resolutions. Lookahead runs judged by the
-  Verdict Interpreter carry `hb.transient.resolution` suppressed|confident|long|late with run
-  length, top probability and the `TRANSIENT_HIT_CONFIG` in effect; Live Masking re-samples add the
-  `live_suppressed` / `live_confirmed` bucket.
 
 **Sampler** (`entrypoints/content/communication/sender.ts`, attrs `hb.transfer.kind`):
 `hb.sampler.encode_ms` (histogram, + `hb.session.id`) - `bitmapToCompressedBlob` WebP encode on the

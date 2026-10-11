@@ -12,13 +12,14 @@ import { createPresentationClock } from '@/entrypoints/content/video/presenter/p
 import { isNativeFullscreen, VideoFilterMask } from '@/entrypoints/content/video/presenter/videoFilterMask';
 import { buildMaskingFilter } from '@/utils/masking';
 
-import type { VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
+import type { VerdictForOptions, VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
 import type { IMaskingSettings } from '@/utils/types';
 
 export interface MaskPresenterOptions {
   video: HTMLVideoElement;
   interpreter: VerdictInterpreter;
+  verdictOptions: () => VerdictForOptions;
   masking: () => IMaskingSettings;
   onPresented(unsafe: boolean): void;
   onFrame(mediaTimeSec: number): void;
@@ -81,10 +82,10 @@ export class MaskPresenter {
   }
 
   private present(): void {
-    const { video, interpreter } = this.options;
+    const { video, interpreter, verdictOptions } = this.options;
     const mediaTime = this.clock.timeAt(video, performance.now());
     this.options.onFrame(mediaTime);
-    const lookup = interpreter.verdictFor(mediaTime, { paused: video.paused });
+    const lookup = interpreter.verdictFor(mediaTime, verdictOptions());
     if (lookup.kind === 'unsafe') {
       this.reportPresented(true);
       this.show(lookup.entries);

@@ -6,7 +6,11 @@ import {
   type SessionEffect,
   type SessionEvent,
   type VideoSessionState,
+  verdictOptionsOf,
 } from '@/entrypoints/content/video/session/videoSession';
+import { VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
+
+import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
 
 function run(events: SessionEvent[], start: VideoSessionState = createVideoSession().state) {
   let state = start;
@@ -20,6 +24,25 @@ function run(events: SessionEvent[], start: VideoSessionState = createVideoSessi
 }
 
 const kinds = (effects: SessionEffect[]) => effects.map(effect => effect.kind);
+
+const verdictAt = (timestampSec: number, unsafe: boolean): VerdictEntry => ({
+  timestampSec,
+  unsafe,
+  predictions: unsafe
+    ? [
+        {
+          classId: 0,
+          className: 'unsafe',
+          probability: 0.55,
+          boundingBox: { x: 0, y: 0, width: 1, height: 1 },
+          masks: { width: 0, height: 0, startValue: 0, runs: [] },
+        },
+      ]
+    : [],
+  maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 },
+  width: 640,
+  height: 360,
+});
 
 describe('Video Session: Live Masking hand-off', () => {
   it('starts Live Masking while coverage ahead is under 1.5 s and stops it only at 5 s', () => {
@@ -54,73 +77,99 @@ describe('Video Session: unreachable bitstream', () => {
   });
 });
 
-describe('Video Session: Transient Hits under Live Masking', () => {
-  it('answers a low-confidence unsafe live sample with an immediate re-sample instead of a mask', () => {
-    const { last, state } = run([{ type: 'play' }, { type: 'liveSample', sampleId: 'a', verdict: 'tentative' }]);
-
-    expect(last).toEqual([{ kind: 'requestLiveSample' }]);
-    expect(state.heldTentative).toBe('a');
-  });
-
-  it('masks at once when the re-sample is unsafe too', () => {
-    const { last } = run([
-      { type: 'play' },
-      { type: 'liveSample', sampleId: 'a', verdict: 'tentative' },
-      { type: 'liveSample', sampleId: 'b', verdict: 'tentative' },
-    ]);
-
-    expect(last).toEqual(
-      expect.arrayContaining([
-        { kind: 'commitSample', sampleId: 'a' },
-        { kind: 'commitSample', sampleId: 'b' },
-        { kind: 'transientResolved', resolution: 'confirmed' },
-      ]),
-    );
-  });
-
-  it('drops the held sample when the re-sample is clean', () => {
-    const { last } = run([
-      { type: 'play' },
-      { type: 'liveSample', sampleId: 'a', verdict: 'tentative' },
-      { type: 'liveSample', sampleId: 'b', verdict: 'clean' },
-    ]);
-
-    expect(last).toEqual(
-      expect.arrayContaining([
-        { kind: 'discardSample', sampleId: 'a' },
-        { kind: 'commitSample', sampleId: 'b' },
-        { kind: 'transientResolved', resolution: 'suppressed' },
-      ]),
-    );
-    expect(last).not.toContainEqual({ kind: 'commitSample', sampleId: 'a' });
-  });
-
-  it('masks a Confident Hit instantly', () => {
-    const { last } = run([{ type: 'play' }, { type: 'liveSample', sampleId: 'a', verdict: 'confident' }]);
+describe('Video Session: live samples', () => {
+  it('commits a low-confidence unsafe live sample at once, with no re-sample', () => {
+    const { last } = run([{ type: 'play' }, { type: 'liveSample', sampleId: 'a' }]);
 
     expect(last).toContainEqual({ kind: 'commitSample', sampleId: 'a' });
     expect(kinds(last)).not.toContain('requestLiveSample');
   });
 });
 
+describe('Video Session: masking rule per mode', () => {
+  const unsafeThenUnconfirmedClean = () => {
+    const interpreter = new VerdictInterpreter();
+    interpreter.record(verdictAt(10, true));
+    interpreter.record(verdictAt(10.5, false));
+    return interpreter;
+  };
+
+  it('holds a mask until a confirmed clean verdict under Live Masking, even when live samples stall', () => {
+    const { state } = run([{ type: 'tapUnreachable' }, { type: 'play' }]);
+
+    expect(state.liveMasking).toBe(true);
+    expect(unsafeThenUnconfirmedClean().verdictFor(10.5 + 10, verdictOptionsOf(state)).kind).toBe('unsafe');
+  });
+
+  it('cuts the mask at the span end under lookahead', () => {
+    const { state } = run([{ type: 'tapReachable' }, { type: 'play' }, { type: 'progress', coverageAheadSec: 8 }]);
+
+    expect(state.liveMasking).toBe(false);
+    expect(unsafeThenUnconfirmedClean().verdictFor(10.6, verdictOptionsOf(state))).toEqual({ kind: 'clean' });
+  });
+});
+
 describe('Video Session: status', () => {
+  const statusEffects = (effects: SessionEffect[][]) =>
+    effects.map(step => step.filter(effect => effect.kind === 'setStatus'));
+
   it('stays safe while an unsafe lookahead verdict waits ahead, and flips when its span is presented', () => {
     const { effects } = run([
       { type: 'tapReachable' },
       { type: 'verdict', sampleId: 'clean-0' },
       { type: 'verdict', sampleId: 'unsafe-ahead' },
       { type: 'presented', unsafe: true },
-      { type: 'presented', unsafe: false },
     ]);
 
-    const statuses = effects.map(step => step.filter(effect => effect.kind === 'setStatus'));
-    expect(statuses).toEqual([
+    expect(statusEffects(effects)).toEqual([
       [],
       [{ kind: 'setStatus', status: 'safe' }],
       [],
       [{ kind: 'setStatus', status: 'unsafe' }],
-      [{ kind: 'setStatus', status: 'safe' }],
     ]);
+  });
+
+  it('stays unsafe after the unsafe span ends', () => {
+    const { state, last } = run([
+      { type: 'tapReachable' },
+      { type: 'verdict', sampleId: 'a' },
+      { type: 'presented', unsafe: true },
+      { type: 'presented', unsafe: false },
+    ]);
+
+    expect(last).toEqual([]);
+    expect(state.status).toBe('unsafe');
+  });
+
+  it('keeps unsafe over a later skip', () => {
+    const { state, last } = run([
+      { type: 'verdict', sampleId: 'a' },
+      { type: 'presented', unsafe: true },
+      { type: 'liveCaptureFailed', permanent: true },
+      { type: 'tapUnreachable' },
+    ]);
+
+    expect(state.phase).toBe('skipped');
+    expect(state.status).toBe('unsafe');
+    expect(last).not.toContainEqual({ kind: 'setStatus', status: 'skipped' });
+  });
+
+  it('starts unsafe when the source was already seen unsafe', () => {
+    const born = createVideoSession({ unsafeSeen: true });
+    const { last } = run([{ type: 'verdict', sampleId: 'a' }], born.state);
+
+    expect(last).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+  });
+
+  it('reports unsafe rather than skipped when a source already seen unsafe is skipped', () => {
+    const born = createVideoSession({ unsafeSeen: true });
+    const { state, last } = run(
+      [{ type: 'liveCaptureFailed', permanent: true }, { type: 'tapUnreachable' }],
+      born.state,
+    );
+
+    expect(state.status).toBe('unsafe');
+    expect(last).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
   });
 });
 
@@ -191,7 +240,7 @@ describe('Video Session: initial blur', () => {
   it('releases the blur on the first verdict of any kind', () => {
     expect(kinds(run([{ type: 'verdict', sampleId: 'a' }]).last)).toContain('clearBlur');
     expect(kinds(run([{ type: 'thumbnailVerdict', unsafe: false }]).last)).toContain('clearBlur');
-    expect(kinds(run([{ type: 'liveSample', sampleId: 'a', verdict: 'clean' }]).last)).toContain('clearBlur');
+    expect(kinds(run([{ type: 'liveSample', sampleId: 'a' }]).last)).toContain('clearBlur');
   });
 
   it('releases it only once', () => {

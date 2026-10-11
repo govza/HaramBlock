@@ -42,6 +42,7 @@ function mount() {
   const presenter = new MaskPresenter({
     video,
     interpreter: { verdictFor: () => lookup } as unknown as VerdictInterpreter,
+    verdictOptions: () => ({}),
     masking: () => ({ blurIntensity: 50, pixelationScale: 0, grayscale: false, dark: false }),
     onPresented: () => {},
     onFrame: () => {},

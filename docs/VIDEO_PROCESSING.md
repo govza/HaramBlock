@@ -57,16 +57,9 @@ every reader of the same samples plans the same probes. _Avoid_: bisection sampl
 it; two samples at the same media time keep the unsafe one. _Avoid_: verdict track
 
 **Verdict Interpreter**: The only reader of the Verdict Timeline (`timeline/verdictInterpreter.ts`).
-It answers "what covers the frame presented at media time t" for the Mask Presenter and classifies
-Live Masking samples (`clean | tentative | confident`) for the session. _Avoid_: verdict filter
-
-**Transient Hit**: A run of at most `maxSuppressedRun` consecutive low-confidence unsafe samples,
-none a Confident Hit, closed by an adjacent clean sample and preceded by a clean sample or a
-coverage gap. Treated as clean when presented. Under Live Masking a low-confidence unsafe sample
-triggers an immediate re-sample instead of a mask. _Avoid_: false positive, blip
-
-**Confident Hit**: An unsafe sample whose top probability reaches
-`min(scoreThreshold × confidenceCoefficient, confidenceCap)`; it masks however short its run.
+It answers "what covers the frame presented at media time t" for the Mask Presenter, under the rule
+of the session's current mode (Live Masking or lookahead). Every unsafe sample masks: there is no
+post-inference suppression. _Avoid_: verdict filter
 
 **Bridge Horizon**: How far ahead an upcoming unsafe sample still merges its mask geometry into the
 cover of the current frame (3 s).
@@ -108,9 +101,9 @@ Android (ADR [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)).
 | Viewport suspension   | `entrypoints/content/video/session/viewportSuspension.ts`                                                 | IntersectionObserver suspend/resume (400 px margin, 1 s grace)                                             |
 | Forced presentation   | `entrypoints/content/video/session/forcedPresentation.ts`                                                 | Quick Toggle overrides (Forced Visibility) with no session behind them                                     |
 | Mask Presenter        | `entrypoints/content/video/presenter/{maskPresenter,presentationClock,maskClipPath}.ts`                   | rAF overlay, extrapolated playhead clock, mask grid → `clip-path`                                          |
-| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                           | rVFC/rAF ticker, one sample in flight, 250 ms floor, one-shot re-samples                                   |
+| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                           | rVFC/rAF ticker, one sample in flight, 250 ms floor, paused-frame samples                                  |
 | Page capture          | `entrypoints/content/video/sampling/capture.ts`                                                           | Model-input-sized capture, poster extraction, CORS clone and Relay Fetch tiers                             |
-| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                              | Sample history, coverage ahead, per-frame cover lookup, Transient Hit rules                                |
+| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                              | Sample history, coverage ahead, per-frame cover lookup per mode                                            |
 | Lookahead client      | `entrypoints/content/video/tap/lookaheadClient.ts`                                                        | Hook handshake, host connection (Chrome iframe / Firefox port), cache and inference forwarding             |
 | MSE hook              | `entrypoints/mseHook.content.ts`, `utils/lookahead/mseHook.ts`                                            | MAIN-world `MediaSource` / `SourceBuffer` hook at `document_start`                                         |
 | Analysis core         | `utils/lookahead/{analysis,byteStream,demux,lattice,progressiveFile}.ts`                                  | DOM-free: unit cutter, mediabunny demux, Sample Lattice, scheduling, cache-first lookup, Refinement Probes |
@@ -126,12 +119,13 @@ Android (ADR [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)).
 
 - **Events**: `tapReachable`, `tapUnreachable`, `sourceChanged{coverageAheadSec}`, `play`,
   `pause{covered}`, `seeked{paused, covered}`, `loopRestarted`, `progress{coverageAheadSec}`,
-  `verdict{sampleId}` (lookahead or cache), `thumbnailVerdict{unsafe}`,
-  `liveSample{sampleId, verdict}`, `liveCaptureFailed{permanent}`, `presented{unsafe}`,
-  `visibility{visible}`, `dispose`.
+  `verdict{sampleId}` (lookahead or cache), `thumbnailVerdict{unsafe}`, `liveSample{sampleId}`,
+  `liveCaptureFailed{permanent}`, `presented{unsafe}`, `visibility{visible}`, `dispose`.
 - **Effects**: `applyBlur`, `clearBlur`, `startLiveMasking`, `stopLiveMasking`, `requestLiveSample`,
-  `reopenTap`, `commitSample` / `discardSample` (move a held sample into the Verdict Timeline, or
-  drop it), `setStatus`, `transientResolved`, `cleanup`.
+  `reopenTap`, `commitSample` (move a held sample into the Verdict Timeline), `setStatus`,
+  `cleanup`.
+- `verdictOptionsOf(state)` hands the Verdict Interpreter the session's mode: Live Masking or
+  lookahead.
 
 Rules:
 
@@ -142,11 +136,13 @@ Rules:
 - **Initial blur**: the attachment blur stays only until the first verdict of any kind (Thumbnail,
   lookahead, cache or live). The uncovered playhead before any live verdict plays unmasked — the
   accepted leak.
-- **Transient Hits under Live Masking**: a `tentative` live sample is held and re-sampled at once. A
-  second unsafe sample commits both (`live_confirmed`); a clean one drops the held sample
-  (`live_suppressed`). A `confident` live sample commits instantly.
-- **Status** flips to unsafe when the presenter reports an unsafe span presented, not when its
-  verdict arrives ahead; a presented clean span flips it back to safe.
+- **Live samples** commit to the Verdict Timeline as they arrive, whatever their confidence.
+- **Status** flips to unsafe when the presenter reports an unsafe span (or unsafe Thumbnail)
+  presented, not when its verdict arrives ahead, and is sticky: it never returns to `safe`, and a
+  later `skipped` doesn't replace it. The registry remembers unsafe verdict cache keys for the
+  page's lifetime (`createVideoSession({ unsafeSeen })`), so the same source stays unsafe across a
+  Forced Visibility round-trip, re-attach or loop; sources without a cache key are sticky per
+  session only.
 - **Paused frames**: a pause or paused seek on an uncovered frame requests one live sample.
 - **Tainted page pixels** (permanent capture failure): with no tap, the session finalises `skipped`
   and un-blurred; with a tap, Live Masking stops, uncovered spans play un-blurred until lookahead
@@ -271,10 +267,11 @@ analysed while it is `unknown` are held, published once it is `vod`, and dropped
   `mediaTime`, which Firefox does not wrap on loop.
 - The Verdict Interpreter answers for that time: masks start `PRE_MASK_LEAD_SEC` (100 ms) before an
   unsafe sample and end at the clean sample that closes the span (the clean-cut rule, no trailing
-  pad); an unconfirmed clean sample (nothing after it yet) keeps the mask, which is the Live Masking
-  hysteresis. A sample behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s),
-  except at the frontier (nothing known after it), where an unsafe sample holds until a confirmed
-  clean sample arrives however late; paused frames mask a tentative sample instantly.
+  pad). A sample behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s). Under
+  lookahead the mask ends exactly at the span end. Under Live Masking asymmetric hysteresis holds it
+  until a confirmed clean sample: an unconfirmed clean sample (nothing after it yet, or an unsafe
+  one) keeps the mask, and at the frontier or before a coverage hole an unsafe sample holds however
+  late the next sample arrives.
 - The overlay is a div homed next to the video (the shared overlay positioning helpers, shadow-DOM
   aware) with `backdrop-filter` built from the host's masking settings and a `clip-path: path()`
   built from the RLE mask grids mapped onto the rendered content rect. No page pixels are read, so
@@ -305,9 +302,8 @@ path (Chrome bitmap over the MessageChannel, Firefox WebP blob) with `sampleKind
 
 See [LOGGING.md](LOGGING.md): `video.tap.resolved`, `video.session.transition`,
 `hb.video.tap.sessions`, `hb.video.coverage_ahead_sec`, `hb.video.uncovered_playing_ms`,
-`hb.video.live_masking_ms`, `hb.lookahead.samples`, `hb.lookahead.failures`,
-`hb.video.transient_runs`. The Grafana dashboard is described in
-[DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
+`hb.video.live_masking_ms`, `hb.lookahead.samples`, `hb.lookahead.failures`. The Grafana dashboard
+is described in [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
 
 ## Testing
 
@@ -318,10 +314,11 @@ See [LOGGING.md](LOGGING.md): `video.tap.resolved`, `video.session.transition`,
   probes, Keyframe Points, window refill, unreachable fetch/demux; plus the range fetch and lattice
   math.
 - **Video Session reducer** (`entrypoints/content/video/session/__tests__/videoSession.test.ts`):
-  hand-off hysteresis, unreachable tap, Transient/Confident Hits, status on presentation, paused
+  hand-off hysteresis, unreachable tap, masking rule per mode, sticky status on presentation, paused
   frames, Loop Restart, initial blur, tainted rules, viewport.
 - **Timeline and presenter** (`timeline/__tests__/`, `presenter/__tests__/`): clean-cut rule,
-  carry-forward bound, paused frames, live classification; extrapolated clock and clip paths.
+  carry-forward bound, Live Masking hold vs lookahead cut, no suppression; extrapolated clock and
+  clip paths.
 - **E2E** (`tests/e2e/features/video.feature`): poster masking, the progressive and MSE taps
   (`data-hb-video-tap`), a mask visible when playback reaches the first unsafe lookahead sample, and
   Live Masking on a plain-`blob:` source. YouTube forward seeks are a manual dev-build check.

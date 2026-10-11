@@ -9,7 +9,6 @@ export const METRIC = {
   inferenceRequests: 'hb.inference.requests',
   samplerEncodeMs: 'hb.sampler.encode_ms',
   samplerFramesSent: 'hb.sampler.frames_sent',
-  videoTransientRuns: 'hb.video.transient_runs',
   videoTapSessions: 'hb.video.tap.sessions',
   videoCoverageAheadSec: 'hb.video.coverage_ahead_sec',
   videoUncoveredPlayingMs: 'hb.video.uncovered_playing_ms',

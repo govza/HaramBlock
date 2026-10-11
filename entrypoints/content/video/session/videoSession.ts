@@ -1,11 +1,11 @@
+import type { VerdictForOptions } from '@/entrypoints/content/video/timeline/verdictInterpreter';
+
 export const LIVE_MASKING_START_COVERAGE_SEC = 1.5;
 export const LIVE_MASKING_STOP_COVERAGE_SEC = 5;
 
 export type TapState = 'pending' | 'reachable' | 'unreachable';
 export type SessionPhase = 'active' | 'skipped' | 'disposed';
 export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
-export type LiveVerdict = 'clean' | 'tentative' | 'confident';
-export type TransientResolution = 'suppressed' | 'confirmed';
 
 export interface VideoSessionState {
   phase: SessionPhase;
@@ -14,11 +14,15 @@ export interface VideoSessionState {
   visible: boolean;
   coverageAheadSec: number;
   liveMasking: boolean;
-  heldTentative: string | null;
   pausedFrameSampled: boolean;
   blurred: boolean;
   verdictSeen: boolean;
   status: SessionStatus | null;
+  unsafeSeen: boolean;
+}
+
+export interface VideoSessionOptions {
+  unsafeSeen?: boolean;
 }
 
 export type SessionEvent =
@@ -32,7 +36,7 @@ export type SessionEvent =
   | { type: 'progress'; coverageAheadSec: number }
   | { type: 'verdict'; sampleId: string }
   | { type: 'thumbnailVerdict'; unsafe: boolean }
-  | { type: 'liveSample'; sampleId: string; verdict: LiveVerdict }
+  | { type: 'liveSample'; sampleId: string }
   | { type: 'liveCaptureFailed'; permanent: boolean }
   | { type: 'presented'; unsafe: boolean }
   | { type: 'visibility'; visible: boolean }
@@ -46,9 +50,7 @@ export type SessionEffect =
   | { kind: 'requestLiveSample' }
   | { kind: 'reopenTap' }
   | { kind: 'commitSample'; sampleId: string }
-  | { kind: 'discardSample'; sampleId: string }
   | { kind: 'setStatus'; status: SessionStatus }
-  | { kind: 'transientResolved'; resolution: TransientResolution }
   | { kind: 'cleanup' };
 
 export interface ReduceResult {
@@ -63,15 +65,20 @@ const INITIAL_STATE: VideoSessionState = {
   visible: true,
   coverageAheadSec: 0,
   liveMasking: false,
-  heldTentative: null,
   pausedFrameSampled: false,
   blurred: true,
   verdictSeen: false,
   status: null,
+  unsafeSeen: false,
 };
 
-export function createVideoSession(): ReduceResult {
-  return withLiveMaskingSynced({ state: INITIAL_STATE, effects: [{ kind: 'applyBlur' }] });
+export function createVideoSession(options: VideoSessionOptions = {}): ReduceResult {
+  const state = { ...INITIAL_STATE, unsafeSeen: options.unsafeSeen ?? false };
+  return withLiveMaskingSynced({ state, effects: [{ kind: 'applyBlur' }] });
+}
+
+export function verdictOptionsOf(state: VideoSessionState): VerdictForOptions {
+  return { holdUntilConfirmedClean: state.liveMasking };
 }
 
 export function reduce(state: VideoSessionState, event: SessionEvent): ReduceResult {
@@ -110,11 +117,10 @@ function reduceActive(state: VideoSessionState, event: SessionEvent): ReduceResu
     case 'progress':
       return unchanged({ ...state, coverageAheadSec: event.coverageAheadSec });
     case 'verdict':
+    case 'liveSample':
       return firstVerdictSeen(state, [{ kind: 'commitSample', sampleId: event.sampleId }], false);
     case 'thumbnailVerdict':
       return firstVerdictSeen(state, [], event.unsafe);
-    case 'liveSample':
-      return liveSampleArrived(state, event.sampleId, event.verdict);
     case 'liveCaptureFailed':
       return event.permanent ? taintPixels(state) : unchanged(state);
     case 'presented':
@@ -153,36 +159,24 @@ function samplePausedFrame(state: VideoSessionState, covered: boolean): ReduceRe
 
 function firstVerdictSeen(state: VideoSessionState, effects: SessionEffect[], presentedUnsafe: boolean): ReduceResult {
   if (state.verdictSeen) return presentedUnsafe ? presented(state, true, effects) : { state, effects };
-  const status: SessionStatus = presentedUnsafe ? 'unsafe' : 'safe';
+  const unsafeSeen = state.unsafeSeen || presentedUnsafe;
+  const status: SessionStatus = unsafeSeen ? 'unsafe' : 'safe';
   return {
-    state: { ...state, verdictSeen: true, blurred: false, status },
+    state: { ...state, verdictSeen: true, blurred: false, status, unsafeSeen },
     effects: [...effects, ...(state.blurred ? [{ kind: 'clearBlur' } as const] : []), { kind: 'setStatus', status }],
   };
 }
 
-function liveSampleArrived(state: VideoSessionState, sampleId: string, verdict: LiveVerdict): ReduceResult {
-  const held = state.heldTentative;
-  if (verdict === 'tentative' && held === null) {
-    return { state: { ...state, heldTentative: sampleId }, effects: [{ kind: 'requestLiveSample' }] };
-  }
-  const effects: SessionEffect[] = [];
-  if (held !== null && verdict === 'clean') {
-    effects.push({ kind: 'discardSample', sampleId: held }, { kind: 'transientResolved', resolution: 'suppressed' });
-  } else if (held !== null) {
-    effects.push({ kind: 'commitSample', sampleId: held }, { kind: 'transientResolved', resolution: 'confirmed' });
-  }
-  effects.push({ kind: 'commitSample', sampleId });
-  return firstVerdictSeen({ ...state, heldTentative: null }, effects, false);
-}
-
 function presented(state: VideoSessionState, unsafe: boolean, effects: SessionEffect[] = []): ReduceResult {
-  const status: SessionStatus = unsafe ? 'unsafe' : 'safe';
-  if (!state.verdictSeen || state.status === status) return { state, effects };
-  return { state: { ...state, status }, effects: [...effects, { kind: 'setStatus', status }] };
+  if (!unsafe || !state.verdictSeen || state.status === 'unsafe') return { state, effects };
+  return {
+    state: { ...state, status: 'unsafe', unsafeSeen: true },
+    effects: [...effects, { kind: 'setStatus', status: 'unsafe' }],
+  };
 }
 
 function taintPixels(state: VideoSessionState): ReduceResult {
-  const next = { ...state, pixelsTainted: true, heldTentative: null };
+  const next = { ...state, pixelsTainted: true };
   if (state.tap === 'unreachable') return finalizeSkipped(next);
   if (state.tap === 'reachable') return releaseTaintedCover({ state: next, effects: [] });
   return unchanged(next);
@@ -195,12 +189,13 @@ function releaseTaintedCover(result: ReduceResult): ReduceResult {
 }
 
 function finalizeSkipped(state: VideoSessionState): ReduceResult {
+  const status: SessionStatus = state.unsafeSeen ? 'unsafe' : 'skipped';
   return {
-    state: { ...state, phase: 'skipped', blurred: false, status: 'skipped', liveMasking: false },
+    state: { ...state, phase: 'skipped', blurred: false, status, liveMasking: false },
     effects: [
       ...(state.liveMasking ? [{ kind: 'stopLiveMasking' } as const] : []),
       ...(state.blurred ? [{ kind: 'clearBlur' } as const] : []),
-      { kind: 'setStatus', status: 'skipped' },
+      ...(state.status === status ? [] : [{ kind: 'setStatus', status } as const]),
     ],
   };
 }
