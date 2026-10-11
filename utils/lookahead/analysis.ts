@@ -13,6 +13,7 @@ import {
   type DecodeJob,
   type DecodedTarget,
   type EncodedSample,
+  type InferredSample,
   type LookaheadOptions,
   type LookaheadPorts,
   type Playhead,
@@ -79,6 +80,10 @@ export class SampleScheduler {
 
   get isStopped(): boolean {
     return this.stopped;
+  }
+
+  get heldSources(): number {
+    return this.sources.length;
   }
 
   setPlayhead(playhead: Playhead): void {
@@ -272,15 +277,22 @@ export class SampleScheduler {
 
   private async decodeAndInfer(job: DecodeJob, orderedPoints: readonly number[]): Promise<void> {
     const decoded = new Map<number, DecodedTarget>();
-    for await (const item of this.ports.decoder.decode(job)) {
-      if (this.stopped) {
-        item.frame.close();
-        continue;
+    try {
+      for await (const item of this.ports.decoder.decode(job)) {
+        if (this.stopped) {
+          item.frame.close();
+          continue;
+        }
+        decoded.get(item.target.pointUs)?.frame.close();
+        decoded.set(item.target.pointUs, item);
       }
-      decoded.set(item.target.pointUs, item);
+    } catch (error) {
+      for (const item of decoded.values()) item.frame.close();
+      throw error;
     }
     for (const point of orderedPoints) {
       const item = decoded.get(point);
+      decoded.delete(point);
       if (!item) {
         this.inflight.delete(point);
         continue;
@@ -291,10 +303,19 @@ export class SampleScheduler {
       }
       this.submitInference(point, item);
     }
+    for (const unrequested of decoded.values()) unrequested.frame.close();
+  }
+
+  private requestInference(pointUs: number, item: DecodedTarget): Promise<InferredSample> {
+    try {
+      return this.ports.inference.infer({ pointUs, frame: item.frame, priority: this.priorityFor(pointUs) });
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private submitInference(pointUs: number, item: DecodedTarget): void {
-    const request = this.ports.inference.infer({ pointUs, frame: item.frame, priority: this.priorityFor(pointUs) });
+    const request = this.requestInference(pointUs, item).finally(() => item.frame.close());
     void this.trackWork(
       request.then(
         inferred => {
@@ -418,15 +439,26 @@ export function jobForPoints(
 interface BufferState {
   cutter: UnitCutter | null;
   chunkGroup: EncodedSample[];
+  chunkGroupAnalysed: number;
   chunkConfig: VideoDecoderConfig | null;
 }
 
 export type MseBuffers = ReadonlyMap<string, BufferState>;
 
+const bufferStateFor = (mime: string): BufferState => {
+  const kind = containerKindOf(mime);
+  return { cutter: kind ? createUnitCutter(kind) : null, chunkGroup: [], chunkGroupAnalysed: 0, chunkConfig: null };
+};
+
 function resumedBuffers(released: MseBuffers): Map<string, BufferState> {
   const buffers = new Map<string, BufferState>();
   for (const [bufferId, state] of released) {
-    buffers.set(bufferId, { cutter: state.cutter, chunkGroup: [], chunkConfig: state.chunkConfig });
+    buffers.set(bufferId, {
+      cutter: state.cutter,
+      chunkGroup: [],
+      chunkGroupAnalysed: 0,
+      chunkConfig: state.chunkConfig,
+    });
   }
   return buffers;
 }
@@ -436,11 +468,13 @@ export interface MseAnalysis {
   changeType(bufferId: string, mime: string): void;
   append(bufferId: string, bytes: Uint8Array, timestampOffsetSec: number, discontinuity?: boolean): void;
   appendChunks(bufferId: string, config: VideoDecoderConfig, chunks: readonly EncodedSample[]): void;
+  endOfStream(bufferId: string): void;
   removeBuffer(bufferId: string): void;
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   stop(): void;
   releaseBuffers(): MseBuffers;
+  heldUnits(): number;
   settled(): Promise<void>;
 }
 
@@ -459,12 +493,12 @@ export function createMseAnalysis(
     scheduler.addSource(new UnitSource(unit, arrivals));
   };
 
-  const enqueueDemux = (unit: AnalysisUnitBytes, offsetUs: number) => {
+  const enqueueDemux = (unit: AnalysisUnitBytes) => {
     demuxChain = scheduler.trackWork(
       demuxChain.then(async () => {
         if (scheduler.isStopped) return;
         try {
-          addUnit(await demuxUnit(unit, offsetUs));
+          addUnit(await demuxUnit(unit));
         } catch {
           ports.events.stat?.({ kind: 'unitDemuxFailed' });
           scheduler.stop('demux');
@@ -475,42 +509,49 @@ export function createMseAnalysis(
 
   const bufferFor = (bufferId: string): BufferState | undefined => buffers.get(bufferId);
 
-  const closeChunkGroup = (state: BufferState) => {
+  const analyseChunkGroup = (state: BufferState) => {
     const group = state.chunkGroup;
     const config = state.chunkConfig;
-    state.chunkGroup = [];
-    if (!config || group.length === 0) return;
+    if (!config || state.chunkGroupAnalysed === group.length) return;
+    state.chunkGroupAnalysed = group.length;
     const startUs = Math.min(...group.map(sample => sample.timestampUs));
     const endUs = Math.max(...group.map(sample => sample.timestampUs + sample.durationUs));
-    addUnit({ config, packets: group, startUs, endUs });
+    addUnit({ config, packets: [...group], startUs, endUs });
   };
 
   return {
     addBuffer(bufferId, mime) {
       if (mime.toLowerCase().startsWith('audio/')) return;
-      const kind = containerKindOf(mime);
-      buffers.set(bufferId, { cutter: kind ? createUnitCutter(kind) : null, chunkGroup: [], chunkConfig: null });
+      buffers.set(bufferId, bufferStateFor(mime));
     },
     changeType(bufferId, mime) {
       if (!buffers.has(bufferId)) return;
-      const kind = containerKindOf(mime);
-      buffers.set(bufferId, { cutter: kind ? createUnitCutter(kind) : null, chunkGroup: [], chunkConfig: null });
+      buffers.set(bufferId, bufferStateFor(mime));
     },
     append(bufferId, bytes, timestampOffsetSec, discontinuity = false) {
       const cutter = bufferFor(bufferId)?.cutter;
       if (!cutter || scheduler.isStopped) return;
       if (discontinuity) cutter.resync();
-      const offsetUs = Math.round(timestampOffsetSec * 1e6);
-      for (const unit of cutter.push(bytes).units) enqueueDemux(unit, offsetUs);
+      for (const unit of cutter.push(bytes, Math.round(timestampOffsetSec * 1e6)).units) enqueueDemux(unit);
     },
     appendChunks(bufferId, config, chunks) {
       const state = bufferFor(bufferId);
       if (!state || scheduler.isStopped) return;
       for (const chunk of chunks) {
-        if (chunk.type === 'key') closeChunkGroup(state);
+        if (chunk.type === 'key') {
+          analyseChunkGroup(state);
+          state.chunkGroup = [];
+          state.chunkGroupAnalysed = 0;
+        }
         state.chunkConfig = config;
         state.chunkGroup.push(chunk);
       }
+      analyseChunkGroup(state);
+    },
+    endOfStream(bufferId) {
+      const cutter = bufferFor(bufferId)?.cutter;
+      if (!cutter || scheduler.isStopped) return;
+      for (const unit of cutter.endOfStream().units) enqueueDemux(unit);
     },
     removeBuffer(bufferId) {
       buffers.delete(bufferId);
@@ -523,6 +564,7 @@ export function createMseAnalysis(
       for (const state of buffers.values()) state.cutter?.resync();
       return buffers;
     },
+    heldUnits: () => scheduler.heldSources,
     settled: async () => {
       await demuxChain;
       await scheduler.settled();

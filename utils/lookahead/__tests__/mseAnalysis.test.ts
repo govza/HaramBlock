@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
-import { chunked, CLEAN, createHarness, fixture, suspicious, unsafe } from '@/utils/lookahead/__tests__/harness';
+import {
+  chunked,
+  CLEAN,
+  createHarness,
+  fixture,
+  suspicious,
+  unsafe,
+  type TestFrame,
+  CLUSTER_ID,
+  indexesOfBytes,
+  withUnknownSizes,
+} from '@/utils/lookahead/__tests__/harness';
 import { createMseAnalysis } from '@/utils/lookahead/analysis';
 
-import type { InferencePort } from '@/utils/lookahead/ports';
+import type { DecoderPort, InferencePort } from '@/utils/lookahead/ports';
 
 const VP9_MIME = 'video/webm; codecs="vp9"';
 const H264_MIME = 'video/mp4; codecs="avc1.64000a"';
@@ -104,21 +115,76 @@ describe('Lookahead Analysis over an MSE Source', () => {
     expect(harness.requestedPoints().filter(point => point >= 2_000_000).length).toBeGreaterThan(0);
   });
 
-  it('cuts WebCodecs chunk appends into units at keyframes', async () => {
+  it('analyses the last keyframe group of a chunk append without waiting for the next keyframe', async () => {
     const harness = createHarness();
     const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
-    analysis.addBuffer('v', 'video/webm; codecs="vp9"');
-    const frameUs = 100_000;
-    const chunks = Array.from({ length: 31 }, (_, index) => ({
-      data: new Uint8Array([index]),
-      type: index % 10 === 0 ? ('key' as const) : ('delta' as const),
-      timestampUs: index * frameUs,
-      durationUs: frameUs,
-    }));
-    analysis.appendChunks('v', { codec: 'vp09.00.10.08' }, chunks);
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.appendChunks('v', { codec: 'vp09.00.10.08' }, chunksAt(0, 25));
     await analysis.settled();
 
-    expect(harness.requestedPoints()).toEqual([0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000]);
+    expect(harness.requestedPoints()).toEqual([0, 500_000, 1_000_000, 1_500_000, 2_000_000]);
+  });
+
+  it('extends a keyframe group continued by a later chunk append', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.appendChunks('v', { codec: 'vp09.00.10.08' }, chunksAt(0, 13));
+    await analysis.settled();
+    analysis.appendChunks('v', { codec: 'vp09.00.10.08' }, chunksAt(13, 20));
+    await analysis.settled();
+
+    expect(harness.requestedPoints()).toEqual([0, 500_000, 1_000_000, 1_500_000]);
+    expect(harness.requests.at(-1)).toMatchObject({ pointUs: 1_500_000, ptsUs: 1_500_000 });
+  });
+
+  it('analyses a trailing unknown-size Cluster once the stream ends', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', withUnknownSizes(fixture('mse-vp9.webm')), 0);
+    await analysis.settled();
+    const beforeEnd = harness.requestedPoints();
+    analysis.endOfStream('v');
+    await analysis.settled();
+
+    expect(beforeEnd).not.toContain(3_500_000);
+    expect(harness.requestedPoints()).toEqual([
+      0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000, 3_500_000,
+    ]);
+  });
+
+  it('places each unknown-size Cluster with the timestampOffset of the append that carried it', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    const bytes = withUnknownSizes(fixture('mse-vp9.webm'));
+    const cuts = [0, ...indexesOfBytes(bytes, CLUSTER_ID).slice(1), bytes.length];
+    cuts.slice(1).forEach((end, index) => analysis.append('v', bytes.slice(cuts[index], end), index * 10));
+    analysis.endOfStream('v');
+    await analysis.settled();
+
+    expect(harness.requestedPoints()).toEqual([
+      0, 500_000, 11_000_000, 11_500_000, 22_000_000, 22_500_000, 33_000_000, 33_500_000,
+    ]);
+  });
+
+  it('maps each frame of a unit spanning appends with the timestampOffset of the append that delivered it', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', H264_MIME);
+    const bytes = fixture('mse-h264.mp4');
+    const [firstMdat = 0] = indexesOfBytes(bytes, MDAT_TYPE);
+    const [, secondMoof = 0] = indexesOfBytes(bytes, MOOF_TYPE);
+    const midFirstMdat = firstMdat + 1260;
+    analysis.append('v', bytes.slice(0, midFirstMdat), 0);
+    analysis.append('v', bytes.slice(midFirstMdat, secondMoof - 4), 10);
+    await analysis.settled();
+
+    const decodedPts = harness.jobs.flatMap(job => job.packets.map(packet => packet.timestampUs));
+    expect(decodedPts.some(pts => pts < 1_000_000)).toBe(true);
+    expect(decodedPts.some(pts => pts > 10_000_000)).toBe(true);
+    expect(decodedPts.filter(pts => pts >= 1_000_000 && pts <= 10_000_000)).toEqual([]);
   });
 
   it('ignores audio SourceBuffers', async () => {
@@ -160,6 +226,59 @@ describe('Lookahead Analysis over an MSE Source', () => {
       Array.from({ length: 8 }, (_, index) => copy * 4_000_000 + index * 500_000),
     ).flat();
     expect(new Set(harness.requestedPoints())).toEqual(new Set(expected));
+  });
+  it('closes every decoded frame once its inference settles, answered or failed', async () => {
+    const harness = createHarness();
+    const inference: InferencePort = {
+      infer: request =>
+        request.pointUs === 1_000_000 ? Promise.reject(new Error('inference failed')) : Promise.resolve(CLEAN),
+    };
+    const analysis = createMseAnalysis({ ...harness.ports, inference }, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await analysis.settled();
+
+    expect(harness.frames).toHaveLength(8);
+    expect(harness.frames.filter(frame => !frame.closed)).toEqual([]);
+  });
+
+  it('closes the frames already decoded when decoding fails part-way', async () => {
+    const harness = createHarness();
+    const frames: TestFrame[] = [];
+    const decoder: DecoderPort = {
+      async *decode(job) {
+        const [target] = job.targets;
+        if (!target) return;
+        const frame: TestFrame = {
+          ptsUs: target.ptsUs,
+          closed: false,
+          close() {
+            this.closed = true;
+          },
+        };
+        frames.push(frame);
+        yield { target, frame };
+        await Promise.reject(new Error('decoder crashed'));
+      },
+    };
+    const analysis = createMseAnalysis({ ...harness.ports, decoder }, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await analysis.settled();
+
+    expect(harness.unreachable).toEqual(['decode']);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.filter(frame => !frame.closed)).toEqual([]);
+  });
+
+  it('holds no analysed unit except the newest, which a later unit may still refine into', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { live: false, suspicionThreshold: 0.25 });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await analysis.settled();
+
+    expect(analysis.heldUnits()).toBe(1);
   });
 });
 
@@ -248,4 +367,20 @@ function indexOfBytes(haystack: Uint8Array, needle: readonly number[]): number {
     if (needle.every((byte, offset) => haystack[i + offset] === byte)) return i;
   }
   return -1;
+}
+
+const MOOF_TYPE = [0x6d, 0x6f, 0x6f, 0x66];
+const MDAT_TYPE = [0x6d, 0x64, 0x61, 0x74];
+
+function chunksAt(from: number, to: number) {
+  const frameUs = 100_000;
+  return Array.from({ length: to - from }, (_, offset) => {
+    const index = from + offset;
+    return {
+      data: new Uint8Array([index]),
+      type: index % 10 === 0 ? ('key' as const) : ('delta' as const),
+      timestampUs: index * frameUs,
+      durationUs: frameUs,
+    };
+  });
 }

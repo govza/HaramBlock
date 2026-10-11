@@ -139,3 +139,43 @@ export function fileSource(bytes: Uint8Array, options: { failFirst?: boolean } =
   };
   return { source, reads };
 }
+
+export const CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
+const SEGMENT_ID = [0x18, 0x53, 0x80, 0x67];
+const UNKNOWN_SIZE = [0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+
+export function indexesOfBytes(haystack: Uint8Array, needle: readonly number[]): number[] {
+  const found: number[] = [];
+  for (let i = 0; i <= haystack.length - needle.length; i++) {
+    if (needle.every((byte, offset) => haystack[i + offset] === byte)) found.push(i);
+  }
+  return found;
+}
+
+function vintLength(firstByte: number): number {
+  let length = 1;
+  while (length <= 8 && (firstByte & (0x80 >> (length - 1))) === 0) length++;
+  return length;
+}
+
+export function withUnknownSizes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const out: number[] = [];
+  let offset = 0;
+  const copyUpTo = (end: number) => {
+    out.push(...bytes.subarray(offset, end));
+    offset = end;
+  };
+  const copyHeaderWithUnknownSize = () => {
+    const idLength = 4;
+    out.push(...bytes.subarray(offset, offset + idLength), ...UNKNOWN_SIZE);
+    offset += idLength + vintLength(bytes[offset + idLength] ?? 0);
+  };
+  copyUpTo(indexesOfBytes(bytes, SEGMENT_ID)[0] ?? 0);
+  copyHeaderWithUnknownSize();
+  for (const cluster of indexesOfBytes(bytes, CLUSTER_ID)) {
+    copyUpTo(cluster);
+    copyHeaderWithUnknownSize();
+  }
+  copyUpTo(bytes.length);
+  return new Uint8Array(out);
+}

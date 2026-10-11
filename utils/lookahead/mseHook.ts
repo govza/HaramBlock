@@ -277,6 +277,19 @@ export function installMseHook(target: Window & typeof globalThis): void {
     });
   };
 
+  const originalEndOfStream = originalMethod<MediaSource['endOfStream']>(sourceProto, 'endOfStream');
+  sourceProto.endOfStream = function endOfStream(this: MediaSource, error?: EndOfStreamError): void {
+    originalEndOfStream.call(this, error);
+    guard(() => {
+      for (const buffer of Array.from(this.sourceBuffers)) {
+        const hooked = buffers.get(buffer);
+        if (hooked && !hooked.audio) {
+          outbox.stream({ t: 'endOfStream', sourceId: hooked.sourceId, bufferId: hooked.bufferId });
+        }
+      }
+    });
+  };
+
   const bufferProto = SourceBufferCtor.prototype;
   const originalAppendBuffer = originalMethod<SourceBuffer['appendBuffer']>(bufferProto, 'appendBuffer');
   bufferProto.appendBuffer = function appendBuffer(this: SourceBuffer, data: BufferSource): void {

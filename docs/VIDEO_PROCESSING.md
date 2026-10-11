@@ -215,8 +215,16 @@ messages); on Firefox it calls the services directly.
 
 - **Cutting**: a streaming top-level reader per SourceBuffer (`byteStream.ts`) cuts Clusters (known
   or unknown size) and `moof`+`mdat` pairs across arbitrary append boundaries, and seals a new init
-  segment whenever one appears. Each unit is demuxed as init + unit with mediabunny; demuxed PTS +
-  `timestampOffset` is page media time — never `buffered`.
+  segment whenever one appears. An unknown-size Cluster ends at the next level-1 element, or at
+  `MediaSource.endOfStream()` (streamed by the hook per video SourceBuffer). Each unit is demuxed as
+  init + unit with mediabunny; demuxed PTS + the `timestampOffset` of the append that delivered the
+  frame's last byte is page media time — never `buffered`. `appendEncodedChunks` groups are analysed
+  at the end of each call, not held for the next keyframe; a group continued by the next call is
+  re-offered extended.
+- **Retention**: decoded frames are closed once their inference settles (or when decoding fails). A
+  unit's encoded bytes are released once a later point is analysed, so only the init segment,
+  unanalysed units and the newest analysed unit (which a Refinement Probe from the next unit may
+  still need) are held.
 - **Sampling**: an MSE unit covering `[first PTS, last PTS + duration)` asks for the level-0 Lattice
   Points inside it. A Progressive Source asks, per GOP, for Lattice Points where the GOP is ≤ 1 s
   and its Keyframe Point otherwise, within a 60 s window ahead of the playhead, refilled as it
