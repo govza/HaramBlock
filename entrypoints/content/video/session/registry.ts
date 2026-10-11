@@ -158,7 +158,8 @@ class VideoSessionRegistry {
     if (this.forced.reconcile(video, source, hostSettings)) return;
 
     const existing = this.byVideo.get(video);
-    if (existing && existing.state.phase !== 'disposed') {
+    const strictnessChanged = existing !== undefined && existing.hostSettings.strictness !== hostSettings.strictness;
+    if (existing && existing.state.phase !== 'disposed' && !strictnessChanged) {
       if (isSameVideoSource(existing, source)) {
         existing.hostSettings = hostSettings;
         return;
@@ -169,6 +170,7 @@ class VideoSessionRegistry {
         return;
       }
     }
+    if (existing && strictnessChanged) this.unsafeCacheKeys.delete(existing.cacheKey);
     if (existing) this.dispose(video);
 
     const handle = this.createHandle(video, source, hostSettings);
