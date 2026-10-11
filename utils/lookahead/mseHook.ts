@@ -31,6 +31,16 @@ interface Recorded {
   transfer: Transferable[];
 }
 
+interface InitPiece {
+  bytes: ArrayBuffer;
+  timestampOffset: number;
+}
+
+interface BufferPreamble {
+  bufferMessage: Extract<HookMessage, { t: 'buffer' }>;
+  init: InitPiece[];
+}
+
 interface SourceStream {
   wanted: boolean;
   resumable: boolean;
@@ -38,6 +48,7 @@ interface SourceStream {
   recorded: Recorded[];
   recordedBytes: number;
   resyncBuffers: Set<number>;
+  preambles: Map<number, BufferPreamble>;
 }
 
 const byteSizeOf = (message: HookMessage): number => {
@@ -47,6 +58,52 @@ const byteSizeOf = (message: HookMessage): number => {
 };
 
 const isAudioMime = (mime: string): boolean => mime.trim().toLowerCase().startsWith('audio/');
+
+const WEBM_EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
+
+type InitPieceKind = 'webm' | 'ftyp' | 'moov';
+
+const initPieceKindOf = (bytes: ArrayBuffer): InitPieceKind | null => {
+  const head = new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength));
+  if (WEBM_EBML_MAGIC.every((byte, index) => head[index] === byte)) return 'webm';
+  if (head.length < 8) return null;
+  const boxType = String.fromCharCode(...head.subarray(4, 8));
+  if (boxType === 'ftyp' || boxType === 'moov') return boxType;
+  return null;
+};
+
+const isLoneFtyp = (init: InitPiece[]): boolean =>
+  init.length === 1 && init[0] !== undefined && initPieceKindOf(init[0].bytes) === 'ftyp';
+
+const trackInitPiece = (preamble: BufferPreamble, append: Extract<StreamedMessage, { t: 'append' }>) => {
+  const kind = initPieceKindOf(append.bytes);
+  if (!kind) return;
+  const piece = { bytes: append.bytes.slice(0), timestampOffset: append.timestampOffset };
+  preamble.init = kind === 'moov' && isLoneFtyp(preamble.init) ? [...preamble.init, piece] : [piece];
+};
+
+const trackBufferPreamble = (preambles: Map<number, BufferPreamble>, message: StreamedMessage) => {
+  switch (message.t) {
+    case 'buffer':
+      preambles.set(message.bufferId, { bufferMessage: { ...message }, init: [] });
+      break;
+    case 'changeType': {
+      const preamble = preambles.get(message.bufferId);
+      if (preamble) {
+        preambles.set(message.bufferId, { bufferMessage: { ...preamble.bufferMessage, mime: message.mime }, init: [] });
+      }
+      break;
+    }
+    case 'append': {
+      const preamble = preambles.get(message.bufferId);
+      if (preamble) trackInitPiece(preamble, message);
+      break;
+    }
+    case 'removeBuffer':
+      preambles.delete(message.bufferId);
+      break;
+  }
+};
 
 function createOutbox(target: Window): Outbox {
   let port: MessagePort | null = null;
@@ -63,6 +120,7 @@ function createOutbox(target: Window): Outbox {
         recorded: [],
         recordedBytes: 0,
         resyncBuffers: new Set(),
+        preambles: new Map(),
       };
       streams.set(sourceId, stream);
     }
@@ -105,14 +163,30 @@ function createOutbox(target: Window): Outbox {
     else overflow(stream);
   };
 
+  const reintroduceBuffers = (sourceId: number, stream: SourceStream, to: MessagePort) => {
+    const recordedBuffers = new Set(
+      stream.recorded.flatMap(({ message }) => (message.t === 'buffer' ? [message.bufferId] : [])),
+    );
+    for (const [bufferId, { bufferMessage, init }] of stream.preambles) {
+      if (recordedBuffers.has(bufferId)) continue;
+      to.postMessage(bufferMessage);
+      for (const piece of init) to.postMessage({ t: 'append', sourceId, bufferId, ...piece } satisfies HookMessage);
+      stream.resyncBuffers.add(bufferId);
+    }
+  };
+
   const replay = (sourceId: number, stream: SourceStream, to: MessagePort) => {
     if (stream.overflowed) {
       stream.wanted = false;
       to.postMessage({ t: 'overflow', sourceId } satisfies HookMessage);
       return;
     }
+    if (!stream.resumable) reintroduceBuffers(sourceId, stream, to);
     stream.resumable = true;
-    for (const recorded of stream.recorded.splice(0)) to.postMessage(recorded.message, recorded.transfer);
+    for (const recorded of stream.recorded.splice(0)) {
+      flagResync(stream, recorded.message);
+      to.postMessage(recorded.message, recorded.transfer);
+    }
     stream.recordedBytes = 0;
   };
 
@@ -146,6 +220,7 @@ function createOutbox(target: Window): Outbox {
     },
     stream(message, transfer = []) {
       const stream = streamOf(message.sourceId);
+      trackBufferPreamble(stream.preambles, message);
       if (stream.wanted && port) {
         flagResync(stream, message);
         port.postMessage(message, transfer);

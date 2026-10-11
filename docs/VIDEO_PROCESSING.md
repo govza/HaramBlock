@@ -180,8 +180,15 @@ reports as unreachable (`overflow`) — Live Masking rather than analysis with h
 was wanted and then dropped (its host keeps the resumable unit cutters and init segments) instead
 evicts its oldest appends past the cap and flags the next append of that buffer `discontinuity`, so
 the cutter resynchronises at the next WebM Cluster or fMP4 `moof`. A newly adopted port makes every
-source non-resumable again. Audio SourceBuffers are announced but their bytes are never recorded or
-streamed. A page whose videos are never processed therefore never ships its media out of the page.
+source non-resumable again, and its new host never saw what went to the old port: on the first
+`want` over the new port the hook re-sends each live buffer's `buffer` message (with its current
+mime) and its latest init segment (copies of the append starting with the EBML magic, or of an
+`ftyp` append plus the `moov` append that follows it), then flags that buffer's next append —
+recorded or live — `discontinuity`. On Firefox the content script offers the hook a fresh port as
+soon as the event page's runtime port disconnects, so the hook stops streaming into the dead relay,
+records again, and replays its announcements to the next event page. Audio SourceBuffers are
+announced but their bytes are never recorded or streamed. A page whose videos are never processed
+therefore never ships its media out of the page.
 
 A session that closes and reopens on the same source (a quality switch back, a Forced Visibility
 round-trip) does not get the buffer and init messages again: the host keeps the closed analysis's

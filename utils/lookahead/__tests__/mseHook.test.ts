@@ -38,6 +38,8 @@ function createPage(page: FakePage = {}) {
     completeAppend(): void {
       this.dispatchEvent(new Event('update'));
     }
+
+    changeType(_type: string): void {}
   }
 
   class FakeMediaSource {
@@ -287,6 +289,111 @@ describe('MSE hook: appends made before the source is wanted', () => {
     expect(received.some(message => message.t === 'overflow')).toBe(false);
     expect(replayed.map(message => message.bytes.byteLength)).toEqual([20 * 1024 * 1024, 20 * 1024 * 1024, 1]);
     expect(replayed[0]).toHaveProperty('discontinuity', true);
+  });
+});
+
+describe('MSE hook: a replacement port', () => {
+  const WEBM_INIT = [0x1a, 0x45, 0xdf, 0xa3, 0x01];
+  const MP4_INIT = [0, 0, 0, 8, 0x66, 0x74, 0x79, 0x70];
+
+  it('gives the new port the buffer and its latest init segment before resuming its appends', async () => {
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource();
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, WEBM_INIT);
+    appendAndComplete(buffer, [0x1f, 0x43, 0xb6, 0x75]);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    appendAndComplete(buffer, [0xc]);
+
+    await vi.waitFor(() => expect(appendsOf(received)).toEqual([WEBM_INIT, [0xc]]));
+    expect(received.find(message => message.t === 'buffer')).toMatchObject({ sourceId, mime: VP9_MIME });
+    const appends = received.filter(message => message.t === 'append');
+    expect(appends[0]).not.toHaveProperty('discontinuity');
+    expect(appends[1]).toHaveProperty('discontinuity', true);
+  });
+
+  it('flags the first append recorded before the new port wanted the source, right after the init', async () => {
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource();
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, WEBM_INIT);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    appendAndComplete(buffer, [0xc]);
+    appendAndComplete(buffer, [0xd]);
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(appendsOf(received)).toEqual([WEBM_INIT, [0xc], [0xd]]));
+    const appends = received.filter(message => message.t === 'append');
+    expect(appends.map(message => message.discontinuity === true)).toEqual([false, true, false]);
+  });
+
+  it('gives the new port an fMP4 init appended as separate ftyp and moov boxes whole', async () => {
+    const FTYP = [0, 0, 0, 8, 0x66, 0x74, 0x79, 0x70];
+    const MOOV = [0, 0, 0, 8, 0x6d, 0x6f, 0x6f, 0x76];
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource('video/mp4; codecs="avc1.64001f"');
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, FTYP);
+    appendAndComplete(buffer, MOOV);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(appendsOf(received)).toEqual([FTYP, MOOV]));
+  });
+
+  it('gives the new port the init of the type the buffer changed to', async () => {
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource();
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, WEBM_INIT);
+    buffer.changeType('video/mp4; codecs="avc1.64001f"');
+    appendAndComplete(buffer, MP4_INIT);
+    appendAndComplete(buffer, [0xd]);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(appendsOf(received)).toEqual([MP4_INIT]));
+    expect(received.find(message => message.t === 'buffer')).toMatchObject({ mime: 'video/mp4; codecs="avc1.64001f"' });
+  });
+
+  it('gives the new port nothing of a buffer the page removed', async () => {
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { source, buffer } = openSource();
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, WEBM_INIT);
+    source.removeSourceBuffer(buffer);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(received.filter(message => message.t === 'buffer' || message.t === 'append')).toEqual([]);
   });
 });
 

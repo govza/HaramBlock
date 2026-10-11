@@ -120,4 +120,21 @@ describe('Lookahead client on Firefox: relaying the MSE hook to the event page',
 
     expect(handlers.unreachableReasons).toEqual(['hook']);
   });
+
+  it('hands the hook a fresh port once the event page port disconnects, relayed to the next event page', async () => {
+    await openSession(handlersStub());
+    runtime.disconnect();
+    const [, freshHookSide] = page.offeredPorts;
+    if (!freshHookSide) throw new Error('no fresh hook port offered');
+    const nextRuntime = createRuntimePort();
+    vi.mocked(browser.runtime.connect).mockReturnValue(nextRuntime.port as unknown as Browser.runtime.Port);
+    const source: HookMessage = { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' };
+    freshHookSide.postMessage(source);
+
+    const { openLookahead } = await import('@/entrypoints/content/video/tap/lookaheadClient');
+    openLookahead(openMse, handlersStub());
+
+    await vi.waitFor(() => expect(nextRuntime.posted).toContainEqual({ k: 'hook', m: source }));
+    expect(page.offeredPorts).toHaveLength(2);
+  });
 });
