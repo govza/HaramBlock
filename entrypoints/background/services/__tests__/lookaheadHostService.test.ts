@@ -14,7 +14,6 @@ const openMse: OpenAnalysis = {
   sessionId: 'session',
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
   liveness: 'live',
-  suspicionThreshold: 0.25,
   inputSize: 64,
   cacheKey: '',
   sourceUrl: OBJECT_URL,

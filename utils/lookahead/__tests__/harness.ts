@@ -17,7 +17,7 @@ export const fixture = (name: string): Uint8Array =>
   new Uint8Array(readFileSync(`utils/lookahead/__tests__/fixtures/${name}`));
 
 export const CLEAN: InferredSample = {
-  predictions: [],
+  scores: { kind: 'detections', detections: [] },
   input: { width: 64, height: 36, maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 } },
   topUnsafeScore: 0.05,
 };
@@ -25,15 +25,18 @@ export const CLEAN: InferredSample = {
 export const unsafe = (probability = 0.6): InferredSample => ({
   ...CLEAN,
   topUnsafeScore: probability,
-  predictions: [
-    {
-      classId: 1,
-      className: 'unsafe',
-      probability,
-      boundingBox: { x: 0, y: 0, width: 10, height: 10 },
-      masks: { width: 1, height: 1, startValue: 1, runs: [1] },
-    },
-  ],
+  scores: {
+    kind: 'detections',
+    detections: [
+      {
+        classId: 1,
+        className: 'unsafe',
+        probability,
+        boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+        masks: { width: 1, height: 1, startValue: 1, runs: [1] },
+      },
+    ],
+  },
 });
 
 export const suspicious = (score = 0.3): InferredSample => ({ ...CLEAN, topUnsafeScore: score });

@@ -444,6 +444,7 @@ export class InferenceOrchestrationService {
       timestampSec: frameMetadata.timestampSec,
       sessionId: frameMetadata.sessionId,
       predictions: imagePrediction.predictions,
+      ...(imagePrediction.scoreGrid && { scoreGrid: imagePrediction.scoreGrid }),
       topUnsafeScore: imagePrediction.topUnsafeScore ?? 0,
       width: imagePrediction.width,
       height: imagePrediction.height,

@@ -327,36 +327,36 @@ Then('the mask was visible when playback reached the first unsafe sample', async
   expect(presented.filter(entry => !entry.visible)).toEqual([]);
 });
 
+const DEFAULT_SCORE_THRESHOLD = 0.2;
+
 async function readFirstUnsafePointSec(): Promise<number | null> {
   const testWindow = await browser.getWindowHandle();
   const extensionPath = await browser.getExtensionPath();
   await browser.newWindow(`${extensionPath}/popup.html`);
   try {
-    return await browser.executeAsync((done: (pointSec: number | null) => void) => {
+    return await browser.executeAsync((scoreThreshold: number, done: (pointSec: number | null) => void) => {
       const request = globalThis.indexedDB.open('MediaCacheDatabase');
       request.onerror = () => done(null);
       request.onsuccess = () => {
         const db = request.result;
-        if (!db.objectStoreNames.contains('videoPredictions')) {
+        if (!db.objectStoreNames.contains('videoSamples')) {
           db.close();
           done(null);
           return;
         }
-        const read = db.transaction('videoPredictions', 'readonly').objectStore('videoPredictions').getAll();
+        const read = db.transaction('videoSamples', 'readonly').objectStore('videoSamples').getAll();
         read.onsuccess = () => {
           db.close();
-          const rows = read.result as {
-            samplesByModel: Record<string, { pointUs: number; predictions: unknown[] }[]>;
-          }[];
-          const unsafePoints = rows
-            .flatMap(row => Object.values(row.samplesByModel).flat())
-            .filter(sample => sample.predictions.length > 0)
+          const buckets = read.result as { samples: { pointUs: number; topUnsafeScore: number }[] }[];
+          const unsafePoints = buckets
+            .flatMap(bucket => bucket.samples)
+            .filter(sample => sample.topUnsafeScore >= scoreThreshold)
             .map(sample => sample.pointUs);
           done(unsafePoints.length > 0 ? Math.min(...unsafePoints) / 1e6 : null);
         };
         read.onerror = () => done(null);
       };
-    });
+    }, DEFAULT_SCORE_THRESHOLD);
   } finally {
     await browser.closeWindow();
     await browser.switchToWindow(testWindow);

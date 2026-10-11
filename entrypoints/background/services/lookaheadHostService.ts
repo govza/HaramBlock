@@ -1,6 +1,7 @@
 import { LookaheadHost } from '@/utils/lookahead/host';
 import { LOOKAHEAD_PORT_NAME, type FirefoxPortMessage, type OpenAnalysis } from '@/utils/lookahead/protocol';
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
+import { rawScoresOf } from '@/utils/lookahead/sampleScores';
 import { createWebCodecsDecoder, toModelInputBitmap, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 import { getLogger } from '@/utils/telemetry';
 
@@ -13,7 +14,7 @@ import type { IImagePrediction } from '@/utils/types';
 const log = getLogger('lookaheadHostService');
 
 const toInferredSample = (prediction: IImagePrediction): InferredSample => ({
-  predictions: prediction.predictions,
+  scores: rawScoresOf(prediction),
   input: { width: prediction.width, height: prediction.height, maskTransform: prediction.maskTransform },
   topUnsafeScore: prediction.topUnsafeScore ?? 0,
 });

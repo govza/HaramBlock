@@ -2,7 +2,7 @@ import { formatCapturedLogs } from './console-capture.js';
 import { Selectors } from '../constants/index.js';
 
 const MEDIA_CACHE_DATABASE = 'MediaCacheDatabase';
-const MEDIA_CACHE_STORES = ['imagePredictions', 'videoPredictions'];
+const MEDIA_CACHE_STORES = ['imagePredictions', 'videoPredictions', 'videoSamples'];
 
 export const clearMediaCache = async (): Promise<void> => {
   const extensionPath = await browser.getExtensionPath();

@@ -18,12 +18,31 @@ function entry(timestampSec: number, unsafe: boolean): VerdictEntry {
 }
 
 describe('VerdictTimeline', () => {
-  it('bounds session-lifetime growth by dropping the oldest entries', () => {
+  it('evicts the entries behind a playhead that sits far ahead of them', () => {
     const timeline = new VerdictTimeline();
-    for (let i = 0; i < MAX_TIMELINE_ENTRIES + 10; i++) timeline.add(entry(i * 0.25, false));
+    for (let i = 0; i < MAX_TIMELINE_ENTRIES + 10; i++) timeline.add(entry(i * 0.25, false), 1_000);
 
     expect(timeline.size()).toBe(MAX_TIMELINE_ENTRIES);
     expect(timeline.at(0)?.timestampSec).toBe(2.5);
+  });
+
+  it('evicts the entries farthest ahead when the playhead sits behind them', () => {
+    const timeline = new VerdictTimeline();
+    for (let i = 0; i < MAX_TIMELINE_ENTRIES; i++) timeline.add(entry(i * 0.25, false), 0);
+    timeline.add(entry(-1, false), 0);
+
+    expect(timeline.size()).toBe(MAX_TIMELINE_ENTRIES);
+    expect(timeline.at(0)?.timestampSec).toBe(-1);
+    expect(timeline.at(MAX_TIMELINE_ENTRIES - 1)?.timestampSec).toBe((MAX_TIMELINE_ENTRIES - 2) * 0.25);
+  });
+
+  it('never evicts the entry just added for the playhead it describes', () => {
+    const timeline = new VerdictTimeline();
+    for (let i = 0; i < MAX_TIMELINE_ENTRIES; i++) timeline.add(entry(i * 0.25, false), 0);
+    timeline.add(entry(5_000, true), 5_000);
+
+    expect(timeline.at(timeline.indexAfter(5_000) - 1)).toMatchObject({ timestampSec: 5_000, unsafe: true });
+    expect(timeline.at(0)?.timestampSec).toBe(0.25);
   });
 
   it('reports continuous coverage ahead of a position', () => {

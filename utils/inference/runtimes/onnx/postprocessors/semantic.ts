@@ -1,21 +1,10 @@
 import { calculateLetterboxParams, calculateScaleFactors } from '@/entrypoints/background/modelUtils/maskTransform';
-import { encodeMaskRLE } from '@/utils/rle';
+import { encodeScoreGrid, quantizeProbability, SemanticCells, type GridGeometry } from '@/utils/scoreGrid';
 import { getLogger } from '@/utils/telemetry';
 
 import type { PostprocessContext, PostprocessResult } from '@/utils/inference/runtimes/onnx/postprocessors/types';
-import type { IElementPrediction } from '@/utils/types';
 
 const log = getLogger('prediction');
-
-interface ClassAccumulator {
-  mask: Uint8Array;
-  confSum: number;
-  pixelCount: number;
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
 
 /**
  * Process semantic segmentation output.
@@ -28,6 +17,7 @@ export function processSemanticSegmentation({
   scoreThreshold,
   originalWidth,
   originalHeight,
+  includeScoreGrid = false,
 }: PostprocessContext): PostprocessResult {
   const [modelHeight, modelWidth] = config.imgsz;
 
@@ -73,18 +63,18 @@ export function processSemanticSegmentation({
   const subW = Math.ceil(croppedWidth / step);
   const subH = Math.ceil(croppedHeight / step);
 
-  const classData = new Map<number, ClassAccumulator>();
-  for (const classId of targetClassIndices) {
-    classData.set(classId, {
-      mask: new Uint8Array(subW * subH),
-      confSum: 0,
-      pixelCount: 0,
-      minX: subW,
-      minY: subH,
-      maxX: 0,
-      maxY: 0,
-    });
-  }
+  const contentWidth = modelWidth - 2 * offsetX;
+  const contentHeight = modelHeight - 2 * offsetY;
+  const geometry: GridGeometry = {
+    width: subW,
+    height: subH,
+    cellWidth: step * (contentWidth / croppedWidth) * scaleX,
+    cellHeight: step * (contentHeight / croppedHeight) * scaleY,
+  };
+  const classNameOf = (classId: number) => config.names[classId] ?? `class_${classId}`;
+  const cells = new SemanticCells(geometry, classNameOf);
+  const gridProbabilities = includeScoreGrid ? new Uint8Array(subW * subH) : null;
+  const gridClassIds = includeScoreGrid ? new Uint8Array(subW * subH) : null;
 
   let topUnsafeScore = 0;
   let bufferIdx = 0;
@@ -103,24 +93,17 @@ export function processSemanticSegmentation({
         }
       }
 
-      const acc = classData.get(maxClass);
-      if (acc) {
+      if (targetClassIndices.has(maxClass)) {
         let expSum = 0;
         for (let c = 0; c < numClasses; c++) {
           expSum += Math.exp((data[c * spatial + y * outW + x] ?? 0) - maxLogit);
         }
         const prob = 1 / expSum;
         topUnsafeScore = Math.max(topUnsafeScore, prob);
-
-        if (prob >= scoreThreshold) {
-          acc.mask[bufferIdx] = 1;
-          acc.confSum += prob;
-          acc.pixelCount++;
-
-          if (sx < acc.minX) acc.minX = sx;
-          if (sy < acc.minY) acc.minY = sy;
-          if (sx > acc.maxX) acc.maxX = sx;
-          if (sy > acc.maxY) acc.maxY = sy;
+        if (prob >= scoreThreshold) cells.add(bufferIdx, maxClass, prob);
+        if (gridProbabilities && gridClassIds) {
+          gridProbabilities[bufferIdx] = quantizeProbability(prob);
+          gridClassIds[bufferIdx] = maxClass;
         }
       }
 
@@ -128,38 +111,12 @@ export function processSemanticSegmentation({
     }
   }
 
-  const predictions: IElementPrediction[] = [];
-
-  const contentWidth = modelWidth - 2 * offsetX;
-  const contentHeight = modelHeight - 2 * offsetY;
-  const pixelScaleX = contentWidth / croppedWidth;
-  const pixelScaleY = contentHeight / croppedHeight;
-
-  for (const classId of targetClassIndices) {
-    const acc = classData.get(classId);
-    if (!acc || acc.pixelCount === 0) continue;
-
-    const meanConf = acc.confSum / acc.pixelCount;
-    const className = config.names[classId] ?? `class_${classId}`;
-
-    const boxX1 = acc.minX * step * pixelScaleX * scaleX;
-    const boxY1 = acc.minY * step * pixelScaleY * scaleY;
-    const boxX2 = (acc.maxX + 1) * step * pixelScaleX * scaleX;
-    const boxY2 = (acc.maxY + 1) * step * pixelScaleY * scaleY;
-
-    predictions.push({
-      classId,
-      className,
-      probability: meanConf,
-      boundingBox: {
-        x: Math.floor(boxX1),
-        y: Math.floor(boxY1),
-        width: Math.round(boxX2 - boxX1),
-        height: Math.round(boxY2 - boxY1),
-      },
-      masks: encodeMaskRLE(acc.mask, subW, subH),
-    });
-  }
-
-  return { predictions, topUnsafeScore };
+  const predictions = cells.predictions(targetClassIndices);
+  if (!gridProbabilities || !gridClassIds) return { predictions, topUnsafeScore };
+  const classNames = Object.fromEntries([...targetClassIndices].map(classId => [classId, classNameOf(classId)]));
+  return {
+    predictions,
+    topUnsafeScore,
+    scoreGrid: encodeScoreGrid(geometry, gridProbabilities, gridClassIds, classNames),
+  };
 }

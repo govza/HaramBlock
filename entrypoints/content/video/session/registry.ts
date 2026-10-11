@@ -1,6 +1,6 @@
 import {
   cancelVideoSessionInference,
-  requestCachedVideoPredictions,
+  requestVideoForcedVisibility,
   requestVideoFrameInference,
   requestVideoToggleUpdate,
 } from '@/entrypoints/content/communication/sender';
@@ -46,6 +46,7 @@ import {
   type StoredSample,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
+import { predictionsAt, rawScoresOf } from '@/utils/lookahead/sampleScores';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
@@ -74,23 +75,25 @@ const THUMBNAIL_FRAME_INDEX = -1;
 const PROGRESS_INTERVAL_MS = 250;
 const SAME_MEDIA_DURATION_TOLERANCE_SEC = 1;
 const LOOKAHEAD_INFERENCE_TIMEOUT_MS = 30_000;
-const SUSPICION_RATIO = 0.5;
 
 const FAILURE_STAGE = { unitDemuxFailed: 'demux', decodeFailed: 'decode', cacheReadFailed: 'cache' } as const;
 
 const scoreThresholdOf = (handle: SessionHandle): number => strictnessToScoreThreshold(handle.hostSettings.strictness);
 
-const toEntry = (timestampSec: number, sample: InferredSample): VerdictEntry => ({
-  timestampSec,
-  unsafe: sample.predictions.length > 0,
-  predictions: sample.predictions,
-  maskTransform: sample.input.maskTransform,
-  width: sample.input.width,
-  height: sample.input.height,
-});
+function toEntry(handle: SessionHandle, timestampSec: number, sample: InferredSample): VerdictEntry {
+  const predictions = predictionsAt(sample, scoreThresholdOf(handle));
+  return {
+    timestampSec,
+    unsafe: predictions.length > 0,
+    predictions,
+    maskTransform: sample.input.maskTransform,
+    width: sample.input.width,
+    height: sample.input.height,
+  };
+}
 
 const toInferred = (prediction: IFramePrediction): InferredSample => ({
-  predictions: prediction.predictions ?? [],
+  scores: rawScoresOf({ predictions: prediction.predictions ?? [], scoreGrid: prediction.scoreGrid }),
   input: { width: prediction.width, height: prediction.height, maskTransform: prediction.maskTransform },
   topUnsafeScore: prediction.topUnsafeScore ?? 0,
 });
@@ -299,13 +302,13 @@ class VideoSessionRegistry {
   }
 
   private applyThumbnail(handle: SessionHandle, prediction: IFramePrediction): void {
-    const entry = toEntry(0, toInferred(prediction));
+    const entry = toEntry(handle, 0, toInferred(prediction));
     handle.presenter.setThumbnail(entry.unsafe ? entry : null);
     this.dispatch(handle, { type: 'thumbnailVerdict', unsafe: entry.unsafe });
   }
 
   private applyLiveSample(handle: SessionHandle, prediction: IFramePrediction): void {
-    const entry = toEntry(prediction.timestampSec, toInferred(prediction));
+    const entry = toEntry(handle, prediction.timestampSec, toInferred(prediction));
     const sampleId = this.holdSample(handle, entry);
     this.dispatch(handle, { type: 'liveSample', sampleId });
   }
@@ -317,7 +320,7 @@ class VideoSessionRegistry {
   }
 
   private onLookaheadSample(handle: SessionHandle, sample: StoredSample): void {
-    const sampleId = this.holdSample(handle, toEntry(sample.pointUs / 1e6, sample));
+    const sampleId = this.holdSample(handle, toEntry(handle, sample.pointUs / 1e6, sample));
     this.dispatch(handle, { type: 'verdict', sampleId });
   }
 
@@ -373,7 +376,7 @@ class VideoSessionRegistry {
 
   private restoreForcedVisibility(handle: SessionHandle): void {
     if (!handle.cacheKey) return;
-    void requestCachedVideoPredictions(handle.cacheKey).then(({ forcedVisibility }) => {
+    void requestVideoForcedVisibility(handle.cacheKey).then(forcedVisibility => {
       if (this.byId.get(handle.sessionId) !== handle || handle.state.phase === 'disposed') return;
       if (forcedVisibility === 'auto' || this.userToggledCacheKeys.get(handle.video) === handle.cacheKey) return;
       log.debug('registry.forced_visibility.restored', { [ATTR.sessionId]: handle.sessionId, forcedVisibility });
@@ -452,15 +455,13 @@ class VideoSessionRegistry {
       this.tapResolved(handle, 'none', 'none');
       return;
     }
-    const threshold = scoreThresholdOf(handle);
     handle.lookahead = openLookahead(
       {
         t: 'open',
         sessionId: handle.sessionId,
         tap,
         liveness: livenessOfDuration(handle.video.duration),
-        scoreThreshold: threshold,
-        suspicionThreshold: threshold * SUSPICION_RATIO,
+        scoreThreshold: scoreThresholdOf(handle),
         inputSize: currentInferenceCaptureSize(),
         cacheKey: handle.cacheKey,
         sourceUrl: handle.src,
@@ -720,7 +721,7 @@ class VideoSessionRegistry {
         case 'commitSample': {
           const entry = handle.heldSamples.get(effect.sampleId);
           handle.heldSamples.delete(effect.sampleId);
-          if (entry) handle.interpreter.record(entry);
+          if (entry) handle.interpreter.record(entry, video.currentTime);
           break;
         }
         case 'setStatus':

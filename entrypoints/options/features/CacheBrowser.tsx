@@ -3,7 +3,6 @@ import { type ReactNode, useMemo, useState } from 'react';
 
 import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
-import { allVideoSamples } from '@/utils/db/videoPredictionRepository';
 import { t } from '@/utils/i18n';
 import { getLogger } from '@/utils/telemetry';
 
@@ -28,7 +27,7 @@ interface ICacheRow {
   timestamp: number;
   forcedVisibility: ForcedVisibility;
   modelId?: string;
-  predictions: IElementPrediction[];
+  predictions?: IElementPrediction[];
   detail: string;
 }
 
@@ -98,9 +97,10 @@ const useCacheSources = (): Record<CacheKind, ICacheSource> => {
           key: record.videoUrl,
           timestamp: record.timestamp,
           forcedVisibility: record.forcedVisibility,
-          modelId: Object.keys(record.samplesByModel).join(', ') || undefined,
-          predictions: allVideoSamples(record).flatMap(sample => sample.predictions),
-          detail: t('OptionsPage.Cache.samples', [String(allVideoSamples(record).length)]),
+          modelId: Object.keys(record.sampleCounts).join(', ') || undefined,
+          detail: t('OptionsPage.Cache.samples', [
+            String(Object.values(record.sampleCounts).reduce((total, count) => total + count, 0)),
+          ]),
         }),
         Media: ({ src, className }: IMediaProps) => <video src={src} preload='metadata' muted className={className} />,
       }),
@@ -186,7 +186,7 @@ const CacheRow = ({ source, row }: { source: ICacheSource; row: ICacheRow }) => 
       <div className='flex flex-wrap gap-x-4 gap-y-1 text-text-muted text-xs'>
         <span>{new Date(row.timestamp).toLocaleString()}</span>
         <span>{row.detail}</span>
-        <span>{formatTopPrediction(row.predictions)}</span>
+        {row.predictions && <span>{formatTopPrediction(row.predictions)}</span>}
         {row.forcedVisibility !== 'auto' && (
           <span className='text-accent'>{t(forcedVisibilityLabelKeys[row.forcedVisibility])}</span>
         )}

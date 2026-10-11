@@ -60,7 +60,21 @@ export interface IImagePrediction {
   };
   forcedVisibility: ForcedVisibility;
   modelId?: string;
+  scoreGrid?: IScoreGrid;
 }
+
+export interface IScoreGrid {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  probabilityRuns: number[];
+  classIdRuns: number[];
+  classNames: Record<number, string>;
+}
+
+export type RawSampleScores =
+  { kind: 'detections'; detections: IElementPrediction[] } | { kind: 'grid'; grid: IScoreGrid };
 
 export type ForcedVisibility = 'auto' | 'visible' | 'blocked';
 
@@ -103,6 +117,7 @@ export interface IVideoFrameVerdict extends IVideoTimelinePosition {
   width: number; // Frame media width
   height: number; // Frame media height
   predictions: IElementPrediction[];
+  scoreGrid?: IScoreGrid;
   topUnsafeScore: number;
   timestamp: number; // When the prediction was made
   cacheMetadata: ICacheMetadata;
@@ -131,7 +146,7 @@ export interface IInferenceInputGeometry {
 
 export interface IStoredVideoSample {
   pointUs: number;
-  predictions: IElementPrediction[];
+  scores: RawSampleScores;
   input: IInferenceInputGeometry;
   topUnsafeScore: number;
 }
@@ -143,7 +158,15 @@ export interface IVideoPredictionRecord {
   forcedVisibility: ForcedVisibility;
   timestamp: number;
   cacheMetadata: ICacheMetadata;
-  samplesByModel: Record<string, IStoredVideoSample[]>;
+  sampleCounts: Record<string, number>;
+}
+
+export interface IVideoSampleBucket {
+  videoUrl: string;
+  modelId: string;
+  bucketStartUs: number;
+  hostname: string;
+  samples: IStoredVideoSample[];
 }
 
 export interface ICachedVideoPredictions {

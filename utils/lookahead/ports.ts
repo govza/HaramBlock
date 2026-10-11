@@ -1,4 +1,4 @@
-import type { IElementPrediction, IMaskTransform } from '@/utils/types';
+import type { IMaskTransform, RawSampleScores } from '@/utils/types';
 
 export interface SampleInput {
   width: number;
@@ -7,7 +7,7 @@ export interface SampleInput {
 }
 
 export interface InferredSample {
-  predictions: IElementPrediction[];
+  scores: RawSampleScores;
   input: SampleInput;
   topUnsafeScore: number;
 }
@@ -104,7 +104,7 @@ export function livenessOfDuration(durationSec: number): Liveness {
 
 export interface LookaheadOptions {
   liveness: Liveness;
-  suspicionThreshold: number;
+  scoreThreshold: number;
 }
 
 export interface Playhead {
@@ -112,5 +112,3 @@ export interface Playhead {
   playbackRate: number;
   paused: boolean;
 }
-
-export const isUnsafeSample = (sample: InferredSample): boolean => sample.predictions.length > 0;
