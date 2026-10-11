@@ -62,6 +62,23 @@ describe('Lookahead host: reopening a session on the same MSE source', () => {
     );
   });
 
+  it('reaches a source announced after an earlier open of the same object URL timed out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { host, sent } = createHost();
+      host.handleContent(openMse('first'));
+      await vi.advanceTimersByTimeAsync(2_000);
+      host.handleContent(openMse('second'));
+      await vi.advanceTimersByTimeAsync(1_500);
+      host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(reachableSessions(sent)).toEqual(['second']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('never reports an abandoned open as unreachable once the session has reopened on another source', async () => {
     vi.useFakeTimers();
     try {
