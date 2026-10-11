@@ -163,7 +163,10 @@ present. Completion is tracked on `update`, registered inside `addSourceBuffer` 
 the SourceBuffer; each completed append's `slice()` is transferred (never copied again) with the
 `timestampOffset` read at append time; `abort`/`error` drop it. ArrayBuffers are recognised by type
 tag, not `instanceof`. A quality switch is a new `MediaSource`, hooked like any other. YouTube's
-player response marks live and post-live DVR sources. Every hook body is guarded so a failure can
+player response marks live and post-live DVR sources; after SPA navigation the response can still
+describe the previous video, so it is trusted only when its `videoId` matches the playing video
+(`getVideoData()`, else the page URL). Until it does the source's liveness is `unknown`, re-read on
+each append, and announced (`liveness`) once known. Every hook body is guarded so a failure can
 never break the page's player.
 
 The hook and the isolated content script start in unspecified order, so they handshake over
@@ -171,22 +174,22 @@ The hook and the isolated content script start in unspecified order, so they han
 eagerly and again on `ready` until the hook answers `ack`. The hook and port are page-visible;
 spoofed bytes are an accepted risk.
 
-Bytes are pulled, not pushed: the hook announces every source (`source`: id, object URL, live) at
-once, but streams a source's buffer, append and chunk messages only after the host sends `want` for
-it over the same port, and stops again on `drop`. Until then it records them per source, bounded at
-48 MB. Before a source's first `want` nothing is evicted: a backlog that outgrows the cap is dropped
-whole, recording stops, and the next `want` is answered with `overflow`, which the host reports as
-unreachable (`overflow`) — Live Masking rather than analysis with holes. A source that was wanted
-and then dropped (its host keeps the resumable unit cutters and init segments) instead evicts its
-oldest appends past the cap and flags the next append of that buffer `discontinuity`, so the cutter
-resynchronises at the next WebM Cluster or fMP4 `moof`. A newly adopted port makes every source
-non-resumable again. Audio SourceBuffers are announced but their bytes are never recorded or
+Bytes are pulled, not pushed: the hook announces every source (`source`: id, object URL, liveness)
+at once, but streams a source's buffer, append and chunk messages only after the host sends `want`
+for it over the same port, and stops again on `drop`. Until then it records them per source, bounded
+at 48 MB. Before a source's first `want` nothing is evicted: a backlog that outgrows the cap is
+dropped whole, recording stops, and the next `want` is answered with `overflow`, which the host
+reports as unreachable (`overflow`) — Live Masking rather than analysis with holes. A source that
+was wanted and then dropped (its host keeps the resumable unit cutters and init segments) instead
+evicts its oldest appends past the cap and flags the next append of that buffer `discontinuity`, so
+the cutter resynchronises at the next WebM Cluster or fMP4 `moof`. A newly adopted port makes every
+source non-resumable again. Audio SourceBuffers are announced but their bytes are never recorded or
 streamed. A page whose videos are never processed therefore never ships its media out of the page.
 
-A session that closes and reopens on the same source (live detection on `durationchange`, a quality
-switch back, a Forced Visibility round-trip) does not get the buffer and init messages again: the
-host keeps the closed analysis's per-buffer unit cutters (with their init segments) on the source
-and the next analysis on it resumes them, resynchronising at the next unit.
+A session that closes and reopens on the same source (a quality switch back, a Forced Visibility
+round-trip) does not get the buffer and init messages again: the host keeps the closed analysis's
+per-buffer unit cutters (with their init segments) on the source and the next analysis on it resumes
+them, resynchronising at the next unit.
 
 ### Progressive range fetch
 
@@ -255,9 +258,11 @@ media URL, or the page URL without fragment for `blob:` sources — `verdictCach
 included. `topUnsafeScore` is the best target-class score from the postprocessor regardless of the
 threshold. The service buffers publishes per (video, model) and merges every 2 s or 50 samples. The
 row also keeps the video's Forced Visibility. Dexie schema v2 clears the old video rows. Live and
-post-live sessions (YouTube flags, or an infinite duration — a duration that turns infinite after
-attach re-opens the tap as live) neither read nor publish; Live Masking samples are never cached.
-Changing strictness empties a site's samples.
+post-live sessions neither read nor publish; Live Masking samples are never cached. A session's
+liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's duration
+(infinite → `live`, finite → `vod`, unset → `unknown`), re-sent on every `durationchange`. Samples
+analysed while it is `unknown` are held, published once it is `vod`, and dropped if it turns `live`;
+`live` is final for the session. Changing strictness empties a site's samples.
 
 ## Mask Presenter
 

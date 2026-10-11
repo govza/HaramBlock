@@ -5,15 +5,17 @@ import {
   type MseBuffers,
   type ProgressiveAnalysis,
 } from '@/utils/lookahead/analysis';
-
-import type {
-  ByteRangeSource,
-  DecoderPort,
-  InferencePort,
-  LookaheadEvents,
-  SampleCachePort,
-  UnreachableReason,
+import {
+  combinedLiveness,
+  type ByteRangeSource,
+  type DecoderPort,
+  type InferencePort,
+  type Liveness,
+  type LookaheadEvents,
+  type SampleCachePort,
+  type UnreachableReason,
 } from '@/utils/lookahead/ports';
+
 import type { ContentToHost, HookCommand, HookMessage, HostToContent, OpenAnalysis } from '@/utils/lookahead/protocol';
 
 const SOURCE_WAIT_MS = 3_000;
@@ -29,14 +31,17 @@ export interface HostPorts {
 
 interface HookedSource {
   objectUrl: string;
-  live: boolean;
+  liveness: Liveness;
   analysis: MseAnalysis | null;
   released: MseBuffers;
 }
 
 type Analysis = MseAnalysis | ProgressiveAnalysis;
 
-function replayInto(analysis: MseAnalysis, message: Exclude<HookMessage, { t: 'source' | 'overflow' }>): void {
+function replayInto(
+  analysis: MseAnalysis,
+  message: Exclude<HookMessage, { t: 'source' | 'liveness' | 'overflow' }>,
+): void {
   switch (message.t) {
     case 'buffer':
       analysis.addBuffer(String(message.bufferId), message.mime);
@@ -73,6 +78,7 @@ export class LookaheadHost {
   private readonly sessions = new Map<string, Analysis>();
   private readonly waiters = new Map<string, (sourceId: number) => void>();
   private readonly latestOpens = new Map<string, OpenAnalysis>();
+  private readonly contentLiveness = new Map<string, Liveness>();
 
   constructor(private readonly ports: HostPorts) {}
 
@@ -80,11 +86,18 @@ export class LookaheadHost {
     if (message.t === 'source') {
       this.sources.set(message.sourceId, {
         objectUrl: message.objectUrl,
-        live: message.live,
+        liveness: message.liveness,
         analysis: null,
         released: new Map(),
       });
       this.waiters.get(message.objectUrl)?.(message.sourceId);
+      return;
+    }
+    if (message.t === 'liveness') {
+      const source = this.sources.get(message.sourceId);
+      if (!source) return;
+      source.liveness = message.liveness;
+      if (source.analysis) this.applyLiveness(source.analysis);
       return;
     }
     const analysis = this.sources.get(message.sourceId)?.analysis;
@@ -101,6 +114,17 @@ export class LookaheadHost {
     return [...this.sessions].find(([, candidate]) => candidate === analysis)?.[0];
   }
 
+  private livenessOf(sessionId: string, source: HookedSource | undefined): Liveness {
+    return combinedLiveness(this.contentLiveness.get(sessionId) ?? 'unknown', source?.liveness ?? 'vod');
+  }
+
+  private applyLiveness(analysis: Analysis): void {
+    const sessionId = this.sessionOf(analysis);
+    if (!sessionId) return;
+    const source = [...this.sources.values()].find(candidate => candidate.analysis === analysis);
+    analysis.setLiveness(this.livenessOf(sessionId, source));
+  }
+
   handleContent(message: ContentToHost): void {
     switch (message.t) {
       case 'open':
@@ -112,6 +136,13 @@ export class LookaheadHost {
       case 'visible':
         this.sessions.get(message.sessionId)?.setVisible(message.visible);
         break;
+      case 'liveness': {
+        if (!this.contentLiveness.has(message.sessionId)) break;
+        this.contentLiveness.set(message.sessionId, message.liveness);
+        const analysis = this.sessions.get(message.sessionId);
+        if (analysis) this.applyLiveness(analysis);
+        break;
+      }
       case 'close':
         this.close(message.sessionId);
         break;
@@ -127,6 +158,7 @@ export class LookaheadHost {
 
   private close(sessionId: string): void {
     this.latestOpens.delete(sessionId);
+    this.contentLiveness.delete(sessionId);
     const analysis = this.sessions.get(sessionId);
     if (!analysis) return;
     this.sessions.delete(sessionId);
@@ -156,13 +188,14 @@ export class LookaheadHost {
   private async open(open: OpenAnalysis): Promise<void> {
     this.close(open.sessionId);
     this.latestOpens.set(open.sessionId, open);
+    this.contentLiveness.set(open.sessionId, open.liveness);
     const lookaheadPorts = {
       decoder: this.ports.decoder(open),
       inference: this.ports.inference(open),
       cache: this.ports.cache(open),
       events: this.events(open),
     };
-    const options = { live: open.live, suspicionThreshold: open.suspicionThreshold };
+    const options = { liveness: open.liveness, suspicionThreshold: open.suspicionThreshold };
     if (open.tap.kind === 'progressive') {
       const bytes = this.ports.rangeSource(open.tap.url);
       let reported = false;
@@ -192,7 +225,11 @@ export class LookaheadHost {
     const source = this.sources.get(sourceId);
     if (!source) return;
     const previous = source.analysis?.releaseBuffers() ?? source.released;
-    const analysis = createMseAnalysis(lookaheadPorts, { ...options, live: options.live || source.live }, previous);
+    const analysis = createMseAnalysis(
+      lookaheadPorts,
+      { ...options, liveness: this.livenessOf(open.sessionId, source) },
+      previous,
+    );
     source.released = new Map();
     source.analysis = analysis;
     this.sessions.set(open.sessionId, analysis);

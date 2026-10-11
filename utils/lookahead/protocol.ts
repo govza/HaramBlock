@@ -1,4 +1,11 @@
-import type { AnalysisStat, InferredSample, Playhead, StoredSample, UnreachableReason } from '@/utils/lookahead/ports';
+import type {
+  AnalysisStat,
+  InferredSample,
+  Liveness,
+  Playhead,
+  StoredSample,
+  UnreachableReason,
+} from '@/utils/lookahead/ports';
 
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
 export const LOOKAHEAD_PORT_NAME = 'hb-lookahead';
@@ -14,7 +21,8 @@ export interface WireChunk {
 }
 
 export type HookMessage =
-  | { t: 'source'; sourceId: number; objectUrl: string; live: boolean }
+  | { t: 'source'; sourceId: number; objectUrl: string; liveness: Liveness }
+  | { t: 'liveness'; sourceId: number; liveness: Liveness }
   | { t: 'buffer'; sourceId: number; bufferId: number; mime: string }
   | { t: 'changeType'; sourceId: number; bufferId: number; mime: string }
   | {
@@ -40,7 +48,7 @@ export interface OpenAnalysis {
   t: 'open';
   sessionId: string;
   tap: TapRequest;
-  live: boolean;
+  liveness: Liveness;
   suspicionThreshold: number;
   inputSize: number;
   cacheKey: string;
@@ -53,6 +61,7 @@ export type ContentToHost =
   | OpenAnalysis
   | { t: 'playhead'; sessionId: string; playhead: Playhead }
   | { t: 'visible'; sessionId: string; visible: boolean }
+  | { t: 'liveness'; sessionId: string; liveness: Liveness }
   | { t: 'close'; sessionId: string }
   | { t: 'inferResult'; requestId: number; sample: InferredSample | null }
   | { t: 'cacheSamples'; requestId: number; samples: StoredSample[] };

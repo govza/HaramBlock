@@ -13,7 +13,14 @@ import {
 import { backgroundRpc } from '@/utils/messaging/content';
 import { getLogger } from '@/utils/telemetry';
 
-import type { AnalysisStat, InferredSample, Playhead, StoredSample, UnreachableReason } from '@/utils/lookahead/ports';
+import type {
+  AnalysisStat,
+  InferredSample,
+  Liveness,
+  Playhead,
+  StoredSample,
+  UnreachableReason,
+} from '@/utils/lookahead/ports';
 
 const log = getLogger('lookaheadClient');
 
@@ -36,6 +43,7 @@ export interface LookaheadHandlers {
 export interface LookaheadSession {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
+  setLiveness(liveness: Liveness): void;
   close(): void;
 }
 
@@ -177,6 +185,7 @@ export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): 
   return {
     setPlayhead: playhead => link?.send({ t: 'playhead', sessionId: open.sessionId, playhead }),
     setVisible: visible => link?.send({ t: 'visible', sessionId: open.sessionId, visible }),
+    setLiveness: liveness => link?.send({ t: 'liveness', sessionId: open.sessionId, liveness }),
     close: () => {
       if (!sessions.delete(open.sessionId)) return;
       link?.send({ t: 'close', sessionId: open.sessionId });

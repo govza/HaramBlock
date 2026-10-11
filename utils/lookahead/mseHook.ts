@@ -6,6 +6,8 @@ import {
   type WireChunk,
 } from '@/utils/lookahead/protocol';
 
+import type { Liveness } from '@/utils/lookahead/ports';
+
 const INSTALLED = Symbol.for('haramblock.mseHook');
 const MAX_RECORDED_BYTES_PER_SOURCE = 48 * 1024 * 1024;
 
@@ -16,10 +18,11 @@ interface HookedBuffer {
   pending: { bytes: ArrayBuffer; timestampOffset: number }[];
 }
 
-type StreamedMessage = Exclude<HookMessage, { t: 'source' | 'overflow' }>;
+type AnnouncedMessage = Extract<HookMessage, { t: 'source' | 'liveness' }>;
+type StreamedMessage = Exclude<HookMessage, { t: 'source' | 'liveness' | 'overflow' }>;
 
 interface Outbox {
-  announce(message: Extract<HookMessage, { t: 'source' }>): void;
+  announce(message: AnnouncedMessage): void;
   stream(message: StreamedMessage, transfer?: Transferable[]): void;
 }
 
@@ -47,7 +50,7 @@ const isAudioMime = (mime: string): boolean => mime.trim().toLowerCase().startsW
 
 function createOutbox(target: Window): Outbox {
   let port: MessagePort | null = null;
-  const announcements: Extract<HookMessage, { t: 'source' }>[] = [];
+  const announcements: AnnouncedMessage[] = [];
   const streams = new Map<number, SourceStream>();
 
   const streamOf = (sourceId: number): SourceStream => {
@@ -162,24 +165,54 @@ function sliceOf(data: unknown): ArrayBuffer | null {
 }
 
 interface YouTubeVideoDetails {
+  videoId?: string;
   isLive?: boolean;
   isPostLiveDvr?: boolean;
 }
 
-function youTubeVideoDetails(player: HTMLElement | null): YouTubeVideoDetails | undefined {
-  const getPlayerResponse: unknown = player && Reflect.get(player, 'getPlayerResponse');
-  if (typeof getPlayerResponse !== 'function') return undefined;
-  const response: unknown = Reflect.apply(getPlayerResponse, player, []);
-  const details: unknown = response && typeof response === 'object' ? Reflect.get(response, 'videoDetails') : null;
-  return details && typeof details === 'object' ? details : undefined;
+const YOUTUBE_HOST = /(^|\.)youtube(-nocookie)?\.com$/;
+const YOUTUBE_PATH_VIDEO_ID = /^\/(?:shorts|live|embed)\/([\w-]+)/;
+
+function callPlayer(player: HTMLElement, name: string): unknown {
+  const method: unknown = Reflect.get(player, name);
+  return typeof method === 'function' ? Reflect.apply(method, player, []) : undefined;
 }
 
-function isYouTubeLive(target: Window): boolean {
+function objectOrUndefined(value: unknown): object | undefined {
+  return value && typeof value === 'object' ? value : undefined;
+}
+
+function videoIdInUrl(href: string): string | undefined {
   try {
-    const details = youTubeVideoDetails(target.document.getElementById('movie_player'));
-    return Boolean(details?.isLive || details?.isPostLiveDvr);
+    const url = new URL(href);
+    return url.searchParams.get('v') ?? YOUTUBE_PATH_VIDEO_ID.exec(url.pathname)?.[1];
   } catch {
-    return false;
+    return undefined;
+  }
+}
+
+function currentYouTubeVideoId(player: HTMLElement, target: Window): string | undefined {
+  const playing: unknown = Reflect.get(objectOrUndefined(callPlayer(player, 'getVideoData')) ?? {}, 'video_id');
+  if (typeof playing === 'string' && playing) return playing;
+  return videoIdInUrl(target.location.href);
+}
+
+function youTubeLiveness(target: Window): Liveness {
+  try {
+    const player = target.document.getElementById('movie_player');
+    if (!player || typeof Reflect.get(player, 'getPlayerResponse') !== 'function') {
+      return YOUTUBE_HOST.test(target.location.hostname) ? 'unknown' : 'vod';
+    }
+    const response = objectOrUndefined(callPlayer(player, 'getPlayerResponse'));
+    const details: YouTubeVideoDetails | undefined = objectOrUndefined(
+      response && Reflect.get(response, 'videoDetails'),
+    );
+    if (!details) return 'unknown';
+    const currentVideoId = currentYouTubeVideoId(player, target);
+    if (currentVideoId && details.videoId !== currentVideoId) return 'unknown';
+    return details.isLive || details.isPostLiveDvr ? 'live' : 'vod';
+  } catch {
+    return 'vod';
   }
 }
 
@@ -210,6 +243,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
 
   const outbox = createOutbox(target);
   const sourceIds = new WeakMap<MediaSource, number>();
+  const unresolvedLiveness = new Set<number>();
   const buffers = new WeakMap<SourceBuffer, HookedBuffer>();
   let nextId = 1;
 
@@ -222,12 +256,23 @@ export function installMseHook(target: Window & typeof globalThis): void {
     return id;
   };
 
+  const resolveLiveness = (sourceId: number) => {
+    if (!unresolvedLiveness.has(sourceId)) return;
+    const liveness = youTubeLiveness(target);
+    if (liveness === 'unknown') return;
+    unresolvedLiveness.delete(sourceId);
+    outbox.announce({ t: 'liveness', sourceId, liveness });
+  };
+
   const originalCreateObjectURL = target.URL.createObjectURL.bind(target.URL);
   target.URL.createObjectURL = function createObjectURL(object: Blob | MediaSource): string {
     const objectUrl = originalCreateObjectURL(object);
     guard(() => {
       if (object instanceof MediaSourceCtor) {
-        outbox.announce({ t: 'source', sourceId: sourceIdOf(object), objectUrl, live: isYouTubeLive(target) });
+        const sourceId = sourceIdOf(object);
+        const liveness = youTubeLiveness(target);
+        if (liveness === 'unknown') unresolvedLiveness.add(sourceId);
+        outbox.announce({ t: 'source', sourceId, objectUrl, liveness });
       }
     });
     return objectUrl;
@@ -296,6 +341,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
     let pending: { bytes: ArrayBuffer; timestampOffset: number } | null = null;
     guard(() => {
       const hooked = buffers.get(this);
+      if (hooked) resolveLiveness(hooked.sourceId);
       const bytes = hooked && !hooked.audio ? sliceOf(data) : null;
       if (hooked && bytes) {
         pending = { bytes, timestampOffset: this.timestampOffset };

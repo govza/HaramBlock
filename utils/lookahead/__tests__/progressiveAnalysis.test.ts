@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CLEAN, createHarness, fileSource, fixture, suspicious, unsafe } from '@/utils/lookahead/__tests__/harness';
 import { createProgressiveAnalysis } from '@/utils/lookahead/analysis';
 
-const OPTIONS = { live: false, suspicionThreshold: 0.25 };
+const OPTIONS = { liveness: 'vod', suspicionThreshold: 0.25 } as const;
 
 function mdatOffset(bytes: Uint8Array): number {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
