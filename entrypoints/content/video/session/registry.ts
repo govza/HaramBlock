@@ -754,10 +754,11 @@ class VideoSessionRegistry {
     if (handle.liveMaskingSince !== null) handle.liveMaskingMs += performance.now() - handle.liveMaskingSince;
     recordHistogram(METRIC.videoLiveMaskingMs, handle.liveMaskingMs, { [ATTR.videoTap]: handle.tap ?? 'pending' });
     handle.live.stop();
+    const hadLookahead = handle.lookahead !== null;
     handle.lookahead?.close();
     handle.lookahead = null;
     handle.presenter.dispose();
-    const hasQueuedInference = handle.pendingLive.size > 0 || handle.pendingLookahead.size > 0;
+    const hasQueuedInference = hadLookahead || handle.pendingLive.size > 0 || handle.pendingLookahead.size > 0;
     for (const resolve of handle.pendingLookahead.values()) resolve(null);
     handle.pendingLookahead.clear();
     if (hasQueuedInference) void cancelVideoSessionInference(handle.sessionId);
