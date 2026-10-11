@@ -70,7 +70,7 @@ export class VideoPredictionCacheService {
 
   async getCached(videoUrl: string): Promise<ICachedVideoPredictions> {
     if (!isCacheableVideoUrl(videoUrl)) return EMPTY_CACHED_VIDEO_PREDICTIONS;
-    await this.flush();
+    await this.flush(videoUrl);
     const record = await this.repository.findValidByVideoUrl(videoUrl);
     if (!record) return EMPTY_CACHED_VIDEO_PREDICTIONS;
     this.repository.touchAccessed(videoUrl).catch((error: unknown) => {
@@ -92,7 +92,7 @@ export class VideoPredictionCacheService {
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     if (!isCacheableVideoUrl(videoUrl)) return;
-    await this.flush();
+    await this.flush(videoUrl);
     await this.repository.updateForcedVisibility(
       videoUrl,
       { ...origin, cacheMetadata: defaultCacheMetadata() },
@@ -100,15 +100,28 @@ export class VideoPredictionCacheService {
     );
   }
 
-  flush(): Promise<void> {
-    if (this.flushTimer) {
+  /**
+   * Writes pending samples, only those of `videoUrl` when given, so a read never waits on other
+   * videos' batches.
+   */
+  flush(videoUrl?: string): Promise<void> {
+    if (videoUrl === undefined && this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    const writes = [...this.pending.values()];
-    this.pending.clear();
-    this.flushed = this.flushed.then(() => this.write(writes));
+    const writes = this.takePending(videoUrl);
+    if (writes.length > 0) this.flushed = this.flushed.then(() => this.write(writes));
     return this.flushed;
+  }
+
+  private takePending(videoUrl: string | undefined): PendingWrite[] {
+    const writes: PendingWrite[] = [];
+    for (const [key, write] of this.pending) {
+      if (videoUrl !== undefined && write.videoUrl !== videoUrl) continue;
+      writes.push(write);
+      this.pending.delete(key);
+    }
+    return writes;
   }
 
   private async write(writes: PendingWrite[]): Promise<void> {
