@@ -71,8 +71,12 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
   };
 }
 
-globalThis.addEventListener('message', event => {
+const acceptFirstHandshake = (event: MessageEvent) => {
   if (!secret || event.data !== secret) return;
   const [contentPort, hookPort] = event.ports;
-  if (contentPort && hookPort) serve(contentPort, hookPort);
-});
+  if (!contentPort || !hookPort) return;
+  globalThis.removeEventListener('message', acceptFirstHandshake);
+  serve(contentPort, hookPort);
+};
+
+globalThis.addEventListener('message', acceptFirstHandshake);
