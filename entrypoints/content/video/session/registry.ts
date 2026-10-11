@@ -40,6 +40,13 @@ import { openLookahead, type LookaheadInferenceRequest } from '@/entrypoints/con
 import { chooseTap } from '@/entrypoints/content/video/tap/tapChoice';
 import { VerdictInterpreter, type ResolvedRun } from '@/entrypoints/content/video/timeline/verdictInterpreter';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
+import {
+  livenessOfDuration,
+  type AnalysisStat,
+  type InferredSample,
+  type StoredSample,
+  type UnreachableReason,
+} from '@/utils/lookahead/ports';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
@@ -47,7 +54,6 @@ import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
-import type { AnalysisStat, InferredSample, StoredSample, UnreachableReason } from '@/utils/lookahead/ports';
 import type { TapKind } from '@/utils/lookahead/protocol';
 import type {
   FrameInferenceResult,
@@ -108,8 +114,6 @@ function continuesSameMedia(handle: SessionHandle, source: ResolvedVideoSource):
     toVerdictCacheKey(source.url) === handle.cacheKey
   );
 }
-
-const isLiveDuration = (video: HTMLVideoElement): boolean => video.duration === Number.POSITIVE_INFINITY;
 
 const documentVisible = (): boolean => globalThis.document?.visibilityState !== 'hidden';
 
@@ -247,7 +251,6 @@ class VideoSessionRegistry {
       }),
       live: new LiveSampler({ video, sample: timestampSec => void this.sendLiveSample(handle, timestampSec) }),
       lookahead: null,
-      lookaheadLive: false,
       mediaDurationSec: Number.isFinite(video.duration) ? video.duration : null,
       verifyMediaOnDuration: false,
       tap: null,
@@ -452,13 +455,12 @@ class VideoSessionRegistry {
       return;
     }
     const threshold = scoreThresholdOf(handle);
-    handle.lookaheadLive = isLiveDuration(handle.video);
     handle.lookahead = openLookahead(
       {
         t: 'open',
         sessionId: handle.sessionId,
         tap,
-        live: handle.lookaheadLive,
+        liveness: livenessOfDuration(handle.video.duration),
         scoreThreshold: threshold,
         suspicionThreshold: threshold * SUSPICION_RATIO,
         inputSize: currentInferenceCaptureSize(),
@@ -825,8 +827,7 @@ class VideoSessionRegistry {
     const onRateChange = () => this.sendPlayhead(handle);
     const onDurationChange = () => {
       if (this.restartIfDifferentMedia(handle)) return;
-      if (!handle.lookahead || handle.lookaheadLive || !isLiveDuration(video)) return;
-      this.reopenTap(handle);
+      handle.lookahead?.setLiveness(livenessOfDuration(video.duration));
     };
     const onSourceChanged = () => {
       loopRestarts.reset();

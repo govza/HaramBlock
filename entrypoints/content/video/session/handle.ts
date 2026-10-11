@@ -27,7 +27,6 @@ export interface SessionHandle {
   readonly presenter: MaskPresenter;
   readonly live: LiveSampler;
   lookahead: LookaheadSession | null;
-  lookaheadLive: boolean;
   mediaDurationSec: number | null;
   verifyMediaOnDuration: boolean;
   tap: TapKind | null;

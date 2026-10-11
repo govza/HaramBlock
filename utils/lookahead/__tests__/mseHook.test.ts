@@ -14,7 +14,12 @@ interface FakeSourceBuffer extends SourceBuffer {
   completeAppend(): void;
 }
 
-function createPage() {
+interface FakePage {
+  player?: object;
+  href?: string;
+}
+
+function createPage(page: FakePage = {}) {
   const openPorts: MessagePort[] = [];
 
   class FakeSourceBufferImpl extends EventTarget {
@@ -56,7 +61,8 @@ function createPage() {
     MediaSource: FakeMediaSource,
     SourceBuffer: FakeSourceBufferImpl,
     URL: { createObjectURL: (_object: unknown) => `blob:https://page.test/${nextObjectUrl++}` },
-    document: { getElementById: () => null },
+    document: { getElementById: (id: string) => (id === 'movie_player' ? (page.player ?? null) : null) },
+    location: new URL(page.href ?? 'https://page.test/'),
     postMessage(data: unknown, _origin: string, transfer: Transferable[] = []) {
       const event = Object.assign(new Event('message'), {
         data,
@@ -94,8 +100,9 @@ function createPage() {
 }
 
 let page: ReturnType<typeof createPage> | null = null;
-const newPage = () => {
-  page = createPage();
+const newPage = (fake: FakePage = {}) => {
+  page?.close();
+  page = createPage(fake);
   return page;
 };
 
@@ -280,5 +287,98 @@ describe('MSE hook: appends made before the source is wanted', () => {
     expect(received.some(message => message.t === 'overflow')).toBe(false);
     expect(replayed.map(message => message.bytes.byteLength)).toEqual([20 * 1024 * 1024, 20 * 1024 * 1024, 1]);
     expect(replayed[0]).toHaveProperty('discontinuity', true);
+  });
+});
+
+describe('MSE hook: live and post-live detection', () => {
+  const youTubePlayer = (state: { response: object | null; currentVideoId?: string }) => ({
+    getPlayerResponse: () => state.response,
+    getVideoData: () => (state.currentVideoId ? { video_id: state.currentVideoId } : {}),
+  });
+
+  const announcedLiveness = async (fake: FakePage) => {
+    const { connect, openSource, received } = newPage(fake);
+    connect();
+    openSource();
+    await vi.waitFor(() => expect(received.some(message => message.t === 'source')).toBe(true));
+    return received.find(message => message.t === 'source');
+  };
+
+  it("announces a non-YouTube source as vod, leaving liveness to the video's duration", async () => {
+    expect(await announcedLiveness({})).toHaveProperty('liveness', 'vod');
+  });
+
+  it("announces a YouTube source live from the current video's isLive flag", async () => {
+    const player = youTubePlayer({
+      response: { videoDetails: { videoId: 'now', isLive: true } },
+      currentVideoId: 'now',
+    });
+
+    expect(await announcedLiveness({ player })).toHaveProperty('liveness', 'live');
+  });
+
+  it("announces a YouTube source live from the current video's isPostLiveDvr flag", async () => {
+    const response = { videoDetails: { videoId: 'now', isLive: false, isPostLiveDvr: true } };
+
+    expect(await announcedLiveness({ player: youTubePlayer({ response, currentVideoId: 'now' }) })).toHaveProperty(
+      'liveness',
+      'live',
+    );
+  });
+
+  it('announces a YouTube source vod when the current video carries neither flag', async () => {
+    const player = youTubePlayer({
+      response: { videoDetails: { videoId: 'now', isLive: false } },
+      currentVideoId: 'now',
+    });
+
+    expect(await announcedLiveness({ player })).toHaveProperty('liveness', 'vod');
+  });
+
+  it('never trusts a player response left over from the previous video after SPA navigation', async () => {
+    const state = { response: { videoDetails: { videoId: 'previous', isLive: false } }, currentVideoId: 'now' };
+    const { connect, openSource, received } = newPage({ player: youTubePlayer(state) });
+    connect();
+    const { buffer } = openSource();
+    await vi.waitFor(() => expect(received.some(message => message.t === 'source')).toBe(true));
+    expect(received.find(message => message.t === 'source')).toHaveProperty('liveness', 'unknown');
+
+    state.response = { videoDetails: { videoId: 'now', isLive: true } };
+    appendAndComplete(buffer, [1]);
+    appendAndComplete(buffer, [2]);
+
+    await vi.waitFor(() => expect(received.some(message => message.t === 'liveness')).toBe(true));
+    expect(received.filter(message => message.t === 'liveness')).toEqual([
+      { t: 'liveness', sourceId: sourceIdOf(received), liveness: 'live' },
+    ]);
+  });
+
+  it("keeps a YouTube page's source unknown until its player exists, then announces its liveness", async () => {
+    const fake: FakePage = { href: 'https://www.youtube.com/watch?v=now' };
+    const { connect, openSource, received } = newPage(fake);
+    connect();
+    const { buffer } = openSource();
+    await vi.waitFor(() => expect(received.some(message => message.t === 'source')).toBe(true));
+    expect(received.find(message => message.t === 'source')).toHaveProperty('liveness', 'unknown');
+
+    fake.player = youTubePlayer({ response: { videoDetails: { videoId: 'now', isLive: false } } });
+    appendAndComplete(buffer, [1]);
+
+    await vi.waitFor(() =>
+      expect(received.find(message => message.t === 'liveness')).toHaveProperty('liveness', 'vod'),
+    );
+  });
+
+  it("identifies the current video from the page URL when the player can't say", async () => {
+    const player = youTubePlayer({ response: { videoDetails: { videoId: 'previous', isLive: true } } });
+
+    expect(await announcedLiveness({ player, href: 'https://www.youtube.com/watch?v=now' })).toHaveProperty(
+      'liveness',
+      'unknown',
+    );
+    expect(await announcedLiveness({ player, href: 'https://www.youtube.com/shorts/previous' })).toHaveProperty(
+      'liveness',
+      'live',
+    );
   });
 });

@@ -13,7 +13,7 @@ const openMse: OpenAnalysis = {
   t: 'open',
   sessionId: 'session',
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
-  live: false,
+  liveness: 'vod',
   suspicionThreshold: 0.25,
   inputSize: 64,
   cacheKey: 'https://example.test/watch',
@@ -91,7 +91,7 @@ const openSession = async (handlers: LookaheadHandlers) => {
 describe('Lookahead client on Firefox: relaying the MSE hook to the event page', () => {
   it('forwards hook messages over runtime.connect, after the open', async () => {
     const hookSide = await openSession(handlersStub());
-    const source: HookMessage = { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, live: false };
+    const source: HookMessage = { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' };
 
     hookSide.postMessage(source);
 

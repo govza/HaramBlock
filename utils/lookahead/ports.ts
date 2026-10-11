@@ -89,8 +89,21 @@ export interface ByteRangeSource {
   read(start: number, end: number): Promise<Uint8Array>;
 }
 
+export type Liveness = 'live' | 'vod' | 'unknown';
+
+export function combinedLiveness(...readings: readonly Liveness[]): Liveness {
+  if (readings.includes('live')) return 'live';
+  if (readings.includes('unknown')) return 'unknown';
+  return 'vod';
+}
+
+export function livenessOfDuration(durationSec: number): Liveness {
+  if (durationSec === Number.POSITIVE_INFINITY) return 'live';
+  return Number.isFinite(durationSec) && durationSec > 0 ? 'vod' : 'unknown';
+}
+
 export interface LookaheadOptions {
-  live: boolean;
+  liveness: Liveness;
   suspicionThreshold: number;
 }
 

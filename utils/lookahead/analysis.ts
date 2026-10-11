@@ -14,6 +14,7 @@ import {
   type DecodedTarget,
   type EncodedSample,
   type InferredSample,
+  type Liveness,
   type LookaheadOptions,
   type LookaheadPorts,
   type Playhead,
@@ -25,6 +26,7 @@ import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from
 export const URGENT_SLACK_SEC = 5;
 const MAX_INFLIGHT_INFERENCES = 6;
 const MAX_RETAINED_UNITS = 64;
+const MAX_UNPUBLISHED_SAMPLES = 2_000;
 
 export interface PointSource {
   readonly startUs: number;
@@ -52,16 +54,19 @@ export class SampleScheduler {
   private readonly cacheLoaded: Promise<void>;
   private cacheReady = false;
   private idleWaiters: (() => void)[] = [];
+  private liveness: Liveness;
+  private unpublished: StoredSample[] = [];
 
   constructor(
     private readonly ports: LookaheadPorts,
     private readonly options: LookaheadOptions,
   ) {
+    this.liveness = options.liveness;
     this.cacheLoaded = this.loadCache();
   }
 
   private async loadCache(): Promise<void> {
-    if (!this.options.live) {
+    if (this.liveness !== 'live') {
       try {
         const cached = await this.ports.cache.read();
         for (const sample of cached) {
@@ -98,6 +103,21 @@ export class SampleScheduler {
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.schedulePump();
+  }
+
+  setLiveness(liveness: Liveness): void {
+    if (this.liveness === 'live' || liveness === 'unknown') return;
+    this.liveness = liveness;
+    const held = this.unpublished;
+    this.unpublished = [];
+    if (liveness === 'vod' && held.length > 0) this.ports.cache.publish(held);
+  }
+
+  private publish(sample: StoredSample): void {
+    if (this.liveness === 'vod') this.ports.cache.publish([sample]);
+    else if (this.liveness === 'unknown' && this.unpublished.length < MAX_UNPUBLISHED_SAMPLES) {
+      this.unpublished.push(sample);
+    }
   }
 
   isVisible(): boolean {
@@ -325,7 +345,7 @@ export class SampleScheduler {
           this.recordKnown(sample);
           this.ports.events.stat?.({ kind: 'analysed', pointUs });
           this.ports.events.sample(sample);
-          if (!this.options.live) this.ports.cache.publish([sample]);
+          this.publish(sample);
           this.planRefinements();
           this.releaseResolvedSources();
           this.schedulePump();
@@ -472,6 +492,7 @@ export interface MseAnalysis {
   removeBuffer(bufferId: string): void;
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
+  setLiveness(liveness: Liveness): void;
   stop(): void;
   releaseBuffers(): MseBuffers;
   heldUnits(): number;
@@ -558,6 +579,7 @@ export function createMseAnalysis(
     },
     setPlayhead: playhead => scheduler.setPlayhead(playhead),
     setVisible: visible => scheduler.setVisible(visible),
+    setLiveness: liveness => scheduler.setLiveness(liveness),
     stop: () => scheduler.stop(),
     releaseBuffers: () => {
       scheduler.stop();
@@ -576,6 +598,7 @@ const DEFAULT_WINDOW_SEC = 60;
 export interface ProgressiveAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
+  setLiveness(liveness: Liveness): void;
   stop(): void;
   settled(): Promise<void>;
 }
@@ -674,6 +697,7 @@ export function createProgressiveAnalysis(
       scheduler.setVisible(visible);
       refresh();
     },
+    setLiveness: liveness => scheduler.setLiveness(liveness),
     stop: () => scheduler.stop(),
     settled: async () => {
       await opening;

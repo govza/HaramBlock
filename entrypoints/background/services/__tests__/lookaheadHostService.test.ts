@@ -13,7 +13,7 @@ const openMse: OpenAnalysis = {
   t: 'open',
   sessionId: 'session',
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
-  live: true,
+  liveness: 'live',
   suspicionThreshold: 0.25,
   inputSize: 64,
   cacheKey: '',
@@ -52,7 +52,7 @@ describe('Lookahead host service: the Firefox event page end of the relay', () =
   it('opens an MSE session on a hooked source relayed by the content script and wants its bytes', async () => {
     const { posted, fromContent } = connectContentScript();
 
-    fromContent({ k: 'hook', m: { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, live: false } });
+    fromContent({ k: 'hook', m: { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' } });
     fromContent({ k: 'content', m: openMse });
 
     await vi.waitFor(() =>
@@ -65,7 +65,7 @@ describe('Lookahead host service: the Firefox event page end of the relay', () =
 
   it('reports the session unreachable when the hook answers with an overflowed backlog', async () => {
     const { posted, fromContent } = connectContentScript();
-    fromContent({ k: 'hook', m: { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, live: false } });
+    fromContent({ k: 'hook', m: { t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' } });
     fromContent({ k: 'content', m: openMse });
     await vi.waitFor(() => expect(posted).toHaveLength(2));
 
