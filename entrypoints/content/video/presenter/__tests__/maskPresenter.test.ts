@@ -149,3 +149,81 @@ describe('Mask Presenter geometry', () => {
     expect(overlayOf(container)?.style.display).toBe('block');
   });
 });
+
+describe('Mask Presenter effect', () => {
+  const canvasOf = (root: ParentNode) => overlayOf(root)?.querySelector('canvas') ?? null;
+
+  function withDecodedFrame(video: HTMLVideoElement) {
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    Object.defineProperty(video, 'readyState', { configurable: true, get: () => 4 });
+    Object.defineProperty(video, 'videoWidth', { configurable: true, get: () => 640 });
+    Object.defineProperty(video, 'videoHeight', { configurable: true, get: () => 360 });
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage,
+      imageSmoothingEnabled: false,
+    } as unknown as GPUCanvasContext);
+    return drawImage;
+  }
+
+  function stubVideoFrameCallbacks(video: HTMLVideoElement) {
+    let pending: VideoFrameRequestCallback | null = null;
+    video.requestVideoFrameCallback = vi.fn((callback: VideoFrameRequestCallback) => {
+      pending = callback;
+      return 1;
+    });
+    video.cancelVideoFrameCallback = vi.fn();
+    return () => pending?.(performance.now(), {} as VideoFrameCallbackMetadata);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('pixelates the masked region into blocks drawn from the playing video', () => {
+    const { video } = mount();
+    const drawImage = withDecodedFrame(video);
+    renderFrame();
+
+    const canvas = canvasOf(document);
+    expect(drawImage).toHaveBeenCalledWith(video, 0, 0, canvas?.width, canvas?.height);
+    expect(canvas?.width).toBe(80);
+    expect(canvas?.height).toBe(45);
+    expect(canvas?.style.display).toBe('block');
+    expect(overlayOf(document)?.style.getPropertyValue('backdrop-filter')).toBe('');
+  });
+
+  it('redraws the blocks only when the video presents a new frame', () => {
+    const { video } = mount();
+    const drawImage = withDecodedFrame(video);
+    const presentFrame = stubVideoFrameCallbacks(video);
+    renderFrame();
+    renderFrame();
+    expect(drawImage).toHaveBeenCalledTimes(1);
+
+    presentFrame();
+    renderFrame();
+    expect(drawImage).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops watching presented frames once the mask lifts', () => {
+    const { video } = mount();
+    withDecodedFrame(video);
+    const cancel = vi.fn();
+    stubVideoFrameCallbacks(video);
+    video.cancelVideoFrameCallback = cancel;
+    renderFrame();
+    lookup = { kind: 'clean' };
+    renderFrame();
+
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('blurs the masked region while the video has no decoded frame to pixelate', () => {
+    mount();
+    renderFrame();
+
+    expect(canvasOf(document)?.style.display).toBe('none');
+    expect(overlayOf(document)?.style.getPropertyValue('backdrop-filter')).toContain('blur');
+  });
+});

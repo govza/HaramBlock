@@ -8,6 +8,7 @@ import {
   resolveInjectionContext,
 } from '@/entrypoints/content/presentation/overlayPosition';
 import { maskClipPath } from '@/entrypoints/content/video/presenter/maskClipPath';
+import { PixelationLayer } from '@/entrypoints/content/video/presenter/pixelationLayer';
 import { createPresentationClock } from '@/entrypoints/content/video/presenter/presentationClock';
 import { isNativeFullscreen, VideoFilterMask } from '@/entrypoints/content/video/presenter/videoFilterMask';
 import { buildMaskingFilter } from '@/utils/masking';
@@ -41,9 +42,11 @@ export class MaskPresenter {
   private filter = '';
   private presentedUnsafe: boolean | null = null;
   private readonly videoFilterMask: VideoFilterMask;
+  private readonly pixelation: PixelationLayer;
 
   constructor(private readonly options: MaskPresenterOptions) {
     this.videoFilterMask = new VideoFilterMask(options.video);
+    this.pixelation = new PixelationLayer(options.video);
     options.video.addEventListener('playing', this.onPlaying);
   }
 
@@ -133,7 +136,9 @@ export class MaskPresenter {
       overlay.style.clipPath = path ? `path('${path}')` : 'inset(0)';
       this.geometry = { key, path };
     }
-    const filter = buildMaskingFilter(this.options.masking());
+    const masking = this.options.masking();
+    const pixelated = this.pixelation.paint(content, masking);
+    const filter = pixelated ? '' : buildMaskingFilter(masking);
     if (filter !== this.filter) {
       this.filter = filter;
       overlay.style.setProperty('backdrop-filter', filter);
@@ -157,6 +162,7 @@ export class MaskPresenter {
 
   private hideOverlay(): void {
     if (this.overlay) this.overlay.style.display = 'none';
+    this.pixelation.hide();
   }
 
   private ensureOverlay(): HTMLDivElement {
@@ -164,6 +170,7 @@ export class MaskPresenter {
     const overlay = document.createElement('div');
     overlay.setAttribute(VIDEO_MASK_OVERLAY_ATTR, 'video-mask-presenter');
     overlay.style.cssText = 'position:absolute;pointer-events:none;overflow:hidden;display:none;';
+    overlay.appendChild(this.pixelation.canvas);
     this.overlay = overlay;
     return overlay;
   }
