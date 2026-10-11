@@ -2,7 +2,7 @@ import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/c
 import { predictionsFromScoreGrid } from '@/utils/scoreGrid';
 
 import type { InferredSample } from '@/utils/lookahead/ports';
-import type { IElementPrediction, IScoreGrid, RawSampleScores } from '@/utils/types';
+import type { IElementPrediction, IImagePrediction, IScoreGrid, RawSampleScores } from '@/utils/types';
 
 const SUSPICION_RATIO = 0.5;
 
@@ -15,6 +15,17 @@ export function rawScoresOf(prediction: {
   if (prediction.scoreGrid) return { kind: 'grid', grid: prediction.scoreGrid };
   return { kind: 'detections', detections: prediction.predictions };
 }
+
+export const toInferredSample = (
+  prediction: Pick<
+    IImagePrediction,
+    'predictions' | 'scoreGrid' | 'width' | 'height' | 'maskTransform' | 'topUnsafeScore'
+  >,
+): InferredSample => ({
+  scores: rawScoresOf(prediction),
+  input: { width: prediction.width, height: prediction.height, maskTransform: prediction.maskTransform },
+  topUnsafeScore: prediction.topUnsafeScore ?? 0,
+});
 
 export function predictionsAt(
   sample: Pick<InferredSample, 'scores' | 'input'>,

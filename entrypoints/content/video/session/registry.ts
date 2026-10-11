@@ -46,7 +46,7 @@ import {
   type StoredSample,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
-import { predictionsAt, rawScoresOf } from '@/utils/lookahead/sampleScores';
+import { predictionsAt, toInferredSample } from '@/utils/lookahead/sampleScores';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
@@ -91,12 +91,6 @@ function toEntry(handle: SessionHandle, timestampSec: number, sample: InferredSa
     height: sample.input.height,
   };
 }
-
-const toInferred = (prediction: IFramePrediction): InferredSample => ({
-  scores: rawScoresOf({ predictions: prediction.predictions ?? [], scoreGrid: prediction.scoreGrid }),
-  input: { width: prediction.width, height: prediction.height, maskTransform: prediction.maskTransform },
-  topUnsafeScore: prediction.topUnsafeScore ?? 0,
-});
 
 function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): boolean {
   return source.srcObject
@@ -290,7 +284,7 @@ class VideoSessionRegistry {
       const lookahead = handle.pendingLookahead.get(frameIndex);
       if (lookahead) {
         handle.pendingLookahead.delete(frameIndex);
-        lookahead(prediction ? toInferred(prediction) : null);
+        lookahead(prediction ? toInferredSample(prediction) : null);
       } else if (frameIndex === THUMBNAIL_FRAME_INDEX) {
         if (prediction) this.applyThumbnail(handle, prediction);
       } else if (handle.pendingLive.has(frameIndex)) {
@@ -309,13 +303,13 @@ class VideoSessionRegistry {
   }
 
   private applyThumbnail(handle: SessionHandle, prediction: IFramePrediction): void {
-    const entry = toEntry(handle, 0, toInferred(prediction));
+    const entry = toEntry(handle, 0, toInferredSample(prediction));
     handle.presenter.setThumbnail(entry.unsafe ? entry : null);
     this.dispatch(handle, { type: 'thumbnailVerdict', unsafe: entry.unsafe });
   }
 
   private applyLiveSample(handle: SessionHandle, prediction: IFramePrediction): void {
-    const entry = toEntry(handle, prediction.timestampSec, toInferred(prediction));
+    const entry = toEntry(handle, prediction.timestampSec, toInferredSample(prediction));
     const sampleId = this.holdSample(handle, entry);
     this.dispatch(handle, { type: 'liveSample', sampleId });
   }
