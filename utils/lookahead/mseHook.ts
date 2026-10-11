@@ -29,6 +29,7 @@ interface Outbox {
 interface Recorded {
   message: StreamedMessage;
   transfer: Transferable[];
+  pinned?: boolean;
 }
 
 interface InitPiece {
@@ -44,6 +45,7 @@ interface BufferPreamble {
 interface SourceStream {
   wanted: boolean;
   resumable: boolean;
+  reintroduce: boolean;
   overflowed: boolean;
   recorded: Recorded[];
   recordedBytes: number;
@@ -149,6 +151,7 @@ function createOutbox(target: Window): Outbox {
       stream = {
         wanted: false,
         resumable: false,
+        reintroduce: false,
         overflowed: false,
         recorded: [],
         recordedBytes: 0,
@@ -165,12 +168,23 @@ function createOutbox(target: Window): Outbox {
     message.discontinuity = true;
   };
 
+  const initOnlyReplacement = (evicted: Recorded): Recorded[] => {
+    if (evicted.message.t !== 'append') return [];
+    const kind = initPieceKindOf(evicted.message.bytes);
+    if (!kind) return [];
+    const bytes = initBytesOf(evicted.message.bytes, kind);
+    return [{ message: { ...evicted.message, bytes }, transfer: [bytes], pinned: true }];
+  };
+
   const evictOldestAppends = (stream: SourceStream) => {
     while (stream.recordedBytes > MAX_RECORDED_BYTES_PER_SOURCE) {
-      const oldest = stream.recorded.findIndex(recorded => byteSizeOf(recorded.message) > 0);
+      const oldest = stream.recorded.findIndex(recorded => !recorded.pinned && byteSizeOf(recorded.message) > 0);
       if (oldest < 0) return;
       const [evicted] = stream.recorded.splice(oldest, 1);
       if (!evicted) return;
+      const replacement = initOnlyReplacement(evicted);
+      stream.recorded.splice(oldest, 0, ...replacement);
+      stream.recordedBytes += replacement.reduce((total, kept) => total + byteSizeOf(kept.message), 0);
       stream.recordedBytes -= byteSizeOf(evicted.message);
       stream.resyncBuffers.add(evicted.message.bufferId);
       const successor = stream.recorded
@@ -214,7 +228,8 @@ function createOutbox(target: Window): Outbox {
       to.postMessage({ t: 'overflow', sourceId } satisfies HookMessage);
       return;
     }
-    if (!stream.resumable) reintroduceBuffers(sourceId, stream, to);
+    if (stream.reintroduce) reintroduceBuffers(sourceId, stream, to);
+    stream.reintroduce = false;
     stream.resumable = true;
     for (const recorded of stream.recorded.splice(0)) {
       flagResync(stream, recorded.message);
@@ -238,7 +253,7 @@ function createOutbox(target: Window): Outbox {
     port = received;
     for (const stream of streams.values()) {
       stream.wanted = false;
-      stream.resumable = false;
+      stream.reintroduce = true;
     }
     port.onmessage = (commandEvent: MessageEvent<HookCommand>) => guard(() => onCommand(commandEvent.data));
     for (const announcement of announcements) port.postMessage(announcement);

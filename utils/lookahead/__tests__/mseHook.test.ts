@@ -269,6 +269,27 @@ describe('MSE hook: appends made before the source is wanted', () => {
     expect(appendsOf(received)).toEqual([]);
   });
 
+  it('keeps the init bytes of an evicted append that carried them', async () => {
+    const WEBM_INIT = [0x1a, 0x45, 0xdf, 0xa3, 0x01];
+    const { connect, openSource, received } = newPage();
+    const { command } = connect();
+    const { buffer } = openSource();
+    await wantAnnouncedSource(received, command);
+    const sourceId = sourceIdOf(received);
+    command({ t: 'drop', sourceId });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const initAndCluster = new Uint8Array(20 * 1024 * 1024);
+    initAndCluster.set([...WEBM_INIT, 0x1f, 0x43, 0xb6, 0x75]);
+    appendAndComplete(buffer, initAndCluster);
+    for (let index = 0; index < 3; index += 1) appendAndComplete(buffer, new Uint8Array(20 * 1024 * 1024));
+    received.length = 0;
+
+    command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(received.filter(message => message.t === 'append')).toHaveLength(3));
+    expect(appendsOf(received)[0]).toEqual(WEBM_INIT);
+  });
+
   it('keeps the newest appends of a dropped source past the cap, flagging where bytes went missing', async () => {
     const { connect, openSource, received } = newPage();
     const { command } = connect();
@@ -412,6 +433,26 @@ describe('MSE hook: a replacement port', () => {
     second.command({ t: 'want', sourceId });
 
     await vi.waitFor(() => expect(appendsOf(received)).toEqual([[...FTYP, ...MOOV]]));
+  });
+
+  it('keeps evicting the oldest appends of a once-wanted source past the cap instead of overflowing', async () => {
+    const { connect, openSource, received } = newPage();
+    const first = connect();
+    const { buffer } = openSource();
+    await wantAnnouncedSource(received, first.command);
+    appendAndComplete(buffer, WEBM_INIT);
+    const sourceId = sourceIdOf(received);
+    const second = connect();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    for (let index = 0; index < 3; index += 1) appendAndComplete(buffer, new Uint8Array(20 * 1024 * 1024));
+    appendAndComplete(buffer, [0xe]);
+    received.length = 0;
+
+    second.command({ t: 'want', sourceId });
+
+    await vi.waitFor(() => expect(appendsOf(received).at(-1)).toEqual([0xe]));
+    expect(received.some(message => message.t === 'overflow')).toBe(false);
+    expect(appendsOf(received)[0]).toEqual(WEBM_INIT);
   });
 
   it('gives the new port nothing of a buffer the page removed', async () => {
