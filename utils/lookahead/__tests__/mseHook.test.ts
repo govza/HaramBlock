@@ -36,11 +36,19 @@ function createPage() {
   }
 
   class FakeMediaSource {
+    sourceBuffers: SourceBuffer[] = [];
+
     addSourceBuffer(_type: string): SourceBuffer {
-      return new FakeSourceBufferImpl() as unknown as SourceBuffer;
+      const buffer = new FakeSourceBufferImpl() as unknown as SourceBuffer;
+      this.sourceBuffers.push(buffer);
+      return buffer;
     }
 
-    removeSourceBuffer(_buffer: SourceBuffer): void {}
+    removeSourceBuffer(buffer: SourceBuffer): void {
+      this.sourceBuffers = this.sourceBuffers.filter(candidate => candidate !== buffer);
+    }
+
+    endOfStream(): void {}
   }
 
   let nextObjectUrl = 1;
@@ -196,6 +204,27 @@ describe('MSE hook: streaming appends to a wanted source', () => {
 
     expect(received.filter(message => message.t === 'buffer')).toHaveLength(1);
     expect(appendsOf(received)).toEqual([]);
+  });
+
+  it('tells every video SourceBuffer of the source that its stream ended, after its last append', async () => {
+    const { connect, openSource, received } = newPage();
+    const { command } = connect();
+    const { source, buffer } = openSource();
+    source.addSourceBuffer(OPUS_MIME);
+    await wantAnnouncedSource(received, command);
+    appendAndComplete(buffer, [1]);
+
+    source.endOfStream();
+
+    await vi.waitFor(() => expect(received.some(message => message.t === 'endOfStream')).toBe(true));
+    const videoBufferId = received.find(message => message.t === 'buffer')?.bufferId;
+    const streamOrder = received.flatMap(message =>
+      message.t === 'append' || message.t === 'endOfStream' ? [message.t] : [],
+    );
+    expect(streamOrder).toEqual(['append', 'endOfStream']);
+    expect(received.filter(message => message.t === 'endOfStream')).toEqual([
+      { t: 'endOfStream', sourceId: sourceIdOf(received), bufferId: videoBufferId },
+    ]);
   });
 });
 

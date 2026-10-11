@@ -5,9 +5,15 @@ export interface InitSegment {
   readonly bytes: Uint8Array;
 }
 
+export interface OffsetSpan {
+  readonly fromByte: number;
+  readonly offsetUs: number;
+}
+
 export interface AnalysisUnitBytes {
   readonly init: InitSegment;
   readonly bytes: Uint8Array;
+  readonly offsets: readonly OffsetSpan[];
 }
 
 export interface CutResult {
@@ -38,22 +44,32 @@ export function containerKindOf(mime: string): ContainerKind | null {
   return null;
 }
 
+interface AppendRecord {
+  startPosition: number;
+  endPosition: number;
+  offsetUs: number;
+}
+
 class GrowableBytes {
   private buffer = new Uint8Array(0);
   private length = 0;
+  private startPosition = 0;
+  private appends: AppendRecord[] = [];
 
-  get size(): number {
-    return this.length;
+  get position(): number {
+    return this.startPosition;
   }
 
-  push(chunk: Uint8Array): void {
+  push(chunk: Uint8Array, offsetUs: number): void {
     if (this.length + chunk.length > this.buffer.length) {
       const grown = new Uint8Array(Math.max(this.buffer.length * 2, this.length + chunk.length));
       grown.set(this.buffer.subarray(0, this.length));
       this.buffer = grown;
     }
     this.buffer.set(chunk, this.length);
+    const startPosition = this.startPosition + this.length;
     this.length += chunk.length;
+    this.appends.push({ startPosition, endPosition: startPosition + chunk.length, offsetUs });
   }
 
   view(): Uint8Array {
@@ -61,14 +77,28 @@ class GrowableBytes {
   }
 
   clear(): void {
+    this.startPosition += this.length;
     this.length = 0;
+    this.appends = [];
   }
 
   take(count: number): Uint8Array {
     const taken = this.buffer.slice(0, count);
     this.buffer.copyWithin(0, count, this.length);
     this.length -= count;
+    this.startPosition += count;
     return taken;
+  }
+
+  offsetsBetween(fromPosition: number, toPosition: number): OffsetSpan[] {
+    const spans: OffsetSpan[] = [];
+    for (const append of this.appends) {
+      if (append.endPosition <= fromPosition || append.startPosition >= toPosition) continue;
+      if (spans.at(-1)?.offsetUs === append.offsetUs) continue;
+      spans.push({ fromByte: Math.max(0, append.startPosition - fromPosition), offsetUs: append.offsetUs });
+    }
+    this.appends = this.appends.filter(append => append.endPosition > toPosition);
+    return spans;
   }
 }
 
@@ -136,17 +166,30 @@ class WebmCutter {
   private segmentEnd: number | null = null;
   private consumed = 0;
   private resyncing = false;
+  private ending = false;
 
   resync(): void {
     this.pending.clear();
     this.resyncing = true;
   }
 
-  push(chunk: Uint8Array): CutResult {
-    this.pending.push(chunk);
+  push(chunk: Uint8Array, offsetUs = 0): CutResult {
+    this.pending.push(chunk, offsetUs);
     const result: CutResult = { inits: [], units: [] };
     if (this.resyncing && !this.skipToUnitStart()) return result;
     while (this.step(result));
+    return result;
+  }
+
+  endOfStream(): CutResult {
+    const result: CutResult = { inits: [], units: [] };
+    if (this.resyncing) return result;
+    this.ending = true;
+    try {
+      while (this.step(result));
+    } finally {
+      this.ending = false;
+    }
     return result;
   }
 
@@ -216,26 +259,29 @@ class WebmCutter {
       end = header.headerLength + header.size;
       if (bytes.length < end) return false;
     } else {
-      let offset = header.headerLength;
-      for (;;) {
-        const child = readElementHeader(bytes, offset);
-        if (!child) return false;
-        if (WEBM_LEVEL1_IDS.has(child.id) || child.id === EBML_HEADER_ID) {
-          end = offset;
-          break;
-        }
-        if (child.size === null) return false;
-        offset += child.headerLength + child.size;
-        if (offset > bytes.length) return false;
-        if (this.segmentEnd !== null && this.consumed + offset >= this.segmentEnd) {
-          end = offset;
-          break;
-        }
-      }
+      end = this.unknownSizeClusterEnd(bytes, header.headerLength);
+      if (end === null) return false;
     }
+    const { position } = this.pending;
     const unit = this.consume(end);
-    if (this.init) result.units.push({ init: this.init, bytes: unit });
+    const offsets = this.pending.offsetsBetween(position, position + end);
+    if (this.init) result.units.push({ init: this.init, bytes: unit, offsets });
     return true;
+  }
+
+  private unknownSizeClusterEnd(bytes: Uint8Array, firstChild: number): number | null {
+    const cutAtEndOfStream = (offset: number) => (this.ending && offset > firstChild ? offset : null);
+    let offset = firstChild;
+    for (;;) {
+      const child = readElementHeader(bytes, offset);
+      if (!child) return cutAtEndOfStream(offset);
+      if (WEBM_LEVEL1_IDS.has(child.id) || child.id === EBML_HEADER_ID) return offset;
+      if (child.size === null) return cutAtEndOfStream(offset);
+      const childEnd = offset + child.headerLength + child.size;
+      if (childEnd > bytes.length) return cutAtEndOfStream(offset);
+      offset = childEnd;
+      if (this.segmentEnd !== null && this.consumed + offset >= this.segmentEnd) return offset;
+    }
   }
 
   private consume(count: number): Uint8Array {
@@ -250,6 +296,7 @@ class Mp4Cutter {
   private init: InitSegment | null = null;
   private generation = 0;
   private fragment: Uint8Array[] = [];
+  private fragmentPosition = 0;
   private resyncing = false;
 
   resync(): void {
@@ -270,16 +317,21 @@ class Mp4Cutter {
     return true;
   }
 
-  push(chunk: Uint8Array): CutResult {
-    this.pending.push(chunk);
+  push(chunk: Uint8Array, offsetUs = 0): CutResult {
+    this.pending.push(chunk, offsetUs);
     const result: CutResult = { inits: [], units: [] };
     if (this.resyncing && !this.skipToUnitStart()) return result;
     for (;;) {
       const box = this.nextBox();
       if (!box) break;
-      this.accept(box.type, this.pending.take(box.size), result);
+      const { position } = this.pending;
+      this.accept(box.type, this.pending.take(box.size), position, result);
     }
     return result;
+  }
+
+  endOfStream(): CutResult {
+    return { inits: [], units: [] };
   }
 
   private nextBox(): { type: string; size: number } | null {
@@ -298,7 +350,7 @@ class Mp4Cutter {
     return { type, size };
   }
 
-  private accept(type: string, box: Uint8Array, result: CutResult): void {
+  private accept(type: string, box: Uint8Array, position: number, result: CutResult): void {
     if (MP4_INIT_BOXES.has(type)) {
       if (type === 'ftyp') this.initParts = [];
       this.initParts.push(box);
@@ -311,18 +363,21 @@ class Mp4Cutter {
     }
     if (type === 'moof') {
       this.fragment = [box];
+      this.fragmentPosition = position;
       return;
     }
-    if (type === 'mdat' && this.fragment.length > 0) {
-      this.fragment.push(box);
-      if (this.init) result.units.push({ init: this.init, bytes: concat(this.fragment) });
-      this.fragment = [];
-    }
+    if (this.fragment.length === 0) return;
+    this.fragment.push(box);
+    if (type !== 'mdat') return;
+    const offsets = this.pending.offsetsBetween(this.fragmentPosition, position + box.length);
+    if (this.init) result.units.push({ init: this.init, bytes: concat(this.fragment), offsets });
+    this.fragment = [];
   }
 }
 
 export interface UnitCutter {
-  push(chunk: Uint8Array): CutResult;
+  push(chunk: Uint8Array, offsetUs?: number): CutResult;
+  endOfStream(): CutResult;
   resync(): void;
 }
 

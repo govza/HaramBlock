@@ -26,6 +26,7 @@ export type HookMessage =
       discontinuity?: boolean;
     }
   | { t: 'chunks'; sourceId: number; bufferId: number; config: VideoDecoderConfig; chunks: WireChunk[] }
+  | { t: 'endOfStream'; sourceId: number; bufferId: number }
   | { t: 'removeBuffer'; sourceId: number; bufferId: number }
   | { t: 'overflow'; sourceId: number };
 

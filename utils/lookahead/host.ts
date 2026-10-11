@@ -59,6 +59,9 @@ function replayInto(analysis: MseAnalysis, message: Exclude<HookMessage, { t: 's
         message.chunks.map(chunk => ({ ...chunk, data: new Uint8Array(chunk.data) })),
       );
       break;
+    case 'endOfStream':
+      analysis.endOfStream(String(message.bufferId));
+      break;
     case 'removeBuffer':
       analysis.removeBuffer(String(message.bufferId));
       break;

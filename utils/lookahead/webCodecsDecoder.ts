@@ -62,10 +62,13 @@ export function createWebCodecsDecoder(
           );
         }
         await decoder.flush();
+        if (failure.error) throw failure.error;
+      } catch (error) {
+        await closeConverted(conversions);
+        throw error;
       } finally {
         if (decoder.state !== 'closed') decoder.close();
       }
-      if (failure.error) throw failure.error;
       for (const converted of await Promise.all(conversions)) {
         const targets = targetsByPts.get(converted.ptsUs) ?? [];
         const [first, ...rest] = targets;
@@ -86,6 +89,12 @@ export function createWebCodecsDecoder(
       }
     },
   };
+}
+
+async function closeConverted(conversions: readonly Promise<{ frame: AnalysisFrame }>[]): Promise<void> {
+  for (const result of await Promise.allSettled(conversions)) {
+    if (result.status === 'fulfilled') result.value.frame.close();
+  }
 }
 
 async function cloneFrame(frame: AnalysisFrame): Promise<AnalysisFrame> {

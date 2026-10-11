@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createHarness, fileSource, fixture } from '@/utils/lookahead/__tests__/harness';
+import { createHarness, fileSource, fixture, withUnknownSizes } from '@/utils/lookahead/__tests__/harness';
 import { LookaheadHost } from '@/utils/lookahead/host';
 
 import type { ByteRangeSource } from '@/utils/lookahead/ports';
@@ -118,6 +118,26 @@ describe('Lookahead host: opening an MSE session', () => {
         0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000, 3_500_000,
       ]),
     );
+  });
+
+  it("analyses a buffer's trailing unit once the hook reports its stream ended", async () => {
+    const { host, harness, commands } = createHost();
+    host.handleContent(openMse('session'));
+    host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, live: false });
+    await vi.waitFor(() => expect(commands).toEqual([{ t: 'want', sourceId: 1 }]));
+    host.handleHook({ t: 'buffer', sourceId: 1, bufferId: 2, mime: VP9_MIME });
+    host.handleHook({
+      t: 'append',
+      sourceId: 1,
+      bufferId: 2,
+      bytes: withUnknownSizes(fixture('mse-vp9.webm')).buffer,
+      timestampOffset: 0,
+    });
+    await vi.waitFor(() => expect(harness.requestedPoints()).toContain(2_500_000));
+
+    host.handleHook({ t: 'endOfStream', sourceId: 1, bufferId: 2 });
+
+    await vi.waitFor(() => expect(harness.requestedPoints()).toContain(3_500_000));
   });
 
   it('reports a source whose pre-open backlog overflowed unreachable and drops it', async () => {
