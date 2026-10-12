@@ -351,8 +351,10 @@ const DEFAULT_SCORE_THRESHOLD = 0.2;
 async function readFirstUnsafePointSec(): Promise<number | null> {
   const testWindow = await browser.getWindowHandle();
   const extensionPath = await browser.getExtensionPath();
-  await browser.newWindow(`${extensionPath}/popup.html`);
+  const { handle: popupWindow } = await browser.createWindow('window');
+  await browser.switchToWindow(popupWindow);
   try {
+    await browser.url(`${extensionPath}/popup.html`);
     return await browser.executeAsync((scoreThreshold: number, done: (pointSec: number | null) => void) => {
       const request = globalThis.indexedDB.open('MediaCacheDatabase');
       request.onerror = () => done(null);
