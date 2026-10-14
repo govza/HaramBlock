@@ -22,6 +22,7 @@ import {
   hasBlacklistStyling,
   hasInitialStyling,
   resetImageStyling,
+  type ProcessedStatus,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { applyPredictionsStyling } from '@/entrypoints/content/presentation/predictionStyling';
 import {
@@ -85,7 +86,16 @@ const GIF_VERDICT_TIMEOUT_MS = 20000;
  * playback, but inference runs on a sampled subset; the verdict finalizes once that
  * subset has returned (or the fail-closed timeout fires).
  */
-type ApplyOutcome = { kind: 'stale' } | { kind: 'drifted' } | { kind: 'applied'; overlayType: string | undefined };
+type AppliedOutcome = { kind: 'applied'; overlayType: string | undefined };
+type ApplyOutcome = { kind: 'stale' } | { kind: 'drifted' } | AppliedOutcome;
+
+type VerdictPresentation = 'image' | 'gif';
+
+const badgeDetectionCount = (prediction: IImagePrediction): number => {
+  if (prediction.forcedVisibility === 'visible') return 0;
+  if (prediction.forcedVisibility === 'blocked') return 1;
+  return prediction.predictions.length;
+};
 
 function waitForImageReady(img: HTMLImageElement): Promise<void> {
   if (img.complete && img.naturalWidth > 0) return Promise.resolve();
@@ -425,21 +435,9 @@ export class ImageProcessor {
       return;
     }
 
-    let detectionCount = updated.predictions.length;
-    if (forcedVisibility === 'visible') detectionCount = 0;
-    else if (forcedVisibility === 'blocked') detectionCount = 1;
-
-    const images = this.findAllImagesBySrc(src);
-    for (const img of images) {
-      this.clearOverlays(img);
-      if (forcedVisibility === 'blocked') {
-        applyBlacklistStyling(img, this.hostSettings);
-      } else if (forcedVisibility === 'auto' && updated.predictions.length > 0) {
-        void applyPredictionsStyling([img], [updated], this.hostSettings);
-      }
-      // Always register quick toggle for all states
-      this.registerToggle(img, updated);
-      this.badgeCounter.trackDetections(img, src, detectionCount);
+    for (const img of this.findAllImagesBySrc(src)) {
+      this.badgeCounter.trackDetections(img, src, badgeDetectionCount(updated));
+      void this.presentVerdict(img, updated, 'image');
     }
   }
 
@@ -902,36 +900,8 @@ export class ImageProcessor {
    * canvas player so the displayed frame can use that frame's mask.
    */
   private applyGifVerdict(img: HTMLImageElement, src: string, aggregatePrediction: IImagePrediction): void {
-    const session = this.gifSessions.get(src);
-    this.clearOverlays(img);
-
-    const hasDetections = aggregatePrediction.predictions.length > 0;
-    const blocked = shouldBlock(aggregatePrediction);
-    finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
-
-    if (blocked && session?.frames?.length) {
-      gifMaskPlayer.createOrUpdatePlayer(
-        img,
-        session.frames,
-        session.framePredictions,
-        aggregatePrediction,
-        this.hostSettings,
-        session.maskInertia,
-      );
-    } else if (blocked) {
-      // Blocked but the decoded frames are gone (a safe GIF force-blocked via toggle, or
-      // an evicted session). A safe verdict has no per-frame detections to mask precisely,
-      // so a whole-frame blur is the correct block visual and needs no re-decode.
-      this.registerToggle(img, aggregatePrediction);
-      applyBlacklistStyling(img, this.hostSettings);
-    } else {
-      this.registerToggle(img, aggregatePrediction);
-    }
-
-    let detectionCount = aggregatePrediction.predictions.length;
-    if (aggregatePrediction.forcedVisibility === 'visible') detectionCount = 0;
-    else if (aggregatePrediction.forcedVisibility === 'blocked') detectionCount = 1;
-    this.badgeCounter.trackDetections(img, src, detectionCount);
+    this.badgeCounter.trackDetections(img, src, badgeDetectionCount(aggregatePrediction));
+    void this.presentVerdict(img, aggregatePrediction, 'gif');
   }
 
   private createGifAggregatePrediction(src: string, session: GifSession, forceBlocked: boolean): IImagePrediction {
@@ -1036,10 +1006,7 @@ export class ImageProcessor {
       return { kind: 'stale' };
     }
 
-    // Track detections synchronously for badge (before async apply)
-    let detectionCount = prediction.predictions.length;
-    if (prediction.forcedVisibility === 'visible') detectionCount = 0;
-    else if (prediction.forcedVisibility === 'blocked') detectionCount = 1;
+    const detectionCount = badgeDetectionCount(prediction);
     this.badgeCounter.trackDetections(img, prediction.src, detectionCount);
 
     // Fail closed until the overlay paints: apply() waits for the image to
@@ -1064,34 +1031,56 @@ export class ImageProcessor {
       return { kind: 'drifted' };
     }
 
-    // Clear any existing overlays first (also resets protective styling)
+    return this.presentVerdict(img, prediction, 'image');
+  }
+
+  /**
+   * Replace whatever an element currently shows with the visual for `prediction`. Finalizing
+   * strips protective styling, so every blocked branch finalizes only where its own protection
+   * lands in the same task, and the async mask overlay keeps the initial blur until it paints.
+   * GIFs whose decoded frames are gone (a safe GIF force-blocked via toggle, or an evicted
+   * session) get a whole-frame blur: there are no per-frame detections to mask precisely.
+   */
+  private async presentVerdict(
+    img: HTMLImageElement,
+    prediction: IImagePrediction,
+    presentation: VerdictPresentation,
+  ): Promise<AppliedOutcome> {
     this.clearOverlays(img);
+    const status: ProcessedStatus = prediction.predictions.length > 0 ? 'unsafe' : 'safe';
 
-    const hasDetections = prediction.predictions.length > 0;
-    if (hasDetections && prediction.forcedVisibility !== 'visible') {
-      applyInitialImageStyling(img, this.hostSettings);
+    if (!shouldBlock(prediction)) {
+      this.registerToggle(img, prediction);
+      finalizeImageProcessing(img, status);
+      return { kind: 'applied', overlayType: undefined };
     }
-    this.registerToggle(img, prediction);
 
-    // Finalize (which strips protective styling) only once the branch's own
-    // protection is in place — for masked images that means after the
-    // overlay painted, or the unprotected window would reopen
-    if (prediction.forcedVisibility === 'blocked') {
-      finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
+    const gifSession = presentation === 'gif' ? this.gifSessions.get(prediction.src) : undefined;
+    if (gifSession?.frames?.length) {
+      finalizeImageProcessing(img, status);
+      gifMaskPlayer.createOrUpdatePlayer(
+        img,
+        gifSession.frames,
+        gifSession.framePredictions,
+        prediction,
+        this.hostSettings,
+        gifSession.maskInertia,
+      );
+      return { kind: 'applied', overlayType: 'segment' };
+    }
+
+    if (presentation === 'gif' || prediction.forcedVisibility === 'blocked') {
+      this.registerToggle(img, prediction);
+      finalizeImageProcessing(img, status);
       applyBlacklistStyling(img, this.hostSettings);
       return { kind: 'applied', overlayType: 'blur' };
     }
-    if (prediction.forcedVisibility === 'visible') {
-      finalizeImageProcessing(img, hasDetections ? 'unsafe' : 'safe');
-      return { kind: 'applied', overlayType: undefined };
-    }
-    if (hasDetections) {
-      await applyPredictionsStyling([img], [prediction], this.hostSettings);
-      finalizeImageProcessing(img, 'unsafe');
-      return { kind: 'applied', overlayType: 'segment' };
-    }
-    finalizeImageProcessing(img, 'safe');
-    return { kind: 'applied', overlayType: undefined };
+
+    applyInitialImageStyling(img, this.hostSettings);
+    this.registerToggle(img, prediction);
+    await applyPredictionsStyling([img], [prediction], this.hostSettings);
+    finalizeImageProcessing(img, 'unsafe');
+    return { kind: 'applied', overlayType: 'segment' };
   }
 
   // ===========================================================================
