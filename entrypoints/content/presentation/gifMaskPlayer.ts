@@ -1,6 +1,7 @@
 import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { GIF_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
-import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { computeRenderedContentRect } from '@/entrypoints/content/presentation/imageLayout';
+import { MaskCoverage, paintPixelatedMask } from '@/entrypoints/content/presentation/maskCoverage';
 import {
   classifyOverlayMutation,
   ensurePositionContext,
@@ -13,8 +14,8 @@ import {
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
 import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
-import { buildCanvasTintFilter, buildMaskingFilter, calculatePixelationBlockSize } from '@/utils/masking';
-import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
+import { croppedMaskTransform } from '@/utils/croppedMaskTransform';
+import { buildMaskingFilter } from '@/utils/masking';
 import { getLogger } from '@/utils/telemetry';
 import {
   shouldBlock,
@@ -22,7 +23,6 @@ import {
   type IGifFramePrediction,
   type IHostSettings,
   type IMaskTransform,
-  type IMaskingSettings,
 } from '@/utils/types';
 
 import type { DecodedGifFrame } from '@/entrypoints/content/gif/gifDecoder';
@@ -277,20 +277,15 @@ class GifMaskPlayer {
     const framePrediction = buildFramePredictionWithInertia(state, state.currentFrame);
     if (!framePrediction) return;
 
-    renderSegmentMaskOverlay(
-      state.maskCanvas,
-      state.maskCtx,
-      frame.bitmap,
+    const coverage = MaskCoverage.from(
       framePrediction.predictions,
-      framePrediction.maskTransform ?? createIdentityMaskTransform(framePrediction),
+      framePrediction.maskTransform ??
+        croppedMaskTransform(framePrediction.predictions, framePrediction.width, framePrediction.height),
       framePrediction.width,
       framePrediction.height,
-      contentRect.offsetX,
-      contentRect.offsetY,
-      contentRect.width,
-      contentRect.height,
-      state.hostSettings.masking,
     );
+    if (!coverage) return;
+    paintPixelatedMask(state.maskCtx, frame.bitmap, coverage, contentRect, state.hostSettings.masking);
   }
 }
 
@@ -329,18 +324,6 @@ function hasDetections(prediction: GifPrediction | undefined): prediction is Gif
   return Boolean(prediction?.predictions.length);
 }
 
-function createIdentityMaskTransform(prediction: GifPrediction): IMaskTransform {
-  const firstMask = prediction.predictions.find(p => p.masks?.runs?.length)?.masks;
-  const fallbackWidth = prediction.width || 1;
-  const fallbackHeight = prediction.height || 1;
-  return {
-    scaleX: prediction.width / (firstMask?.width ?? fallbackWidth),
-    scaleY: prediction.height / (firstMask?.height ?? fallbackHeight),
-    offsetX: 0,
-    offsetY: 0,
-  };
-}
-
 function canvasStyle(width: number, height: number): string {
   return `
     position: absolute;
@@ -361,88 +344,6 @@ function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number):
   if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
   canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
-}
-
-function hasValidMask(prediction: IElementPrediction): prediction is IElementPrediction & { masks: IRLEMask } {
-  return Boolean(prediction.masks?.runs?.length);
-}
-
-function renderSegmentMaskOverlay(
-  canvas: HTMLCanvasElement,
-  ctx: CanvasRenderingContext2D,
-  source: ImageBitmap,
-  predictions: IElementPrediction[],
-  maskTransform: IMaskTransform,
-  originalWidth: number,
-  originalHeight: number,
-  offsetXInOverlay: number,
-  offsetYInOverlay: number,
-  contentWidth: number,
-  contentHeight: number,
-  masking: IMaskingSettings,
-): void {
-  if (contentWidth <= 0 || contentHeight <= 0) return;
-
-  const allMasks = predictions.filter(hasValidMask).map(prediction => ({
-    masks: decodeMaskRLE(prediction.masks),
-  }));
-  const first = allMasks.find(m => m.masks.length);
-  const gridH = first?.masks.length ?? 0;
-  const gridW = first?.masks[0]?.length ?? 0;
-  if (!gridW || !gridH) return;
-
-  const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
-  const smallW = Math.max(1, Math.floor(contentWidth / blockSize));
-  const smallH = Math.max(1, Math.floor(contentHeight / blockSize));
-
-  const tmp = document.createElement('canvas');
-  tmp.width = smallW;
-  tmp.height = smallH;
-  const tmpCtx = tmp.getContext('2d');
-  if (!tmpCtx) return;
-
-  tmpCtx.imageSmoothingEnabled = true;
-  tmpCtx.drawImage(source, 0, 0, source.width, source.height, 0, 0, smallW, smallH);
-
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(tmp, offsetXInOverlay, offsetYInOverlay, contentWidth, contentHeight);
-
-  const maskGrid = document.createElement('canvas');
-  maskGrid.width = gridW;
-  maskGrid.height = gridH;
-  const maskGridCtx = maskGrid.getContext('2d');
-  if (!maskGridCtx) return;
-
-  maskGridCtx.fillStyle = 'rgba(0,0,0,1)';
-  for (const { masks } of allMasks) {
-    if (masks.length !== gridH || masks[0]?.length !== gridW) continue;
-    for (let y = 0; y < gridH; y++) {
-      const row = masks[y];
-      if (!row) continue;
-      for (let x = 0; x < gridW; x++) {
-        const value = row[x];
-        if (typeof value === 'number' && value > 0.5) {
-          maskGridCtx.fillRect(x, y, 1, 1);
-        }
-      }
-    }
-  }
-
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = canvas.width;
-  maskCanvas.height = canvas.height;
-  const maskCtx = maskCanvas.getContext('2d');
-  if (!maskCtx) return;
-
-  const { srcX, srcY, srcW, srcH } = maskGridSrcRect(maskTransform, originalWidth, originalHeight);
-  maskCtx.imageSmoothingEnabled = false;
-  maskCtx.drawImage(maskGrid, srcX, srcY, srcW, srcH, offsetXInOverlay, offsetYInOverlay, contentWidth, contentHeight);
-
-  ctx.globalCompositeOperation = 'destination-in';
-  ctx.drawImage(maskCanvas, 0, 0);
-  ctx.globalCompositeOperation = 'source-over';
-  canvas.style.filter = buildCanvasTintFilter(masking);
 }
 
 function restoreOpacity(image: HTMLImageElement, originalOpacity: string | undefined): void {

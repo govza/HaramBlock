@@ -1,5 +1,6 @@
 import { edgeBoundingBoxCorrection } from '@/entrypoints/background/modelUtils/corrections';
 import { createCacheMetadataFromMediaMetadata } from '@/utils/cacheUtils';
+import { croppedMaskTransform } from '@/utils/croppedMaskTransform';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { loadImageBitmap, preprocessImage } from '@/utils/inference/preprocessing';
 import { acquireModelRuntime, getBackend, ort, runSession } from '@/utils/inference/runtimes/onnx/modelLoader';
@@ -11,7 +12,7 @@ import {
 import { MIN_SCORE_THRESHOLD, strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger } from '@/utils/telemetry';
 
-import type { IImagePrediction, IMaskTransform } from '@/utils/types';
+import type { IImagePrediction } from '@/utils/types';
 import type { InferenceTask } from '@/utils/types/model';
 
 const log = getLogger('prediction');
@@ -134,19 +135,6 @@ function buildImagePrediction(
   const e2eTime = task.requestStartAt ? inferenceEndAt - task.requestStartAt : 0;
   const cacheMetadata = createCacheMetadataFromMediaMetadata(task.mediaMetadata);
 
-  // Derive mask transform from actual mask dimensions in predictions.
-  // The mask is already cropped (no letterbox padding), so it maps directly to the original image.
-  const firstMask = predictions.find(p => p.masks && p.masks.runs.length > 0)?.masks;
-  const maskW = firstMask?.width ?? 1;
-  const maskH = firstMask?.height ?? 1;
-
-  const maskTransform: IMaskTransform = {
-    scaleX: imageWidth / maskW,
-    scaleY: imageHeight / maskH,
-    offsetX: 0,
-    offsetY: 0,
-  };
-
   return {
     hostname: getEffectiveHostname(task.hostname),
     src: task.imageSrc,
@@ -156,7 +144,7 @@ function buildImagePrediction(
     topUnsafeScore,
     timestamp: Date.now(),
     cacheMetadata,
-    maskTransform,
+    maskTransform: croppedMaskTransform(predictions, imageWidth, imageHeight),
     processingTime: {
       fetchTime,
       decodeTime,
