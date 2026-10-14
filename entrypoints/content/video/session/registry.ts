@@ -23,7 +23,6 @@ import {
 import { PermanentFrameTransferError } from '@/entrypoints/content/video/sampling/transfer';
 import { ForcedPresentation } from '@/entrypoints/content/video/session/forcedPresentation';
 import { SESSION_ID_ATTR, SESSION_SRC_ATTR, VIDEO_TAP_ATTR } from '@/entrypoints/content/video/session/markers';
-import { toVerdictCacheKey } from '@/entrypoints/content/video/session/verdictCacheKey';
 import {
   createVideoSession,
   reduce,
@@ -32,7 +31,11 @@ import {
   type SessionStatus,
   verdictOptionsOf,
 } from '@/entrypoints/content/video/session/videoSession';
-import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
+import {
+  compareSources,
+  resolveVideoSource,
+  type ResolvedVideoSource,
+} from '@/entrypoints/content/video/session/videoSource';
 import { isVideoNearViewport, ViewportSuspension } from '@/entrypoints/content/video/session/viewportSuspension';
 import { applyWholeBlur, clearWholeBlur } from '@/entrypoints/content/video/session/wholeBlur';
 import { openLookahead, type LookaheadInferenceRequest } from '@/entrypoints/content/video/tap/lookaheadClient';
@@ -92,21 +95,11 @@ function toEntry(handle: SessionHandle, timestampSec: number, sample: InferredSa
   };
 }
 
-function isSameVideoSource(handle: SessionHandle, source: ResolvedVideoSource): boolean {
-  return source.srcObject
-    ? handle.srcObject === source.srcObject
-    : handle.srcObject === null && handle.src === source.url;
-}
-
-function continuesSameMedia(handle: SessionHandle, source: ResolvedVideoSource): boolean {
-  return (
-    handle.state.phase === 'active' &&
-    handle.srcObject === null &&
-    source.srcObject === null &&
-    handle.cacheKey !== '' &&
-    toVerdictCacheKey(source.url) === handle.cacheKey
-  );
-}
+const sourceOf = (handle: SessionHandle): ResolvedVideoSource => ({
+  srcObject: handle.srcObject,
+  url: handle.src,
+  cacheKey: handle.cacheKey,
+});
 
 const documentVisible = (): boolean => globalThis.document?.visibilityState !== 'hidden';
 
@@ -158,11 +151,12 @@ class VideoSessionRegistry {
     const existing = this.byVideo.get(video);
     const strictnessChanged = existing !== undefined && existing.hostSettings.strictness !== hostSettings.strictness;
     if (existing && existing.state.phase !== 'disposed' && !strictnessChanged) {
-      if (isSameVideoSource(existing, source)) {
+      const relation = compareSources(sourceOf(existing), source);
+      if (relation === 'sameSource') {
         existing.hostSettings = hostSettings;
         return;
       }
-      if (continuesSameMedia(existing, source)) {
+      if (relation === 'sameMedia' && existing.state.phase === 'active') {
         existing.hostSettings = hostSettings;
         this.changeSource(existing, source);
         return;
@@ -235,7 +229,7 @@ class VideoSessionRegistry {
       video,
       srcObject: source.srcObject,
       src: source.url || `srcobject:${sessionId}`,
-      cacheKey: toVerdictCacheKey(source.url),
+      cacheKey: source.cacheKey,
       trace: startUmbrellaSession(SPAN.videoSession, {
         [ATTR.src]: source.url,
         [ATTR.hostname]: hostSettings.hostname,
@@ -349,7 +343,7 @@ class VideoSessionRegistry {
   }
 
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
-    this.userToggledCacheKeys.set(video, toVerdictCacheKey(resolveVideoSource(video)?.url ?? ''));
+    this.userToggledCacheKeys.set(video, resolveVideoSource(video)?.cacheKey ?? '');
     this.applyForcedVisibility(video, next, true);
   }
 
@@ -370,9 +364,8 @@ class VideoSessionRegistry {
   }
 
   private persistForcedVisibility(source: ResolvedVideoSource, settings: IHostSettings, next: ForcedVisibility): void {
-    const cacheKey = toVerdictCacheKey(source.url);
-    if (!cacheKey) return;
-    void requestVideoToggleUpdate(cacheKey, { sourceUrl: source.url, hostname: settings.hostname }, next);
+    if (!source.cacheKey) return;
+    void requestVideoToggleUpdate(source.cacheKey, { sourceUrl: source.url, hostname: settings.hostname }, next);
   }
 
   private restoreForcedVisibility(handle: SessionHandle): void {
