@@ -12,9 +12,8 @@ import type { ModelService } from '@/entrypoints/background/services/modelServic
 import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 
 export { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
-export { ProvideAdapter, InjectAdapter } from '@/utils/messaging/adapters/browserRuntimeAdapter';
+export { InjectAdapter } from '@/utils/messaging/adapters/browserRuntimeAdapter';
 export { MessageChannelInjectAdapter } from '@/utils/messaging/adapters/messageChannelAdapter';
-export { MessageChannelProvideAdapter } from '@/utils/messaging/adapters/messageChannelProvideAdapter';
 export { CompositeProvideAdapter } from '@/utils/messaging/adapters/compositeProvideAdapter';
 export { HybridInjectAdapter } from '@/utils/messaging/adapters/hybridInjectAdapter';
 export type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
