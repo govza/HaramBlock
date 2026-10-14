@@ -347,6 +347,42 @@ async function resolveVideoFrameTransferKind(): Promise<VideoFrameTransferKind> 
   return 'bitmap';
 }
 
+/**
+ * A content-generated frame packaged for its transport: the ImageBitmap itself where MessageChannel
+ * can transfer it, or a compressed blob where only structured clone is available.
+ */
+type FrameTransfer = { kind: 'bitmap'; bitmap: ImageBitmap } | { kind: 'blob'; blob: Blob };
+
+/** Release a bitmap that may already be closed or detached by a transfer. */
+const closeBitmapQuietly = (bitmap: ImageBitmap): void => {
+  try {
+    bitmap.close();
+  } catch {
+    return;
+  }
+};
+
+/**
+ * Package a frame for the current transport, taking ownership of the bitmap: it is closed once
+ * compressed to a blob, or when packaging fails.
+ */
+async function toFrameTransfer(bitmap: ImageBitmap, onEncoded?: (encodeMs: number) => void): Promise<FrameTransfer> {
+  try {
+    const transferKind = await resolveVideoFrameTransferKind();
+    if (transferKind === 'bitmap') {
+      return { kind: 'bitmap', bitmap };
+    }
+    const encodeStartedAt = performance.now();
+    const blob = await bitmapToCompressedBlob(bitmap);
+    onEncoded?.(performance.now() - encodeStartedAt);
+    bitmap.close();
+    return { kind: 'blob', blob };
+  } catch (error) {
+    closeBitmapQuietly(bitmap);
+    throw error;
+  }
+}
+
 export interface VideoFrameParams {
   sample: CapturedFrameSample;
   sampleKind: FrameSampleKind;
@@ -395,30 +431,14 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
       traceparent: injectTraceparent(parent),
     };
 
-    const transferKind = await resolveVideoFrameTransferKind();
-    let payload: IVideoFrameTransfer;
-
-    switch (transferKind) {
-      case 'bitmap': {
-        // Chrome: Zero-copy transfer via MessageChannel
-        payload = { ...base, kind: 'bitmap', bitmap };
-        break;
-      }
-      case 'blob': {
-        // Firefox: Compress to WebP and structured clone
-        const encodeStartedAt = performance.now();
-        const blob = await bitmapToCompressedBlob(bitmap);
-        recordHistogram(METRIC.samplerEncodeMs, performance.now() - encodeStartedAt, {
-          [ATTR.sessionId]: sessionId,
-          [ATTR.transferKind]: transferKind,
-        });
-        bitmap.close(); // Clean up original bitmap after compression
-        payload = { ...base, kind: 'blob', blob };
-        break;
-      }
-      default:
-        throw new Error(`Unsupported video frame transfer kind: ${transferKind as string}`);
-    }
+    const transfer = await toFrameTransfer(bitmap, encodeMs =>
+      recordHistogram(METRIC.samplerEncodeMs, encodeMs, {
+        [ATTR.sessionId]: sessionId,
+        [ATTR.transferKind]: 'blob',
+      }),
+    );
+    const transferKind = transfer.kind;
+    const payload: IVideoFrameTransfer = { ...base, ...transfer };
     recordCounter(METRIC.samplerFramesSent, 1, { [ATTR.transferKind]: transferKind });
 
     const sendSpan = tracer.startSpan(SPAN.send, { attributes: { [ATTR.transferKind]: transferKind } }, parent);
@@ -431,12 +451,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     }
     endRoundtrip(roundtripKey, { status: 'success' });
   } catch (error) {
-    // Clean up bitmap on error if not already transferred/closed
-    try {
-      bitmap.close();
-    } catch {
-      // Already closed or transferred - ignore
-    }
+    closeBitmapQuietly(bitmap);
     endRoundtrip(roundtripKey, { status: 'error', error });
     log.error(
       'inference.frame.send.failed',
@@ -499,33 +514,15 @@ export async function requestGifFrameInference(params: GifFrameParams): Promise<
       traceparent: injectTraceparent(parent),
     };
 
-    const transferKind = await resolveVideoFrameTransferKind();
-    let payload: IGifFrameTransfer;
-
-    switch (transferKind) {
-      case 'bitmap': {
-        payload = { ...base, kind: 'bitmap', bitmap };
-        break;
-      }
-      case 'blob': {
-        const blob = await bitmapToCompressedBlob(bitmap);
-        bitmap.close();
-        payload = { ...base, kind: 'blob', blob };
-        break;
-      }
-      default:
-        throw new Error(`Unsupported GIF frame transfer kind: ${transferKind as string}`);
-    }
+    const transfer = await toFrameTransfer(bitmap);
+    const transferKind = transfer.kind;
+    const payload: IGifFrameTransfer = { ...base, ...transfer };
 
     sendSpan.setAttribute(ATTR.transferKind, transferKind);
     await backgroundRpc.postInferenceGifFrame(payload);
     sendSpan.end();
   } catch (error) {
-    try {
-      bitmap.close();
-    } catch {
-      // Already closed or transferred - ignore
-    }
+    closeBitmapQuietly(bitmap);
     endSpanWithError(sendSpan, error);
     log.error(
       'inference.gif_frame.send.failed',
