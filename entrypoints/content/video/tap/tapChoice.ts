@@ -3,7 +3,7 @@ import type { TapRequest } from '@/utils/lookahead/protocol';
 
 const NATIVE_HLS_PATH = /\.m3u8$/i;
 
-export function chooseTap(source: ResolvedVideoSource): TapRequest | null {
+export function chooseTap(source: Pick<ResolvedVideoSource, 'srcObject' | 'url'>): TapRequest | null {
   if (source.srcObject || !source.url) return null;
   if (source.url.startsWith('blob:')) return { kind: 'mse', objectUrl: source.url };
   let url: URL;

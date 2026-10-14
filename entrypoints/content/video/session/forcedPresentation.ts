@@ -4,7 +4,11 @@ import {
   resetImageStyling,
 } from '@/entrypoints/content/presentation/initialStyling';
 import { unregisterQuickToggle } from '@/entrypoints/content/presentation/quickToggle';
-import { resolveVideoSource, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
+import {
+  compareSources,
+  resolveVideoSource,
+  type ResolvedVideoSource,
+} from '@/entrypoints/content/video/session/videoSource';
 import { clearWholeBlur } from '@/entrypoints/content/video/session/wholeBlur';
 
 import type { ForcedVisibility, IHostSettings } from '@/utils/types';
@@ -15,15 +19,13 @@ import type { ForcedVisibility, IHostSettings } from '@/utils/types';
  * different video deserves a fresh verdict.
  */
 interface ForcedEntry {
-  srcObject: HTMLVideoElement['srcObject'];
-  url: string;
+  source: ResolvedVideoSource;
   state: Exclude<ForcedVisibility, 'auto'>;
   unprocessed: boolean;
 }
 
-function matchesForcedSource(entry: ForcedEntry, source: ResolvedVideoSource): boolean {
-  return source.srcObject ? entry.srcObject === source.srcObject : entry.srcObject === null && entry.url === source.url;
-}
+const matchesForcedSource = (entry: ForcedEntry, source: ResolvedVideoSource): boolean =>
+  compareSources(entry.source, source) === 'sameSource';
 
 /**
  * Registry callbacks that Forced Presentation uses to hand a video back to a VideoSession or drop
@@ -61,7 +63,7 @@ export class ForcedPresentation {
 
   setOverride(video: HTMLVideoElement, source: ResolvedVideoSource, state: Exclude<ForcedVisibility, 'auto'>): void {
     const unprocessed = this.overrideByVideo.get(video)?.unprocessed ?? video.hasAttribute(PROCESSED_ATTR_MAP.skipped);
-    this.overrideByVideo.set(video, { srcObject: source.srcObject, url: source.url, state, unprocessed });
+    this.overrideByVideo.set(video, { source, state, unprocessed });
   }
 
   clearOverride(video: HTMLVideoElement): void {
