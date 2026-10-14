@@ -1,7 +1,8 @@
 import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { IMAGE_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
-import { computeRenderedContentRect, maskGridSrcRect } from '@/entrypoints/content/presentation/imageLayout';
+import { computeRenderedContentRect, type ContentRect } from '@/entrypoints/content/presentation/imageLayout';
 import { hasInitialStyling } from '@/entrypoints/content/presentation/initialStyling';
+import { MaskCoverage, paintPixelatedMask } from '@/entrypoints/content/presentation/maskCoverage';
 import {
   classifyOverlayMutation,
   ensurePositionContext,
@@ -14,17 +15,8 @@ import {
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
 import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
-import { calculatePixelationBlockSize, buildCanvasTintFilter } from '@/utils/masking';
-import { decodeMaskRLE, type IRLEMask } from '@/utils/rle';
 import { getLogger } from '@/utils/telemetry';
-import {
-  shouldBlock,
-  type IHostSettings,
-  type IImagePrediction,
-  type IMaskTransform,
-  type IElementPrediction,
-  type IMaskingSettings,
-} from '@/utils/types';
+import { shouldBlock, type IHostSettings, type IImagePrediction, type IMaskingSettings } from '@/utils/types';
 
 import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
@@ -52,16 +44,6 @@ const isObscuredBySite = (image: HTMLImageElement): boolean => {
  * stale-overlay sweep must only remove orphans, never a sibling's live mask.
  */
 const liveOverlays = new WeakSet<HTMLDivElement>();
-
-/** Type guard to check if a prediction has valid RLE mask data */
-function hasValidMask(prediction: IElementPrediction): prediction is IElementPrediction & { masks: IRLEMask } {
-  return (
-    prediction.masks !== undefined &&
-    prediction.masks !== null &&
-    Array.isArray(prediction.masks.runs) &&
-    prediction.masks.runs.length > 0
-  );
-}
 
 /**
  * Manages mask overlays for image elements.
@@ -109,24 +91,9 @@ class ImageMaskOverlay implements IMediaOverlay {
     // Remove legacy overlays created by older runs (one-time cleanup)
     removeExistingImageOverlays(parent);
 
-    // Collect all masks for single overlay
-    const allMasks: { masks: number[][] }[] = [];
-    for (const prediction of imagePrediction.predictions) {
-      if (hasValidMask(prediction)) {
-        allMasks.push({ masks: decodeMaskRLE(prediction.masks) });
-      }
-    }
-
-    // Create single overlay for all masks
-    if (allMasks.length > 0) {
-      const state = this.createSingleImageMaskOverlay(
-        image,
-        allMasks,
-        imagePrediction.maskTransform,
-        imagePrediction.width,
-        imagePrediction.height,
-        hostSettings.masking,
-      );
+    const coverage = coverageOf(imagePrediction);
+    if (coverage) {
+      const state = this.createSingleImageMaskOverlay(image, coverage, hostSettings.masking);
 
       // Set up observers for this image (only on initial setup)
       if (!skipObserverSetup) {
@@ -203,10 +170,7 @@ class ImageMaskOverlay implements IMediaOverlay {
 
   private createSingleImageMaskOverlay(
     image: HTMLImageElement,
-    allMasks: { masks: number[][] }[],
-    maskTransform: IMaskTransform,
-    originalWidth: number,
-    originalHeight: number,
+    coverage: MaskCoverage,
     masking: IMaskingSettings,
   ): IMediaOverlayState {
     const parent = resolveAnchorParent(image);
@@ -281,22 +245,7 @@ class ImageMaskOverlay implements IMediaOverlay {
     };
 
     // Initial render
-    renderUnifiedCanvasMask(
-      canvas,
-      ctx,
-      allMasks,
-      maskTransform,
-      originalWidth,
-      originalHeight,
-      imageRect.width, // overlay (element) width
-      imageRect.height, // overlay (element) height
-      image,
-      contentRect.offsetX,
-      contentRect.offsetY,
-      contentRect.width,
-      contentRect.height,
-      masking,
-    );
+    renderUnifiedCanvasMask(ctx, image, coverage, imageRect, contentRect, masking);
 
     // Store state for subsequent updates
     this.imageStates.set(image, state);
@@ -424,57 +373,37 @@ class ImageMaskOverlay implements IMediaOverlay {
     state.overlay.style.width = `${imageRect.width}px`;
     state.overlay.style.height = `${imageRect.height}px`;
 
-    // Collect masks
-    const allMasks: { masks: number[][] }[] = [];
-    for (const prediction of imagePrediction.predictions) {
-      if (hasValidMask(prediction)) {
-        allMasks.push({ masks: decodeMaskRLE(prediction.masks) });
-      }
-    }
-    if (!allMasks.length) return;
+    const coverage = coverageOf(imagePrediction);
+    if (!coverage) return;
 
-    renderUnifiedCanvasMask(
-      state.canvas,
-      state.ctx,
-      allMasks,
-      imagePrediction.maskTransform,
-      imagePrediction.width,
-      imagePrediction.height,
-      imageRect.width,
-      imageRect.height,
-      image,
-      contentRect.offsetX,
-      contentRect.offsetY,
-      contentRect.width,
-      contentRect.height,
-      state.masking,
-    );
+    renderUnifiedCanvasMask(state.ctx, image, coverage, imageRect, contentRect, state.masking);
   }
 }
 
-// Helper function for rendering unified canvas mask
+const coverageOf = (imagePrediction: IImagePrediction): MaskCoverage | null =>
+  MaskCoverage.from(
+    imagePrediction.predictions,
+    imagePrediction.maskTransform,
+    imagePrediction.width,
+    imagePrediction.height,
+  );
+
+/**
+ * Sizes the overlay canvas to the element box before painting. A collapsed element (e.g. hidden by a
+ * lightbox) drops the previous frame too: the overlay div does not clip by itself, so a stale painted
+ * canvas would keep showing at its old CSS size.
+ */
 const renderUnifiedCanvasMask = (
-  canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
-  allMasks: { masks: number[][] }[],
-  maskTransform: IMaskTransform,
-  originalWidth: number,
-  originalHeight: number,
-  overlayWidth: number,
-  overlayHeight: number,
   image: HTMLImageElement,
-  offsetXInOverlay: number,
-  offsetYInOverlay: number,
-  contentWidth: number,
-  contentHeight: number,
+  coverage: MaskCoverage,
+  overlaySize: { width: number; height: number },
+  contentRect: ContentRect,
   masking: IMaskingSettings,
 ): void => {
-  if (!allMasks || !allMasks.length) return;
-  if (overlayWidth <= 0 || overlayHeight <= 0 || contentWidth <= 0 || contentHeight <= 0) {
-    // Nothing visible to mask (e.g. the element collapsed to zero size when a
-    // lightbox hid it). Drop the previous frame too: the overlay div does not
-    // clip by itself, so a stale painted canvas would keep showing at the
-    // canvas's old CSS size.
+  const { canvas } = ctx;
+  const { width, height } = overlaySize;
+  if (width <= 0 || height <= 0 || contentRect.width <= 0 || contentRect.height <= 0) {
     canvas.width = 0;
     canvas.height = 0;
     canvas.style.width = '0px';
@@ -482,107 +411,11 @@ const renderUnifiedCanvasMask = (
     return;
   }
 
-  const dWidth = contentWidth;
-  const dHeight = contentHeight;
-
-  // Ensure canvas bitmap matches display size for crisp pixels
-  canvas.width = overlayWidth;
-  canvas.height = overlayHeight;
-  canvas.style.width = `${overlayWidth}px`;
-  canvas.style.height = `${overlayHeight}px`;
-
-  const blockSize = calculatePixelationBlockSize(masking.pixelationScale);
-  const smallW = Math.max(1, Math.floor(dWidth / blockSize));
-  const smallH = Math.max(1, Math.floor(dHeight / blockSize));
-
-  const tmp = document.createElement('canvas');
-  tmp.width = smallW;
-  tmp.height = smallH;
-  const tctx = tmp.getContext('2d');
-  if (!tctx) {
-    log.error('overlay.canvas_context.failed', { canvas: 'tmp' });
-    return;
-  }
-
-  // Downscale to small with smoothing, then upscale without smoothing to get blocky squares
-  tctx.imageSmoothingEnabled = true; // smoother downscale average
-  tctx.clearRect(0, 0, smallW, smallH);
-
-  // Draw the entire source image. Never pass naturalWidth/naturalHeight as a source
-  // rect: for srcset images with w descriptors they are density-corrected CSS
-  // dimensions, not resource pixels, so the rect overshoots the bitmap and the
-  // clipped draw leaves the bottom/right of the content unpixelated (and therefore
-  // unmasked after the destination-in composite).
-  tctx.drawImage(image, 0, 0, smallW, smallH);
-
-  ctx.imageSmoothingEnabled = false; // crisp, blocky upscale
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // Draw pixelated image only in the actual rendered content box inside the <img>
-  ctx.drawImage(tmp, offsetXInOverlay, offsetYInOverlay, dWidth, dHeight);
-
-  // 2) Build alpha mask via grid-space canvas, then scale/crop to image content
-  const first = allMasks.find(m => m.masks && m.masks.length);
-  const gridH = first?.masks.length || 0;
-  const gridW = first?.masks[0]?.length || 0;
-  if (!gridW || !gridH) return;
-
-  const maskGrid = document.createElement('canvas');
-  maskGrid.width = gridW;
-  maskGrid.height = gridH;
-  const mg = maskGrid.getContext('2d');
-  if (!mg) {
-    log.error('overlay.canvas_context.failed', { canvas: 'grid' });
-    return;
-  }
-  mg.clearRect(0, 0, gridW, gridH);
-  mg.fillStyle = 'rgba(0,0,0,1)';
-
-  const maskThreshold = 0.5;
-
-  // Merge masks into grid by OR-ing cells that pass threshold
-  for (const { masks } of allMasks) {
-    const mh = masks.length;
-    const mw = masks[0]?.length || 0;
-    if (mw !== gridW || mh !== gridH) continue;
-
-    for (let y = 0; y < mh; y++) {
-      const row = masks[y];
-      if (!row) continue;
-      for (let x = 0; x < mw; x++) {
-        const v = row[x];
-        if (typeof v !== 'number' || v <= maskThreshold) continue;
-
-        // Mask value is above threshold, fill this pixel
-        mg.fillRect(x, y, 1, 1);
-      }
-    }
-  }
-
-  // Prepare mask onto overlay-sized canvas then composite
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = overlayWidth;
-  maskCanvas.height = overlayHeight;
-  const maskCtx = maskCanvas.getContext('2d');
-  if (!maskCtx) {
-    log.error('overlay.canvas_context.failed', { canvas: 'mask' });
-    return;
-  }
-  maskCtx.clearRect(0, 0, overlayWidth, overlayHeight);
-
-  // Source sub-rect in grid that corresponds to actual image content (excludes letterbox)
-  const { srcX, srcY, srcW, srcH } = maskGridSrcRect(maskTransform, originalWidth, originalHeight);
-
-  // Draw scaled mask aligned to image content rect inside the overlay
-  maskCtx.imageSmoothingEnabled = false;
-  maskCtx.drawImage(maskGrid, srcX, srcY, srcW, srcH, offsetXInOverlay, offsetYInOverlay, dWidth, dHeight);
-
-  // 3) Keep only the masked parts of the pixelated image
-  ctx.globalCompositeOperation = 'destination-in';
-  ctx.drawImage(maskCanvas, 0, 0);
-  ctx.globalCompositeOperation = 'source-over';
-
-  // 4) Apply tint effects via CSS filter (hardware-accelerated)
-  canvas.style.filter = buildCanvasTintFilter(masking);
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  paintPixelatedMask(ctx, image, coverage, contentRect, masking);
 };
 
 // Helper function for removing legacy overlays

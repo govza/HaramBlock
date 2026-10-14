@@ -675,16 +675,20 @@ Utilities in `imageLayout.ts`:
 
 - `computeRenderedContentRect(image)` - Computes the visible image area inside the element box,
   accounting for `object-fit: fill | contain | cover | none | scale-down`
-- `maskGridSrcRect(maskTransform, originalW, originalH)` - Returns the sub-rectangle within the mask
-  grid that corresponds to valid image pixels (excludes letterbox padding)
 
-### Segmentation Mask Mapping
+`maskCoverage.ts` owns the mask grid on the content side:
 
-1. Create canvas overlay sized to element box
-2. Draw pixelated image within `contentRect`
-3. Decode RLE mask and draw to mask grid canvas
-4. Crop valid region using `maskGridSrcRect()` and scale to `contentRect`
-5. Composite with `destination-in` to apply mosaic only to masked pixels
+- `MaskCoverage.from(predictions, maskTransform, originalW, originalH)` - Decodes the RLE masks and
+  unions the cells above the 0.5 threshold; the grid window that holds real image pixels (letterbox
+  padding excluded) is what gets stretched onto a content rect
+- `.rects(contentRect)` - Covered cells merged into rectangles, mapped to element-box pixels (video
+  `clip-path`)
+- `paintPixelatedMask(ctx, source, coverage, contentRect, masking)` - The image and GIF overlays'
+  paint: pixelated `source` within `contentRect`, composited `destination-in` with the coverage
+  alpha so only covered pixels keep the mosaic, then tinted via CSS filter
+
+`croppedMaskTransform()` (`utils/croppedMaskTransform.ts`) derives the transform for the cropped
+masks the inference library emits (pure scale, zero offset).
 
 ## Deduplication
 

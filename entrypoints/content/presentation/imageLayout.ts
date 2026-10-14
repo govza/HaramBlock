@@ -1,5 +1,3 @@
-import { type IMaskTransform } from '@/utils/types';
-
 export interface ContentRect {
   offsetX: number;
   offsetY: number;
@@ -94,24 +92,6 @@ export function clipContentRectToBox(contentRect: ContentRect, boxWidth: number,
   const right = Math.min(boxWidth, contentRect.offsetX + contentRect.width);
   const bottom = Math.min(boxHeight, contentRect.offsetY + contentRect.height);
   return { offsetX: left, offsetY: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
-}
-
-/**
- * Given maskTransform parameters (letterboxing in the model’s output grid) and the
- * original image size, compute the source rect within the mask grid that corresponds
- * to valid image pixels (excluding letterbox padding).
- */
-export function maskGridSrcRect(
-  maskTransform: IMaskTransform,
-  originalWidth: number,
-  originalHeight: number,
-): { srcX: number; srcY: number; srcW: number; srcH: number } {
-  const { scaleX, scaleY, offsetX, offsetY } = maskTransform;
-  const srcX = offsetX;
-  const srcY = offsetY;
-  const srcW = originalWidth / scaleX;
-  const srcH = originalHeight / scaleY;
-  return { srcX, srcY, srcW, srcH };
 }
 
 /** Compute linear scales from original image coordinates to display (content) coordinates. */
