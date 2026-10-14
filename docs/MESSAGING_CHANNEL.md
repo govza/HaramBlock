@@ -222,7 +222,7 @@ No manual request/response correlation needed!
   - Background-side: Handles both MessageChannel and browser.runtime
 - **MessageChannelInjectAdapter**: `utils/messaging/adapters/messageChannelAdapter.ts`
   - Chrome content-side: Manages iframe injection and port transfer
-- **InjectAdapter/ProvideAdapter**: `utils/messaging/adapters/browserRuntimeAdapter.ts`
+- **InjectAdapter**: `utils/messaging/adapters/browserRuntimeAdapter.ts`
   - browser.runtime messaging wrappers
 
 ### MessageChannel Bridge (Chrome only)
