@@ -5,20 +5,13 @@ import react from 'eslint-plugin-react';
 import prettierConfig from 'eslint-config-prettier';
 import globals from 'globals';
 import js from '@eslint/js';
+import { includeIgnoreFile } from '@eslint/compat';
+import path from 'node:path';
 
 export default [
+  includeIgnoreFile(path.resolve(import.meta.dirname, '.gitignore')),
   {
-    ignores: [
-      'dist/**',
-      'build/**',
-      '.output/**',
-      '.wxt/**',
-      '.teach/**',
-      'node_modules/**',
-      '*.min.js',
-      'coverage/**',
-      'public/models/**',
-    ],
+    ignores: ['dist/**', 'build/**', '*.min.js', 'public/models/**'],
   },
   js.configs.recommended,
   {
