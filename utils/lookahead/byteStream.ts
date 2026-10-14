@@ -1,3 +1,5 @@
+import { EBML_MAGIC, MP4_INIT_BOXES, WEBM_CLUSTER_MAGIC } from '@/utils/lookahead/containerSniff';
+
 export type ContainerKind = 'webm' | 'mp4';
 
 /**
@@ -47,8 +49,6 @@ const WEBM_LEVEL1_IDS = new Set([
   0x1043a770,
   0x1254c367,
 ]);
-
-const MP4_INIT_BOXES = new Set(['ftyp', 'moov']);
 
 export function containerKindOf(mime: string): ContainerKind | null {
   const type = mime.split(';')[0]?.trim().toLowerCase() ?? '';
@@ -169,10 +169,7 @@ function indexOfMarker(bytes: Uint8Array, markers: readonly (readonly number[])[
   return -1;
 }
 
-const WEBM_RESYNC_MARKERS = [
-  [0x1f, 0x43, 0xb6, 0x75],
-  [0x1a, 0x45, 0xdf, 0xa3],
-];
+const WEBM_RESYNC_MARKERS = [WEBM_CLUSTER_MAGIC, EBML_MAGIC];
 const MP4_RESYNC_MARKERS = [
   [0x6d, 0x6f, 0x6f, 0x66],
   [0x66, 0x74, 0x79, 0x70],

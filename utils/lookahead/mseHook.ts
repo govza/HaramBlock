@@ -1,3 +1,4 @@
+import { initPieceKindOf, initSegmentLength, type InitPieceKind } from '@/utils/lookahead/containerSniff';
 import {
   isArrayBufferTag,
   MSE_HOOK_HANDSHAKE,
@@ -81,51 +82,8 @@ const byteSizeOf = (message: HookMessage): number => {
 
 const isAudioMime = (mime: string): boolean => mime.trim().toLowerCase().startsWith('audio/');
 
-const WEBM_EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
-
-type InitPieceKind = 'webm' | 'ftyp' | 'moov';
-
-const initPieceKindOf = (bytes: ArrayBuffer): InitPieceKind | null => {
-  const head = new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength));
-  if (WEBM_EBML_MAGIC.every((byte, index) => head[index] === byte)) return 'webm';
-  if (head.length < 8) return null;
-  const boxType = String.fromCharCode(...head.subarray(4, 8));
-  if (boxType === 'ftyp' || boxType === 'moov') return boxType;
-  return null;
-};
-
-const WEBM_CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
-const MP4_MEDIA_BOXES = new Set(['moof', 'mdat', 'sidx', 'styp', 'emsg', 'prft']);
-
-const webmInitLength = (view: Uint8Array): number => {
-  for (let offset = 0; offset + WEBM_CLUSTER_ID.length <= view.length; offset++) {
-    if (WEBM_CLUSTER_ID.every((byte, index) => view[offset + index] === byte)) return offset;
-  }
-  return view.length;
-};
-
-const mp4BoxSize = (data: DataView, offset: number): number => {
-  const size = data.getUint32(offset);
-  if (size === 0) return data.byteLength - offset;
-  if (size === 1 && offset + 16 <= data.byteLength) return Number(data.getBigUint64(offset + 8));
-  return size;
-};
-
-const mp4InitLength = (bytes: ArrayBuffer): number => {
-  const data = new DataView(bytes);
-  let offset = 0;
-  while (offset + 8 <= bytes.byteLength) {
-    const boxType = String.fromCharCode(...new Uint8Array(bytes, offset + 4, 4));
-    if (MP4_MEDIA_BOXES.has(boxType)) return offset;
-    const size = mp4BoxSize(data, offset);
-    if (size < 8) return bytes.byteLength;
-    offset += size;
-  }
-  return bytes.byteLength;
-};
-
 const initBytesOf = (bytes: ArrayBuffer, kind: InitPieceKind): ArrayBuffer =>
-  bytes.slice(0, kind === 'webm' ? webmInitLength(new Uint8Array(bytes)) : mp4InitLength(bytes));
+  bytes.slice(0, initSegmentLength(bytes, kind));
 
 const isLoneFtyp = (init: InitPiece[]): boolean =>
   init.length === 1 && init[0] !== undefined && initPieceKindOf(init[0].bytes) === 'ftyp';
