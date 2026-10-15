@@ -91,8 +91,8 @@ elements too, so this processor also routes GIF candidates to a multi-frame infe
 
 - State derived from blur class and overlay presence
 - In-memory cache for predictions (Map<src, prediction>)
-- Deduplicates inference requests via owner-tracked `pendingInference` map (see
-  [Inference Requests](#inference-requests))
+- Deduplicates inference requests via the owner-tracking `InferenceTracker`
+  (`core/inferenceTracker.ts`, see [Inference Requests](#inference-requests))
 - Idempotent operations - safe to call multiple times
 - Self-cleaning overlays via `trackedSrc` tracking
 - Viewport-based priority via `IntersectionObserver` (visible images processed first)
@@ -689,9 +689,9 @@ masks the inference library emits (pure scale, zero offset).
 
 ### Inference Requests
 
-In-flight requests are deduplicated by src via `pendingInference: Map<string, HTMLImageElement>`,
-where the value is the element that **owns** the request — the load listeners that eventually fire
-it live on that specific `<img>`. Tracking the owner matters because frameworks can replace the
+In-flight requests are deduplicated by src via `InferenceTracker` (`core/inferenceTracker.ts`),
+which records per src the element that **owns** the request — the load listeners that eventually
+fire it live on that specific `<img>`. Tracking the owner matters because frameworks can replace the
 element before a lazy image loads: its listeners then never fire, and with a plain src set the entry
 would stay "pending" forever, dropping every later copy (including visible ones) into a permanent
 initial blur. Instead, a new copy **adopts** the request when the owner is disconnected, or when the
@@ -745,7 +745,7 @@ classDiagram
 
   class ImageProcessor {
     -cache: Map~string, IImagePrediction~
-    -pendingInference: Set~string~
+    -inference: InferenceTracker
     -visibilityMap: WeakMap~HTMLImageElement, boolean~
     -visibilityObserver: IntersectionObserver
     +process(img): void
@@ -776,7 +776,7 @@ classDiagram
 ## Performance Considerations
 
 - **DOM-derived state**: No dataset attributes, state read from blur class and overlay presence
-- **Deduplication**: `pendingInference` Set prevents duplicate requests per src
+- **Deduplication**: `InferenceTracker` prevents duplicate requests per src
 - **Cached predictions**: Previously analyzed images styled immediately from cache
 - **Parallel data fetching**: Settings and predictions fetched simultaneously on init
 - **RequestAnimationFrame**: Overlay creation batched for smooth rendering

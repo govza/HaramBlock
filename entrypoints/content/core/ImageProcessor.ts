@@ -1,17 +1,10 @@
-import {
-  requestGifFrameInference,
-  requestImageInference,
-  requestToggleUpdate,
-} from '@/entrypoints/content/communication/sender';
+import { requestImageInference, requestToggleUpdate } from '@/entrypoints/content/communication/sender';
 import { isPlaceholderResolution, resolveImageSource, type NaturalSize } from '@/entrypoints/content/core/imageSource';
+import { createInferenceTracker } from '@/entrypoints/content/core/inferenceTracker';
 import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
-import {
-  decodeGifFrames,
-  gifInferenceFrameCap,
-  sampleFrameIndices,
-  type DecodedGifFrame,
-} from '@/entrypoints/content/gif/gifDecoder';
+import { createGifInspector, type GifInspector } from '@/entrypoints/content/gif/gifInspector';
 import { isGifCandidate } from '@/entrypoints/content/gif/gifSupport';
+import { gifTransport } from '@/entrypoints/content/gif/gifTransport';
 import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { gifMaskPlayer } from '@/entrypoints/content/presentation/gifMaskPlayer';
 import { imageMaskOverlay } from '@/entrypoints/content/presentation/imageMaskOverlay';
@@ -33,11 +26,7 @@ import {
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
 import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
-import { IS_CHROME } from '@/utils/constants/environment';
-import { GIF_MIN_MASK_INERTIA } from '@/utils/constants/gif';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
-import { waitForMessageChannel } from '@/utils/messaging/content';
-import { generateNonce } from '@/utils/nonce';
 import { ATTR, getLogger } from '@/utils/telemetry';
 import {
   cancelAllRoundtrips,
@@ -53,7 +42,6 @@ import {
 import {
   shouldBlock,
   type GifFrameInferenceResult,
-  type IGifFramePrediction,
   type IHostSettings,
   type IImagePrediction,
   type ImageInferenceResult,
@@ -70,22 +58,8 @@ const log = getLogger('ImageProcessor');
 const SVG_PATTERN = /\.svg(?:[?#]|$)|image\/svg\+xml/i;
 const MAX_CACHE_SIZE = 500;
 const SRC_STABILIZATION_DELAY = 150;
-const IMAGE_INFERENCE_TIMEOUT_MS = 20_000;
-const IMAGE_QUEUE_WAIT_TIMEOUT_MS = 120_000;
 const PLACEHOLDER_MAX_NATURAL_PX = 32;
-const MAX_IMAGE_INFERENCE_ATTEMPTS = 2;
 
-// Animated GIFs: cap tracked decode sessions and fail closed if frame verdicts
-// never arrive. Native <img> does not expose current-frame masking, so finalized
-// unsafe GIFs are replayed through a canvas player.
-const MAX_GIF_SESSIONS = 500;
-const GIF_VERDICT_TIMEOUT_MS = 20000;
-
-/**
- * Aggregation state for one animated GIF (keyed by src). Every frame is decoded for
- * playback, but inference runs on a sampled subset; the verdict finalizes once that
- * subset has returned (or the fail-closed timeout fires).
- */
 type AppliedOutcome = { kind: 'applied'; overlayType: string | undefined };
 type ApplyOutcome = { kind: 'stale' } | { kind: 'drifted' } | AppliedOutcome;
 
@@ -111,20 +85,6 @@ function waitForImageReady(img: HTMLImageElement): Promise<void> {
   });
 }
 
-interface GifSession {
-  sessionId: string;
-  frameCount: number; // Expected inference verdicts = sampled frame count (0 until decode completes)
-  received: number; // Frame verdicts received so far
-  failedFrames: number;
-  frames?: DecodedGifFrame[]; // All decoded frames; released once a GIF is judged safe
-  framePredictions: Map<number, IGifFramePrediction>; // Keyed by decoded frame index (sampled only)
-  maskInertia: number; // Frames a detection persists for playback; tracks the sampling stride
-  aggregatePrediction?: IImagePrediction;
-  finalized: boolean;
-  disposed: boolean;
-  timeoutId?: ReturnType<typeof setTimeout>;
-}
-
 // =============================================================================
 // ImageProcessor
 // =============================================================================
@@ -145,12 +105,9 @@ interface GifSession {
  */
 export class ImageProcessor {
   private readonly cache = new PredictionCache(MAX_CACHE_SIZE);
-  private readonly gifSessions = new Map<string, GifSession>();
-  // src → the element whose load listeners drive the request (see queueInference)
-  private readonly pendingInference = new Map<string, HTMLImageElement>();
+  private readonly gifInspector: GifInspector;
+  private readonly inference = createInferenceTracker(src => this.handleInferenceFailure(src, 'closed', 'timeout'));
   private readonly loadDriftWatched = new WeakSet<HTMLImageElement>();
-  private readonly pendingInferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly inferenceAttempts = new Map<string, number>();
   /** Last resolved source seen for an element; filters Reddit's no-op attribute churn. */
   private readonly resolvedSrcByImage = new WeakMap<HTMLImageElement, string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
@@ -168,6 +125,19 @@ export class ImageProcessor {
     private readonly badgeCounter: BadgeCounter,
   ) {
     initQuickToggle((src, forcedVisibility) => this.handleToggle(src, forcedVisibility));
+
+    this.gifInspector = createGifInspector({
+      hostSettings,
+      cache: this.cache,
+      transport: gifTransport,
+      findImages: src => this.findImagesBySrc(src),
+      priorityFor: img => this.priorityFor(img),
+      isBelowMinSize: (src, img) => this.isBelowMinSizeForSrc(src, img),
+      protect: img => this.protect(img),
+      present: (img, verdict) => this.applyGifVerdict(img, verdict),
+      skip: src => this.finalizeAllImagesForSrc(src, 'skipped'),
+      fallback: (img, src) => this.queueInference(img, src),
+    });
 
     // Fail-closed route for srcset re-selection (lightbox resize): the overlay
     // self-clean is the only place that detects it — no attribute mutates, so
@@ -223,7 +193,7 @@ export class ImageProcessor {
     const { targets } = this.hostSettings.policy;
     if (isGifCandidate(src, img.dataset.contentType)) {
       if (!targets.gif) return;
-      this.processGif(img, src);
+      this.gifInspector.inspect(img, src);
       return;
     }
     if (!targets.image) return;
@@ -333,7 +303,7 @@ export class ImageProcessor {
   handleInferenceResults(results: ImageInferenceResult[]): void {
     for (const result of results) {
       if (result.status === 'started') {
-        this.handleInferenceStarted(result.src);
+        this.inference.started(result.src);
         continue;
       }
       if (result.status === 'error') {
@@ -342,7 +312,7 @@ export class ImageProcessor {
       }
       const pred = result.prediction;
       this.cache.set(pred.src, pred);
-      this.clearPendingInference(pred.src, undefined, true);
+      this.inference.settle(pred.src);
 
       void this.applyPredictionToAllImages(pred, result.traceparent);
     }
@@ -376,6 +346,10 @@ export class ImageProcessor {
     });
   }
 
+  handleGifFrameResults(results: GifFrameInferenceResult[]): void {
+    this.gifInspector.handleFrameResults(results);
+  }
+
   /**
    * Clean up when image removed from DOM.
    */
@@ -400,15 +374,8 @@ export class ImageProcessor {
   dispose(): void {
     clearSrcDriftHandler(this.srcDriftHandler);
     this.visibilityObserver.disconnect();
-    for (const timer of this.pendingInferenceTimers.values()) clearTimeout(timer);
-    this.pendingInferenceTimers.clear();
-    this.inferenceAttempts.clear();
-    for (const session of this.gifSessions.values()) {
-      session.disposed = true;
-      if (session.timeoutId) clearTimeout(session.timeoutId);
-      this.releaseGifFrames(session.frames);
-    }
-    this.gifSessions.clear();
+    this.inference.dispose();
+    this.gifInspector.dispose();
     cancelAllRoundtrips('disposed');
     destroyQuickToggle();
   }
@@ -425,12 +392,9 @@ export class ImageProcessor {
     this.cache.set(src, updated);
     void requestToggleUpdate(src, forcedVisibility);
 
-    const gifSession = this.gifSessions.get(src);
-    if (gifSession?.finalized && gifSession.aggregatePrediction) {
-      gifSession.aggregatePrediction = updated;
-      const images = this.findAllImagesBySrc(src);
-      for (const img of images) {
-        this.applyGifVerdict(img, src, updated);
+    if (this.gifInspector.replaceVerdict(src, updated)) {
+      for (const img of this.findAllImagesBySrc(src)) {
+        this.applyGifVerdict(img, updated);
       }
       return;
     }
@@ -455,49 +419,16 @@ export class ImageProcessor {
   // ===========================================================================
 
   private queueInference(img: HTMLImageElement, src: string): void {
-    // Dedupe by src - only one request per unique src. But the pending entry
-    // is only alive as long as the element carrying its load listeners is:
-    // frameworks (Reddit's lightbox) replace nodes before lazy images load,
-    // and a dedupe against a dead owner would leave the src pending forever —
-    // every later copy of it dropped here, stuck behind the initial blur.
-    const owner = this.pendingInference.get(src);
-    if (owner && owner.isConnected) {
-      const ownerReady = owner.complete && owner.naturalWidth > 0;
-      const imgReady = img.complete && img.naturalWidth > 0;
-      // Defer to the owner unless it is stalled (not loaded — e.g. a lazy
-      // copy in a hidden subtree that may never start loading) while this
-      // copy already has pixels; then take over so visible copies aren't
-      // held hostage. A later duplicate send from the old owner is harmless.
-      if (ownerReady || !imgReady) {
-        // An unloaded deferrer may resolve a different currentSrc than the
-        // verdict's src (lazy load + srcset picks a larger candidate), so the
-        // broadcast can miss it and nothing else revisits it — a lazy load
-        // fires no attribute mutation. Re-enter process() once it has pixels;
-        // by then the verdict for its resolved src is usually already cached.
-        if (!imgReady && !this.deferredUntilLoad.has(img)) {
-          this.deferredUntilLoad.add(img);
-          img.addEventListener(
-            'load',
-            () => {
-              this.deferredUntilLoad.delete(img);
-              this.process(img);
-            },
-            { once: true },
-          );
-        }
-        return;
-      }
+    if (this.inference.claim(src, img) === 'defer') {
+      this.reprocessDeferredCopyOnLoad(img);
+      return;
     }
-
-    // Mark pending immediately (with this element as owner) to prevent
-    // duplicate load handlers
-    this.pendingInference.set(src, img);
 
     const sendRequest = async () => {
       // If src changed before load (common with srcset), reprocess with new src
       const currentSrc = resolveImageSource(img);
       if (currentSrc !== src) {
-        this.clearPendingInference(src, img);
+        this.inference.abandon(src, img);
         // Re-process with the actual loaded URL instead of just aborting
         this.process(img);
         cancelRoundtrip(src);
@@ -506,35 +437,31 @@ export class ImageProcessor {
 
       // Skip only if all currently pending elements for this src are below threshold.
       if (this.isBelowMinSizeForSrc(src, img)) {
-        this.clearPendingInference(src, img, true);
+        this.inference.settle(src, img);
         endRoundtrip(src, { status: 'skipped', attributes: { reason: 'below min size' } });
         this.finalizeAllImagesForSrc(src, 'skipped');
         return;
       }
 
       if (isPlaceholderResolution(img, this.placeholderLimit())) {
-        this.clearPendingInference(src, img, true);
+        this.inference.settle(src, img);
         endRoundtrip(src, { status: 'skipped', attributes: { reason: 'placeholder resolution' } });
         this.finalizeAllImagesForSrc(src, 'skipped');
         return;
       }
 
       try {
-        this.armInferenceWatchdog(src, img, IMAGE_QUEUE_WAIT_TIMEOUT_MS);
-        const isVisible = this.visibilityMap.get(img) ?? false;
-        const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
-        await requestImageInference(this.hostSettings.hostname, img, priority, getRoundtripContext(src));
+        this.inference.sent(src, img);
+        await requestImageInference(this.hostSettings.hostname, img, this.priorityFor(img), getRoundtripContext(src));
       } catch (err) {
-        if (this.pendingInference.get(src) !== img) return;
-        this.clearPendingInference(src, img, true);
+        if (!this.inference.settle(src, img)) return;
         endRoundtrip(src, { status: 'error', error: err });
         this.finalizeAllImagesForSrc(src, 'skipped');
       }
     };
 
     const handleError = (reason?: unknown) => {
-      if (this.pendingInference.get(src) !== img) return;
-      this.clearPendingInference(src, img, true);
+      if (!this.inference.settle(src, img)) return;
       let error: Error;
       if (reason instanceof Error) {
         error = reason;
@@ -582,23 +509,24 @@ export class ImageProcessor {
     }
   }
 
-  private armInferenceWatchdog(src: string, owner: HTMLImageElement, timeoutMs: number): void {
-    const existing = this.pendingInferenceTimers.get(src);
-    if (existing) clearTimeout(existing);
-    this.pendingInferenceTimers.set(
-      src,
-      setTimeout(() => {
-        this.pendingInferenceTimers.delete(src);
-        if (this.pendingInference.get(src) !== owner) return;
-        this.handleInferenceFailure(src, 'closed', 'timeout');
-      }, timeoutMs),
+  /**
+   * An unloaded copy that deferred to another owner may resolve a different currentSrc than the
+   * verdict's src (lazy load + srcset picks a larger candidate), and a lazy load fires no attribute
+   * mutation, so nothing else would revisit it. Re-entering process() once it has pixels usually
+   * finds the verdict for its resolved src already cached.
+   */
+  private reprocessDeferredCopyOnLoad(img: HTMLImageElement): void {
+    const hasPixels = img.complete && img.naturalWidth > 0;
+    if (hasPixels || this.deferredUntilLoad.has(img)) return;
+    this.deferredUntilLoad.add(img);
+    img.addEventListener(
+      'load',
+      () => {
+        this.deferredUntilLoad.delete(img);
+        this.process(img);
+      },
+      { once: true },
     );
-  }
-
-  private handleInferenceStarted(src: string): void {
-    const owner = this.pendingInference.get(src);
-    if (!owner) return;
-    this.armInferenceWatchdog(src, owner, IMAGE_INFERENCE_TIMEOUT_MS);
   }
 
   private handleInferenceFailure(
@@ -607,15 +535,12 @@ export class ImageProcessor {
     reason?: string,
     traceparent?: string,
   ): void {
-    if (!this.pendingInference.has(src)) return;
     const tracksRoundtrip = roundtripMatches(src, traceparent);
-    this.clearPendingInference(src);
+    const outcome = this.inference.fail(src);
+    if (outcome.kind === 'untracked') return;
+    const { attempts } = outcome;
 
-    const attempts = (this.inferenceAttempts.get(src) ?? 0) + 1;
-    this.inferenceAttempts.set(src, attempts);
-
-    if (attempts >= MAX_IMAGE_INFERENCE_ATTEMPTS) {
-      this.inferenceAttempts.delete(src);
+    if (outcome.kind === 'exhausted') {
       if (tracksRoundtrip) {
         endRoundtrip(src, {
           status: 'error',
@@ -638,16 +563,7 @@ export class ImageProcessor {
       candidates.find(candidate => candidate.complete) ??
       candidates[0];
     if (retryOwner) this.process(retryOwner);
-    else this.inferenceAttempts.delete(src);
-  }
-
-  private clearPendingInference(src: string, owner?: HTMLImageElement, resetAttempts = false): void {
-    if (owner && this.pendingInference.get(src) !== owner) return;
-    this.pendingInference.delete(src);
-    const timer = this.pendingInferenceTimers.get(src);
-    if (timer) clearTimeout(timer);
-    this.pendingInferenceTimers.delete(src);
-    if (resetAttempts) this.inferenceAttempts.delete(src);
+    else this.inference.settle(src);
   }
 
   private placeholderLimit(): NaturalSize {
@@ -683,315 +599,15 @@ export class ImageProcessor {
     }
   }
 
-  // ===========================================================================
-  // Animated GIF Processing
-  // ===========================================================================
+  private priorityFor(img: HTMLImageElement): number {
+    const isVisible = this.visibilityMap.get(img) ?? false;
+    return isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
+  }
 
-  /**
-   * Inspect a sampled subset of an animated GIF's frames. Idempotent per src:
-   * re-running for the same GIF re-applies the known verdict instead of re-decoding.
-   */
-  private processGif(img: HTMLImageElement, src: string): void {
-    const existing = this.gifSessions.get(src);
-    if (existing) {
-      if (existing.finalized && existing.aggregatePrediction) {
-        this.applyGifVerdict(img, src, existing.aggregatePrediction);
-      } else if (!hasInitialStyling(img)) {
-        // Another element shares this GIF and is still being inspected. Blur this one
-        // too so it stays hidden and is found when the verdict lands.
-        applyInitialImageStyling(img, this.hostSettings);
-      }
-      return;
-    }
-
-    const session: GifSession = {
-      sessionId: generateNonce(),
-      frameCount: 0,
-      received: 0,
-      failedFrames: 0,
-      framePredictions: new Map(),
-      maskInertia: GIF_MIN_MASK_INERTIA,
-      finalized: false,
-      disposed: false,
-    };
-    this.gifSessions.set(src, session);
-    this.evictGifSessionsIfNeeded();
-
-    startRoundtrip(src, {
-      src,
-      hostname: this.hostSettings.hostname,
-      mediaKind: 'gif',
-      attributes: { [ATTR.sessionId]: session.sessionId },
-    });
+  private protect(img: HTMLImageElement): void {
     if (!hasInitialStyling(img)) {
       applyInitialImageStyling(img, this.hostSettings);
     }
-
-    void this.decodeAndSendGif(img, src, session);
-  }
-
-  private async decodeAndSendGif(img: HTMLImageElement, src: string, session: GifSession): Promise<void> {
-    // GIF frames are transferred like video frames (no URL fallback). On Chrome that
-    // needs the MessageChannel; if it is unavailable, fall back to single-frame.
-    if (IS_CHROME && !(await waitForMessageChannel())) {
-      this.fallbackToSingleFrame(img, src, session);
-      return;
-    }
-
-    if (this.isBelowMinSizeForSrc(src, img)) {
-      this.gifSessions.delete(src);
-      endRoundtrip(src, { status: 'skipped', attributes: { reason: 'below min size' } });
-      this.finalizeAllImagesForSrc(src, 'skipped');
-      return;
-    }
-
-    let decoded: Awaited<ReturnType<typeof decodeGifFrames>> = null;
-    startRoundtripChild(src, SPAN.capture);
-    try {
-      const response = await fetch(src, { cache: 'force-cache' });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch GIF (${response.status})`);
-      }
-      const blob = await response.blob();
-      decoded = await decodeGifFrames(blob);
-    } catch (error) {
-      log.debug('gif.decode.failed', { [ATTR.src]: src, fallback: 'single frame', error }, getRoundtripContext(src));
-    }
-    endRoundtripChild(src, SPAN.capture, { frameCount: decoded?.frames.length ?? 0 });
-
-    if (session.disposed) {
-      this.releaseGifFrames(decoded?.frames);
-      cancelRoundtrip(src, 'disposed');
-      return;
-    }
-
-    // Not an animated GIF (single frame / undecodable) -> normal single-frame path.
-    if (!decoded) {
-      this.fallbackToSingleFrame(img, src, session);
-      return;
-    }
-
-    // Decode every frame for playback, but only inspect an evenly-spread subset so long
-    // GIFs don't flood the inference queue. Masks persist across the gap between sampled
-    // frames (see maskInertia) so coverage stays fail-safe.
-    session.frames = decoded.frames;
-    const totalFrames = decoded.frames.length;
-    const inferenceIndices = sampleFrameIndices(totalFrames, gifInferenceFrameCap(totalFrames));
-    session.frameCount = inferenceIndices.length;
-    session.maskInertia = Math.max(GIF_MIN_MASK_INERTIA, Math.ceil(totalFrames / Math.max(1, inferenceIndices.length)));
-    const roundtripContext = getRoundtripContext(src);
-
-    const isVisible = this.visibilityMap.get(img) ?? false;
-    const priority = isVisible ? INFERENCE_PRIORITY.visibleImage : INFERENCE_PRIORITY.offscreenImage;
-
-    // Safety net: if verdicts never arrive, fail closed instead of revealing the GIF.
-    session.timeoutId = setTimeout(() => this.finalizeGif(src, true), GIF_VERDICT_TIMEOUT_MS);
-
-    await Promise.all(
-      inferenceIndices.map(async index => {
-        const frame = decoded.frames[index];
-        if (!frame) return;
-        try {
-          const inferenceBitmap = await createImageBitmap(frame.bitmap);
-          await requestGifFrameInference({
-            src,
-            bitmap: inferenceBitmap,
-            hostname: this.hostSettings.hostname,
-            sessionId: session.sessionId,
-            frameIndex: frame.frameIndex,
-            frameCount: session.frameCount,
-            originalWidth: decoded.width,
-            originalHeight: decoded.height,
-            priority,
-            parent: roundtripContext,
-          });
-        } catch (error) {
-          log.debug(
-            'gif.frame.send.failed',
-            { [ATTR.src]: src, [ATTR.frameIndex]: frame.frameIndex, error },
-            roundtripContext,
-          );
-          this.handleGifFrameError(src, session);
-        }
-      }),
-    );
-  }
-
-  /**
-   * Aggregate per-frame inference results. Errored frames count as failed so the
-   * session can finalize (fail closed) without waiting out the verdict timeout.
-   * Finalization waits until every sampled frame has returned (or failed); the
-   * fail-closed timeout covers verdicts that never arrive.
-   */
-  handleGifFrameResults(results: GifFrameInferenceResult[]): void {
-    for (const result of results) {
-      if (result.status === 'error') {
-        const session = this.gifSessions.get(result.src);
-        if (!session || session.sessionId !== result.sessionId) continue;
-        this.handleGifFrameError(result.src, session);
-        continue;
-      }
-      const pred = result.prediction;
-      const session = this.gifSessions.get(pred.src);
-      if (!session || session.sessionId !== pred.sessionId || session.finalized) {
-        continue;
-      }
-
-      if (!session.framePredictions.has(pred.frameIndex)) {
-        session.received += 1;
-      }
-      session.framePredictions.set(pred.frameIndex, pred);
-
-      if (session.frameCount > 0 && session.received + session.failedFrames >= session.frameCount) {
-        this.finalizeGif(pred.src, session.failedFrames > 0);
-      }
-    }
-  }
-
-  private handleGifFrameError(src: string, session: GifSession): void {
-    if (session.finalized || session.disposed) return;
-    session.failedFrames += 1;
-    if (session.frameCount > 0 && session.received + session.failedFrames >= session.frameCount) {
-      this.finalizeGif(src, true);
-    }
-  }
-
-  private finalizeGif(src: string, forceBlocked: boolean): void {
-    const session = this.gifSessions.get(src);
-    if (!session || session.finalized || session.disposed) return;
-
-    session.finalized = true;
-    if (session.timeoutId) {
-      clearTimeout(session.timeoutId);
-      session.timeoutId = undefined;
-    }
-
-    const aggregatePrediction = this.createGifAggregatePrediction(src, session, forceBlocked);
-    session.aggregatePrediction = aggregatePrediction;
-    this.cache.set(src, aggregatePrediction);
-
-    startRoundtripChild(src, SPAN.apply);
-    for (const img of this.findImagesBySrc(src)) {
-      this.applyGifVerdict(img, src, aggregatePrediction);
-    }
-    endRoundtripChild(src, SPAN.apply);
-
-    // Safe GIFs play natively (no canvas player), so their decoded bitmaps are dead
-    // weight. Release them; a later force-block toggle uses a whole-frame blur that
-    // needs no frames (see applyGifVerdict).
-    if (!shouldBlock(aggregatePrediction)) {
-      this.releaseGifFrames(session.frames);
-      session.frames = undefined;
-    }
-
-    endRoundtrip(src, {
-      status: 'success',
-      attributes: {
-        [ATTR.detectionsCount]: aggregatePrediction.predictions.length,
-        [ATTR.overlayType]: shouldBlock(aggregatePrediction) ? 'segment' : undefined,
-        forceBlocked,
-        failedFrames: session.failedFrames,
-      },
-    });
-  }
-
-  /**
-   * Apply a GIF's verdict to one element. Unsafe GIFs are replayed through a
-   * canvas player so the displayed frame can use that frame's mask.
-   */
-  private applyGifVerdict(img: HTMLImageElement, src: string, aggregatePrediction: IImagePrediction): void {
-    this.badgeCounter.trackDetections(img, src, badgeDetectionCount(aggregatePrediction));
-    void this.presentVerdict(img, aggregatePrediction, 'gif');
-  }
-
-  private createGifAggregatePrediction(src: string, session: GifSession, forceBlocked: boolean): IImagePrediction {
-    const framePredictions = Array.from(session.framePredictions.values()).sort((a, b) => a.frameIndex - b.frameIndex);
-    const firstPrediction = framePredictions[0];
-    const firstFrame = session.frames?.[0];
-    const width = firstPrediction?.width ?? firstFrame?.bitmap.width ?? 0;
-    const height = firstPrediction?.height ?? firstFrame?.bitmap.height ?? 0;
-
-    // Represent the GIF by its single busiest frame rather than summing detections across
-    // every frame, so the badge/timing count reflects one frame's worth (not N copies of
-    // the same recurring subject). shouldBlock still trips whenever any frame had a hit.
-    const peakPrediction = framePredictions.reduce<IGifFramePrediction | undefined>(
-      (best, prediction) => (prediction.predictions.length > (best?.predictions.length ?? 0) ? prediction : best),
-      undefined,
-    );
-
-    return {
-      src,
-      hostname: this.hostSettings.hostname,
-      width,
-      height,
-      predictions: peakPrediction?.predictions ?? [],
-      timestamp: Date.now(),
-      cacheMetadata: {
-        contentType: 'image/gif',
-        createdAt: Date.now(),
-        accessedAt: Date.now(),
-      },
-      maskTransform: firstPrediction?.maskTransform ?? { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 },
-      processingTime: {
-        fetchTime: 0,
-        decodeTime: 0,
-        queueTime: 0,
-        inferenceTime: 0,
-        e2eTime: 0,
-        backend: 'gif-frame',
-      },
-      forcedVisibility: forceBlocked ? 'blocked' : 'auto',
-    };
-  }
-
-  private evictGifSessionsIfNeeded(): void {
-    let overflow = this.gifSessions.size - MAX_GIF_SESSIONS;
-    if (overflow <= 0) return;
-
-    // Reclaim oldest-first, but skip sessions whose frames are still in use: a session that
-    // hasn't finalized is mid decode/inference, and a blocked session's frames are being
-    // drawn live by gifMaskPlayer. Closing either out from under its owner breaks playback.
-    for (const [src, session] of this.gifSessions) {
-      if (overflow <= 0) break;
-      if (!session.finalized) continue;
-      this.retireGifSession(src, session);
-      overflow--;
-    }
-  }
-
-  /**
-   * Drop a finalized GIF session and free its decoded frames. A blocked GIF is still on
-   * screen via gifMaskPlayer, so degrade it to a frame-free whole-frame blur first: the GIF
-   * stays hidden (fail-safe) while the player tears down and stops drawing the frames we're
-   * about to close.
-   */
-  private retireGifSession(src: string, session: GifSession): void {
-    const { frames } = session;
-    if (session.aggregatePrediction && shouldBlock(session.aggregatePrediction)) {
-      session.frames = undefined;
-      for (const img of this.findImagesBySrc(src)) {
-        this.applyGifVerdict(img, src, session.aggregatePrediction);
-      }
-    }
-    if (session.timeoutId) clearTimeout(session.timeoutId);
-    this.releaseGifFrames(frames);
-    this.gifSessions.delete(src);
-    cancelRoundtrip(src, 'evicted');
-  }
-
-  private fallbackToSingleFrame(img: HTMLImageElement, src: string, session: GifSession): void {
-    if (session.timeoutId) clearTimeout(session.timeoutId);
-    this.releaseGifFrames(session.frames);
-    this.gifSessions.delete(src);
-    if (session.disposed) {
-      cancelRoundtrip(src, 'disposed');
-      return;
-    }
-    this.queueInference(img, src);
-  }
-
-  private releaseGifFrames(frames: DecodedGifFrame[] | undefined): void {
-    frames?.forEach(frame => frame.bitmap.close());
   }
 
   // ===========================================================================
@@ -1035,6 +651,14 @@ export class ImageProcessor {
   }
 
   /**
+   * Unsafe GIFs are replayed through a canvas player so the displayed frame can use that frame's mask.
+   */
+  private applyGifVerdict(img: HTMLImageElement, verdict: IImagePrediction): void {
+    this.badgeCounter.trackDetections(img, verdict.src, badgeDetectionCount(verdict));
+    void this.presentVerdict(img, verdict, 'gif');
+  }
+
+  /**
    * Replace whatever an element currently shows with the visual for `prediction`. Finalizing
    * strips protective styling, so every blocked branch finalizes only where its own protection
    * lands in the same task, and the async mask overlay keeps the initial blur until it paints.
@@ -1055,16 +679,16 @@ export class ImageProcessor {
       return { kind: 'applied', overlayType: undefined };
     }
 
-    const gifSession = presentation === 'gif' ? this.gifSessions.get(prediction.src) : undefined;
-    if (gifSession?.frames?.length) {
+    const playback = presentation === 'gif' ? this.gifInspector.playbackFor(prediction.src) : undefined;
+    if (playback) {
       finalizeImageProcessing(img, status);
       gifMaskPlayer.createOrUpdatePlayer(
         img,
-        gifSession.frames,
-        gifSession.framePredictions,
+        playback.frames,
+        playback.framePredictions,
         prediction,
         this.hostSettings,
-        gifSession.maskInertia,
+        playback.maskInertia,
       );
       return { kind: 'applied', overlayType: 'segment' };
     }
