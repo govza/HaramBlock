@@ -7,34 +7,19 @@ export const applyPredictionsStyling = (
   predictions: IImagePrediction[],
   hostSettings: IHostSettings,
 ): Promise<void> => {
-  const promises: Promise<void>[] = [];
-
   const predictionMap = new Map(predictions.map(p => [p.src, p]));
+  const masked = images.flatMap(image => {
+    const prediction = predictionMap.get(resolveImageSource(image));
+    return prediction ? [{ image, prediction }] : [];
+  });
+  if (!masked.length) return Promise.resolve();
 
-  for (const image of images) {
-    const imageSrc = resolveImageSource(image);
-    const imagePrediction = predictionMap.get(imageSrc);
-
-    if (imagePrediction) {
-      const overlayPromise = new Promise<void>(resolve => {
-        let attempts = 0;
-        const tryCreate = () => {
-          // A re-render can detach the image before this frame; creating
-          // against it bails silently with no retry, leaving the unsafe image
-          // unmasked. Wait briefly for re-attachment.
-          if (!image.isConnected && attempts < 30) {
-            attempts += 1;
-            requestAnimationFrame(tryCreate);
-            return;
-          }
-          imageMaskOverlay.createMaskOverlay(image, imagePrediction, hostSettings);
-          resolve();
-        };
-        requestAnimationFrame(tryCreate);
-      });
-      promises.push(overlayPromise);
-    }
-  }
-
-  return Promise.all(promises).then(() => {});
+  return new Promise<void>(resolve => {
+    requestAnimationFrame(() => {
+      for (const { image, prediction } of masked) {
+        imageMaskOverlay.createMaskOverlay(image, prediction, hostSettings);
+      }
+      resolve();
+    });
+  });
 };

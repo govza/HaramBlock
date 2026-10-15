@@ -1,18 +1,12 @@
 import { VIDEO_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
-import { computeRenderedContentRect } from '@/entrypoints/content/presentation/imageLayout';
-import {
-  ensurePositionContext,
-  homeOverlay,
-  overlayHomed,
-  overlayPlacement,
-  resolveInjectionContext,
-} from '@/entrypoints/content/presentation/overlayPosition';
+import { anchorOverlay, type OverlayAnchor } from '@/entrypoints/content/presentation/overlayAnchor';
 import { maskClipPath } from '@/entrypoints/content/video/presenter/maskClipPath';
 import { PixelationLayer } from '@/entrypoints/content/video/presenter/pixelationLayer';
 import { createPresentationClock } from '@/entrypoints/content/video/presenter/presentationClock';
 import { isNativeFullscreen, VideoFilterMask } from '@/entrypoints/content/video/presenter/videoFilterMask';
 import { buildMaskingFilter } from '@/utils/masking';
 
+import type { ContentRect } from '@/entrypoints/content/presentation/imageLayout';
 import type { VerdictForOptions, VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
 import type { IMaskingSettings } from '@/utils/types';
@@ -30,23 +24,15 @@ export interface MaskPresenterOptions {
   onFrame(mediaTimeSec: number): void;
 }
 
-/**
- * Last applied overlay placement and clip path; `key` changes when position or size changes, so
- * styles are rewritten only then.
- */
-interface Geometry {
-  key: string;
-  path: string | null;
-}
-
 export class MaskPresenter {
   private readonly clock = createPresentationClock();
   private overlay: HTMLDivElement | null = null;
+  private anchor: OverlayAnchor | null = null;
   private rafId: number | null = null;
   private thumbnail: VerdictEntry | null = null;
   private playbackStarted: boolean;
   private shownEntries: readonly VerdictEntry[] | null = null;
-  private geometry: Geometry = { key: '', path: null };
+  private clippedContent: ContentRect | null = null;
   private filter = '';
   private presentedUnsafe: boolean | null = null;
   private readonly videoFilterMask: VideoFilterMask;
@@ -85,6 +71,8 @@ export class MaskPresenter {
   dispose(): void {
     this.stop();
     this.options.video.removeEventListener('playing', this.onPlaying);
+    this.anchor?.dispose();
+    this.anchor = null;
     this.overlay?.remove();
     this.overlay = null;
   }
@@ -124,29 +112,21 @@ export class MaskPresenter {
       return;
     }
     this.videoFilterMask.clear();
-    const context = resolveInjectionContext(video);
-    if (!context) return;
     const overlay = this.ensureOverlay();
-    if (!overlayHomed(video, overlay, context)) {
-      ensurePositionContext(context.box);
-      homeOverlay(video, overlay, context);
-    }
-    const videoRect = video.getBoundingClientRect();
-    const placement = overlayPlacement(video, context.box, videoRect, context.box.getBoundingClientRect());
-    const content = computeRenderedContentRect(video, videoRect);
-    const key = [placement.position, placement.top, placement.left, videoRect.width, videoRect.height].join(',');
-    if (key !== this.geometry.key || !sameEntries(entries, this.shownEntries)) {
-      overlay.style.position = placement.position;
-      overlay.style.top = `${placement.top}px`;
-      overlay.style.left = `${placement.left}px`;
-      overlay.style.width = `${videoRect.width}px`;
-      overlay.style.height = `${videoRect.height}px`;
-      const path = maskClipPath(entries, content);
+    this.anchor ??= anchorOverlay(video, overlay, {
+      onLost: () => {
+        this.anchor = null;
+      },
+    });
+    const geometry = this.anchor.refresh();
+    if (!geometry) return;
+    if (!sameContent(geometry.content, this.clippedContent) || !sameEntries(entries, this.shownEntries)) {
+      const path = maskClipPath(entries, geometry.content);
       overlay.style.clipPath = path ? `path('${path}')` : 'inset(0)';
-      this.geometry = { key, path };
+      this.clippedContent = geometry.content;
     }
     const masking = this.options.masking();
-    const pixelated = this.pixelation.paint(content, masking);
+    const pixelated = this.pixelation.paint(geometry.content, masking);
     const filter = pixelated ? '' : buildMaskingFilter(masking);
     if (filter !== this.filter) {
       this.filter = filter;
@@ -187,4 +167,10 @@ export class MaskPresenter {
 
 function sameEntries(a: readonly VerdictEntry[], b: readonly VerdictEntry[] | null): boolean {
   return b !== null && a.length === b.length && a.every((entry, index) => entry === b[index]);
+}
+
+function sameContent(a: ContentRect, b: ContentRect | null): boolean {
+  return (
+    b !== null && a.offsetX === b.offsetX && a.offsetY === b.offsetY && a.width === b.width && a.height === b.height
+  );
 }

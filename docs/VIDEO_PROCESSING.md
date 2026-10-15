@@ -299,11 +299,10 @@ Samples analysed while it is `unknown` are held, published once it is `vod`, and
   until a confirmed clean sample: an unconfirmed clean sample (nothing after it yet, or an unsafe
   one) keeps the mask, and at the frontier or before a coverage hole an unsafe sample holds however
   late the next sample arrives.
-- The overlay is a div homed next to the video (the shared overlay positioning helpers, shadow-DOM
-  aware) with `backdrop-filter` built from the host's masking settings and a `clip-path: path()`
-  built from the RLE mask grids mapped onto the rendered content rect. No page pixels are read, so
-  presenting costs no main-thread draw. An unsafe Thumbnail is shown the same way until playback
-  starts.
+- The overlay is a div homed next to the video (by the shared overlay anchor, shadow-DOM aware) with
+  `backdrop-filter` built from the host's masking settings and a `clip-path: path()` built from the
+  RLE mask grids mapped onto the rendered content rect. No page pixels are read, so presenting costs
+  no main-thread draw. An unsafe Thumbnail is shown the same way until playback starts.
 - It reports `presented{unsafe}` transitions to the session and feeds `progress` every 250 ms.
 
 ## Live Masking

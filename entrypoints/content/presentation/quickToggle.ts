@@ -1,14 +1,10 @@
 import { EYE_AUTO_PATH, EYE_BLOCKED_PATH, EYE_VISIBLE_PATH } from '@/components/ui/icons';
+import { clipContentRectToBox, type ContentRect } from '@/entrypoints/content/presentation/imageLayout';
 import {
-  clipContentRectToBox,
-  computeRenderedContentRect,
-  type ContentRect,
-} from '@/entrypoints/content/presentation/imageLayout';
-import {
-  ensurePositionContext,
-  overlayPlacement,
-  resolveAnchorParent,
-} from '@/entrypoints/content/presentation/overlayPosition';
+  anchorOverlay,
+  type OverlayAnchor,
+  type OverlayGeometry,
+} from '@/entrypoints/content/presentation/overlayAnchor';
 
 import type { ForcedVisibility, IHostSettings } from '@/utils/types';
 
@@ -36,6 +32,8 @@ type RegisteredElement = {
 
 let eyeButton: HTMLButtonElement | null = null;
 let currentElement: ToggleTarget | null = null;
+let eyeAnchor: OverlayAnchor | null = null;
+let anchoredElement: ToggleTarget | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let showTimer: ReturnType<typeof setTimeout> | null = null;
 let toggleCallback: ToggleCallback | null = null;
@@ -100,34 +98,39 @@ export function eyeButtonOffsetInParent(
   };
 }
 
-function positionEye(element: ToggleTarget): boolean {
-  if (!eyeButton) return false;
-  const parent = resolveAnchorParent(element);
-  if (!parent) return false;
-
-  ensurePositionContext(parent);
-
-  const imageRect = element.getBoundingClientRect();
-  const parentRect = parent.getBoundingClientRect();
-  const placement = overlayPlacement(element, parent, imageRect, parentRect);
-  // Clip cover-fit crop overflow: an overflow-hidden parent would clip a button
-  // anchored past the element box into an unclickable sliver
-  const contentRect = clipContentRectToBox(
-    computeRenderedContentRect(element, imageRect),
-    imageRect.width,
-    imageRect.height,
-  );
-  const offset = eyeButtonOffsetInParent(placement, contentRect, BUTTON_SIZE_PX, BUTTON_MARGIN_PX);
-
-  eyeButton.style.position = placement.position;
+/**
+ * Places the button over the anchored element. Cover-fit crop overflow is clipped: an
+ * overflow-hidden parent would clip a button anchored past the element box into an unclickable
+ * sliver. A re-layout while shown re-runs the occlusion check, since it resets the top offset.
+ */
+function placeEye(element: ToggleTarget, geometry: OverlayGeometry): void {
+  if (!eyeButton) return;
+  const contentRect = clipContentRectToBox(geometry.content, geometry.width, geometry.height);
+  const offset = eyeButtonOffsetInParent(geometry, contentRect, BUTTON_SIZE_PX, BUTTON_MARGIN_PX);
+  eyeButton.style.position = geometry.position;
   eyeButton.style.top = `${offset.top}px`;
   eyeButton.style.left = `${offset.left}px`;
-  // The parent creates no stacking context, so a large z-index would float
-  // over real lightbox backdrops; stay just above the image's mask overlay
-  const imageZIndex = parseInt(getComputedStyle(element).zIndex) || 0;
-  eyeButton.style.zIndex = String(imageZIndex + 2);
-  if (eyeButton.parentElement !== parent) parent.appendChild(eyeButton);
-  return true;
+  if (eyeButton.style.display !== 'none') ensureClickable(element);
+}
+
+function releaseEyeAnchor(): void {
+  eyeAnchor?.dispose();
+  eyeAnchor = null;
+  anchoredElement = null;
+}
+
+function positionEye(element: ToggleTarget): boolean {
+  if (!eyeButton) return false;
+  if (!eyeAnchor || anchoredElement !== element) {
+    releaseEyeAnchor();
+    eyeAnchor = anchorOverlay(element, eyeButton, {
+      stacking: 'badge',
+      onLayout: geometry => placeEye(element, geometry),
+      onLost: () => hideEye(),
+    });
+    anchoredElement = element;
+  }
+  return eyeAnchor.refresh() !== null;
 }
 
 const OCCLUSION_LIFT_ATTEMPTS = 4;
@@ -223,7 +226,7 @@ function hideEye(): void {
   if (!eyeButton) return;
   clearShowTimer();
   eyeButton.style.display = 'none';
-  // A parked foreign child can break the site's own child selectors
+  releaseEyeAnchor();
   eyeButton.remove();
   currentElement = null;
 }
@@ -413,6 +416,7 @@ export function destroyQuickToggle(): void {
   clearHideTimer();
   clearShowTimer();
 
+  releaseEyeAnchor();
   if (eyeButton) {
     eyeButton.remove();
     eyeButton = null;

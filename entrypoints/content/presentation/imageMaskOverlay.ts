@@ -1,384 +1,49 @@
-import { resolveImageSource } from '@/entrypoints/content/core/imageSource';
 import { IMAGE_MASK_OVERLAY_ATTR } from '@/entrypoints/content/presentation/constants';
-import { computeRenderedContentRect, type ContentRect } from '@/entrypoints/content/presentation/imageLayout';
+import { type ContentRect } from '@/entrypoints/content/presentation/imageLayout';
 import { hasInitialStyling } from '@/entrypoints/content/presentation/initialStyling';
 import { MaskCoverage, paintPixelatedMask } from '@/entrypoints/content/presentation/maskCoverage';
 import {
-  classifyOverlayMutation,
-  ensurePositionContext,
-  overlayPlacement,
-  resolveAnchorParent,
-} from '@/entrypoints/content/presentation/overlayPosition';
+  anchorOverlay,
+  type OverlayAnchor,
+  type OverlayGeometry,
+} from '@/entrypoints/content/presentation/overlayAnchor';
 import {
   predictionToggleRegistration,
   registerQuickToggle,
   unregisterQuickToggle,
 } from '@/entrypoints/content/presentation/quickToggle';
-import { notifySrcDrift } from '@/entrypoints/content/presentation/srcDrift';
 import { getLogger } from '@/utils/telemetry';
 import { shouldBlock, type IHostSettings, type IImagePrediction, type IMaskingSettings } from '@/utils/types';
-
-import type { IMediaOverlayState, IMediaOverlay } from '@/utils/types/presentation';
 
 const log = getLogger('imageMaskOverlay');
 
 /**
- * An image the site already blurs at least as strongly as our own pending
- * blur (decorative background copies) is protected to our standard; an opaque
- * pixelated mask on top would be more visible than the original. Hide ours
- * while the site's blur holds; re-evaluated on every geometry update.
+ * An image the site already blurs at least as strongly as our own pending blur (decorative
+ * background copies) is protected to our standard; an opaque pixelated mask on top would be more
+ * visible than the original, so ours hides while the site's blur holds. Our own protective styling
+ * contributes the same computed filter and must not count — it is stripped once the overlay is up.
  */
-const SITE_OBSCURING_MIN_BLUR_PX = 15; // matches .haramblock-initial-blur
+const SITE_OBSCURING_MIN_BLUR_PX = 15;
 
 const isObscuredBySite = (image: HTMLImageElement): boolean => {
-  // Our own protective styling contributes the same computed filter and must
-  // not count as site obscuration — it is stripped once the overlay is up
   if (hasInitialStyling(image)) return false;
   const radius = /blur\((\d+(?:\.\d+)?)px\)/.exec(getComputedStyle(image).filter)?.[1];
   return radius !== undefined && parseFloat(radius) >= SITE_OBSCURING_MIN_BLUR_PX;
 };
 
 /**
- * Overlays owned by a live state. Several masked images can share one parent
- * (Reddit renders a decorative background copy next to the primary), so the
- * stale-overlay sweep must only remove orphans, never a sibling's live mask.
+ * One masked image: its anchored overlay, the canvas context it paints into, and the prediction
+ * and masking settings the next paint uses.
  */
-const liveOverlays = new WeakSet<HTMLDivElement>();
-
-/**
- * Manages mask overlays for image elements.
- * Implements IMediaOverlayModuleAPI<HTMLImageElement>
- */
-class ImageMaskOverlay implements IMediaOverlay {
-  private imageStates = new WeakMap<HTMLImageElement, IMediaOverlayState>();
-
-  createMaskOverlay(
-    image: HTMLImageElement,
-    imagePrediction: IImagePrediction,
-    hostSettings: IHostSettings,
-    skipObserverSetup = false,
-  ): void {
-    if (!imagePrediction.predictions.length || !image.complete || image.naturalWidth === 0) {
-      this.clearMaskOverlay(image);
-      return;
-    }
-
-    registerQuickToggle(image, predictionToggleRegistration(imagePrediction, hostSettings));
-
-    if (!shouldBlock(imagePrediction)) {
-      this.removeMaskOverlayOnly(image);
-      return;
-    }
-
-    const parent = resolveAnchorParent(image);
-    if (!parent) return;
-
-    ensurePositionContext(parent);
-
-    // If we already manage an overlay for this image, just update/redraw
-    const existingState = this.imageStates.get(image);
-    if (existingState && !existingState.destroyed) {
-      // Update stored prediction and re-render; re-attach if the site's
-      // re-render dropped the overlay without our observer catching it
-      existingState.currentPrediction = imagePrediction;
-      if (!existingState.overlay.isConnected) {
-        parent.appendChild(existingState.overlay);
-      }
-      this.updateOverlayForImage(image, existingState);
-      return;
-    }
-
-    // Remove legacy overlays created by older runs (one-time cleanup)
-    removeExistingImageOverlays(parent);
-
-    const coverage = coverageOf(imagePrediction);
-    if (coverage) {
-      const state = this.createSingleImageMaskOverlay(image, coverage, hostSettings.masking);
-
-      // Set up observers for this image (only on initial setup)
-      if (!skipObserverSetup) {
-        state.currentPrediction = imagePrediction;
-        this.setupObservers(image, state);
-      }
-    }
-  }
-
-  /**
-   * Removes the visual mask overlay without affecting eye toggle registration.
-   * Used when user toggles masking off.
-   */
-  private removeMaskOverlayOnly(image: HTMLImageElement): void {
-    const state = this.imageStates.get(image);
-    if (state) {
-      // Full disposal (not just detaching the overlay): a kept-alive state
-      // would have the cleanup observer re-homing the overlay right back on
-      // the next site mutation. Re-masking goes through the create path.
-      this.disposeState(image, state);
-    } else {
-      const parent = resolveAnchorParent(image);
-      if (parent) removeExistingImageOverlays(parent);
-    }
-  }
-
-  /** Tears down a state: observers, handlers, overlay element, registry. */
-  private disposeState(image: HTMLImageElement, state: IMediaOverlayState): void {
-    try {
-      state.resizeObserver.disconnect();
-    } catch {
-      // no-op
-    }
-    try {
-      state.cleanupObserver.disconnect();
-    } catch {
-      // no-op
-    }
-    if (state.viewportHandler) {
-      globalThis.removeEventListener('resize', state.viewportHandler);
-      state.viewportHandler = undefined;
-    }
-    state.destroyed = true;
-    liveOverlays.delete(state.overlay);
-    if (state.overlay.parentElement) state.overlay.remove();
-    this.imageStates.delete(image);
-  }
-
-  /**
-   * Clears mask overlay for image elements.
-   */
-  clearMaskOverlay(image: HTMLImageElement): void {
-    const state = this.imageStates.get(image);
-    if (state) {
-      this.disposeState(image, state);
-    } else {
-      // Fallback: remove any stale (orphaned) overlay elements
-      const parent = resolveAnchorParent(image);
-      if (parent) removeExistingImageOverlays(parent);
-    }
-    // Unregister from eye toggle
-    unregisterQuickToggle(image);
-  }
-
-  /**
-   * Checks if image has an active mask overlay. A state whose overlay left
-   * the DOM (site re-render our observer missed) does not count — reporting
-   * it as active would block the processing pass that could recreate it.
-   */
-  hasMaskOverlay(image: HTMLImageElement): boolean {
-    const state = this.imageStates.get(image);
-    return state !== undefined && !state.destroyed && state.overlay.isConnected;
-  }
-
-  private createSingleImageMaskOverlay(
-    image: HTMLImageElement,
-    coverage: MaskCoverage,
-    masking: IMaskingSettings,
-  ): IMediaOverlayState {
-    const parent = resolveAnchorParent(image);
-    if (!parent) throw new Error('Image has no parent');
-
-    // Force layout recalculation to get accurate dimensions
-    void image.offsetHeight; // trigger reflow
-
-    const imageRect = image.getBoundingClientRect();
-    const contentRect = computeRenderedContentRect(image, imageRect);
-    const parentRect = parent.getBoundingClientRect();
-    const placement = overlayPlacement(image, parent, imageRect, parentRect);
-
-    // Create single overlay container for all masks
-    const overlay = document.createElement('div');
-    overlay.setAttribute(IMAGE_MASK_OVERLAY_ATTR, 'unified-mask-overlay');
-
-    // Get the image's z-index and add 1
-    const imageZIndex = parseInt(getComputedStyle(image).zIndex) || 0;
-    const overlayZIndex = imageZIndex + 1;
-
-    overlay.style.cssText = `
-    position: ${placement.position};
-    top: ${placement.top}px;
-    left: ${placement.left}px;
-    width: ${imageRect.width}px;
-    height: ${imageRect.height}px;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: ${overlayZIndex};
-  `;
-
-    // Create canvas once and reuse on updates
-    const canvas = document.createElement('canvas');
-    canvas.style.cssText = `
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: ${imageRect.width}px;
-    height: ${imageRect.height}px;
-    pointer-events: none;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-  `;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      log.error('overlay.canvas_context.failed', { canvas: 'main' });
-      throw new Error('Failed to get canvas context');
-    }
-
-    if (isObscuredBySite(image)) {
-      overlay.style.display = 'none';
-    }
-
-    overlay.appendChild(canvas);
-    liveOverlays.add(overlay);
-    parent.appendChild(overlay);
-
-    const state: IMediaOverlayState = {
-      overlay,
-      canvas,
-      ctx,
-      // placeholders, real observers are attached in setupObservers
-      resizeObserver: new ResizeObserver(() => {}),
-      cleanupObserver: new MutationObserver(() => {}),
-      lastSize: { width: imageRect.width, height: imageRect.height },
-      rafId: null,
-      destroyed: false,
-      currentPrediction: undefined,
-      trackedSrc: resolveImageSource(image),
-      masking,
-    };
-
-    // Initial render
-    renderUnifiedCanvasMask(ctx, image, coverage, imageRect, contentRect, masking);
-
-    // Store state for subsequent updates
-    this.imageStates.set(image, state);
-    return state;
-  }
-
-  private setupObservers(image: HTMLImageElement, state: IMediaOverlayState): void {
-    // Disconnect previous observers if any (for safety on re-init)
-    try {
-      state.resizeObserver.disconnect();
-    } catch {
-      // Observer may not exist or already disconnected
-    }
-    try {
-      state.cleanupObserver.disconnect();
-    } catch {
-      // Observer may not exist or already disconnected
-    }
-    if (state.viewportHandler) {
-      globalThis.removeEventListener('resize', state.viewportHandler);
-      state.viewportHandler = undefined;
-    }
-
-    const parent = resolveAnchorParent(image);
-    if (!parent) return;
-
-    const scheduleUpdate = () => {
-      if (state.destroyed) return;
-      if (state.rafId) cancelAnimationFrame(state.rafId);
-      state.rafId = requestAnimationFrame(() => {
-        this.updateOverlayForImage(image, state);
-        state.rafId = null;
-      });
-    };
-
-    state.lastSize = { width: image.offsetWidth, height: image.offsetHeight };
-
-    // ResizeObserver for image size changes + src change detection (self-cleaning)
-    state.resizeObserver = new ResizeObserver(entries => {
-      // Self-clean if src changed
-      const currentSrc = resolveImageSource(image);
-      if (state.trackedSrc && currentSrc !== state.trackedSrc) {
-        this.clearMaskOverlay(image);
-        notifySrcDrift(image);
-        return;
-      }
-
-      for (const entry of entries) {
-        if (entry.target !== image) {
-          // The parent resized: the image's offsets within it change even when
-          // the image size does not (flex re-centering, a custom element like
-          // Reddit's <zoomable-img> upgrading from unstyled inline layout).
-          scheduleUpdate();
-          continue;
-        }
-        const newWidth = entry.contentRect.width;
-        const newHeight = entry.contentRect.height;
-        if (newWidth !== state.lastSize.width || newHeight !== state.lastSize.height) {
-          state.lastSize = { width: newWidth, height: newHeight };
-          scheduleUpdate();
-        }
-      }
-    });
-    state.resizeObserver.observe(image);
-    state.resizeObserver.observe(parent);
-
-    // Viewport changes that can affect layout
-    state.viewportHandler = () => scheduleUpdate();
-    globalThis.addEventListener('resize', state.viewportHandler);
-
-    // Clean up when image is removed; re-home when a framework re-render
-    // merely moved it (or dropped the overlay while keeping the image)
-    state.cleanupObserver = new MutationObserver(mutations => {
-      if (state.destroyed) return;
-      const change = classifyOverlayMutation(mutations, image, state.overlay);
-      if (change === 'none') return;
-      if (change === 'detached') {
-        this.disposeState(image, state);
-        return;
-      }
-      // moved: keep the mask glued to the image's current anchor parent
-      const parent = resolveAnchorParent(image);
-      if (parent && state.overlay.parentElement !== parent) {
-        ensurePositionContext(parent);
-        parent.appendChild(state.overlay);
-        state.resizeObserver.observe(parent);
-      }
-      scheduleUpdate();
-    });
-    state.cleanupObserver.observe(document.body, { childList: true, subtree: true });
-  }
-
-  private updateOverlayForImage(image: HTMLImageElement, state: IMediaOverlayState): void {
-    // Self-clean if src changed
-    const currentSrc = resolveImageSource(image);
-    if (state.trackedSrc && currentSrc !== state.trackedSrc) {
-      this.clearMaskOverlay(image);
-      notifySrcDrift(image);
-      return;
-    }
-
-    const imagePrediction = state.currentPrediction;
-    if (!imagePrediction || !imagePrediction.predictions.length) {
-      this.clearMaskOverlay(image);
-      return;
-    }
-    const parent = resolveAnchorParent(image);
-    if (!parent || state.destroyed) return;
-
-    // Force layout recalculation to get accurate dimensions
-    void image.offsetHeight; // reflow
-
-    ensurePositionContext(parent);
-
-    const imageRect = image.getBoundingClientRect();
-    const contentRect = computeRenderedContentRect(image, imageRect);
-    const parentRect = parent.getBoundingClientRect();
-    const placement = overlayPlacement(image, parent, imageRect, parentRect);
-
-    // Update overlay position and size
-    state.overlay.style.display = isObscuredBySite(image) ? 'none' : '';
-    state.overlay.style.position = placement.position;
-    state.overlay.style.top = `${placement.top}px`;
-    state.overlay.style.left = `${placement.left}px`;
-    state.overlay.style.width = `${imageRect.width}px`;
-    state.overlay.style.height = `${imageRect.height}px`;
-
-    const coverage = coverageOf(imagePrediction);
-    if (!coverage) return;
-
-    renderUnifiedCanvasMask(state.ctx, image, coverage, imageRect, contentRect, state.masking);
-  }
+interface ImageMaskState {
+  overlay: HTMLDivElement;
+  ctx: CanvasRenderingContext2D;
+  anchor: OverlayAnchor;
+  prediction: IImagePrediction;
+  masking: IMaskingSettings;
 }
+
+const imageStates = new WeakMap<HTMLImageElement, ImageMaskState>();
 
 const coverageOf = (imagePrediction: IImagePrediction): MaskCoverage | null =>
   MaskCoverage.from(
@@ -390,8 +55,7 @@ const coverageOf = (imagePrediction: IImagePrediction): MaskCoverage | null =>
 
 /**
  * Sizes the overlay canvas to the element box before painting. A collapsed element (e.g. hidden by a
- * lightbox) drops the previous frame too: the overlay div does not clip by itself, so a stale painted
- * canvas would keep showing at its old CSS size.
+ * lightbox) drops the previous frame too: a stale painted canvas would keep showing at its old size.
  */
 const renderUnifiedCanvasMask = (
   ctx: CanvasRenderingContext2D,
@@ -418,13 +82,104 @@ const renderUnifiedCanvasMask = (
   paintPixelatedMask(ctx, image, coverage, contentRect, masking);
 };
 
-// Helper function for removing legacy overlays
-const removeExistingImageOverlays = (parent: HTMLElement): void => {
-  const existingOverlays = parent.querySelectorAll(`[${IMAGE_MASK_OVERLAY_ATTR}]`);
-  existingOverlays.forEach(overlay => {
-    if (!liveOverlays.has(overlay as HTMLDivElement)) overlay.remove();
-  });
+const paint = (image: HTMLImageElement, geometry: OverlayGeometry): void => {
+  const state = imageStates.get(image);
+  if (!state) return;
+  state.overlay.style.display = isObscuredBySite(image) ? 'none' : '';
+  const coverage = coverageOf(state.prediction);
+  if (!coverage) return;
+  renderUnifiedCanvasMask(state.ctx, image, coverage, geometry, geometry.content, state.masking);
 };
 
-// Export singleton instance
-export const imageMaskOverlay = new ImageMaskOverlay();
+/**
+ * Full teardown, never a detached-but-kept state: a live anchor would re-home the overlay right
+ * back on the next site mutation. Re-masking goes through the create path.
+ */
+const disposeState = (image: HTMLImageElement): void => {
+  imageStates.get(image)?.anchor.dispose();
+  imageStates.delete(image);
+};
+
+const clearMaskOverlay = (image: HTMLImageElement): void => {
+  disposeState(image);
+  unregisterQuickToggle(image);
+};
+
+const createState = (
+  image: HTMLImageElement,
+  prediction: IImagePrediction,
+  masking: IMaskingSettings,
+): ImageMaskState | null => {
+  const overlay = document.createElement('div');
+  overlay.setAttribute(IMAGE_MASK_OVERLAY_ATTR, 'unified-mask-overlay');
+  overlay.style.cssText = 'position: absolute; overflow: hidden; pointer-events: none;';
+
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = `
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  `;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    log.error('overlay.canvas_context.failed', { canvas: 'main' });
+    return null;
+  }
+  overlay.appendChild(canvas);
+
+  const anchor = anchorOverlay(image, overlay, {
+    trackSrc: true,
+    onLayout: geometry => paint(image, geometry),
+    onLost: reason => {
+      if (reason === 'src-drift') {
+        clearMaskOverlay(image);
+      } else {
+        disposeState(image);
+      }
+    },
+  });
+  return { overlay, ctx, anchor, prediction, masking };
+};
+
+const createMaskOverlay = (
+  image: HTMLImageElement,
+  prediction: IImagePrediction,
+  hostSettings: IHostSettings,
+): void => {
+  if (!prediction.predictions.length || !image.complete || image.naturalWidth === 0) {
+    clearMaskOverlay(image);
+    return;
+  }
+
+  registerQuickToggle(image, predictionToggleRegistration(prediction, hostSettings));
+
+  if (!shouldBlock(prediction)) {
+    disposeState(image);
+    return;
+  }
+
+  const existing = imageStates.get(image);
+  if (existing) {
+    existing.prediction = prediction;
+    existing.masking = hostSettings.masking;
+    existing.anchor.refresh();
+    return;
+  }
+
+  if (!coverageOf(prediction)) return;
+  const state = createState(image, prediction, hostSettings.masking);
+  if (!state) return;
+  imageStates.set(image, state);
+  state.anchor.refresh();
+};
+
+/**
+ * A state whose overlay is off the page (its image detached and not yet back) does not count:
+ * reporting it as active would block the processing pass that could recreate it.
+ */
+const hasMaskOverlay = (image: HTMLImageElement): boolean => imageStates.get(image)?.overlay.isConnected ?? false;
+
+export const imageMaskOverlay = { createMaskOverlay, clearMaskOverlay, hasMaskOverlay };
