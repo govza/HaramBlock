@@ -125,6 +125,7 @@ export default defineBackground({
 
     // Initialize hostSettings observer to react to database changes
     initHostSettingsObserver(() => {
+      hostSettingsService.invalidate();
       void iconService.updateIconForActiveTab();
     });
 
