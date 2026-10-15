@@ -25,18 +25,21 @@ GIFs are `<img>` elements, so they share the image lifecycle rather than getting
 processor (contrast videos, which are `<video>` and live in `core/VideoProcessor.ts`).
 
 - `MediaPipeline` routes `<img>` → `ImageProcessor`, `<video>` → `VideoProcessor`.
-- Inside `ImageProcessor.process()`, an early branch routes GIF candidates to `processGif()` and
+- Inside `ImageProcessor.process()`, an early branch routes GIF candidates to the `GifInspector` and
   everything else to the static-image path:
 
   ```
   ImageProcessor.process(img)
-    ├─ isGifCandidate(src)?  → processGif()       (GIF path)
+    ├─ isGifCandidate(src)?  → gifInspector.inspect()   (GIF path)
     └─ else                   → queueInference()   (static-image path)
   ```
 
-- GIF orchestration (the `gifSessions` map, aggregation, finalization) lives **in** `ImageProcessor`
-  and reuses its infrastructure: the prediction cache, `findImagesBySrc`, `isBelowMinSizeForSrc`,
-  the visibility/priority map, `badgeCounter`, overlay clearing, and the single-frame fallback.
+- GIF orchestration (sessions, frame tallies, the verdict timeout, eviction, finalization) lives in
+  `gif/gifInspector.ts`. `ImageProcessor` creates it with injected dependencies, so it reuses the
+  image infrastructure without owning it: the prediction cache, `findImagesBySrc`,
+  `isBelowMinSizeForSrc`, the visibility priority, protective blur, verdict presentation (badge +
+  `presentVerdict`), and the single-frame fallback (`queueInference`). I/O (channel check, fetch +
+  decode, frame send) sits behind `gif/gifTransport.ts`.
 
 So GIF handling is **separated where it differs** (detection, decode, playback, tuning) and **shared
 where it is the same** (the `<img>` lifecycle).
@@ -45,7 +48,9 @@ where it is the same** (the `<img>` lifecycle).
 | ----------------------- | --------------------------------------------------------------------------------------------------- |
 | Detection               | `entrypoints/content/gif/gifSupport.ts`                                                             |
 | Decode + sampling       | `entrypoints/content/gif/gifDecoder.ts`                                                             |
-| Orchestration           | `entrypoints/content/core/ImageProcessor.ts`                                                        |
+| Orchestration           | `entrypoints/content/gif/gifInspector.ts`                                                           |
+| Verdict aggregation     | `entrypoints/content/gif/gifVerdict.ts`                                                             |
+| Fetch / decode / send   | `entrypoints/content/gif/gifTransport.ts`                                                           |
 | Masked playback         | `entrypoints/content/presentation/gifMaskPlayer.ts`                                                 |
 | Tuning constants        | `utils/constants/gif.ts`                                                                            |
 | Cross-context transport | `utils/messaging/services/backgroundRpc.ts`, `communication/sender.ts`, `communication/listener.ts` |
@@ -53,10 +58,10 @@ where it is the same** (the `<img>` lifecycle).
 ## Flow
 
 ```
-ImageProcessor.processGif(img, src)
+GifInspector.inspect(img, src)
    │  create GifSession (keyed by src), apply initial blur
    ▼
-decodeAndSendGif()
+decodeAndSend()
    │  fetch(src) → decodeGifFrames(blob)        decode ALL frames (≤ MAX_GIF_DECODE_FRAMES)
    │  sampleFrameIndices(n, gifInferenceFrameCap(n))   pick the subset to inspect
    │  session.frameCount = sampled count
@@ -65,11 +70,11 @@ decodeAndSendGif()
 background: scheduleInferenceTask({ mediaMetadata.kind: 'gifFrame', sessionId, frameIndex })
    │  emitGifFramePredictions(...)
    ▼
-MediaPipeline.onGifFramePredictions → ImageProcessor.handleGifFrameResults()
+MediaPipeline.onGifFramePredictions → ImageProcessor.handleGifFrameResults() → GifInspector.handleFrameResults()
    │  aggregate per session; errored results count as failed frames
    │  finalize when received + failed ≥ frameCount  (or 20s timeout)
    ▼
-finalizeGif() → applyGifVerdict(img)
+finalize() → aggregateGifVerdict() → ImageProcessor.applyGifVerdict(img) for each copy
    ├─ blocked  → gifMaskPlayer.createOrUpdatePlayer()   (masked canvas, native <img> hidden)
    └─ safe     → reveal, release decoded frame bitmaps
 ```
@@ -103,7 +108,7 @@ including the first and last frame. The **stride** between sampled frames is `fr
 
 Restores **coverage**: because we skip frames, a displayed frame between two sampled frames has no
 verdict of its own. Inertia is how many frames a detection's mask persists on each side, so the gaps
-stay covered. Set in `ImageProcessor.decodeAndSendGif()`:
+stay covered. Set in `GifInspector` (`maskInertiaFor()`) once decoding completes:
 
 ```ts
 // GIF_MIN_MASK_INERTIA = 4 (the floor); the derived term is the sampling stride
@@ -126,7 +131,8 @@ nine frames never inspected.
 
 ## Aggregation and verdict
 
-`createGifAggregatePrediction()` combines the per-frame verdicts into one `IImagePrediction`:
+`aggregateGifVerdict()` (pure, `gif/gifVerdict.ts`) combines the per-frame verdicts into one
+`IImagePrediction`:
 
 - **Block decision** — `shouldBlock` trips if _any_ sampled frame had a detection.
 - **Detection count** — reports the **busiest single frame**, not the sum across frames, so the
