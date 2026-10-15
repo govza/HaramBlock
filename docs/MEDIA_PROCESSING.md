@@ -213,52 +213,54 @@ img[data-haramblock-processed-safe] {
 Handles AI prediction-based styling application.
 
 - `applyPredictionsStyling()` - Applies AI-based styling using segmentation mask overlays
-- Overlay creation is deferred one animation frame; if a framework re-render detached the image in
-  that window, creation retries (bounded) until the image is re-attached instead of bailing silently
+- Overlay creation is deferred one animation frame; an image a framework re-render detached in that
+  window is waited for by the overlay anchor (see `overlayAnchor.ts`)
 
 #### `imageMaskOverlay.ts`
 
 Segmentation-based visual overlays using canvas and mask data. The overlay is a `<div>` (with a
-`<canvas>` child) injected into the site DOM as a child of the image's parent.
+`<canvas>` child) homed by the overlay anchor as the image's next sibling; the module itself only
+paints.
 
 - Creates pixelated overlay effects using RLE-encoded segmentation masks
 - Unified canvas approach combining multiple masks into single overlay
-- Self-cleaning via `trackedSrc` - removes itself when image src changes
-- The `ResizeObserver` watches the image **and its parent**: a parent resize moves the image's
-  offsets within it even when the image size is unchanged (flex re-centering, a custom element like
-  Reddit's `<zoomable-img>` upgrading from unstyled inline layout) — image-only observation left
-  masks stranded at stale offsets. Applies to all three renderers
-- The overlay div has `overflow: hidden`; when the image collapses to zero size (e.g. a lightbox
-  hides it) the canvas is also cleared, so a stale painted frame can never show at its old size
-- Live overlays are tracked in a `WeakSet`; the stale-overlay sweep removes only orphans, never a
-  sibling's live mask (several masked images can share one parent — Reddit renders a decorative
-  background copy next to the primary)
+- When the image collapses to zero size (e.g. a lightbox hides it) the canvas is also cleared, so a
+  stale painted frame can never show at its old size
 - **Site-obscured copies**: when the site itself blurs an image at least as strongly as our own
   initial blur (15px — e.g. Reddit's decorative background copy uses `blur(24px)` + `opacity: .3`),
   our mask is hidden: an opaque pixelated slab would be _more_ visible than the original.
-  Re-evaluated on every geometry update
+  Re-evaluated on every layout
 
-#### `overlayPosition.ts`
+#### `overlayAnchor.ts`
 
-Shared positioning/lifecycle helpers for all three DOM-injected renderers (image, video, GIF):
+`anchorOverlay(element, overlay, { stacking?, trackSrc?, onLayout?, onLost })` returns
+`{ refresh(), dispose() }` and owns the placement lifecycle for every DOM-injected overlay (image
+mask, GIF player, video Mask Presenter, quick-toggle button). Adapters only paint in `onLayout`.
+Nothing is placed until the first `refresh()`, which re-homes, re-measures and paints synchronously
+and returns the geometry (`null` while the element cannot be placed).
 
-- `ensurePositionContext(parent)` - Forces `position: relative` only while the parent computes to
-  `static`, marks it (`data-haramblock-forced-position`), and **re-evaluates on every call**: site
-  styles applied later (Reddit's `<zoomable-img>` gains `position: fixed` when zoomed) must win over
-  our stale inline value, or the site's own layout breaks
-- `overlayOffsetInParent(parent, rect, parentRect)` - Converts client-rect deltas (visual
-  coordinates) into the parent's **content coordinates** by adding back `scrollTop`/`scrollLeft`.
-  Absolute `top`/`left` resolve in content coordinates, so inside a scrolled container (Reddit's
-  zoom view scrolls to center the click point) the raw rect delta would misplace the mask by exactly
-  the scroll offset
-- `classifyOverlayMutation(mutations, element, overlay)` - Classifies a cleanup-observer batch as
-  `none` / `moved` / `detached` (see
-  [Surviving Framework Re-renders](#surviving-framework-re-renders))
-- `resolveInjectionContext(element)` - Shadow-DOM-aware injection target: normally the parent
-  element, but for an element that is a **direct child of a shadow root** (Reddit's
-  `<shreddit-player>` renders its `<video>` that way; `parentElement` is null) the overlay is
-  appended into the shadow root itself while the positioned shadow **host** serves as the containing
-  block and coordinate box
+- **Homing**: a `cover` goes in as the element's next sibling mirroring its z-index, so player
+  chrome stacked above the element stays above the mask (Facebook Reels' Unmute button);
+  fixed-position elements use container injection with z + 1. A `badge` (quick toggle) is appended
+  into the container at z + 2. Shadow-DOM aware: for an element that is a **direct child of a shadow
+  root** (Reddit's `<shreddit-player>` renders its `<video>` that way; `parentElement` is null) the
+  overlay lives in the shadow root while the positioned shadow **host** is the containing block
+- **Position context**: forces `position: relative` only while the containing block computes to
+  `static`, marks it (`data-haramblock-forced-position`), and **re-evaluates on every refresh**:
+  site styles applied later (Reddit's `<zoomable-img>` gains `position: fixed` when zoomed) must
+  win. Runs before the box rect is read
+- **Offsets** are converted into the box's **content coordinates** by adding back
+  `scrollTop`/`scrollLeft` (Reddit's zoom view scrolls to center the click point); a viewport-fixed
+  element gets a `position: fixed` overlay at its viewport coordinates
+- **Tracking**: a `ResizeObserver` on the element **and its box** (a parent resize moves the
+  element's offsets even when its size is unchanged — flex re-centering, custom-element upgrade)
+  refreshes synchronously, so a re-attached element is covered before paint; mutations, viewport
+  resize and scroll refresh coalesced on the next animation frame
+- **Detachment** (see [Surviving Framework Re-renders](#surviving-framework-re-renders)): the
+  overlay leaves the page while its element is disconnected and comes back when the element does;
+  after 30 frames the anchor gives up with `onLost('detached')`
+- **Source drift** (`trackSrc`, images): a changed `currentSrc` ends the overlay with
+  `onLost('src-drift')` and routes the image back into the pipeline (`srcDrift.ts`)
 
 ## Initialization: Preventing Flash of Unfiltered Content
 
@@ -433,16 +435,10 @@ handleSrcChange(img)
 
 ### Self-Cleaning Overlays
 
-Overlays track the `src` they were created for and self-clean when it changes:
-
-```typescript
-// In ResizeObserver callback
-const currentSrc = image.currentSrc || image.src;
-if (state.trackedSrc && currentSrc !== state.trackedSrc) {
-  this.clearMaskOverlay(image); // Self-cleanup
-  return;
-}
-```
+Image and GIF overlays anchor with `trackSrc`: the overlay anchor remembers the source the overlay
+was created for and, on any refresh (resize observation included) that finds a different
+`currentSrc`, disposes the overlay via `onLost('src-drift')` and routes the image back into the
+pipeline through `notifySrcDrift`.
 
 ## Surviving Framework Re-renders
 
@@ -451,18 +447,17 @@ stress case: it renders the same picture as several `<img>` copies, constantly d
 re-inserts nodes during re-renders, and moves the post image between containers. Three defensive
 patterns keep masks alive through that churn:
 
-1. **Classify, don't assume removal.** Each overlay's cleanup `MutationObserver` used to treat any
-   `removedNodes` batch containing the element (or an ancestor) as removal — but a re-render usually
-   re-inserts the node within the same batch, so that signal tore masks off still-visible images
-   (fail-open). `classifyOverlayMutation` checks `element.isConnected` _after_ the batch has
-   settled: only a genuinely disconnected element triggers teardown. A `moved` element gets its
-   overlay **re-homed** next to it (new parent, refreshed geometry), which also covers the site
-   deleting the overlay itself.
+1. **Connectivity, not removal, decides.** A cleanup observer used to treat any `removedNodes` batch
+   containing the element (or an ancestor) as removal — but a re-render usually re-inserts the node
+   within the same batch, so that signal tore masks off still-visible images (fail-open). The
+   overlay anchor re-homes on such a batch and lets `element.isConnected` decide: a moved element
+   gets its overlay next to it again (also covering the site deleting the overlay itself), a
+   disconnected one has its overlay taken off the page until it returns.
 
-2. **Retry deferred creation.** Overlay creation runs one animation frame after the prediction
-   arrives; if the image is detached in that window, creation waits (bounded) for re-attachment.
-   `hasMaskOverlay()` also reports a state whose overlay left the DOM as inactive, so the next
-   processing pass can recreate it instead of being blocked by stale bookkeeping.
+2. **Wait for re-attachment.** Overlay creation runs one animation frame after the prediction
+   arrives; an element detached at creation or later is waited for (bounded, 30 frames) before the
+   anchor gives up. `hasMaskOverlay()` reports a state whose overlay is off the page as inactive, so
+   the next processing pass can recreate it instead of being blocked by stale bookkeeping.
 
 3. **One teardown path.** All disposal (explicit clear, quick-toggle reveal, detach) goes through
    the same full teardown. A "detach the overlay but keep the state" half-state would fight the
