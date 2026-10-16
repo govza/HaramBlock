@@ -21,28 +21,9 @@ Key properties:
 
 ## Relationship to image processing
 
-GIFs are `<img>` elements, so they share the image lifecycle rather than getting a separate
-processor (contrast videos, which are `<video>` and live in `core/VideoProcessor.ts`).
-
-- `MediaPipeline` routes `<img>` → `ImageProcessor`, `<video>` → `VideoProcessor`.
-- Inside `ImageProcessor.process()`, an early branch routes GIF candidates to the `GifInspector` and
-  everything else to the static-image path:
-
-  ```
-  ImageProcessor.process(img)
-    ├─ isGifCandidate(src)?  → gifInspector.inspect()   (GIF path)
-    └─ else                   → queueInference()   (static-image path)
-  ```
-
-- GIF orchestration (sessions, frame tallies, the verdict timeout, eviction, finalization) lives in
-  `gif/gifInspector.ts`. `ImageProcessor` creates it with injected dependencies, so it reuses the
-  image infrastructure without owning it: the prediction cache, `findImagesBySrc`,
-  `isBelowMinSizeForSrc`, the visibility priority, protective blur, verdict presentation (badge +
-  `presentVerdict`), and the single-frame fallback (`queueInference`). I/O (channel check, fetch +
-  decode, frame send) sits behind `gif/gifTransport.ts`.
-
-So GIF handling is **separated where it differs** (detection, decode, playback, tuning) and **shared
-where it is the same** (the `<img>` lifecycle).
+GIFs are `<img>` elements, so they share the image lifecycle: `ImageProcessor.process()` routes GIF
+candidates to `GifInspector`, which reuses the image infrastructure (cache, blur, verdict
+presentation, single-frame fallback) through injected dependencies.
 
 | Concern                 | Module                                                                                              |
 | ----------------------- | --------------------------------------------------------------------------------------------------- |
@@ -57,77 +38,19 @@ where it is the same** (the `<img>` lifecycle).
 
 ## Flow
 
-```
-GifInspector.inspect(img, src)
-   │  create GifSession (keyed by src), apply initial blur
-   ▼
-decodeAndSend()
-   │  fetch(src) → decodeGifFrames(blob)        decode ALL frames (≤ MAX_GIF_DECODE_FRAMES)
-   │  sampleFrameIndices(n, gifInferenceFrameCap(n))   pick the subset to inspect
-   │  session.frameCount = sampled count
-   │  requestGifFrameInference(frame) for each sampled frame   (bitmap on Chrome / blob on Firefox)
-   ▼
-background: scheduleInferenceTask({ mediaMetadata.kind: 'gifFrame', sessionId, frameIndex })
-   │  emitGifFramePredictions(...)
-   ▼
-MediaPipeline.onGifFramePredictions → ImageProcessor.handleGifFrameResults() → GifInspector.handleFrameResults()
-   │  aggregate per session; errored results count as failed frames
-   │  finalize when received + failed ≥ frameCount  (or 20s timeout)
-   ▼
-finalize() → aggregateGifVerdict() → ImageProcessor.applyGifVerdict(img) for each copy
-   ├─ blocked  → gifMaskPlayer.createOrUpdatePlayer()   (masked canvas, native <img> hidden)
-   └─ safe     → reveal, release decoded frame bitmaps
-```
-
-Transport mirrors video frames exactly (no URL fallback — frames are generated in the content
-script). See [MESSAGING_CHANNEL.md](MESSAGING_CHANNEL.md) for the channel details.
+Decode all frames, send a sampled subset for inference, aggregate per-frame results, then either
+replay through the masked canvas player (blocked) or reveal and release frames (safe). Transport
+mirrors video frames (see [MESSAGING_CHANNEL.md](MESSAGING_CHANNEL.md)).
 
 ## Frame cap vs. mask inertia
 
-These are two different numbers solving two different problems. They are linked but not the same.
+- **Frame cap** (`gifInferenceFrameCap`) bounds cost: roughly a third of the frames, clamped to
+  6–24, evenly spread incl. first and last.
+- **Mask inertia** (`maskInertiaFor`) restores coverage: each detection's mask persists ± the
+  sampling stride, floored at `GIF_MIN_MASK_INERTIA` to absorb detection jitter. `gifMaskPlayer`
+  only consumes it.
 
-### Frame cap — how many frames we inspect
-
-Bounds **cost**: a long GIF must not flood the inference queue. We decode every frame for playback
-but send only an evenly-spread subset to the model. Defined in `gifDecoder.ts`:
-
-```ts
-// gifDecoder.ts — GIF_MIN_INFERENCE_FRAMES = 6, GIF_MAX_INFERENCE_FRAMES = 24
-function gifInferenceFrameCap(frameCount: number): number {
-  return Math.min(
-    GIF_MAX_INFERENCE_FRAMES,
-    Math.max(GIF_MIN_INFERENCE_FRAMES, Math.ceil(frameCount / 3))
-  );
-}
-```
-
-`sampleFrameIndices(frameCount, cap)` then picks that many indices, evenly spread and always
-including the first and last frame. The **stride** between sampled frames is `frameCount / cap`.
-
-### Mask inertia — how far one verdict reaches in playback
-
-Restores **coverage**: because we skip frames, a displayed frame between two sampled frames has no
-verdict of its own. Inertia is how many frames a detection's mask persists on each side, so the gaps
-stay covered. Set in `GifInspector` (`maskInertiaFor()`) once decoding completes:
-
-```ts
-// GIF_MIN_MASK_INERTIA = 4 (the floor); the derived term is the sampling stride
-session.maskInertia = Math.max(GIF_MIN_MASK_INERTIA, Math.ceil(totalFrames / sampledCount));
-```
-
-The derived term (`stride`) handles coverage; the floor (`GIF_MIN_MASK_INERTIA = 4`) handles
-detection jitter — keeping a mask sticky across a single frame where the model's confidence dipped
-below threshold. On long GIFs the stride dominates; on short/densely-sampled GIFs the floor wins.
-
-`gifMaskPlayer` is a pure consumer of this value — it has no inertia constant of its own; the
-`maskInertia` parameter is required and the single floor lives in `constants/gif.ts`.
-
-**Worked example (240-frame GIF):** cap = `clamp(80, 6, 24)` = 24 → inspect every ~10th frame;
-stride ≈ 10; inertia = `max(4, 10)` = ±10, so a hit on frame 30 masks frames 20–40, covering the
-nine frames never inspected.
-
-> **Rule of thumb:** the cap _shrinks_ the work; inertia _stretches_ each result to re-cover what
-> the cap skipped. Bigger cap → smaller gaps → less inertia; smaller cap → bigger gaps → more.
+The cap shrinks the work; inertia stretches each result to re-cover what the cap skipped.
 
 ## Aggregation and verdict
 
