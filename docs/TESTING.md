@@ -468,10 +468,8 @@ Use `eslint-disable-next-line` for intentional sequential operations:
 ```typescript
 const clickUntilPolicy = async (button: WebdriverIO.Element, target: string): Promise<void> => {
   for (let i = 0; i < 3; i++) {
-    // eslint-disable-next-line no-await-in-loop
     const current = await button.getAttribute('data-policy');
     if (current === target) return;
-    // eslint-disable-next-line no-await-in-loop
     await button.click();
   }
 };

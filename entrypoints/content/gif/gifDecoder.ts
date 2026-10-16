@@ -91,13 +91,11 @@ export async function decodeGifFrames(blob: Blob): Promise<DecodedGif | null> {
     try {
       for (const frameIndex of frameIndices) {
         // GIF frames must be decoded in frame order so disposal/composition is correct.
-        // eslint-disable-next-line no-await-in-loop
         const { image } = await decoder.decode({ frameIndex, completeFramesOnly: true });
         width = image.displayWidth;
         height = image.displayHeight;
         try {
           frames.push({
-            // eslint-disable-next-line no-await-in-loop
             bitmap: await createImageBitmap(image),
             frameIndex,
             durationMs: getFrameDurationMs(image),

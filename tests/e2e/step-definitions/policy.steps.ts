@@ -19,7 +19,6 @@ const clickUntilPolicy = async (
 ): Promise<void> => {
   const policiesSeen: string[] = [];
 
-  /* eslint-disable no-await-in-loop */
   for (let i = 0; i < maxClicks; i++) {
     const currentPolicy = await policyButton.getAttribute('data-policy');
     policiesSeen.push(currentPolicy ?? 'null');
@@ -29,7 +28,6 @@ const clickUntilPolicy = async (
     await policyButton.click();
     await browser.pause(500);
   }
-  /* eslint-enable no-await-in-loop */
 
   const finalPolicy = await policyButton.getAttribute('data-policy');
   policiesSeen.push(finalPolicy ?? 'null');

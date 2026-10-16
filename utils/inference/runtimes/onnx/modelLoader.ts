@@ -125,7 +125,6 @@ async function waitForRuntimeLeasesToDrain(): Promise<void> {
 
 export async function acquireModelRuntime(): Promise<ModelRuntimeLease> {
   while (switchPromise) {
-    // eslint-disable-next-line no-await-in-loop -- Wait through any back-to-back model switches.
     await switchPromise;
   }
 
@@ -237,7 +236,6 @@ async function warmupModel(sessionToWarm: ort.InferenceSession, modelConfig: Mod
     const warmupRuns = getWarmupRuns();
 
     for (let i = 0; i < warmupRuns; i++) {
-      // eslint-disable-next-line no-await-in-loop -- Warmup intentionally serializes runs to prime shader variants.
       warmupTimes.push(await runSingleWarmup(sessionToWarm, modelConfig, height, width));
     }
 
@@ -351,7 +349,6 @@ export async function loadModel(): Promise<ModelRuntime> {
         }
 
         const sessionT0 = performance.now();
-        // eslint-disable-next-line no-await-in-loop -- Sequential fallback: try WebGPU first, then WASM
         const loadedSession = await ort.InferenceSession.create(modelPath, createSessionOptions(backend));
 
         if (loadedSession) {
