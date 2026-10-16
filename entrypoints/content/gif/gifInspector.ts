@@ -70,8 +70,8 @@ export interface GifInspector {
 }
 
 /**
- * Aggregation state for one animated GIF. `frameCount` is the number of sampled frames whose
- * verdicts are expected; it stays 0 until decoding completes, so nothing finalizes before then.
+ * Aggregation state for one animated GIF, from decode through sampled-frame inference to its folded
+ * verdict and playback. Nothing finalizes until decoding reveals how many frame verdicts to expect.
  */
 interface GifSession {
   sessionId: string;
@@ -230,6 +230,12 @@ export const createGifInspector = (deps: GifInspectorDeps): GifInspector => {
   const decodeAndSend = async (img: HTMLImageElement, src: string, session: GifSession): Promise<void> => {
     if (!(await deps.transport.channelReady())) {
       fallbackToSingleFrame(img, src, session);
+      return;
+    }
+
+    if (session.disposed) {
+      sessions.delete(src);
+      cancelRoundtrip(src, 'disposed');
       return;
     }
 

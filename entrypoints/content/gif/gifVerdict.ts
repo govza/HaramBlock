@@ -1,9 +1,8 @@
 import type { IGifFramePrediction, IImagePrediction } from '@/utils/types';
 
 /**
- * Everything needed to fold one GIF's sampled frame verdicts into a single image verdict.
- * `fallbackSize` sizes the verdict when no frame prediction arrived (e.g. every frame failed), and
- * `forceBlocked` marks a verdict reached through failure or timeout so it fails closed.
+ * Everything needed to fold one GIF's sampled frame verdicts into a single image verdict, including
+ * the case where no frame verdict arrived or inspection broke down and the verdict must fail closed.
  */
 export interface GifVerdictInput {
   src: string;

@@ -217,10 +217,7 @@ export class ImageProcessor {
 
     startRoundtrip(src, { src, hostname: this.hostSettings.hostname, mediaKind: 'image' });
 
-    // Apply blur if not already present (idempotent)
-    if (!hasInitialStyling(img)) {
-      applyInitialImageStyling(img, this.hostSettings);
-    }
+    this.protect(img);
 
     // Queue for inference (deduped by src)
     this.queueInference(img, src);
@@ -263,10 +260,7 @@ export class ImageProcessor {
     // Clear any existing overlays (they may be for old src)
     this.clearOverlays(img);
 
-    // Ensure blur is applied while waiting for stabilization
-    if (!hasInitialStyling(img)) {
-      applyInitialImageStyling(img, this.hostSettings);
-    }
+    this.protect(img);
 
     // Cancel any pending debounce for this image
     const existingTimeout = this.srcChangeDebounce.get(img);
@@ -535,9 +529,9 @@ export class ImageProcessor {
     reason?: string,
     traceparent?: string,
   ): void {
-    const tracksRoundtrip = roundtripMatches(src, traceparent);
     const outcome = this.inference.fail(src);
     if (outcome.kind === 'untracked') return;
+    const tracksRoundtrip = roundtripMatches(src, traceparent);
     const { attempts } = outcome;
 
     if (outcome.kind === 'exhausted') {
