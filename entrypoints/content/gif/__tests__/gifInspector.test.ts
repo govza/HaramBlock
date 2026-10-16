@@ -359,5 +359,23 @@ describe('createGifInspector', () => {
       expect(sendFrame).not.toHaveBeenCalled();
       expect(late.closedFrames()).toBe(FRAME_COUNT);
     });
+
+    it('does not skip a small GIF whose channel became ready after disposal', async () => {
+      let markChannelReady: (ready: boolean) => void = () => {};
+      const { inspector, inspectTarget, channelReady, isBelowMinSize, skip } = harness();
+      channelReady.mockReturnValue(
+        new Promise(resolve => {
+          markChannelReady = resolve;
+        }),
+      );
+      isBelowMinSize.mockReturnValue(true);
+      await inspectTarget();
+
+      inspector.dispose();
+      markChannelReady(true);
+      await flush();
+
+      expect(skip).not.toHaveBeenCalled();
+    });
   });
 });

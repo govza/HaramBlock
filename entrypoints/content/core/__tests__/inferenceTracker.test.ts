@@ -126,6 +126,15 @@ describe('createInferenceTracker', () => {
       expect(tracker.claim(SRC, fakeImage())).toBe('owner');
     });
 
+    it('refuses a late settle from an owner claimed before dispose', () => {
+      const tracker = createInferenceTracker(onTimeout);
+      const owner = fakeImage();
+      tracker.claim(SRC, owner);
+      tracker.dispose();
+
+      expect(tracker.settle(SRC, owner)).toBe(false);
+    });
+
     it('resets the attempt count', () => {
       const tracker = createInferenceTracker(onTimeout);
       tracker.claim(SRC, fakeImage());

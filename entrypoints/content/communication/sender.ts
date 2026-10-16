@@ -141,6 +141,14 @@ async function resolveImageTransferKind(): Promise<ImageTransferKind> {
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 2000;
 
+export async function fetchMediaBlob(src: string): Promise<Blob> {
+  const response = await fetch(src, { cache: 'force-cache' });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${src} (${response.status})`);
+  }
+  return response.blob();
+}
+
 async function buildPayload(
   hostname: string,
   image: HTMLImageElement,
@@ -159,11 +167,7 @@ async function buildPayload(
 
   const fetchImageBlob = async (): Promise<{ blob: Blob; fetchTime: number }> => {
     const fetchStart = Date.now();
-    const response = await fetch(src, { cache: 'force-cache' });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image (${response.status})`);
-    }
-    const blob = await response.blob();
+    const blob = await fetchMediaBlob(src);
     return { blob, fetchTime: Date.now() - fetchStart };
   };
 

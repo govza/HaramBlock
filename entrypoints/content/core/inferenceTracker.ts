@@ -101,6 +101,7 @@ export const createInferenceTracker = (onTimeout: (src: string) => void): Infere
     dispose: () => {
       for (const timer of watchdogs.values()) clearTimeout(timer);
       watchdogs.clear();
+      owners.clear();
       attempts.clear();
     },
   };

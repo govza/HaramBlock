@@ -71,6 +71,18 @@ describe('ImageProcessor inference failure handling', () => {
     expect(img.hasAttribute(PROCESSED_SKIPPED_ATTR)).toBe(false);
   });
 
+  it('arms the short watchdog once the background reports the task started', async () => {
+    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const img = loadedImage('https://cdn.test/b.jpg');
+    processor.process(img);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requestImageInference).toHaveBeenCalledTimes(1);
+
+    processor.handleInferenceResults([{ status: 'started', src: img.src, hostname: 'example.com' }]);
+    await vi.advanceTimersByTimeAsync(IMAGE_INFERENCE_TIMEOUT_MS);
+    expect(requestImageInference).toHaveBeenCalledTimes(2);
+  });
+
   it('fails open after repeated explicit inference errors', async () => {
     const processor = new ImageProcessor(hostSettings, badgeCounter);
     const img = loadedImage('https://cdn.test/c.jpg');
