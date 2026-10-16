@@ -57,33 +57,39 @@ function run(scoreThreshold: number, includeScoreGrid = false, size = { width: 1
 
 const byClass = (predictions: IElementPrediction[]) => [...predictions].sort((a, b) => a.classId - b.classId);
 
+function requestedScoreGrid() {
+  const { scoreGrid, topUnsafeScore } = run(MIN_SCORE_THRESHOLD, true);
+  if (!scoreGrid) throw new Error('score grid was requested but not built');
+  return { scoreGrid, topUnsafeScore };
+}
+
+const comparable = (prediction: IElementPrediction) => ({
+  classId: prediction.classId,
+  className: prediction.className,
+  masks: prediction.masks,
+  boundingBox: prediction.boundingBox,
+  probability: expect.closeTo(prediction.probability, 2) as number,
+});
+
 describe('semantic score grid', () => {
   it.each([0.3, 0.5, 0.7, 0.9])('rebuilds the same mask, box and mean confidence as inference at %s', threshold => {
-    const { scoreGrid } = run(MIN_SCORE_THRESHOLD, true);
+    const { scoreGrid } = requestedScoreGrid();
     const direct = byClass(run(threshold).predictions);
-    const rebuilt = byClass(predictionsFromScoreGrid(scoreGrid!, threshold));
+    const rebuilt = byClass(predictionsFromScoreGrid(scoreGrid, threshold));
 
     expect(direct.length).toBeGreaterThan(0);
-
-    expect(rebuilt.map(p => p.classId)).toEqual(direct.map(p => p.classId));
-    rebuilt.forEach((prediction, index) => {
-      const expected = direct[index]!;
-      expect(prediction.className).toBe(expected.className);
-      expect(prediction.masks).toEqual(expected.masks);
-      expect(prediction.boundingBox).toEqual(expected.boundingBox);
-      expect(prediction.probability).toBeCloseTo(expected.probability, 2);
-    });
+    expect(rebuilt).toMatchObject(direct.map(comparable));
   });
 
   it('keeps only target classes', () => {
-    const { scoreGrid } = run(MIN_SCORE_THRESHOLD, true);
-    const classNames = predictionsFromScoreGrid(scoreGrid!, MIN_SCORE_THRESHOLD).map(p => p.className);
+    const { scoreGrid } = requestedScoreGrid();
+    const classNames = predictionsFromScoreGrid(scoreGrid, MIN_SCORE_THRESHOLD).map(p => p.className);
     expect(classNames.sort()).toEqual(['breast', 'genitals']);
   });
 
   it('yields no predictions above the top unsafe score', () => {
-    const { scoreGrid, topUnsafeScore } = run(MIN_SCORE_THRESHOLD, true);
-    expect(predictionsFromScoreGrid(scoreGrid!, Math.min(topUnsafeScore + 0.01, 1))).toEqual([]);
+    const { scoreGrid, topUnsafeScore } = requestedScoreGrid();
+    expect(predictionsFromScoreGrid(scoreGrid, Math.min(topUnsafeScore + 0.01, 1))).toEqual([]);
   });
 
   it('is only built on request', () => {

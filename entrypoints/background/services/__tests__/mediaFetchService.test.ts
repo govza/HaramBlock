@@ -46,7 +46,7 @@ describe('MediaFetchService', () => {
     );
 
     const bytes = await new MediaFetchService().fetchMediaBytes('https://cdn/x.mp4');
-    expect(new Uint8Array(bytes!)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(new Uint8Array(bytes ?? [])).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it('rejects a declared over-cap download before reading the body', async () => {
