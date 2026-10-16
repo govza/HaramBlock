@@ -461,20 +461,6 @@ if (attr === null) return false; // attribute doesn't exist
 if (!attr) return false; // fails for data-attr=""
 ```
 
-#### Handle Sequential Awaits in Loops
-
-Use `eslint-disable-next-line` for intentional sequential operations:
-
-```typescript
-const clickUntilPolicy = async (button: WebdriverIO.Element, target: string): Promise<void> => {
-  for (let i = 0; i < 3; i++) {
-    const current = await button.getAttribute('data-policy');
-    if (current === target) return;
-    await button.click();
-  }
-};
-```
-
 #### Never Register Duplicate Step Definitions
 
 Registering the same pattern with different keywords causes steps to be skipped silently:
