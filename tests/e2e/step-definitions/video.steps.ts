@@ -177,9 +177,7 @@ Then('I should see exactly {string} video mask overlays', async (count: string) 
   const expected = parseInt(count, 10);
   const stableWindowEnd = Date.now() + OVERLAY_STABLE_WINDOW_MS;
   while (Date.now() < stableWindowEnd) {
-    // eslint-disable-next-line no-await-in-loop
     expect(await countVisibleOnPage(Selectors.VIDEO_SEGMENT_OVERLAY)).toBe(expected);
-    // eslint-disable-next-line no-await-in-loop
     await browser.pause(250);
   }
 });

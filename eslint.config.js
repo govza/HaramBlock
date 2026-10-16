@@ -115,7 +115,7 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'no-debugger': 'error',
       'no-alert': 'error',
-      'no-await-in-loop': 'warn',
+      'no-await-in-loop': 'off',
       'no-return-await': 'error',
       'no-implicit-coercion': 'error',
       'prefer-const': 'error',
@@ -221,7 +221,6 @@ export default [
     },
     rules: {
       'no-console': 'off',
-      'no-await-in-loop': 'off',
     },
   },
   // E2E tests override

@@ -156,7 +156,6 @@ When('I click the eye toggle icon', async () => {
   // (HIDE_DELAY_MS) before we click, or a tap can land on a re-rendered image
   // and never show it. Re-reveal and re-query on each attempt.
   let lastError: unknown;
-  /* eslint-disable no-await-in-loop */
   for (let attempt = 1; attempt <= EYE_TOGGLE_REVEAL_ATTEMPTS; attempt += 1) {
     try {
       const eyeToggle = await $(Selectors.EYE_TOGGLE);
@@ -172,7 +171,6 @@ When('I click the eye toggle icon', async () => {
       await revealEyeToggle();
     }
   }
-  /* eslint-enable no-await-in-loop */
   throw lastError;
 });
 

@@ -11,12 +11,9 @@ const setPolicyProcess = async (): Promise<void> => {
 
   const policyButton = await $('[data-testid="policy-toggle"]');
   for (let i = 0; i < 3; i++) {
-    // eslint-disable-next-line no-await-in-loop
     const current = await policyButton.getAttribute('data-policy');
     if (current === 'process') break;
-    // eslint-disable-next-line no-await-in-loop
     await policyButton.click();
-    // eslint-disable-next-line no-await-in-loop
     await browser.pause(300);
   }
 };

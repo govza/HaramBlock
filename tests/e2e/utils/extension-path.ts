@@ -62,7 +62,7 @@ const setMozContext = async (browser: WebdriverIO.Browser, context: 'chrome' | '
 const getFirefoxExtensionPathViaChromeContext = async (browser: WebdriverIO.Browser, addonId: string) => {
   await setMozContext(browser, 'chrome');
 
-  /* eslint-disable no-await-in-loop, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
+  /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
   let uuid: string | null = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     uuid = await browser.execute((id: string) => {
