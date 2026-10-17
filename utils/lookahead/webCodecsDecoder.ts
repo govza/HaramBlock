@@ -1,4 +1,6 @@
-import type { AnalysisFrame, DecodedTarget, DecodeJob, DecoderPort } from '@/utils/lookahead/ports';
+import { fanOutToTargets, groupTargetsByPts } from '@/utils/lookahead/targetFanOut';
+
+import type { AnalysisFrame, CapableDecoder, DecodedTarget, DecodeJob } from '@/utils/lookahead/ports';
 
 /**
  * A decoded frame downscaled to the model input as a transferable bitmap, keeping the source dimensions for mask
@@ -29,15 +31,26 @@ export async function toModelInputBitmap(frame: VideoFrame, inputSize: number): 
 export function createWebCodecsDecoder(
   toFrame: (frame: VideoFrame) => Promise<AnalysisFrame>,
   hardwareAcceleration: HardwareAcceleration = 'no-preference',
-): DecoderPort {
+): CapableDecoder {
+  const configFor = (config: VideoDecoderConfig): VideoDecoderConfig => ({
+    ...config,
+    hardwareAcceleration,
+    optimizeForLatency: true,
+  });
+  const supports = async (config: VideoDecoderConfig): Promise<boolean> => {
+    if (typeof VideoDecoder !== 'function') return false;
+    try {
+      return (await VideoDecoder.isConfigSupported(configFor(config))).supported === true;
+    } catch {
+      return false;
+    }
+  };
   return {
+    kind: 'webcodecs',
+    supports,
     async *decode(job: DecodeJob): AsyncIterable<DecodedTarget> {
-      const config: VideoDecoderConfig = { ...job.config, hardwareAcceleration, optimizeForLatency: true };
-      const support = await VideoDecoder.isConfigSupported(config);
-      if (!support.supported) throw new Error(`Unsupported codec ${job.config.codec}`);
-      const targetsByPts = new Map<number, DecodeJob['targets']>();
-      for (const target of job.targets)
-        targetsByPts.set(target.ptsUs, [...(targetsByPts.get(target.ptsUs) ?? []), target]);
+      const config = configFor(job.config);
+      const targetsByPts = groupTargetsByPts(job.targets);
       const conversions: Promise<{ ptsUs: number; frame: AnalysisFrame }>[] = [];
       const failure: { error: Error | null } = { error: null };
       const decoder = new VideoDecoder({
@@ -74,22 +87,7 @@ export function createWebCodecsDecoder(
         if (decoder.state !== 'closed') decoder.close();
       }
       for (const converted of await Promise.all(conversions)) {
-        const targets = targetsByPts.get(converted.ptsUs) ?? [];
-        const [first, ...rest] = targets;
-        if (!first) {
-          converted.frame.close();
-          continue;
-        }
-        if (rest.length === 0) {
-          yield { target: first, frame: converted.frame };
-          continue;
-        }
-        const clones = await Promise.all(targets.map(() => cloneFrame(converted.frame)));
-        converted.frame.close();
-        for (const [index, target] of targets.entries()) {
-          const clone = clones[index];
-          if (clone) yield { target, frame: clone };
-        }
+        yield* fanOutToTargets(converted.frame, targetsByPts.get(converted.ptsUs) ?? []);
       }
     },
   };
@@ -99,11 +97,4 @@ async function closeConverted(conversions: readonly Promise<{ frame: AnalysisFra
   for (const result of await Promise.allSettled(conversions)) {
     if (result.status === 'fulfilled') result.value.frame.close();
   }
-}
-
-async function cloneFrame(frame: AnalysisFrame): Promise<AnalysisFrame> {
-  const source = frame as Partial<BitmapFrame>;
-  if (!source.bitmap) return frame;
-  const bitmap = await createImageBitmap(source.bitmap);
-  return { ...source, bitmap, close: () => bitmap.close() } as BitmapFrame;
 }

@@ -1,9 +1,10 @@
+import { lookaheadDecoder } from '@/utils/lookahead/decoderSelection';
 import { LookaheadHost } from '@/utils/lookahead/host';
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
-import { createWebCodecsDecoder, toModelInputBitmap, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 
 import type { InferredSample, StoredSample } from '@/utils/lookahead/ports';
 import type { ContentToHost, HookMessage, HostToContent } from '@/utils/lookahead/protocol';
+import type { BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 
 const secret = new URLSearchParams(location.search).get('secret');
 
@@ -14,7 +15,7 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
   const send = (message: HostToContent, transfer: Transferable[] = []) => contentPort.postMessage(message, transfer);
 
   const host = new LookaheadHost({
-    decoder: open => createWebCodecsDecoder(frame => toModelInputBitmap(frame, open.inputSize)),
+    decoder: open => lookaheadDecoder(open.inputSize),
     inference: open => ({
       infer: ({ pointUs, frame, priority }) => {
         const { bitmap, originalWidth, originalHeight } = frame as BitmapFrame;
