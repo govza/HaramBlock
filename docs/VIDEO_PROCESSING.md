@@ -89,30 +89,37 @@ For every attached video:
 
 Before a VideoSession exists, document-start bootstrap styles hide light-DOM videos and Reddit's
 `<shreddit-player>` host until discovery has applied blacklist styling or the attachment blur, then
-`data-haramblock-video-discovered` reveals them. Video processing stays withdrawn on Firefox for
-Android (ADR [0003](adr/0003-withdraw-video-processing-on-firefox-android.md)).
+`data-haramblock-video-discovered` reveals them.
+
+On Firefox for Android the video capability is `lookahead-only` (ADR
+[0005](adr/0005-wasm-lookahead-decoder-on-firefox-android.md)): page pixels of a video read back
+empty there, so sessions are born with pixels unreadable — no bootstrap hiding, no attachment or
+pending-source blur, no Live Masking, Thumbnail from the poster only — and every gap in lookahead
+coverage fails open. Decode Jobs go to native WebCodecs when it accepts the config, otherwise to the
+bundled WebAssembly decoders (VP9, AV1) in a dedicated worker.
 
 ## Components
 
-| Component             | File                                                                                                      | Role                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Video Session reducer | `entrypoints/content/video/session/videoSession.ts`                                                       | Pure `(state, event) → (state, effects)`; no DOM, timers or transport                                      |
-| Registry              | `entrypoints/content/video/session/registry.ts`                                                           | Session lifecycle, media events, result routing, effect execution, telemetry                               |
-| Viewport suspension   | `entrypoints/content/video/session/viewportSuspension.ts`                                                 | IntersectionObserver suspend/resume (400 px margin, 1 s grace)                                             |
-| Forced presentation   | `entrypoints/content/video/session/forcedPresentation.ts`                                                 | Quick Toggle overrides (Forced Visibility) with no session behind them                                     |
-| Mask Presenter        | `entrypoints/content/video/presenter/{maskPresenter,presentationClock,maskClipPath}.ts`                   | rAF overlay, extrapolated playhead clock, mask grid → `clip-path`                                          |
-| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                           | rVFC/rAF ticker, one sample in flight, 250 ms floor, paused-frame samples                                  |
-| Page capture          | `entrypoints/content/video/sampling/capture.ts`                                                           | Model-input-sized capture, poster extraction, CORS clone and Relay Fetch tiers                             |
-| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                              | Sample history, coverage ahead, per-frame cover lookup per mode                                            |
-| Lookahead client      | `entrypoints/content/video/tap/lookaheadClient.ts`                                                        | Hook handshake, host connection (Chrome iframe / Firefox port), cache and inference forwarding             |
-| MSE hook              | `entrypoints/mseHook.content.ts`, `utils/lookahead/mseHook.ts`                                            | MAIN-world `MediaSource` / `SourceBuffer` hook at `document_start`                                         |
-| Analysis core         | `utils/lookahead/{analysis,byteStream,demux,lattice,progressiveFile}.ts`                                  | DOM-free: unit cutter, mediabunny demux, Sample Lattice, scheduling, cache-first lookup, Refinement Probes |
-| Host runtime          | `utils/lookahead/{host,webCodecsDecoder,rangeFetchSource,protocol}.ts`                                    | Source registry and per-session analyses; WebCodecs decode; range fetch; wire protocol                     |
-| Chrome host           | `entrypoints/lookahead-host/`                                                                             | Hidden extension iframe running the host runtime                                                           |
-| Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                 | Host runtime in the event page, fed over `runtime.connect`                                                 |
-| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts` | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
-| Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                   | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
-| Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                              | Blacklist styling or registry attachment                                                                   |
+| Component             | File                                                                                                                                         | Role                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Video Session reducer | `entrypoints/content/video/session/videoSession.ts`                                                                                          | Pure `(state, event) → (state, effects)`; no DOM, timers or transport                                      |
+| Registry              | `entrypoints/content/video/session/registry.ts`                                                                                              | Session lifecycle, media events, result routing, effect execution, telemetry                               |
+| Viewport suspension   | `entrypoints/content/video/session/viewportSuspension.ts`                                                                                    | IntersectionObserver suspend/resume (400 px margin, 1 s grace)                                             |
+| Forced presentation   | `entrypoints/content/video/session/forcedPresentation.ts`                                                                                    | Quick Toggle overrides (Forced Visibility) with no session behind them                                     |
+| Mask Presenter        | `entrypoints/content/video/presenter/{maskPresenter,presentationClock,maskClipPath}.ts`                                                      | rAF overlay, extrapolated playhead clock, mask grid → `clip-path`                                          |
+| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                                                              | rVFC/rAF ticker, one sample in flight, 250 ms floor, paused-frame samples                                  |
+| Page capture          | `entrypoints/content/video/sampling/capture.ts`                                                                                              | Model-input-sized capture, poster extraction, CORS clone and Relay Fetch tiers                             |
+| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                                                                 | Sample history, coverage ahead, per-frame cover lookup per mode                                            |
+| Lookahead client      | `entrypoints/content/video/tap/lookaheadClient.ts`                                                                                           | Hook handshake, host connection (Chrome iframe / Firefox port), cache and inference forwarding             |
+| MSE hook              | `entrypoints/mseHook.content.ts`, `utils/lookahead/mseHook.ts`                                                                               | MAIN-world `MediaSource` / `SourceBuffer` hook at `document_start`                                         |
+| Analysis core         | `utils/lookahead/{analysis,byteStream,demux,lattice,progressiveFile}.ts`                                                                     | DOM-free: unit cutter, mediabunny demux, Sample Lattice, scheduling, cache-first lookup, Refinement Probes |
+| Host runtime          | `utils/lookahead/{host,webCodecsDecoder,rangeFetchSource,protocol}.ts`                                                                       | Source registry and per-session analyses; WebCodecs decode; range fetch; wire protocol                     |
+| WASM decoders         | `utils/lookahead/{decoderSelection,wasmDecoder,wasmDecodeCore,yuvToRgba}.ts`, `entrypoints/wasm-decoder-worker.ts`, `scripts/wasm-decoders/` | Per-job choice native → WASM; worker decode and YUV → model-input bitmap; reproducible Emscripten builds   |
+| Chrome host           | `entrypoints/lookahead-host/`                                                                                                                | Hidden extension iframe running the host runtime                                                           |
+| Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                                                    | Host runtime in the event page, fed over `runtime.connect`                                                 |
+| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`                                    | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
+| Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                                                      | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
+| Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                                                                 | Blacklist styling or registry attachment                                                                   |
 
 ## The Video Session reducer
 
@@ -133,7 +140,8 @@ Rules:
 - **Live Masking hand-off**: on while the tap is pending or unreachable; with a reachable tap it
   starts when coverage ahead drops under `LIVE_MASKING_START_COVERAGE_SEC` (1.5 s) and stops only at
   `LIVE_MASKING_STOP_COVERAGE_SEC` (5 s). A real seek resets coverage to 0 until the next
-  `progress`; a Loop Restart does not. Offscreen sessions and tainted pixels never live-mask.
+  `progress`; a Loop Restart does not. Offscreen sessions and unreadable page pixels never
+  live-mask.
 - **Initial blur**: the attachment blur stays only until the first verdict of any kind (Thumbnail,
   lookahead, cache or live). The uncovered playhead before any live verdict plays unmasked — the
   accepted leak.
@@ -145,9 +153,9 @@ Rules:
   Forced Visibility round-trip, re-attach or loop; sources without a cache key are sticky per
   session only.
 - **Paused frames**: a pause or paused seek on an uncovered frame requests one live sample.
-- **Tainted page pixels** (permanent capture failure): with no tap, the session finalises `skipped`
-  and un-blurred; with a tap, Live Masking stops, uncovered spans play un-blurred until lookahead
-  covers them, and status follows the presented spans.
+- **Unreadable page pixels** (permanent capture failure): with no tap, the session finalises
+  `skipped` and un-blurred; with a tap, Live Masking stops, uncovered spans play un-blurred until
+  lookahead covers them, and status follows the presented spans.
 
 ## Bitstream Taps and hosts
 
@@ -320,7 +328,7 @@ path (Chrome bitmap over the MessageChannel, Firefox WebP blob) with `sampleKind
   only once the first range request succeeds.
 - `data-hb-session-id`, `data-hb-src` — the session binding (also used by the predecessor sweep).
 - `data-haramblock-processed-safe | -unsafe | -skipped` — exactly one after the first verdict;
-  `skipped` only for tainted pixels with no tap. All are removed on disposal.
+  `skipped` only for unreadable page pixels with no tap. All are removed on disposal.
 - `[data-video-mask-overlay="video-mask-presenter"]` — the presenter overlay (`display:none` while
   nothing is masked). The attachment blur uses the shared `haramblock-initial-blur` class.
 
@@ -341,7 +349,7 @@ is described in [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md).
   math.
 - **Video Session reducer** (`entrypoints/content/video/session/__tests__/videoSession.test.ts`):
   hand-off hysteresis, unreachable tap, masking rule per mode, sticky status on presentation, paused
-  frames, Loop Restart, initial blur, tainted rules, viewport.
+  frames, Loop Restart, initial blur, unreadable-pixel rules, viewport.
 - **Timeline and presenter** (`timeline/__tests__/`, `presenter/__tests__/`): clean-cut rule,
   carry-forward bound, Live Masking hold vs lookahead cut, no suppression; extrapolated clock and
   clip paths.

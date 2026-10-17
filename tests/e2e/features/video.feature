@@ -1,5 +1,5 @@
-# Desktop-only: video processing is withdrawn on Firefox for Android (ADR 0003),
-# so the popup has no video target there and videos are never processed.
+# Desktop-only: these scenarios rely on Live Masking and attachment blur, which Firefox for Android
+# does not have (lookahead-only, ADR 0005).
 @video @desktop-only
 Feature: Video Masking
   Videos play natively. Lookahead Analysis reads the bitstream through a

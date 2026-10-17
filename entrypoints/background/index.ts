@@ -20,7 +20,7 @@ import {
 } from '@/entrypoints/background/services/autoModelDecision';
 import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
 import { LookaheadHostService } from '@/entrypoints/background/services/lookaheadHostService';
-import { resolveVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
+import { resolveVideoCapability } from '@/utils/capabilities/videoCapability';
 import { deleteLegacyCacheDatabases } from '@/utils/db/db';
 import { getInferenceBackend, initializeInference } from '@/utils/inference';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
@@ -60,7 +60,7 @@ export default defineBackground({
       });
     });
 
-    void resolveVideoProcessingAvailable().catch(error => {
+    void resolveVideoCapability().catch(error => {
       log.error('capability.video.resolve.failed', { error });
     });
 

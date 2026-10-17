@@ -253,11 +253,11 @@ describe('Video Session: initial blur', () => {
   });
 });
 
-describe('Video Session: tainted page pixels', () => {
-  const taint = { type: 'liveCaptureFailed', permanent: true } as const;
+describe('Video Session: unreadable page pixels', () => {
+  const permanentCaptureFailure = { type: 'liveCaptureFailed', permanent: true } as const;
 
   it('finalizes as skipped and un-blurred when no Bitstream Tap is reachable', () => {
-    const { state, all } = run([taint, { type: 'tapUnreachable' }]);
+    const { state, all } = run([permanentCaptureFailure, { type: 'tapUnreachable' }]);
 
     expect(state.phase).toBe('skipped');
     expect(all).toEqual(
@@ -272,7 +272,7 @@ describe('Video Session: tainted page pixels', () => {
   it('plays uncovered spans un-blurred when a tap is reachable, with status following presented spans', () => {
     const { state, all } = run([
       { type: 'tapReachable' },
-      taint,
+      permanentCaptureFailure,
       { type: 'verdict', sampleId: 'a' },
       { type: 'presented', unsafe: true },
     ]);
@@ -342,5 +342,45 @@ describe('Video Session: source change on the same media', () => {
 
     expect(last).toEqual([{ kind: 'startLiveMasking' }]);
     expect(state.status).toBe('unsafe');
+  });
+});
+
+describe('lookahead-only session (page pixels unreadable)', () => {
+  const born = () => createVideoSession({ pagePixelsReadable: false });
+
+  it('is born unblurred and without Live Masking', () => {
+    const { state, effects } = born();
+    expect(kinds(effects)).toEqual([]);
+    expect(state.blurred).toBe(false);
+    expect(state.liveMasking).toBe(false);
+  });
+
+  it('never starts Live Masking, whatever the coverage', () => {
+    const { all } = run(
+      [
+        { type: 'tapReachable' },
+        { type: 'play' },
+        { type: 'progress', coverageAheadSec: 0 },
+        { type: 'seeked', paused: false, covered: false, coverageAheadSec: 0 },
+        { type: 'pause', covered: false },
+      ],
+      born().state,
+    );
+    expect(kinds(all)).not.toContain('startLiveMasking');
+    expect(kinds(all)).not.toContain('requestLiveSample');
+    expect(kinds(all)).not.toContain('applyBlur');
+  });
+
+  it('reports a status from lookahead verdicts once the tap is reachable', () => {
+    const { state, last } = run([{ type: 'tapReachable' }, { type: 'verdict', sampleId: 's1' }], born().state);
+    expect(state.status).toBe('safe');
+    expect(kinds(last)).toEqual(['commitSample', 'setStatus']);
+  });
+
+  it('is skipped, never blurred, when no tap is reachable', () => {
+    const { state, all } = run([{ type: 'tapUnreachable' }], born().state);
+    expect(state.phase).toBe('skipped');
+    expect(state.status).toBe('skipped');
+    expect(kinds(all)).toEqual(['setStatus']);
   });
 });

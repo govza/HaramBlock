@@ -13,7 +13,7 @@ export type SessionStatus = 'safe' | 'unsafe' | 'skipped';
 export interface VideoSessionState {
   phase: SessionPhase;
   tap: TapState;
-  pixelsTainted: boolean;
+  pagePixelsReadable: boolean;
   visible: boolean;
   coverageAheadSec: number;
   liveMasking: boolean;
@@ -29,6 +29,7 @@ export interface VideoSessionState {
  */
 export interface VideoSessionOptions {
   unsafeSeen?: boolean;
+  pagePixelsReadable?: boolean;
 }
 
 export type SessionEvent =
@@ -70,7 +71,7 @@ export interface ReduceResult {
 const INITIAL_STATE: VideoSessionState = {
   phase: 'active',
   tap: 'pending',
-  pixelsTainted: false,
+  pagePixelsReadable: true,
   visible: true,
   coverageAheadSec: 0,
   liveMasking: false,
@@ -82,7 +83,11 @@ const INITIAL_STATE: VideoSessionState = {
 };
 
 export function createVideoSession(options: VideoSessionOptions = {}): ReduceResult {
-  const state = { ...INITIAL_STATE, unsafeSeen: options.unsafeSeen ?? false };
+  const unsafeSeen = options.unsafeSeen ?? false;
+  if (options.pagePixelsReadable === false) {
+    return { state: { ...INITIAL_STATE, unsafeSeen, pagePixelsReadable: false, blurred: false }, effects: [] };
+  }
+  const state = { ...INITIAL_STATE, unsafeSeen };
   return withLiveMaskingSynced({ state, effects: [{ kind: 'applyBlur' }] });
 }
 
@@ -105,9 +110,9 @@ export function reduce(state: VideoSessionState, event: SessionEvent): ReduceRes
 function reduceActive(state: VideoSessionState, event: SessionEvent): ReduceResult {
   switch (event.type) {
     case 'tapReachable':
-      return releaseTaintedCover({ state: { ...state, tap: 'reachable' }, effects: [] });
+      return releaseUnreadableCover({ state: { ...state, tap: 'reachable' }, effects: [] });
     case 'tapUnreachable':
-      return state.pixelsTainted ? finalizeSkipped(state) : unchanged({ ...state, tap: 'unreachable' });
+      return state.pagePixelsReadable ? unchanged({ ...state, tap: 'unreachable' }) : finalizeSkipped(state);
     case 'sourceChanged':
       return {
         state: { ...state, coverageAheadSec: event.coverageAheadSec, pausedFrameSampled: false },
@@ -131,7 +136,7 @@ function reduceActive(state: VideoSessionState, event: SessionEvent): ReduceResu
     case 'thumbnailVerdict':
       return firstVerdictSeen(state, [], event.unsafe);
     case 'liveCaptureFailed':
-      return event.permanent ? taintPixels(state) : unchanged(state);
+      return event.permanent ? markPixelsUnreadable(state) : unchanged(state);
     case 'presented':
       return presented(state, event.unsafe);
     case 'visibility':
@@ -146,7 +151,7 @@ function unchanged(state: VideoSessionState): ReduceResult {
 }
 
 function wantsLiveMasking(state: VideoSessionState): boolean {
-  if (state.phase !== 'active' || !state.visible || state.pixelsTainted) return false;
+  if (state.phase !== 'active' || !state.visible || !state.pagePixelsReadable) return false;
   if (state.tap !== 'reachable') return true;
   const threshold = state.liveMasking ? LIVE_MASKING_STOP_COVERAGE_SEC : LIVE_MASKING_START_COVERAGE_SEC;
   return state.coverageAheadSec < threshold;
@@ -162,7 +167,7 @@ function withLiveMaskingSynced(result: ReduceResult): ReduceResult {
 }
 
 function samplePausedFrame(state: VideoSessionState, covered: boolean): ReduceResult {
-  if (covered || state.pausedFrameSampled || state.pixelsTainted) return unchanged(state);
+  if (covered || state.pausedFrameSampled || !state.pagePixelsReadable) return unchanged(state);
   return { state: { ...state, pausedFrameSampled: true }, effects: [{ kind: 'requestLiveSample' }] };
 }
 
@@ -184,16 +189,16 @@ function presented(state: VideoSessionState, unsafe: boolean, effects: SessionEf
   };
 }
 
-function taintPixels(state: VideoSessionState): ReduceResult {
-  const next = { ...state, pixelsTainted: true };
+function markPixelsUnreadable(state: VideoSessionState): ReduceResult {
+  const next = { ...state, pagePixelsReadable: false };
   if (state.tap === 'unreachable') return finalizeSkipped(next);
-  if (state.tap === 'reachable') return releaseTaintedCover({ state: next, effects: [] });
+  if (state.tap === 'reachable') return releaseUnreadableCover({ state: next, effects: [] });
   return unchanged(next);
 }
 
-function releaseTaintedCover(result: ReduceResult): ReduceResult {
+function releaseUnreadableCover(result: ReduceResult): ReduceResult {
   const { state } = result;
-  if (!state.pixelsTainted || !state.blurred) return result;
+  if (state.pagePixelsReadable || !state.blurred) return result;
   return { state: { ...state, blurred: false }, effects: [...result.effects, { kind: 'clearBlur' }] };
 }
 
