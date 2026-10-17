@@ -38,6 +38,7 @@ const CLEANUP_BETWEEN_SESSIONS = envFlag(process.env.ANDROID_CLEANUP_BETWEEN_SES
 const { ANDROID_E2E_TAGS } = process.env;
 const DEVICE_EXT_PATH = '/data/local/tmp/haramblock-extension';
 const FENIX_TEST_ROOT = `/storage/emulated/0/Android/data/${FENIX_PACKAGE}/files/test_root`;
+const NAVIGATION_TIMEOUT_MS = 30_000;
 
 const keepDeviceAwake = (): void => {
   runAdbCleanup(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'], 'wake screen');
@@ -435,60 +436,45 @@ export const config: WebdriverIO.Config = {
     await browser.switchToWindow(handle);
 
     // With pageLoadStrategy 'none', browser.url() returns before the page
-    // loads. Override it to wait for navigation to actually complete by
-    // setting a JS marker on the old page and polling until it disappears.
+    // loads. Override it to wait until a new document is at the target URL.
+    // Each execute() runs in its own Marionette sandbox, so a page global set
+    // by one call is invisible to the next; performance.timeOrigin identifies
+    // the document instead. Re-navigating only after a timeout avoids loading
+    // the page twice, which replaced it under a running step.
     browser.overwriteCommand('url', async (origFn, path: string) => {
-      const waitForNavigation = async (): Promise<void> => {
-        let markerSet = false;
-        try {
-          await browser.execute(() => {
-            (globalThis as Record<string, unknown>).__wdioNav = true;
-          });
-          markerSet = true;
-        } catch {
-          /* page might be dead/unavailable */
-        }
+      const isTarget = (href: string): boolean => href.startsWith(path) || path.startsWith(href);
 
-        const prevUrl = markerSet ? null : await browser.getUrl().catch(() => '');
+      const navigate = async (): Promise<boolean> => {
+        const previousDocument = await browser.execute(() => performance.timeOrigin).catch(() => null);
         await origFn(path);
-
-        await browser.waitUntil(
-          async () => {
-            try {
-              if (markerSet) {
-                const marker = await browser.execute(() => (globalThis as Record<string, unknown>).__wdioNav);
-                if (marker === true) return false;
-              } else if (prevUrl !== null) {
-                if ((await browser.getUrl()) === prevUrl) return false;
+        return browser
+          .waitUntil(
+            async () => {
+              try {
+                const page = await browser.execute(() => ({
+                  document: performance.timeOrigin,
+                  href: location.href,
+                  ready: document.readyState,
+                }));
+                return page.document !== previousDocument && page.ready !== 'loading' && isTarget(page.href);
+              } catch {
+                return false;
               }
-              return await browser.execute(
-                () => document.readyState === 'interactive' || document.readyState === 'complete',
-              );
-            } catch {
-              return false;
-            }
-          },
-          { timeout: 30000, interval: 300 },
-        );
+            },
+            { timeout: NAVIGATION_TIMEOUT_MS, interval: 300 },
+          )
+          .then(() => true)
+          .catch(() => false);
       };
-
-      const landedOnTarget = async (): Promise<boolean> => {
-        const currentUrl = await browser.getUrl().catch(() => '');
-        if (!currentUrl) return false;
-        return currentUrl.startsWith(path) || path.startsWith(currentUrl);
-      };
-
-      await waitForNavigation();
 
       const MAX_NAVIGATION_ATTEMPTS = 3;
       for (let attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt++) {
-        if (await landedOnTarget()) return;
+        if (await navigate()) return;
         const currentUrl = await browser.getUrl().catch(() => '');
         console.warn(
-          `[android] Navigation to ${path} landed on ${currentUrl}; recovering (attempt ${attempt}/${MAX_NAVIGATION_ATTEMPTS}).`,
+          `[android] Navigation to ${path} did not land (on ${currentUrl}); retrying (attempt ${attempt}/${MAX_NAVIGATION_ATTEMPTS}).`,
         );
         keepDeviceAwake();
-        await waitForNavigation();
       }
       const finalUrl = await browser.getUrl().catch(() => '');
       throw new Error(`[android] Navigation to ${path} failed; stuck on ${finalUrl}`);
