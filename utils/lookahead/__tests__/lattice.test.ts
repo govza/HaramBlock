@@ -17,12 +17,10 @@ describe('Sample Lattice', () => {
 
   it('probes the midpoint of two level-0 neighbours on the next level', () => {
     expect(probeBetween(1_000_000, 1_500_000)).toBe(1_250_000);
-    expect(probeBetween(1_250_000, 1_500_000)).toBe(1_375_000);
-    expect(probeBetween(1_375_000, 1_500_000)).toBe(1_437_500);
   });
 
-  it('stops refining at 62.5 ms spacing', () => {
-    expect(probeBetween(1_437_500, 1_500_000)).toBeNull();
+  it('stops refining at 250 ms spacing', () => {
+    expect(probeBetween(1_250_000, 1_500_000)).toBeNull();
   });
 
   it('probes the coarsest Lattice Point nearest the midpoint between off-lattice Keyframe Points', () => {

@@ -1,5 +1,7 @@
 export const LEVEL0_SPACING_US = 500_000;
-export const FINEST_SPACING_US = 62_500;
+export const FINEST_SPACING_US = 250_000;
+
+export const PRE_MASK_LEAD_SEC = LEVEL0_SPACING_US / 1e6;
 
 const FLOAT_NOISE_US = 1e-3;
 

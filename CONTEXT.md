@@ -55,8 +55,8 @@ short leak when content turns unsafe. _Avoid_: realtime mode, overlay mode, fall
 [ADR 0004](docs/adr/0004-bitstream-lookahead-replaces-continuous-dvr.md)
 
 **Mask Presenter**: The overlay above a natively playing video that shows the masks covering its
-extrapolated playhead, from 100 ms before an unsafe span to the span's end. _Avoid_: DVR, canvas
-player. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
+extrapolated playhead, from the last clean sample before an unsafe span (at most 500 ms before it)
+to the span's end. _Avoid_: DVR, canvas player. See [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
 **Safe / Unsafe image**: An image without / with predictions. Unsafe images are masked when Forced
 Visibility is `'auto'`. _Avoid_: clean image, flagged image. See
@@ -96,8 +96,8 @@ Defined in full in [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md); the governin
 
 **Sample Lattice**: The fixed media times every client samples at, identical across browsers and
 renditions so verdicts can be shared: level 0 every 0.5 s, each further level halving the spacing,
-down to 62.5 ms. Levels nest, so a denser level contains every coarser point. _Avoid_: grid,
-sampling interval, cadence
+down to 250 ms. Levels nest, so a denser level contains every coarser point. _Avoid_: grid, sampling
+interval, cadence
 
 **Lattice Point**: One media time on the Sample Lattice; its verdict describes the frame presented
 at that time. The unit the verdict cache is keyed by. _Avoid_: sample time, tick

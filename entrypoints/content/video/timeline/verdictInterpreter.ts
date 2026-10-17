@@ -1,9 +1,10 @@
-import { BRIDGE_HORIZON_SEC, COVERAGE_MAX_GAP_SEC, PRE_MASK_LEAD_SEC } from '@/entrypoints/content/video/maskTiming';
+import { BRIDGE_HORIZON_SEC, COVERAGE_MAX_GAP_SEC } from '@/entrypoints/content/video/maskTiming';
 import {
   VerdictTimeline,
   type MediaExtent,
   type VerdictEntry,
 } from '@/entrypoints/content/video/timeline/verdictTimeline';
+import { PRE_MASK_LEAD_SEC } from '@/utils/lookahead/lattice';
 
 export type VerdictLookup = { kind: 'unsafe'; entries: VerdictEntry[] } | { kind: 'clean' } | { kind: 'none' };
 

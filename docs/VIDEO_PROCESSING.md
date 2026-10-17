@@ -36,7 +36,7 @@ from each SourceBuffer's byte stream (not from appends) and demuxed as init segm
 segment, chunk, append
 
 **Sample Lattice / Lattice Point**: The fixed media times every client samples at: level 0 every 0.5
-s, each further level halving the spacing down to 62.5 ms; levels nest. A Lattice Point is one such
+s, each further level halving the spacing down to 250 ms; levels nest. A Lattice Point is one such
 time in integer µs; its sample describes the frame presented at that time (the last frame with PTS ≤
 t, in page media time). _Avoid_: grid, cadence, tick
 
@@ -45,9 +45,9 @@ used instead of Lattice Points so samples never pay a GOP Prefix download each. 
 sample
 
 **Refinement Probe**: A sample on a finer lattice level: at the midpoint between two neighbouring
-stored samples that disagree (repeated down to 62.5 ms), or half the sample's own lattice spacing on
-each side of a Suspicious Clean sample. Both plans derive from stored labels and scores only, so
-every reader of the same samples plans the same probes. _Avoid_: bisection sample
+stored samples that disagree (down to 250 ms), or half the sample's own lattice spacing on each side
+of a Suspicious Clean sample. Both plans derive from stored labels and scores only, so every reader
+of the same samples plans the same probes. _Avoid_: bisection sample
 
 **Suspicious Clean**: A clean sample whose top unsafe score is at least the suspicion threshold
 (half the reader's own score threshold) but below the threshold itself. _Avoid_: near miss
@@ -300,13 +300,14 @@ Samples analysed while it is `unknown` are held, published once it is `vod`, and
 - Every rAF it computes `currentTime + min(now − lastChangeSeen, 100 ms) × playbackRate`
   (`MAX_EXTRAPOLATION_SEC`), folded modulo the duration for looping videos. It never uses rVFC
   `mediaTime`, which Firefox does not wrap on loop.
-- The Verdict Interpreter answers for that time: masks start `PRE_MASK_LEAD_SEC` (100 ms) before an
-  unsafe sample and end at the clean sample that closes the span (the clean-cut rule, no trailing
-  pad). A sample behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s). Under
-  lookahead the mask ends exactly at the span end. Under Live Masking asymmetric hysteresis holds it
-  until a confirmed clean sample: an unconfirmed clean sample (nothing after it yet, or an unsafe
-  one) keeps the mask, and at the frontier or before a coverage hole an unsafe sample holds however
-  late the next sample arrives.
+- The Verdict Interpreter answers for that time: masks start `PRE_MASK_LEAD_SEC` (one level-0
+  spacing, 500 ms) before an unsafe sample, so the whole gap after the last clean sample is covered,
+  and end at the clean sample that closes the span (the clean-cut rule, no trailing pad). A sample
+  behind the playhead carries forward only within `COVERAGE_MAX_GAP_SEC` (2 s). Under lookahead the
+  mask ends exactly at the span end. Under Live Masking asymmetric hysteresis holds it until a
+  confirmed clean sample: an unconfirmed clean sample (nothing after it yet, or an unsafe one) keeps
+  the mask, and at the frontier or before a coverage hole an unsafe sample holds however late the
+  next sample arrives.
 - The overlay is a div homed next to the video (by the shared overlay anchor, shadow-DOM aware) with
   `backdrop-filter` built from the host's masking settings and a `clip-path: path()` built from the
   RLE mask grids mapped onto the rendered content rect. No page pixels are read, so presenting costs
