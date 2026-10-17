@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { BRIDGE_HORIZON_SEC, COVERAGE_MAX_GAP_SEC, PRE_MASK_LEAD_SEC } from '@/entrypoints/content/video/maskTiming';
+import { BRIDGE_HORIZON_SEC, COVERAGE_MAX_GAP_SEC } from '@/entrypoints/content/video/maskTiming';
 import { VerdictInterpreter } from '@/entrypoints/content/video/timeline/verdictInterpreter';
+import { PRE_MASK_LEAD_SEC } from '@/utils/lookahead/lattice';
 
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
 
@@ -160,13 +161,16 @@ describe('VerdictInterpreter under lookahead', () => {
     expect(track.verdictFor(10.6)).toEqual({ kind: 'clean' });
   });
 
-  it('presents a clean verdict between two unsafe ones as clean', () => {
+  it('presents a refined clean stretch between two unsafe verdicts as clean, masking the gap before the next', () => {
     const track = new VerdictInterpreter();
+    const nextUnsafe = entry(11, true);
     add(track, entry(10, true));
     add(track, entry(10.5, false));
-    add(track, entry(11, true));
+    add(track, entry(10.75, false));
+    add(track, nextUnsafe);
 
     expect(track.verdictFor(10.6)).toEqual({ kind: 'clean' });
+    expect(track.verdictFor(10.8)).toEqual({ kind: 'unsafe', entries: [nextUnsafe] });
   });
 });
 

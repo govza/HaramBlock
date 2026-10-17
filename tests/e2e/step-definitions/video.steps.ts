@@ -1,5 +1,6 @@
 import { Given, Then, When } from '@wdio/cucumber-framework';
 
+import { PRE_MASK_LEAD_SEC } from '../../../utils/lookahead/lattice.js';
 import {
   buildGalleryUrl,
   buildVideoFixtureUrl,
@@ -20,7 +21,6 @@ const TAP_RESOLUTION_TIMEOUT = 20_000;
 const VIDEO_TAP_ATTR = 'data-hb-video-tap';
 const PRESENTED_WINDOW_SEC = 0.4;
 const RAF_ORDER_SLACK_SEC = 0.05;
-const PRE_MASK_LEAD_SEC = 0.1;
 
 const countVisibleOnPage = async (selector: string): Promise<number> =>
   browser.execute((sel: string) => {

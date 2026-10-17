@@ -361,12 +361,12 @@ describe('Lookahead Analysis cache and refinement', () => {
     expect(harness.published).toHaveLength(publishedBefore);
   });
 
-  it('refines disagreeing neighbours down to 62.5 ms', async () => {
+  it('refines disagreeing neighbours down to 250 ms', async () => {
     const harness = createHarness({ verdictAt: pointUs => (pointUs >= 2_000_000 ? unsafe() : CLEAN) });
     await appendVp9(harness);
 
     const probes = harness.requestedPoints().filter(pointUs => pointUs % 500_000 !== 0);
-    expect(probes).toEqual([1_750_000, 1_875_000, 1_937_500]);
+    expect(probes).toEqual([1_750_000]);
   });
 
   it('probes both sides of a Suspicious Clean sample', async () => {
@@ -379,7 +379,7 @@ describe('Lookahead Analysis cache and refinement', () => {
 
   it.each([
     [0.5, [750_000, 1_250_000]],
-    [0.3, [750_000, 875_000, 937_500, 1_062_500, 1_125_000, 1_250_000]],
+    [0.3, [750_000, 1_250_000]],
   ])('judges a floor detection under the reader threshold %s', async (scoreThreshold, expectedProbes) => {
     const harness = createHarness({ verdictAt: pointUs => (pointUs === 1_000_000 ? unsafe(0.4) : CLEAN) });
     await appendVp9(harness, scoreThreshold);
