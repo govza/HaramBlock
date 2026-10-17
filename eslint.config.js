@@ -11,7 +11,7 @@ import path from 'node:path';
 export default [
   includeIgnoreFile(path.resolve(import.meta.dirname, '.gitignore')),
   {
-    ignores: ['dist/**', 'build/**', '*.min.js', 'public/models/**'],
+    ignores: ['dist/**', 'build/**', '*.min.js', 'public/models/**', 'public/wasm-decoders/**'],
   },
   js.configs.recommended,
   {
@@ -199,7 +199,7 @@ export default [
   },
   // Node-only tooling scripts (plain .mjs run by package.json scripts)
   {
-    files: ['scripts/*.mjs'],
+    files: ['scripts/*.mjs', 'scripts/wasm-decoders/*.mjs'],
     languageOptions: {
       globals: {
         ...globals.node,

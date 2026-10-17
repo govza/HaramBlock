@@ -1,0 +1,303 @@
+async function createAv1Decoder(moduleArg = {}) {
+  var Module = moduleArg;
+  var ENVIRONMENT_IS_WEB = !!globalThis.window;
+  var ENVIRONMENT_IS_WORKER = !!globalThis.WorkerGlobalScope;
+  var ENVIRONMENT_IS_NODE = globalThis.process?.versions?.node && globalThis.process?.type != 'renderer';
+  var programArgs = [];
+  var thisProgram = './this.program';
+  var quit_ = (status, toThrow) => {
+    throw toThrow;
+  };
+  var _scriptName;
+  if (typeof __filename != 'undefined') {
+    _scriptName = __filename;
+  } else if (ENVIRONMENT_IS_WORKER) {
+    _scriptName = self.location.href;
+  }
+  var scriptDirectory = '';
+  function locateFile(path) {
+    if (Module['locateFile']) {
+      return Module['locateFile'](path, scriptDirectory);
+    }
+    return scriptDirectory + path;
+  }
+  var readAsync, readBinary;
+  if (ENVIRONMENT_IS_NODE) {
+    var fs = require('node:fs');
+    scriptDirectory = __dirname + '/';
+    readBinary = filename => {
+      filename = isFileURI(filename) ? new URL(filename) : filename;
+      var ret = fs.readFileSync(filename);
+      return ret;
+    };
+    readAsync = async (filename, binary = true) => {
+      filename = isFileURI(filename) ? new URL(filename) : filename;
+      var ret = fs.readFileSync(filename, binary ? undefined : 'utf8');
+      return ret;
+    };
+    if (process.argv.length > 1) {
+      thisProgram = process.argv[1].replace(/\\/g, '/');
+    }
+    programArgs = process.argv.slice(2);
+    quit_ = (status, toThrow) => {
+      process.exitCode = status;
+      throw toThrow;
+    };
+  } else if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
+    try {
+      scriptDirectory = new URL('.', _scriptName).href;
+    } catch {}
+    {
+      if (ENVIRONMENT_IS_WORKER) {
+        readBinary = url => {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', url, false);
+          xhr.responseType = 'arraybuffer';
+          xhr.send(null);
+          return new Uint8Array(xhr.response);
+        };
+      }
+      readAsync = async url => {
+        var response = await fetch(url, { credentials: 'same-origin' });
+        if (response.ok) {
+          return response.arrayBuffer();
+        }
+        throw new Error(response.status + ' : ' + response.url);
+      };
+    }
+  } else {
+  }
+  var out = console.log.bind(console);
+  var err = console.error.bind(console);
+  var wasmBinary;
+  var ABORT = false;
+  var isFileURI = filename => filename.startsWith('file://');
+  class EmscriptenEH {}
+  class EmscriptenSjLj extends EmscriptenEH {}
+  var runtimeInitialized = false;
+  function getMemoryBuffer() {
+    return wasmMemory.buffer;
+  }
+  function updateMemoryViews() {
+    if (HEAP8?.buffer?.resizable) return;
+    var b = getMemoryBuffer();
+    HEAP8 = new Int8Array(b);
+    Module['HEAPU8'] = HEAPU8 = new Uint8Array(b);
+  }
+  function preRun() {
+    var preRun = Module['preRun'];
+    if (preRun) {
+      if (typeof preRun == 'function') preRun = [preRun];
+      onPreRuns.push(...preRun);
+    }
+    callRuntimeCallbacks(onPreRuns);
+  }
+  function initRuntime() {
+    runtimeInitialized = true;
+    wasmExports['e']();
+  }
+  function postRun() {
+    var postRun = Module['postRun'];
+    if (postRun) {
+      if (typeof postRun == 'function') postRun = [postRun];
+      onPostRuns.push(...postRun);
+    }
+    callRuntimeCallbacks(onPostRuns);
+  }
+  function abort(what) {
+    Module['onAbort']?.(what);
+    what = `Aborted(${what})`;
+    err(what);
+    ABORT = true;
+    what += '. Build with -sASSERTIONS for more info.';
+    var e = new WebAssembly.RuntimeError(what);
+    throw e;
+  }
+  var wasmBinaryFile;
+  function findWasmBinary() {
+    return locateFile('av1.wasm');
+  }
+  function getBinarySync(file) {
+    if (readBinary) {
+      return readBinary(file);
+    }
+    throw 'both async and sync fetching of the wasm failed';
+  }
+  async function getWasmBinary(binaryFile) {
+    if (!wasmBinary) {
+      try {
+        var response = await readAsync(binaryFile);
+        return new Uint8Array(response);
+      } catch {}
+    }
+    return getBinarySync(binaryFile);
+  }
+  async function instantiateArrayBuffer(binaryFile, imports) {
+    try {
+      var binary = await getWasmBinary(binaryFile);
+      var instance = await WebAssembly.instantiate(binary, imports);
+      return instance;
+    } catch (reason) {
+      err(`failed to asynchronously prepare wasm: ${reason}`);
+      abort(reason);
+    }
+  }
+  async function instantiateAsync(binary, binaryFile, imports) {
+    if (!binary && !ENVIRONMENT_IS_NODE) {
+      try {
+        var response = fetch(binaryFile, { credentials: 'same-origin' });
+        var instantiationResult = await WebAssembly.instantiateStreaming(response, imports);
+        return instantiationResult;
+      } catch (reason) {
+        err(`wasm streaming compile failed: ${reason}`);
+        err('falling back to ArrayBuffer instantiation');
+      }
+    }
+    return instantiateArrayBuffer(binaryFile, imports);
+  }
+  function getWasmImports() {
+    var imports = { a: wasmImports };
+    return imports;
+  }
+  async function createWasm() {
+    function receiveInstance(instance) {
+      wasmExports = instance.exports;
+      assignWasmExports(wasmExports);
+      updateMemoryViews();
+      return wasmExports;
+    }
+    function receiveInstantiationResult(result) {
+      return receiveInstance(result['instance']);
+    }
+    var info = getWasmImports();
+    var instantiateWasm = Module['instantiateWasm'];
+    if (instantiateWasm) {
+      return new Promise(resolve => {
+        instantiateWasm(info, inst => resolve(receiveInstance(inst)));
+      });
+    }
+    wasmBinaryFile ??= findWasmBinary();
+    var result = await instantiateAsync(wasmBinary, wasmBinaryFile, info);
+    var exports = receiveInstantiationResult(result);
+    return exports;
+  }
+  class ExitStatus {
+    name = 'ExitStatus';
+    constructor(status) {
+      this.message = `Program terminated with exit(${status})`;
+      this.status = status;
+    }
+  }
+  var HEAP8;
+  var callRuntimeCallbacks = callbacks => {
+    while (callbacks.length > 0) {
+      callbacks.shift()(Module);
+    }
+  };
+  var onPostRuns = [];
+  var onPreRuns = [];
+  var noExitRuntime = true;
+  var __abort_js = () => abort('');
+  var getHeapMax = () => 2147483648;
+  var _emscripten_get_heap_max = () => getHeapMax();
+  var alignMemory = (size, alignment) => Math.ceil(size / alignment) * alignment;
+  var growMemory = size => {
+    var oldHeapSize = wasmMemory.buffer.byteLength;
+    var pages = ((size - oldHeapSize + 65535) / 65536) | 0;
+    try {
+      wasmMemory.grow(pages);
+      updateMemoryViews();
+      return 1;
+    } catch (e) {}
+  };
+  var HEAPU8;
+  var _emscripten_resize_heap = requestedSize => {
+    var oldSize = HEAPU8.length;
+    requestedSize >>>= 0;
+    var maxHeapSize = getHeapMax();
+    if (requestedSize > maxHeapSize) {
+      return false;
+    }
+    for (var cutDown = 1; cutDown <= 4; cutDown *= 2) {
+      var overGrownHeapSize = oldSize * (1 + 0.2 / cutDown);
+      overGrownHeapSize = Math.min(overGrownHeapSize, requestedSize + 100663296);
+      var newSize = Math.min(maxHeapSize, alignMemory(Math.max(requestedSize, overGrownHeapSize), 65536));
+      var replacement = growMemory(newSize);
+      if (replacement) {
+        return true;
+      }
+    }
+    return false;
+  };
+  {
+    if (Module['noExitRuntime']) noExitRuntime = Module['noExitRuntime'];
+    if (Module['print']) out = Module['print'];
+    if (Module['printErr']) err = Module['printErr'];
+    if (Module['arguments']) programArgs = Module['arguments'];
+    if (Module['thisProgram']) thisProgram = Module['thisProgram'];
+    var preInit = Module['preInit'];
+    if (preInit) {
+      if (typeof preInit == 'function') Module['preInit'] = preInit = [preInit];
+      while (preInit.length > 0) {
+        preInit.shift()();
+      }
+    }
+  }
+  var _dec_open,
+    _malloc,
+    _dec_close,
+    _free,
+    _dec_reset,
+    _dec_send,
+    _dec_drain,
+    _dec_receive,
+    _dec_width,
+    _dec_height,
+    _dec_plane,
+    _dec_stride,
+    _dec_pts,
+    _dec_format,
+    memory,
+    __indirect_function_table,
+    wasmMemory;
+  function assignWasmExports(wasmExports) {
+    _dec_open = Module['_dec_open'] = wasmExports['f'];
+    _malloc = Module['_malloc'] = wasmExports['g'];
+    _dec_close = Module['_dec_close'] = wasmExports['h'];
+    _free = Module['_free'] = wasmExports['i'];
+    _dec_reset = Module['_dec_reset'] = wasmExports['j'];
+    _dec_send = Module['_dec_send'] = wasmExports['k'];
+    _dec_drain = Module['_dec_drain'] = wasmExports['l'];
+    _dec_receive = Module['_dec_receive'] = wasmExports['m'];
+    _dec_width = Module['_dec_width'] = wasmExports['n'];
+    _dec_height = Module['_dec_height'] = wasmExports['o'];
+    _dec_plane = Module['_dec_plane'] = wasmExports['p'];
+    _dec_stride = Module['_dec_stride'] = wasmExports['q'];
+    _dec_pts = Module['_dec_pts'] = wasmExports['r'];
+    _dec_format = Module['_dec_format'] = wasmExports['s'];
+    memory = wasmMemory = wasmExports['d'];
+    __indirect_function_table = wasmExports['__indirect_function_table'];
+  }
+  var wasmImports = { c: __abort_js, b: _emscripten_get_heap_max, a: _emscripten_resize_heap };
+  async function run() {
+    preRun();
+    var setStatus = Module['setStatus'];
+    if (setStatus) {
+      setStatus('Running...');
+      await new Promise(resolve => setTimeout(resolve, 1));
+      setTimeout(setStatus, 1, '');
+    }
+    if (ABORT) return;
+    initRuntime();
+    Module['onRuntimeInitialized']?.();
+    postRun();
+  }
+  var wasmExports;
+  wasmExports = await createWasm();
+  await run();
+  return Module;
+}
+if (typeof exports === 'object' && typeof module === 'object') {
+  module.exports = createAv1Decoder;
+  module.exports.default = createAv1Decoder;
+} else if (typeof define === 'function' && define['amd']) define([], () => createAv1Decoder);
