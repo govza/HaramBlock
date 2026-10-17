@@ -1,14 +1,15 @@
+import { lookaheadDecoder } from '@/utils/lookahead/decoderSelection';
 import { LookaheadHost } from '@/utils/lookahead/host';
 import { LOOKAHEAD_PORT_NAME, type FirefoxPortMessage, type OpenAnalysis } from '@/utils/lookahead/protocol';
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
 import { toInferredSample } from '@/utils/lookahead/sampleScores';
-import { createWebCodecsDecoder, toModelInputBitmap, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 import { getLogger } from '@/utils/telemetry';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { InferencePort, InferredSample, SampleCachePort } from '@/utils/lookahead/ports';
+import type { BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 
 const log = getLogger('lookaheadHostService');
 
@@ -25,7 +26,11 @@ export class LookaheadHostService {
     browser.runtime.onConnect.addListener(port => {
       if (port.name !== LOOKAHEAD_PORT_NAME) return;
       const host = new LookaheadHost({
-        decoder: open => createWebCodecsDecoder(frame => toModelInputBitmap(frame, open.inputSize), 'prefer-software'),
+        decoder: open =>
+          lookaheadDecoder(open.inputSize, {
+            hardwareAcceleration: 'prefer-software',
+            onChosen: (codec, decoder) => log.info('lookahead.decoder.chosen', { codec, decoder }),
+          }),
         inference: open => this.inferencePort(open),
         cache: open => this.cachePort(open),
         rangeSource: url => createRangeFetchSource(url),

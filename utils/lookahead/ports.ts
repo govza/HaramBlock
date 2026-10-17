@@ -75,6 +75,14 @@ export interface DecoderPort {
 }
 
 /**
+ * A `DecoderPort` that also answers, without decoding, whether it can take a job with this config.
+ */
+export interface CapableDecoder extends DecoderPort {
+  readonly kind: 'webcodecs' | 'wasm';
+  supports(config: VideoDecoderConfig): Promise<boolean>;
+}
+
+/**
  * A frame to infer for a Lattice Point, at the priority the scheduler derived from its distance to the playhead.
  */
 export interface InferenceRequest {
