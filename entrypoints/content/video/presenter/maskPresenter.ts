@@ -20,6 +20,7 @@ export interface MaskPresenterOptions {
   interpreter: VerdictInterpreter;
   verdictOptions: () => VerdictForOptions;
   masking: () => IMaskingSettings;
+  pagePixelsReadable: boolean;
   onPresented(unsafe: boolean): void;
   onFrame(mediaTimeSec: number): void;
 }
@@ -126,7 +127,7 @@ export class MaskPresenter {
       this.clippedContent = geometry.content;
     }
     const masking = this.options.masking();
-    const pixelated = this.pixelation.paint(geometry.content, masking);
+    const pixelated = this.options.pagePixelsReadable && this.pixelation.paint(geometry.content, masking);
     const filter = pixelated ? '' : buildMaskingFilter(masking);
     if (filter !== this.filter) {
       this.filter = filter;

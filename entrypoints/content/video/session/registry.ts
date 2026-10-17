@@ -120,6 +120,7 @@ class VideoSessionRegistry {
   private readonly userToggledCacheKeys = new WeakMap<HTMLVideoElement, string>();
   private readonly unsafeStrictnessByCacheKey = new Map<string, number>();
   private documentVisibilityBound = false;
+  private pagePixelsReadable = true;
 
   private readonly forced = new ForcedPresentation({
     attach: (video, hostSettings) => this.attach(video, hostSettings),
@@ -135,6 +136,10 @@ class VideoSessionRegistry {
     handleFor: video => this.byVideo.get(video),
     suspendedChanged: handle => this.applyVisibility(handle),
   });
+
+  setPagePixelsReadable(readable: boolean): void {
+    this.pagePixelsReadable = readable;
+  }
 
   attach(video: HTMLVideoElement, hostSettings: IHostSettings): void {
     this.sweepDisconnected();
@@ -173,6 +178,7 @@ class VideoSessionRegistry {
 
     const born = createVideoSession({
       unsafeSeen: this.unsafeStrictnessByCacheKey.get(handle.cacheKey) === hostSettings.strictness,
+      pagePixelsReadable: this.pagePixelsReadable,
     });
     handle.state = born.state;
     this.execute(handle, born.effects);
@@ -243,6 +249,7 @@ class VideoSessionRegistry {
         interpreter,
         verdictOptions: () => verdictOptionsOf(handle.state),
         masking: () => handle.hostSettings.masking,
+        pagePixelsReadable: this.pagePixelsReadable,
         onPresented: unsafe => this.dispatch(handle, { type: 'presented', unsafe }),
         onFrame: mediaTimeSec => this.onPresentedFrame(handle, mediaTimeSec),
       }),
@@ -401,7 +408,7 @@ class VideoSessionRegistry {
       pending.hostSettings = hostSettings;
       return;
     }
-    applyWholeBlur(video, hostSettings);
+    if (this.pagePixelsReadable) applyWholeBlur(video, hostSettings);
     const entry: PendingAttachment = { hostSettings, cancel: () => {} };
     const onLoadstart = () => {
       if (!resolveVideoSource(video)) return;
@@ -566,6 +573,10 @@ class VideoSessionRegistry {
 
   private queueThumbnail(handle: SessionHandle): void {
     const { video } = handle;
+    if (!this.pagePixelsReadable) {
+      if (video.poster) void this.captureThumbnail(handle);
+      return;
+    }
     const capture = () => void this.captureThumbnail(handle);
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.poster) capture();
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;

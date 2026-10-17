@@ -32,7 +32,7 @@ function renderFrame(): void {
   for (const frame of pending) frame(performance.now());
 }
 
-function mount(prepareVideo: (video: HTMLVideoElement) => void = () => {}) {
+function mount(prepareVideo: (video: HTMLVideoElement) => void = () => {}, pagePixelsReadable = true) {
   const container = document.createElement('div');
   const video = document.createElement('video');
   prepareVideo(video);
@@ -45,6 +45,7 @@ function mount(prepareVideo: (video: HTMLVideoElement) => void = () => {}) {
     interpreter: { verdictFor: () => lookup } as unknown as VerdictInterpreter,
     verdictOptions: () => ({}),
     masking: () => ({ blurIntensity: 50, pixelationScale: 0, grayscale: false, dark: false }),
+    pagePixelsReadable,
     onPresented: () => {},
     onFrame: () => {},
   });
@@ -218,6 +219,16 @@ describe('Mask Presenter effect', () => {
     renderFrame();
 
     expect(cancel).toHaveBeenCalled();
+  });
+
+  it('blurs instead of pixelating when page pixels are unreadable (lookahead-only)', () => {
+    const { video } = mount(() => {}, false);
+    const drawImage = withDecodedFrame(video);
+    renderFrame();
+
+    expect(drawImage).not.toHaveBeenCalled();
+    expect(canvasOf(document)?.style.display).not.toBe('block');
+    expect(overlayOf(document)?.style.getPropertyValue('backdrop-filter')).toContain('blur');
   });
 
   it('blurs the masked region while the video has no decoded frame to pixelate', () => {

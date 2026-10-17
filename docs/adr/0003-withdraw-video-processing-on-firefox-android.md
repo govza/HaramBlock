@@ -1,6 +1,7 @@
 # Withdraw video processing on Firefox for Android
 
-Status: accepted (2026-08-21)
+Status: superseded by ADR [0005](0005-wasm-lookahead-decoder-on-firefox-android.md) (2026-10-17);
+accepted 2026-08-21
 
 On Firefox for Android (Fenix), the video pipeline was actively harmful: videos on processed pages
 rendered as a solid black rectangle with audio still playing, or briefly blurred and then played

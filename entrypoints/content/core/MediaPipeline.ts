@@ -19,7 +19,7 @@ export class MediaPipeline {
   private readonly badgeCounter: BadgeCounter;
   private unsubscribeFns: Array<() => void> = [];
 
-  constructor(private readonly opts: { hostSettings: IHostSettings; videoProcessingAvailable: boolean }) {
+  constructor(private readonly opts: { hostSettings: IHostSettings }) {
     this.badgeCounter = new BadgeCounter();
     this.imageProcessor = new ImageProcessor(opts.hostSettings, this.badgeCounter);
     this.videoProcessor = new VideoProcessor(opts.hostSettings);
@@ -44,11 +44,11 @@ export class MediaPipeline {
   }
 
   private get shouldProcessVideo(): boolean {
-    return routesVideos(this.policy, this.opts.videoProcessingAvailable);
+    return routesVideos(this.policy);
   }
 
   private get shouldRunVideoInference(): boolean {
-    return runsVideoInference(this.policy, this.opts.videoProcessingAvailable);
+    return runsVideoInference(this.policy);
   }
 
   seedCachedPredictions(preds: IImagePrediction[]): void {

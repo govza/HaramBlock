@@ -11,8 +11,9 @@ import {
   injectPredictionDomStyles,
   injectVideoDiscoveryHidingStyles,
 } from '@/entrypoints/content/presentation/styleInjecting';
+import { videoSessions } from '@/entrypoints/content/video/session/registry';
 import { connectMseHook } from '@/entrypoints/content/video/tap/lookaheadClient';
-import { getVideoProcessingAvailable } from '@/utils/capabilities/videoProcessing';
+import { getVideoCapability, pagePixelsReadable } from '@/utils/capabilities/videoCapability';
 import { isExtensionContextValid } from '@/utils/extensionContext';
 import { backgroundRpc, onMessageChannelPermanentDeath, warmupMessageChannel } from '@/utils/messaging/content';
 import { ATTR, getLogger } from '@/utils/telemetry';
@@ -54,11 +55,11 @@ export default defineContentScript({
     const hideInitStyle = injectGlobalHidingDomStyles();
     injectPredictionDomStyles();
 
-    // Withdrawn platforms (ADR 0003) must not hold videos hidden even during
-    // bootstrap; the cached flag resolves in a few ms, before first paint.
-    const videoProcessingAvailablePromise = getVideoProcessingAvailable().then(available => {
-      if (!available) hideInitStyle.stopHidingVideos();
-      return available;
+    const videoCapabilityPromise = getVideoCapability().then(capability => {
+      const readable = pagePixelsReadable(capability);
+      videoSessions.setPagePixelsReadable(readable);
+      if (!readable) hideInitStyle.stopHidingVideos();
+      return capability;
     });
 
     const lifecycle = new InstanceLifecycle({
@@ -94,7 +95,7 @@ export default defineContentScript({
       // (e.g. Bing's detail overlay) must not wipe the top document's count.
       if (globalThis.self === globalThis.top) void resetBadgeCount();
 
-      const videoProcessingAvailable = await videoProcessingAvailablePromise;
+      const videoCapability = await videoCapabilityPromise;
 
       await useHostData(({ settings: hostSettings, predictions: cachedPredictions }) => {
         // Orphaned while the settings request was in flight: creating the
@@ -108,15 +109,12 @@ export default defineContentScript({
         }
 
         if (hostSettings.policy.behavior !== 'whitelist') {
-          const protectsVideos = routesVideos(hostSettings.policy, videoProcessingAvailable);
+          const holdsVideosUntilDiscovered = routesVideos(hostSettings.policy) && pagePixelsReadable(videoCapability);
           // Install before removing the broad startup hide. This narrower rule
           // remains for late Reddit/custom-player construction and is removed
           // with the pipeline when settings change.
-          const videoDiscoveryStyle = protectsVideos ? injectVideoDiscoveryHidingStyles() : null;
-          const pipeline = new MediaPipeline({
-            hostSettings,
-            videoProcessingAvailable,
-          });
+          const videoDiscoveryStyle = holdsVideosUntilDiscovered ? injectVideoDiscoveryHidingStyles() : null;
+          const pipeline = new MediaPipeline({ hostSettings });
           pipeline.seedCachedPredictions(cachedPredictions);
 
           // DomObserver accepts Document and handles an incomplete tree. Start
