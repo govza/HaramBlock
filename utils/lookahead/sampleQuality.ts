@@ -19,10 +19,6 @@ type QualityInputs = Pick<IStoredVideoSample, 'input' | 'source'>;
 
 const longSideOf = (size: IFrameSize): number => Math.max(size.width, size.height);
 
-/**
- * The model input is the frame scaled down to fit the model, so its long side is already the smaller
- * of the source long side and the model input size; a sample without a source size ranks by it alone.
- */
 function qualityRankOf({ input, source }: QualityInputs): QualityRank {
   const inputLongSide = longSideOf(input);
   if (!source) return { effectiveLongSide: inputLongSide, sourcePixels: input.width * input.height };
@@ -42,10 +38,6 @@ export function isHigherQuality(incoming: QualityInputs, stored: QualityInputs):
 export const aspectRatioOf = (size: IFrameSize): number | null =>
   size.width > 0 && size.height > 0 ? size.width / size.height : null;
 
-/**
- * A sample whose source frame had another aspect ratio than the playing video would map its scores
- * onto a stretched content rect.
- */
 export function matchesAspectRatio(
   sample: Pick<IStoredVideoSample, 'source'>,
   playingAspectRatio: number | null,
@@ -82,11 +74,6 @@ interface CoveredStretch {
   endUs: number;
 }
 
-/**
- * A sample whose neighbours are both further apart than the lattice spacing is a Keyframe Point standing for its
- * whole GOP, so the run it belongs to continues across that GOP; a lattice-spaced run ends at its last point, where
- * a hole (a seek past unanalysed media) begins.
- */
 function coveredStretchesOf(sortedPoints: readonly number[]): CoveredStretch[] {
   const stretches: CoveredStretch[] = [];
   let current: CoveredStretch | null = null;
@@ -115,12 +102,6 @@ const isWithin = (stretches: readonly CoveredStretch[], pointUs: number): boolea
 const byRankDescending = (a: RankedSamples, b: RankedSamples): number =>
   b.rank - a.rank || a.modelId.localeCompare(b.modelId);
 
-/**
- * Picks one sample per point across model versions without mixing them within a stretch: the best-ranked version
- * wherever it covers the media, lower-ranked ones only outside every better version's covered stretches. Where a
- * lower-ranked sample at the same point is unsafe for this reader and the selected one is clean, the unsafe sample
- * wins so the cache fails closed.
- */
 export function selectAcrossVersions(
   versions: readonly RankedSamples[],
   reader: CachedSampleReader,

@@ -18,10 +18,6 @@ import type {
 
 export const VIDEO_SAMPLE_BUCKET_US = 5 * 60 * 1_000_000;
 
-/**
- * Version of the Sample Lattice the stored points were placed on; bump it when lattice spacing or
- * point placement changes, so samples of the old lattice are never read again.
- */
 export const LATTICE_VERSION = 1;
 
 export const bucketStartOf = (pointUs: number): number =>

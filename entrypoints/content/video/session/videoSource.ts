@@ -11,12 +11,6 @@ export interface ResolvedVideoSource {
   identity: VideoIdentity;
 }
 
-/**
- * How a newly resolved source relates to a known one: the very same source, different source
- * bytes that continue the same media (equal stable or local identities, e.g. rotated signed-URL
- * tokens), a source whose identity is pending on the known media's key (worth waiting for, e.g. a
- * YouTube quality switch before its duration is checked), or different media.
- */
 export type SourceRelation = 'sameSource' | 'sameMedia' | 'pendingSameMedia' | 'different';
 
 export function identityOfVideo(video: HTMLVideoElement, sourceUrl: string): VideoIdentity {

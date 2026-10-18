@@ -52,11 +52,6 @@ const mediaHrefsOf = ({ sourceUrl, video }: VideoIdentityContext): (string | nul
   ];
 };
 
-/**
- * Names Reddit media by its `v.redd.it` media id (or a comment GIF's preview hash) read from the
- * video's source or its owning player and post, never the signed URL, which changes per page load.
- * Unidentified Reddit media stays unknown rather than falling through to the generic `url:` rule.
- */
 const resolveRedditIdentity = (context: VideoIdentityContext): VideoIdentity => {
   if (!isKnownDuration(context.durationSec)) return UNKNOWN_VIDEO_IDENTITY;
   const key = mediaHrefsOf(context).map(mediaKeyOf).find(Boolean);

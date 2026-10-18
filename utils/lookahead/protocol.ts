@@ -27,9 +27,6 @@ export interface HookIdentityClaim {
 
 export const encodeHookIdentityClaim = (claim: HookIdentityClaim): string => JSON.stringify(claim);
 
-/**
- * Parses a claim read back from the page-writable attribute, `null` for anything not shaped like one.
- */
 export function decodeHookIdentityClaim(raw: string | null): HookIdentityClaim | null {
   if (!raw) return null;
   let parsed: unknown;
