@@ -160,13 +160,22 @@ export function livenessOfDuration(durationSec: number): Liveness {
 }
 
 /**
+ * What the content script learns about the playing media after a session opens, deciding how the
+ * analysis uses the persistent cache: the identity it reads and publishes under, and the playing
+ * aspect ratio its cache read guards against.
+ */
+export interface SessionReadContext {
+  identity: VideoIdentity;
+  aspectRatio: number | null;
+}
+
+/**
  * Per-session settings an analysis starts with.
  */
 export interface LookaheadOptions {
   liveness: Liveness;
   scoreThreshold: number;
-  identity: VideoIdentity;
-  aspectRatio: number | null;
+  readContext: SessionReadContext;
 }
 
 /**

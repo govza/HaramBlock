@@ -36,11 +36,10 @@ const openMse = (sessionId: string): OpenAnalysis => ({
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
   liveness: 'vod',
   inputSize: 64,
-  identity: KNOWN_IDENTITY,
+  readContext: { identity: KNOWN_IDENTITY, aspectRatio: 16 / 9 },
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,
-  aspectRatio: 16 / 9,
 });
 
 const reachableSessions = (sent: HostToContent[]) =>
@@ -228,8 +227,15 @@ describe('Lookahead host: live and post-live sessions', () => {
   it('reads and publishes under an identity the content resolved after opening', async () => {
     const created = createHost();
     created.host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' });
-    created.host.handleContent({ ...openMse('session'), identity: { kind: 'unknown' } });
-    created.host.handleContent({ t: 'identity', sessionId: 'session', identity: KNOWN_IDENTITY });
+    created.host.handleContent({
+      ...openMse('session'),
+      readContext: { identity: { kind: 'unknown' }, aspectRatio: 16 / 9 },
+    });
+    created.host.handleContent({
+      t: 'readContext',
+      sessionId: 'session',
+      readContext: { identity: KNOWN_IDENTITY, aspectRatio: 16 / 9 },
+    });
     await vi.waitFor(() => expect(created.commands).toEqual([{ t: 'want', sourceId: 1 }]));
     await analyseFixture(created.host, created.sent);
 
@@ -240,8 +246,12 @@ describe('Lookahead host: live and post-live sessions', () => {
   it('reads with the aspect ratio the content reported after opening', async () => {
     const created = createHost();
     created.host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' });
-    created.host.handleContent({ ...openMse('session'), aspectRatio: null });
-    created.host.handleContent({ t: 'aspectRatio', sessionId: 'session', aspectRatio: 4 / 3 });
+    created.host.handleContent({ ...openMse('session'), readContext: { identity: KNOWN_IDENTITY, aspectRatio: null } });
+    created.host.handleContent({
+      t: 'readContext',
+      sessionId: 'session',
+      readContext: { identity: KNOWN_IDENTITY, aspectRatio: 4 / 3 },
+    });
     await vi.waitFor(() => expect(created.commands).toEqual([{ t: 'want', sourceId: 1 }]));
     await analyseFixture(created.host, created.sent);
 

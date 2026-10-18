@@ -347,11 +347,12 @@ duration (infinite → `live`, finite → `vod`, unset → `unknown`), re-sent o
 Samples analysed while it is `unknown` are held, published once it is `vod`, and dropped if it turns
 `live`; `live` is final for the session.
 
-The same hold applies to the Video Identity: the analysis opens with the identity known at attach
-(`OpenAnalysis.identity`) and receives a later one as an `identity` message. Its single cache read
-waits for a stable or local identity, at most 3 s (`IDENTITY_WAIT_MS`), then proceeds without the
-cache (analysis is held back meanwhile); samples are published only while liveness is `vod` and the
-identity is stable or local, held until then, and dropped if the session ends unidentified.
+The same hold applies to the Video Identity: the analysis opens with the identity known at attach in
+its Session Read Context (`OpenAnalysis.readContext`: identity plus playing aspect ratio) and
+receives later ones as a `readContext` message. Its single cache read waits for a stable or local
+identity, at most 3 s (`IDENTITY_WAIT_MS`), then proceeds without the cache (analysis is held back
+meanwhile); samples are published only while liveness is `vod` and the identity is stable or local,
+held until then, and dropped if the session ends unidentified.
 
 ## Mask Presenter
 
