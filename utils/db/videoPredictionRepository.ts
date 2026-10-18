@@ -7,7 +7,13 @@ import { isHigherQuality } from '@/utils/lookahead/sampleQuality';
 import { isDurationMismatch, type PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 import type { CacheModel } from '@/utils/inference/shared/modelRegistry';
-import type { ForcedVisibility, ICacheMetadata, IStoredVideoSample, IVideoPredictionRecord } from '@/utils/types';
+import type {
+  ForcedVisibility,
+  ICacheMetadata,
+  IStoredVideoSample,
+  IVideoPredictionRecord,
+  SampleBucketKey,
+} from '@/utils/types';
 
 export const VIDEO_SAMPLE_BUCKET_US = 5 * 60 * 1_000_000;
 
@@ -56,9 +62,10 @@ export interface VideoPredictionOrigin {
   cacheMetadata: ICacheMetadata;
 }
 
-const bucketKey = (identityKey: string, modelId: string, bucketStartUs: number): [string, string, number] => [
+const currentLatticeBucketKey = (identityKey: string, modelId: string, bucketStartUs: number): SampleBucketKey => [
   identityKey,
   modelId,
+  LATTICE_VERSION,
   bucketStartUs,
 ];
 
@@ -121,8 +128,8 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       }
       let added = 0;
       for (const [bucketStartUs, incoming] of groupByBucket(samples)) {
-        const existing = await this.buckets.get(bucketKey(identity.key, modelId, bucketStartUs));
-        const existingSamples = existing?.latticeVersion === LATTICE_VERSION ? existing.samples : [];
+        const existing = await this.buckets.get(currentLatticeBucketKey(identity.key, modelId, bucketStartUs));
+        const existingSamples = existing?.samples ?? [];
         const merged = mergeVideoSamples(existingSamples, incoming);
         added += merged.length - existingSamples.length;
         await this.buckets.put({
