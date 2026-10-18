@@ -499,7 +499,7 @@ export class InferenceOrchestrationService {
 
   private toFramePrediction(imagePrediction: IImagePrediction, frameMetadata: IFrameMetadata): IFramePrediction {
     return {
-      videoUrl: frameMetadata.videoUrl,
+      mediaKey: frameMetadata.mediaKey,
       sourceUrl: frameMetadata.sourceUrl,
       src: imagePrediction.src,
       frameIndex: frameMetadata.frameIndex,

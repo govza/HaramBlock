@@ -404,11 +404,11 @@ export interface VideoFrameParams {
  */
 export async function requestVideoFrameInference(params: VideoFrameParams): Promise<void> {
   const { sample, sampleKind, hostname, priority, session } = params;
-  const { bitmap, videoUrl, sourceUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
+  const { bitmap, mediaKey, sourceUrl, frameIndex, timestampSec, sessionId, originalWidth, originalHeight } = sample;
 
   const roundtripKey = `${sessionId}:${frameIndex}`;
   const parent = startRoundtrip(roundtripKey, {
-    src: videoUrl,
+    src: mediaKey,
     hostname,
     mediaKind: 'frame',
     session,
@@ -422,7 +422,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
 
   try {
     const base = {
-      videoUrl,
+      mediaKey,
       sourceUrl,
       frameIndex,
       timestampSec,
@@ -461,7 +461,7 @@ export async function requestVideoFrameInference(params: VideoFrameParams): Prom
     endRoundtrip(roundtripKey, { status: 'error', error });
     log.error(
       'inference.frame.send.failed',
-      { videoUrl, [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, error },
+      { [ATTR.src]: mediaKey, [ATTR.sessionId]: sessionId, [ATTR.frameIndex]: frameIndex, error },
       parent,
     );
     throw error;
