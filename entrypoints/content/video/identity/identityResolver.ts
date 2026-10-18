@@ -1,6 +1,7 @@
 import { genericVideoIdentity } from '@/entrypoints/content/video/identity/genericIdentityRules';
-import { redditIdentityAdapter } from '@/entrypoints/content/video/identity/redditIdentity';
+import { redditIdentityAdapter } from '@/entrypoints/content/video/identity/redditIdentityAdapter';
 import { youTubeIdentityAdapter } from '@/entrypoints/content/video/identity/youTubeIdentityAdapter';
+import { tryParseUrl } from '@/utils/url';
 
 import type { VideoIdentity } from '@/utils/videoIdentity';
 
@@ -28,19 +29,11 @@ export interface VideoIdentityAdapter {
 
 export const VIDEO_IDENTITY_ADAPTERS: readonly VideoIdentityAdapter[] = [youTubeIdentityAdapter, redditIdentityAdapter];
 
-const pageLocationOf = (pageHref: string): URL | null => {
-  try {
-    return new URL(pageHref);
-  } catch {
-    return null;
-  }
-};
-
 export function resolveVideoIdentity(
   context: VideoIdentityContext,
   adapters: readonly VideoIdentityAdapter[] = VIDEO_IDENTITY_ADAPTERS,
 ): VideoIdentity {
-  const location = pageLocationOf(context.pageHref);
+  const location = tryParseUrl(context.pageHref);
   if (location) {
     for (const adapter of adapters) {
       if (!adapter.matches(location)) continue;

@@ -1,4 +1,11 @@
-import { SAME_DURATION_TOLERANCE_SEC, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { tryParseUrl } from '@/utils/url';
+import {
+  SAME_DURATION_TOLERANCE_SEC,
+  stableIdentity,
+  stableIdentityKey,
+  UNKNOWN_VIDEO_IDENTITY,
+  type VideoIdentity,
+} from '@/utils/videoIdentity';
 
 export const YOUTUBE_HOST = /(^|\.)youtube(-nocookie)?\.com$/;
 export const YOUTUBE_PLAYER_SELECTOR = '.html5-video-player';
@@ -27,12 +34,9 @@ export function objectOrUndefined(value: unknown): object | undefined {
 }
 
 export function videoIdInUrl(href: string): string | undefined {
-  try {
-    const url = new URL(href);
-    return url.searchParams.get('v') ?? YOUTUBE_PATH_VIDEO_ID.exec(url.pathname)?.[1];
-  } catch {
-    return undefined;
-  }
+  const url = tryParseUrl(href);
+  if (!url) return undefined;
+  return url.searchParams.get('v') ?? YOUTUBE_PATH_VIDEO_ID.exec(url.pathname)?.[1];
 }
 
 export function playingVideoId(player: Element, pageHref: string): string | undefined {
@@ -64,8 +68,7 @@ export function youTubeVideoIdentity(
   const details = videoDetailsOf(player);
   const lengthSec = Number(details?.lengthSeconds);
   if (!videoId || details?.videoId !== videoId || !(lengthSec > 0)) return UNKNOWN_VIDEO_IDENTITY;
-  const key = `yt:${videoId}`;
-  if (Number.isNaN(mediaDurationSec)) return { kind: 'unknown', pendingKey: key };
+  if (Number.isNaN(mediaDurationSec)) return { kind: 'unknown', pendingKey: stableIdentityKey('yt', videoId) };
   if (!(Math.abs(mediaDurationSec - lengthSec) <= SAME_DURATION_TOLERANCE_SEC)) return UNKNOWN_VIDEO_IDENTITY;
-  return { kind: 'stable', key, durationSec: mediaDurationSec };
+  return stableIdentity('yt', videoId, mediaDurationSec);
 }

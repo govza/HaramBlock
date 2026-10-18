@@ -1,3 +1,5 @@
+import { tryParseUrl } from '@/utils/url';
+
 export const SAME_DURATION_TOLERANCE_SEC = 1;
 export const IDENTITY_WAIT_MS = 3_000;
 
@@ -28,6 +30,51 @@ export interface UnknownVideoIdentity {
 export type VideoIdentity = PersistentVideoIdentity | UnknownVideoIdentity;
 
 export const UNKNOWN_VIDEO_IDENTITY: UnknownVideoIdentity = { kind: 'unknown' };
+
+export type StableIdentityNamespace = 'yt' | 'vreddit' | 'redditpreview' | 'vimeo' | 'url';
+
+const LOCAL_PAGE_NAMESPACE = 'page';
+const DURATION_KEY_STEP_SEC = 0.1;
+
+export const isKnownDuration = (durationSec: number): boolean => Number.isFinite(durationSec) && durationSec > 0;
+
+export const stableIdentityKey = (namespace: StableIdentityNamespace, id: string): string => `${namespace}:${id}`;
+
+export const isKeyInNamespace = (key: unknown, namespace: StableIdentityNamespace): key is string =>
+  typeof key === 'string' && key.startsWith(`${namespace}:`);
+
+export const stableIdentity = (
+  namespace: StableIdentityNamespace,
+  id: string,
+  durationSec: number,
+): PersistentVideoIdentity => ({ kind: 'stable', key: stableIdentityKey(namespace, id), durationSec });
+
+function withoutFragment(href: string): string {
+  const url = tryParseUrl(href);
+  if (!url) return href;
+  url.hash = '';
+  return url.href;
+}
+
+export const localPageIdentity = (pageHref: string, durationSec: number): PersistentVideoIdentity => ({
+  kind: 'local',
+  key: `${LOCAL_PAGE_NAMESPACE}:${withoutFragment(pageHref)}|d=${Math.round(durationSec / DURATION_KEY_STEP_SEC)}`,
+  durationSec,
+});
+
+/**
+ * Reads a video identity from untrusted structured data (a hook claim parsed from the page), or `null`
+ * when it does not have the shape of one.
+ */
+export function videoIdentityFrom(value: unknown): VideoIdentity | null {
+  if (!value || typeof value !== 'object') return null;
+  const { kind, key, durationSec, pendingKey } = value as Record<string, unknown>;
+  if ((kind === 'stable' || kind === 'local') && typeof key === 'string' && typeof durationSec === 'number') {
+    return isKnownDuration(durationSec) ? { kind, key, durationSec } : null;
+  }
+  if (kind !== 'unknown') return null;
+  return typeof pendingKey === 'string' ? { kind, pendingKey } : UNKNOWN_VIDEO_IDENTITY;
+}
 
 export const isPersistentIdentity = (identity: VideoIdentity): identity is PersistentVideoIdentity =>
   identity.kind !== 'unknown';
