@@ -21,9 +21,6 @@ function sample(pointUs: number, topUnsafeScore = 0.1): IStoredVideoSample {
 
 const IDENTITY_TRANSFORM = { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 };
 
-/**
- * A sample analysed by a 320 model from a source frame of the given size, marked by its score.
- */
 function analysedFrom(source: { width: number; height: number } | null, topUnsafeScore: number): IStoredVideoSample {
   const scale = source ? Math.min(1, 320 / Math.max(source.width, source.height)) : 1;
   const input = source

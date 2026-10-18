@@ -164,11 +164,6 @@ export class SampleScheduler {
     return isPersistentIdentity(identity) ? identity : null;
   }
 
-  /**
-   * Resolves with what the cache read needs (the identity, then the playing video's aspect ratio) once known, or with
-   * `null` when the shared wait ran out (or the session stopped), so an unidentified session analyses without the
-   * cache and a read without an aspect ratio skips the aspect guard.
-   */
   private async awaitReadContext<T>(current: () => T | null): Promise<T | null> {
     for (;;) {
       const value = current();
@@ -188,10 +183,6 @@ export class SampleScheduler {
     this.readContextChanged();
   }
 
-  /**
-   * A settled persistent identity is never replaced, so everything the session publishes stays under one key; an
-   * aspect ratio that is no longer known keeps the last one.
-   */
   setReadContext({ identity, aspectRatio }: SessionReadContext): void {
     if (this.stopped) return;
     const identityResolves = !this.persistentIdentity() && isPersistentIdentity(identity);

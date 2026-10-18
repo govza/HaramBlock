@@ -114,10 +114,6 @@ export class VideoPredictionCacheService {
     );
   }
 
-  /**
-   * Writes pending samples, only those of `identityKey` when given, so a read never waits on other
-   * videos' batches.
-   */
   flush(identityKey?: string): Promise<void> {
     if (identityKey === undefined && this.flushTimer) {
       clearTimeout(this.flushTimer);

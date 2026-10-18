@@ -206,11 +206,6 @@ class VideoSessionRegistry {
     this.restoreForcedVisibility(handle);
   }
 
-  /**
-   * Keeps the session on a new source whose identity is pending on the session's own until the MSE
-   * hook settles it (rechecked on each claim it publishes): the same identity continues the media,
-   * anything else, or no answer in time, starts a new session.
-   */
   private awaitSourceIdentity(handle: SessionHandle, source: ResolvedVideoSource): void {
     if (handle.sourceIdentityWait?.url === source.url) return;
     this.cancelSourceIdentityWait(handle);
@@ -259,10 +254,6 @@ class VideoSessionRegistry {
     return true;
   }
 
-  /**
-   * Settles a session's identity once its media reveals enough (a duration, for the generic rules);
-   * the first stable or local identity is kept for the rest of the session.
-   */
   private resolveIdentity(handle: SessionHandle): void {
     if (handle.srcObject || isPersistentIdentity(handle.identity) || handle.state.phase === 'disposed') return;
     const identity = identityOfVideo(handle.video, handle.src);

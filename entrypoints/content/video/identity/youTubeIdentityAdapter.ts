@@ -9,10 +9,6 @@ const isYouTubeClaim = (identity: VideoIdentity): boolean => {
   return identity.kind === 'stable' && isKeyInNamespace(identity.key, 'yt');
 };
 
-/**
- * Reads the identity the MAIN-world MSE hook established for the `MediaSource` this video plays; the
- * page URL never identifies YouTube media, so a source without a matching claim stays unknown.
- */
 function resolveYouTubeIdentity({ sourceUrl, video }: VideoIdentityContext): VideoIdentity | null {
   if (!sourceUrl.startsWith('blob:')) return null;
   const claim = decodeHookIdentityClaim(video?.getAttribute(HOOK_IDENTITY_ATTR) ?? null);

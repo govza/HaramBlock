@@ -62,10 +62,6 @@ export const localPageIdentity = (pageHref: string, durationSec: number): Persis
   durationSec,
 });
 
-/**
- * Reads a video identity from untrusted structured data (a hook claim parsed from the page), or `null`
- * when it does not have the shape of one.
- */
 export function videoIdentityFrom(value: unknown): VideoIdentity | null {
   if (!value || typeof value !== 'object') return null;
   const { kind, key, durationSec, pendingKey } = value as Record<string, unknown>;

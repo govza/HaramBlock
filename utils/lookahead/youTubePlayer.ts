@@ -52,11 +52,6 @@ export function videoDetailsOf(player: Element): YouTubeVideoDetails | undefined
 
 const showsAd = (player: Element): boolean => AD_CLASSES.some(name => player.classList.contains(name));
 
-/**
- * Identifies the media a YouTube player plays by its video id: unknown while the player shows an ad or its player
- * response describes another video, pending until the `MediaSource` duration is known, and stable only when that
- * duration matches the video's length.
- */
 export function youTubeVideoIdentity(
   player: Element,
   mediaDurationSec: number,
