@@ -39,14 +39,14 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
       },
     }),
     cache: open => ({
-      read: () => {
+      read: identity => {
         const requestId = nextRequestId++;
         return new Promise(resolve => {
           cacheReads.set(requestId, resolve);
-          send({ t: 'cacheRead', requestId, sessionId: open.sessionId });
+          send({ t: 'cacheRead', requestId, sessionId: open.sessionId, identity });
         });
       },
-      publish: samples => send({ t: 'cachePublish', sessionId: open.sessionId, samples }),
+      publish: (identity, samples) => send({ t: 'cachePublish', sessionId: open.sessionId, identity, samples }),
     }),
     rangeSource: url => createRangeFetchSource(url),
     send,

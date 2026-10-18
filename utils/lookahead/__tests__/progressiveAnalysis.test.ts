@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLEAN, createHarness, fileSource, fixture, suspicious, unsafe } from '@/utils/lookahead/__tests__/harness';
+import {
+  CLEAN,
+  createHarness,
+  fileSource,
+  fixture,
+  suspicious,
+  unsafe,
+  VOD_OPTIONS,
+} from '@/utils/lookahead/__tests__/harness';
 import { createProgressiveAnalysis } from '@/utils/lookahead/analysis';
-
-const OPTIONS = { liveness: 'vod', scoreThreshold: 0.5 } as const;
 
 function mdatOffset(bytes: Uint8Array): number {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -20,7 +26,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('samples a long-GOP file at its Keyframe Points', async () => {
     const harness = createHarness();
     const { source } = fileSource(fixture('progressive-long-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
     await analysis.settled();
 
@@ -33,7 +39,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
     async timescale => {
       const harness = createHarness();
       const { source } = fileSource(fixture(`progressive-timescale-${timescale}.mp4`));
-      const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+      const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
       analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
       await analysis.settled();
 
@@ -46,7 +52,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('decodes a refinement probe inside a long GOP from its keyframe', async () => {
     const harness = createHarness({ verdictAt: pointUs => (pointUs === 5_000_000 ? unsafe() : CLEAN) });
     const { source } = fileSource(fixture('progressive-long-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
     await analysis.settled();
 
@@ -58,7 +64,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('keeps a probe beyond the window and runs it once the window reaches it', async () => {
     const harness = createHarness({ verdictAt: pointUs => (pointUs === 1_000_000 ? suspicious() : CLEAN) });
     const { source } = fileSource(fixture('progressive-short-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source, { windowSec: 1.1 });
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source, { windowSec: 1.1 });
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: false });
     await analysis.settled();
     expect(harness.requestedPoints()).toEqual([0, 500_000, 1_000_000, 750_000]);
@@ -75,7 +81,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('samples short GOPs at Lattice Points', async () => {
     const harness = createHarness();
     const { source } = fileSource(fixture('progressive-short-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
     await analysis.settled();
 
@@ -87,7 +93,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('runs ahead only within its window and refills it as the playhead advances', async () => {
     const harness = createHarness();
     const { source } = fileSource(fixture('progressive-short-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source, { windowSec: 1.5 });
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source, { windowSec: 1.5 });
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: false });
     await analysis.settled();
     expect(harness.requestedPoints()).toEqual([0, 500_000, 1_000_000]);
@@ -100,7 +106,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('pauses the window fill while offscreen', async () => {
     const harness = createHarness();
     const { source } = fileSource(fixture('progressive-short-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source, { windowSec: 1.5 });
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source, { windowSec: 1.5 });
     analysis.setVisible(false);
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: false });
     await analysis.settled();
@@ -111,7 +117,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
   it('reports a rejected first range request as an unreachable bitstream', async () => {
     const harness = createHarness();
     const { source } = fileSource(fixture('progressive-short-gop.mp4'), { failFirst: true });
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
     await analysis.settled();
 
     expect(harness.unreachable).toEqual(['fetch']);
@@ -125,7 +131,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
     }));
     const harness = createHarness({ cached });
     const { source, reads } = fileSource(bytes);
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
     await analysis.settled();
 
@@ -138,7 +144,7 @@ describe('Lookahead Analysis over a Progressive Source', () => {
     const far = { pointUs: 400_000_000, ...CLEAN };
     const harness = createHarness({ cached: [{ pointUs: 0, ...CLEAN }, far] });
     const { source } = fileSource(fixture('progressive-short-gop.mp4'));
-    const analysis = createProgressiveAnalysis(harness.ports, OPTIONS, source);
+    const analysis = createProgressiveAnalysis(harness.ports, VOD_OPTIONS, source);
     analysis.setPlayhead({ timeSec: 0, playbackRate: 1, paused: true });
     await analysis.settled();
     const emittedFar = () => harness.emitted.filter(sample => sample.pointUs === far.pointUs).length;

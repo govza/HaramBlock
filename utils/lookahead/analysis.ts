@@ -22,6 +22,7 @@ import {
 } from '@/utils/lookahead/ports';
 import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from '@/utils/lookahead/progressiveFile';
 import { isUnsafeAt, suspicionThresholdOf } from '@/utils/lookahead/sampleScores';
+import { isPersistentIdentity, type PersistentVideoIdentity, type VideoIdentity } from '@/utils/videoIdentity';
 
 export const URGENT_SLACK_SEC = 5;
 const MAX_INFLIGHT_INFERENCES = 6;
@@ -29,6 +30,7 @@ const MAX_RETAINED_UNITS = 64;
 const MAX_UNPUBLISHED_SAMPLES = 2_000;
 const REPLAY_BEHIND_US = 30e6;
 const REPLAY_AHEAD_US = 300e6;
+export const IDENTITY_WAIT_MS = 3_000;
 
 /**
  * A half-open span of media time, in microseconds, whose known samples the reader was last sent.
@@ -78,6 +80,8 @@ export class SampleScheduler {
   private cacheReady = false;
   private idleWaiters: (() => void)[] = [];
   private liveness: Liveness;
+  private identity: VideoIdentity;
+  private identityArrived: ((identity: PersistentVideoIdentity | null) => void) | null = null;
   private unpublished: StoredSample[] = [];
   private replayWindow: TimeWindowUs | null = null;
 
@@ -86,13 +90,15 @@ export class SampleScheduler {
     private readonly options: LookaheadOptions,
   ) {
     this.liveness = options.liveness;
+    this.identity = options.identity;
     this.cacheLoaded = this.loadCache();
   }
 
   private async loadCache(): Promise<void> {
-    if (this.liveness !== 'live') {
+    const identity = this.liveness === 'live' ? null : await this.awaitIdentity();
+    if (identity && this.liveness !== 'live') {
       try {
-        const cached = await this.ports.cache.read();
+        const cached = await this.ports.cache.read(identity);
         for (const sample of cached) {
           this.recordKnown(sample);
           this.cachedUnreported.add(sample.pointUs);
@@ -146,19 +152,53 @@ export class SampleScheduler {
     this.schedulePump();
   }
 
+  /**
+   * Resolves with the session's identity once it is stable or local, or with `null` when it is still unknown after
+   * the wait (or the session stopped), so an unidentified session analyses without the cache.
+   */
+  private awaitIdentity(): Promise<PersistentVideoIdentity | null> {
+    if (isPersistentIdentity(this.identity)) return Promise.resolve(this.identity);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => this.identityArrived?.(null), IDENTITY_WAIT_MS);
+      this.identityArrived = identity => {
+        clearTimeout(timer);
+        this.identityArrived = null;
+        resolve(identity);
+      };
+    });
+  }
+
+  setIdentity(identity: VideoIdentity): void {
+    if (this.stopped || isPersistentIdentity(this.identity) || !isPersistentIdentity(identity)) return;
+    this.identity = identity;
+    this.identityArrived?.(identity);
+    this.publishHeld();
+  }
+
   setLiveness(liveness: Liveness): void {
     if (this.liveness === 'live' || liveness === 'unknown') return;
     this.liveness = liveness;
+    if (liveness === 'live') this.unpublished = [];
+    else this.publishHeld();
+  }
+
+  private publishableIdentity(): PersistentVideoIdentity | null {
+    return this.liveness === 'vod' && isPersistentIdentity(this.identity) ? this.identity : null;
+  }
+
+  private publishHeld(): void {
+    const identity = this.publishableIdentity();
+    if (!identity || this.unpublished.length === 0) return;
     const held = this.unpublished;
     this.unpublished = [];
-    if (liveness === 'vod' && held.length > 0) this.ports.cache.publish(held);
+    this.ports.cache.publish(identity, held);
   }
 
   private publish(sample: StoredSample): void {
-    if (this.liveness === 'vod') this.ports.cache.publish([sample]);
-    else if (this.liveness === 'unknown' && this.unpublished.length < MAX_UNPUBLISHED_SAMPLES) {
-      this.unpublished.push(sample);
-    }
+    if (this.liveness === 'live') return;
+    const identity = this.publishableIdentity();
+    if (identity) this.ports.cache.publish(identity, [sample]);
+    else if (this.unpublished.length < MAX_UNPUBLISHED_SAMPLES) this.unpublished.push(sample);
   }
 
   isVisible(): boolean {
@@ -197,6 +237,8 @@ export class SampleScheduler {
   stop(reason?: UnreachableReason): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.unpublished = [];
+    this.identityArrived?.(null);
     for (const source of this.sources) source.release();
     this.sources = [];
     this.wanted.clear();
@@ -546,6 +588,7 @@ export interface MseAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
+  setIdentity(identity: VideoIdentity): void;
   stop(): void;
   releaseBuffers(): MseBuffers;
   heldUnits(): number;
@@ -633,6 +676,7 @@ export function createMseAnalysis(
     setPlayhead: playhead => scheduler.setPlayhead(playhead),
     setVisible: visible => scheduler.setVisible(visible),
     setLiveness: liveness => scheduler.setLiveness(liveness),
+    setIdentity: identity => scheduler.setIdentity(identity),
     stop: () => scheduler.stop(),
     releaseBuffers: () => {
       scheduler.stop();
@@ -655,6 +699,7 @@ export interface ProgressiveAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
+  setIdentity(identity: VideoIdentity): void;
   stop(): void;
   settled(): Promise<void>;
 }
@@ -754,6 +799,7 @@ export function createProgressiveAnalysis(
       refresh();
     },
     setLiveness: liveness => scheduler.setLiveness(liveness),
+    setIdentity: identity => scheduler.setIdentity(identity),
     stop: () => scheduler.stop(),
     settled: async () => {
       await opening;

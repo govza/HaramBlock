@@ -10,6 +10,7 @@ import type { InferenceOrchestrationService } from '@/entrypoints/background/ser
 import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { InferencePort, InferredSample, SampleCachePort } from '@/utils/lookahead/ports';
 import type { BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
+import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('lookaheadHostService');
 
@@ -65,12 +66,12 @@ export class LookaheadHostService {
         const hostSettings = await this.hostSettingsService.getHostSettings(open.hostname);
         return new Promise<InferredSample>((resolve, reject) => {
           void this.inferenceService.scheduleInferenceTask({
-            input: { kind: 'bitmap', imageSrc: open.cacheKey || open.sourceUrl, bitmap, originalWidth, originalHeight },
+            input: { kind: 'bitmap', imageSrc: open.sourceUrl, bitmap, originalWidth, originalHeight },
             hostname: open.hostname,
             hostSettings,
             mediaMetadata: {
               kind: 'frame',
-              videoUrl: open.cacheKey,
+              videoUrl: open.sourceUrl,
               sourceUrl: open.sourceUrl,
               frameIndex: this.nextFrameIndex++,
               sessionId: open.sessionId,
@@ -87,10 +88,10 @@ export class LookaheadHostService {
 
   private cachePort(open: OpenAnalysis): SampleCachePort {
     return {
-      read: async () => (await this.videoPredictionCacheService.getCached(open.cacheKey)).samples,
-      publish: samples =>
+      read: async (identity: VideoIdentity) => (await this.videoPredictionCacheService.getCached(identity)).samples,
+      publish: (identity, samples) =>
         this.videoPredictionCacheService.publish(
-          open.cacheKey,
+          identity,
           { sourceUrl: open.sourceUrl, hostname: open.hostname },
           samples,
         ),

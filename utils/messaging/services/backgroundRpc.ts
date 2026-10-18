@@ -24,6 +24,7 @@ import type {
   GifFrameInferenceResult,
   ImageInferenceResult,
 } from '@/utils/types';
+import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const BASE64_CHUNK_BYTES = 0x8000;
 const log = getLogger('backgroundRpc');
@@ -129,42 +130,42 @@ export class BackgroundRpc {
     }
   }
 
-  async getCachedVideoPredictions(videoUrl: string): Promise<ICachedVideoPredictions> {
+  async getCachedVideoPredictions(identity: VideoIdentity): Promise<ICachedVideoPredictions> {
     try {
-      return await this.videoPredictionCacheService.getCached(videoUrl);
+      return await this.videoPredictionCacheService.getCached(identity);
     } catch (error) {
-      log.error('video_cache.read.failed', { [ATTR.src]: videoUrl, error });
+      log.error('video_cache.read.failed', { identity, error });
       throw error;
     }
   }
 
-  async getVideoForcedVisibility(videoUrl: string): Promise<ForcedVisibility> {
+  async getVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
     try {
-      return await this.videoPredictionCacheService.getForcedVisibility(videoUrl);
+      return await this.videoPredictionCacheService.getForcedVisibility(identity);
     } catch (error) {
-      log.error('video_cache.read.failed', { [ATTR.src]: videoUrl, error });
+      log.error('video_cache.read.failed', { identity, error });
       throw error;
     }
   }
 
   publishVideoSamples(
-    videoUrl: string,
+    identity: VideoIdentity,
     origin: { sourceUrl: string; hostname: string },
     samples: IStoredVideoSample[],
   ): Promise<void> {
-    this.videoPredictionCacheService.publish(videoUrl, origin, samples);
+    this.videoPredictionCacheService.publish(identity, origin, samples);
     return Promise.resolve();
   }
 
   async updateVideoToggleState(
-    videoUrl: string,
+    identity: VideoIdentity,
     origin: { sourceUrl: string; hostname: string },
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     try {
-      await this.videoPredictionCacheService.setForcedVisibility(videoUrl, origin, forcedVisibility);
+      await this.videoPredictionCacheService.setForcedVisibility(identity, origin, forcedVisibility);
     } catch (error) {
-      log.error('video_cache.toggle.update.failed', { [ATTR.src]: videoUrl, error });
+      log.error('video_cache.toggle.update.failed', { identity, error });
       throw error;
     }
   }

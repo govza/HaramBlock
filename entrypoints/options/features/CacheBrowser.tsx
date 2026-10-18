@@ -8,6 +8,7 @@ import { getLogger } from '@/utils/telemetry';
 
 import type { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository';
 import type { ForcedVisibility, IElementPrediction, IImagePrediction, IVideoPredictionRecord } from '@/utils/types';
+import type { PersistentIdentityKind } from '@/utils/videoIdentity';
 
 const log = getLogger('CacheBrowser');
 
@@ -24,6 +25,8 @@ type CacheRecord = IImagePrediction | IVideoPredictionRecord;
 
 interface ICacheRow {
   key: string;
+  mediaUrl: string;
+  kindLabel?: string;
   timestamp: number;
   forcedVisibility: ForcedVisibility;
   modelId?: string;
@@ -57,6 +60,11 @@ const forcedVisibilityLabelKeys: Record<Exclude<ForcedVisibility, 'auto'>, strin
   blocked: 'OptionsPage.Cache.forcedBlocked',
 };
 
+const identityKindLabelKeys: Record<PersistentIdentityKind, string> = {
+  stable: 'OptionsPage.Cache.identityStable',
+  local: 'OptionsPage.Cache.identityLocal',
+};
+
 const defineCacheSource = <T extends CacheRecord>({
   repository,
   toRow,
@@ -82,6 +90,7 @@ const useCacheSources = (): Record<CacheKind, ICacheSource> => {
         repository: imagePredictionRepository,
         toRow: record => ({
           key: record.src,
+          mediaUrl: record.src,
           timestamp: record.timestamp,
           forcedVisibility: record.forcedVisibility,
           modelId: record.modelId,
@@ -94,7 +103,9 @@ const useCacheSources = (): Record<CacheKind, ICacheSource> => {
         labelKey: 'OptionsPage.Cache.videos',
         repository: videoPredictionRepository,
         toRow: record => ({
-          key: record.videoUrl,
+          key: record.identityKey,
+          mediaUrl: record.sourceUrl,
+          kindLabel: t(identityKindLabelKeys[record.identityKind]),
           timestamp: record.timestamp,
           forcedVisibility: record.forcedVisibility,
           modelId: Object.keys(record.sampleCounts).join(', ') || undefined,
@@ -173,10 +184,10 @@ const LoadableList = <T,>({ items, renderItem }: { items: T[] | undefined; rende
 
 const CacheRow = ({ source, row }: { source: ICacheSource; row: ICacheRow }) => (
   <div className='flex items-center gap-3 bg-surface p-3 rounded'>
-    <Thumbnail source={source} src={row.key} />
+    <Thumbnail source={source} src={row.mediaUrl} />
     <div className='flex-1 min-w-0 space-y-1'>
       <a
-        href={row.key}
+        href={row.mediaUrl}
         target='_blank'
         rel='noreferrer'
         className='block truncate text-text-secondary text-sm hover:underline'
@@ -185,6 +196,7 @@ const CacheRow = ({ source, row }: { source: ICacheSource; row: ICacheRow }) => 
       </a>
       <div className='flex flex-wrap gap-x-4 gap-y-1 text-text-muted text-xs'>
         <span>{new Date(row.timestamp).toLocaleString()}</span>
+        {row.kindLabel && <span>{row.kindLabel}</span>}
         <span>{row.detail}</span>
         {row.predictions && <span>{formatTopPrediction(row.predictions)}</span>}
         {row.forcedVisibility !== 'auto' && (

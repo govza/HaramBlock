@@ -33,6 +33,7 @@ import {
 } from '@/entrypoints/content/video/session/videoSession';
 import {
   compareSources,
+  identityOfVideo,
   resolveVideoSource,
   type ResolvedVideoSource,
 } from '@/entrypoints/content/video/session/videoSource';
@@ -54,6 +55,7 @@ import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
+import { isPersistentIdentity, persistentKeyOf, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
@@ -98,7 +100,7 @@ function toEntry(handle: SessionHandle, timestampSec: number, sample: InferredSa
 const sourceOf = (handle: SessionHandle): ResolvedVideoSource => ({
   srcObject: handle.srcObject,
   url: handle.src,
-  cacheKey: handle.cacheKey,
+  identity: handle.identity,
 });
 
 const documentVisible = (): boolean => globalThis.document?.visibilityState !== 'hidden';
@@ -117,8 +119,8 @@ class VideoSessionRegistry {
   private readonly byVideo = new WeakMap<HTMLVideoElement, SessionHandle>();
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
-  private readonly userToggledCacheKeys = new WeakMap<HTMLVideoElement, string>();
-  private readonly unsafeStrictnessByCacheKey = new Map<string, number>();
+  private readonly userToggledIdentityKeys = new WeakMap<HTMLVideoElement, string>();
+  private readonly unsafeStrictnessByIdentityKey = new Map<string, number>();
   private documentVisibilityBound = false;
   private pagePixelsReadable = true;
 
@@ -176,8 +178,10 @@ class VideoSessionRegistry {
     video.setAttribute(SESSION_ID_ATTR, handle.sessionId);
     this.registerToggle(video, hostSettings, 'auto', false);
 
+    const identityKey = persistentKeyOf(handle.identity);
     const born = createVideoSession({
-      unsafeSeen: this.unsafeStrictnessByCacheKey.get(handle.cacheKey) === hostSettings.strictness,
+      unsafeSeen:
+        identityKey !== null && this.unsafeStrictnessByIdentityKey.get(identityKey) === hostSettings.strictness,
       pagePixelsReadable: this.pagePixelsReadable,
     });
     handle.state = born.state;
@@ -212,10 +216,25 @@ class VideoSessionRegistry {
     handle.verifyMediaOnDuration = false;
     if (Math.abs(now - before) <= SAME_MEDIA_DURATION_TOLERANCE_SEC) return false;
     const settings = handle.hostSettings;
-    this.unsafeStrictnessByCacheKey.delete(handle.cacheKey);
+    const identityKey = persistentKeyOf(handle.identity);
+    if (identityKey !== null) this.unsafeStrictnessByIdentityKey.delete(identityKey);
     this.dispose(handle.video);
     this.attach(handle.video, settings);
     return true;
+  }
+
+  /**
+   * Settles a session's identity once its media reveals enough (a duration, for the generic rules);
+   * the first stable or local identity is kept for the rest of the session.
+   */
+  private resolveIdentity(handle: SessionHandle): void {
+    if (handle.srcObject || isPersistentIdentity(handle.identity) || handle.state.phase === 'disposed') return;
+    const identity = identityOfVideo(handle.video, handle.src);
+    if (!isPersistentIdentity(identity)) return;
+    handle.identity = identity;
+    log.debug('video.session.identity_resolved', { [ATTR.sessionId]: handle.sessionId, kind: identity.kind });
+    handle.lookahead?.setIdentity(identity);
+    this.restoreForcedVisibility(handle);
   }
 
   private reopenTap(handle: SessionHandle): void {
@@ -235,7 +254,7 @@ class VideoSessionRegistry {
       video,
       srcObject: source.srcObject,
       src: source.url || `srcobject:${sessionId}`,
-      cacheKey: source.cacheKey,
+      identity: source.identity,
       trace: startUmbrellaSession(SPAN.videoSession, {
         [ATTR.src]: source.url,
         [ATTR.hostname]: hostSettings.hostname,
@@ -350,7 +369,8 @@ class VideoSessionRegistry {
   }
 
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
-    this.userToggledCacheKeys.set(video, resolveVideoSource(video)?.cacheKey ?? '');
+    const identity = this.byVideo.get(video)?.identity ?? resolveVideoSource(video)?.identity ?? UNKNOWN_VIDEO_IDENTITY;
+    this.userToggledIdentityKeys.set(video, persistentKeyOf(identity) ?? '');
     this.applyForcedVisibility(video, next, true);
   }
 
@@ -358,7 +378,7 @@ class VideoSessionRegistry {
     const settings = this.byVideo.get(video)?.hostSettings ?? this.settingsByVideo.get(video);
     if (!settings) return;
     const source = resolveVideoSource(video);
-    if (persist && source) this.persistForcedVisibility(source, settings, next);
+    if (persist && source) this.persistForcedVisibility(video, source, settings, next);
     if (next === 'auto') {
       this.forced.clearOverride(video);
       this.dispose(video);
@@ -370,16 +390,24 @@ class VideoSessionRegistry {
     this.attach(video, settings);
   }
 
-  private persistForcedVisibility(source: ResolvedVideoSource, settings: IHostSettings, next: ForcedVisibility): void {
-    if (!source.cacheKey) return;
-    void requestVideoToggleUpdate(source.cacheKey, { sourceUrl: source.url, hostname: settings.hostname }, next);
+  private persistForcedVisibility(
+    video: HTMLVideoElement,
+    source: ResolvedVideoSource,
+    settings: IHostSettings,
+    next: ForcedVisibility,
+  ): void {
+    const handleIdentity = this.byVideo.get(video)?.identity;
+    const identity = handleIdentity && isPersistentIdentity(handleIdentity) ? handleIdentity : source.identity;
+    if (!isPersistentIdentity(identity)) return;
+    void requestVideoToggleUpdate(identity, { sourceUrl: source.url, hostname: settings.hostname }, next);
   }
 
   private restoreForcedVisibility(handle: SessionHandle): void {
-    if (!handle.cacheKey) return;
-    void requestVideoForcedVisibility(handle.cacheKey).then(forcedVisibility => {
+    const { identity } = handle;
+    if (!isPersistentIdentity(identity)) return;
+    void requestVideoForcedVisibility(identity).then(forcedVisibility => {
       if (this.byId.get(handle.sessionId) !== handle || handle.state.phase === 'disposed') return;
-      if (forcedVisibility === 'auto' || this.userToggledCacheKeys.get(handle.video) === handle.cacheKey) return;
+      if (forcedVisibility === 'auto' || this.userToggledIdentityKeys.get(handle.video) === identity.key) return;
       log.debug('registry.forced_visibility.restored', { [ATTR.sessionId]: handle.sessionId, forcedVisibility });
       this.applyForcedVisibility(handle.video, forcedVisibility, false);
     });
@@ -464,7 +492,7 @@ class VideoSessionRegistry {
         liveness: livenessOfDuration(handle.video.duration),
         scoreThreshold: scoreThresholdOf(handle),
         inputSize: currentInferenceCaptureSize(),
-        cacheKey: handle.cacheKey,
+        identity: handle.identity,
         sourceUrl: handle.src,
         hostname: handle.hostSettings.hostname,
       },
@@ -556,7 +584,7 @@ class VideoSessionRegistry {
       sample: {
         sessionId: handle.sessionId,
         frameIndex: frame.frameIndex,
-        videoUrl: handle.cacheKey || handle.src,
+        videoUrl: persistentKeyOf(handle.identity) ?? handle.src,
         sourceUrl: handle.src,
         timestampSec: frame.timestampSec,
         bitmap: frame.bitmap,
@@ -730,8 +758,8 @@ class VideoSessionRegistry {
           break;
         }
         case 'setStatus':
-          if (effect.status === 'unsafe' && handle.cacheKey) {
-            this.unsafeStrictnessByCacheKey.set(handle.cacheKey, handle.hostSettings.strictness);
+          if (effect.status === 'unsafe' && isPersistentIdentity(handle.identity)) {
+            this.unsafeStrictnessByIdentityKey.set(handle.identity.key, handle.hostSettings.strictness);
           }
           clearProcessedStatus(video);
           video.setAttribute(PROCESSED_ATTR_MAP[STATUS_TO_PROCESSED[effect.status]], '');
@@ -808,7 +836,9 @@ class VideoSessionRegistry {
     const onDurationChange = () => {
       if (this.restartIfDifferentMedia(handle)) return;
       handle.lookahead?.setLiveness(livenessOfDuration(video.duration));
+      this.resolveIdentity(handle);
     };
+    const onLoadedMetadata = () => this.resolveIdentity(handle);
     const onSourceChanged = () => {
       loopRestarts.reset();
       if (resolveVideoSource(video)) this.attach(video, handle.hostSettings);
@@ -820,6 +850,7 @@ class VideoSessionRegistry {
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ratechange', onRateChange);
     video.addEventListener('durationchange', onDurationChange);
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('loadstart', onSourceChanged);
     video.addEventListener('emptied', onSourceChanged);
 
@@ -832,6 +863,7 @@ class VideoSessionRegistry {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ratechange', onRateChange);
       video.removeEventListener('durationchange', onDurationChange);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('loadstart', onSourceChanged);
       video.removeEventListener('emptied', onSourceChanged);
     };

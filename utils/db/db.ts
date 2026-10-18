@@ -28,8 +28,8 @@ hostSettingsDb.on('populate', () => {
 
 export class MediaCacheDatabase extends Dexie {
   imagePredictions!: Table<IImagePrediction, string>;
-  videoPredictions!: Table<IVideoPredictionRecord, string>;
-  videoSamples!: Table<IVideoSampleBucket, [string, string, number]>;
+  videos!: Table<IVideoPredictionRecord, string>;
+  videoSampleBuckets!: Table<IVideoSampleBucket, [string, string, number]>;
 
   constructor() {
     super('MediaCacheDatabase');
@@ -50,6 +50,13 @@ export class MediaCacheDatabase extends Dexie {
         videoSamples: '[videoUrl+modelId+bucketStartUs], videoUrl, hostname',
       })
       .upgrade(tx => tx.table('videoPredictions').clear());
+    this.version(4).stores({
+      imagePredictions: '&src, hostname, timestamp, [hostname+timestamp]',
+      videoPredictions: null,
+      videoSamples: null,
+      videos: '&identityKey, hostname, timestamp, [hostname+timestamp]',
+      videoSampleBuckets: '[identityKey+modelId+bucketStartUs], identityKey, hostname',
+    });
   }
 }
 

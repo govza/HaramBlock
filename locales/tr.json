@@ -22,6 +22,8 @@
       "clearConfirm": "Onaylamak için tekrar tıklayın",
       "noDetections": "Tespit yok",
       "samples": "$1 örnek",
+      "identityStable": "Taşınabilir",
+      "identityLocal": "Yalnızca bu cihaz",
       "previous": "Önceki",
       "next": "Sonraki",
       "pageOf": "Sayfa $1 / $2",

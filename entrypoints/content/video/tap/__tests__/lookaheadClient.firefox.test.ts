@@ -15,7 +15,7 @@ const openMse: OpenAnalysis = {
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
   liveness: 'vod',
   inputSize: 64,
-  cacheKey: 'https://example.test/watch',
+  identity: { kind: 'local', key: 'page:https://example.test/watch|d=600', durationSec: 60 },
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,

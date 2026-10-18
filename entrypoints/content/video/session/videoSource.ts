@@ -1,27 +1,37 @@
-import { toVerdictCacheKey } from '@/entrypoints/content/video/session/verdictCacheKey';
+import { resolveVideoIdentity } from '@/entrypoints/content/video/identity/identityResolver';
+import { isSameMedia, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * The media a video element currently plays: a `srcObject` stream or a URL, together with the
- * verdict cache key derived from that URL when it was resolved (empty for streams).
+ * video identity known when it was resolved (unknown for streams, and until a duration is known).
  */
 export interface ResolvedVideoSource {
   srcObject: HTMLVideoElement['srcObject'];
   url: string;
-  cacheKey: string;
+  identity: VideoIdentity;
 }
 
 /**
  * How a newly resolved source relates to a known one: the very same source, different source
- * bytes that continue the same media (same verdict cache key, e.g. a YouTube quality switch), or
- * different media.
+ * bytes that continue the same media (equal stable or local identities, e.g. rotated signed-URL
+ * tokens), or different media.
  */
 export type SourceRelation = 'sameSource' | 'sameMedia' | 'different';
 
+export function identityOfVideo(video: HTMLVideoElement, sourceUrl: string): VideoIdentity {
+  return resolveVideoIdentity({
+    sourceUrl,
+    pageHref: globalThis.location?.href ?? '',
+    durationSec: video.duration,
+    video,
+  });
+}
+
 /** `srcObject` is the active source even if a previous URL is still reflected temporarily. */
 export function resolveVideoSource(video: HTMLVideoElement): ResolvedVideoSource | null {
-  if (video.srcObject) return { srcObject: video.srcObject, url: '', cacheKey: '' };
+  if (video.srcObject) return { srcObject: video.srcObject, url: '', identity: UNKNOWN_VIDEO_IDENTITY };
   const url = video.currentSrc || video.src;
-  return url ? { srcObject: null, url, cacheKey: toVerdictCacheKey(url) } : null;
+  return url ? { srcObject: null, url, identity: identityOfVideo(video, url) } : null;
 }
 
 const isSameSource = (known: ResolvedVideoSource, next: ResolvedVideoSource): boolean => {
@@ -30,7 +40,7 @@ const isSameSource = (known: ResolvedVideoSource, next: ResolvedVideoSource): bo
 };
 
 const continuesSameMedia = (known: ResolvedVideoSource, next: ResolvedVideoSource): boolean =>
-  known.srcObject === null && next.srcObject === null && known.cacheKey !== '' && known.cacheKey === next.cacheKey;
+  known.srcObject === null && next.srcObject === null && isSameMedia(known.identity, next.identity);
 
 export function compareSources(known: ResolvedVideoSource, next: ResolvedVideoSource): SourceRelation {
   if (isSameSource(known, next)) return 'sameSource';

@@ -1,5 +1,6 @@
 import type { IRLEMask } from '@/utils/rle';
 import type { IFrameSampleRouting, IVideoTimelinePosition } from '@/utils/types/media';
+import type { PersistentIdentityKind } from '@/utils/videoIdentity';
 
 export interface ICacheMetadata {
   // HTTP Cache headers
@@ -151,8 +152,14 @@ export interface IStoredVideoSample {
   topUnsafeScore: number;
 }
 
+/**
+ * One video's meta row in the verdict cache, keyed by its video identity: the duration its samples
+ * were analysed against, its Forced Visibility, cache metadata and per-model sample counts.
+ */
 export interface IVideoPredictionRecord {
-  videoUrl: string;
+  identityKey: string;
+  identityKind: PersistentIdentityKind;
+  durationSec: number;
   sourceUrl: string;
   hostname: string;
   forcedVisibility: ForcedVisibility;
@@ -161,8 +168,11 @@ export interface IVideoPredictionRecord {
   sampleCounts: Record<string, number>;
 }
 
+/**
+ * Up to five minutes of one video's lookahead samples from one model, stored as a single row.
+ */
 export interface IVideoSampleBucket {
-  videoUrl: string;
+  identityKey: string;
   modelId: string;
   bucketStartUs: number;
   hostname: string;

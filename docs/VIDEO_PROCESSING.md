@@ -11,10 +11,22 @@ superseded the continuous DVR (ADRs [0001](adr/0001-continuous-dvr-and-relay-aud
 
 **VideoSession**: The binding of one video element to one resolved source. Born when the pipeline
 attaches to a video whose source is resolved; dies when the element is removed or its source changes
-to different media. A new source with the same verdict cache key (a YouTube quality switch is a new
-`MediaSource` on the same page) continues the session: Verdict Timeline, status and blur are kept
-and only the tap is re-opened; a finite duration that then differs by more than 1 s restarts it as
-new media. Pauses, replays, and seeks all happen inside one VideoSession. _Avoid_: playback session
+to different media. A new source with an equal stable or local Video Identity (a direct file whose
+signed-URL tokens rotated) continues the session: Verdict Timeline, status and blur are kept and
+only the tap is re-opened; a finite duration that then differs by more than 1 s restarts it as new
+media. An unknown identity never continues another source's media. Pauses, replays, and seeks all
+happen inside one VideoSession. _Avoid_: playback session
+
+**Video Identity**: What names a VideoSession's media for the verdict cache, independent of the
+page, rendition or URL spelling. `stable`: a portable `namespace:id` key with the media duration
+(`url:` plus the direct file URL without allowlisted auth params; site adapters add `yt`, `vreddit`,
+…). `local`: `page:<page URL without fragment>|d=<duration in 100 ms>` for MSE sources no adapter
+identifies — persistent on this device, never shared. `unknown`: no duration yet, a `srcObject`
+stream, a live stream or an adapter's veto (an ad) — analysed and masked in memory only, never read
+from or written to the cache. Resolved by `identityResolver.ts` (site adapters first, by page
+location, then `genericIdentityRules.ts`) when the source resolves and again on `loadedmetadata` /
+`durationchange`; the first stable or local identity is kept for the session. _Avoid_: cache key,
+video URL
 
 **Thumbnail**: The first-pass input for a video's initial verdict — its poster, or its first frame
 when no poster exists. Analysed before any playback. _Avoid_: poster (only one source of it)
@@ -117,6 +129,7 @@ bundled WebAssembly decoders (VP9, AV1) in a dedicated worker.
 | WASM decoders         | `utils/lookahead/{decoderSelection,wasmDecoder,wasmDecodeCore,yuvToRgba}.ts`, `entrypoints/wasm-decoder-worker.ts`, `scripts/wasm-decoders/` | Per-job choice native → WASM; worker decode and YUV → model-input bitmap; reproducible Emscripten builds   |
 | Chrome host           | `entrypoints/lookahead-host/`                                                                                                                | Hidden extension iframe running the host runtime                                                           |
 | Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                                                    | Host runtime in the event page, fed over `runtime.connect`                                                 |
+| Identity resolver     | `entrypoints/content/video/identity/{identityResolver,genericIdentityRules}.ts`, `utils/videoIdentity.ts`                                    | Video Identity from site adapters, then generic rules; same-media and duration-mismatch rules              |
 | Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`                                    | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
 | Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                                                      | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
 | Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                                                                 | Blacklist styling or registry attachment                                                                   |
@@ -148,9 +161,9 @@ Rules:
 - **Live samples** commit to the Verdict Timeline as they arrive, whatever their confidence.
 - **Status** flips to unsafe when the presenter reports an unsafe span (or unsafe Thumbnail)
   presented, not when its verdict arrives ahead, and is sticky: it never returns to `safe`, and a
-  later `skipped` doesn't replace it. The registry remembers unsafe verdict cache keys for the
-  page's lifetime (`createVideoSession({ unsafeSeen })`), so the same source stays unsafe across a
-  Forced Visibility round-trip, re-attach or loop; sources without a cache key are sticky per
+  later `skipped` doesn't replace it. The registry remembers unsafe Video Identity keys for the
+  page's lifetime (`createVideoSession({ unsafeSeen })`), so the same media stays unsafe across a
+  Forced Visibility round-trip, re-attach or loop; sources with an unknown identity are sticky per
   session only.
 - **Paused frames**: a pause or paused seek on an uncovered frame requests one live sample.
 - **Unreadable page pixels** (permanent capture failure): with no tap, the session finalises
@@ -278,22 +291,30 @@ Refinement Probes; the suspicion threshold is `suspicionThresholdOf` (half the r
 Changing strictness rebuilds the content pipeline, so new sessions re-read the same samples under
 the new threshold; video samples are never cleared for it.
 
-Dexie schema v3 splits the cache. `videoPredictions` holds one meta row per video identity (the
-media URL, or the page URL without fragment for `blob:` sources — `verdictCacheKey.ts`) with the
-video's Forced Visibility, cache metadata and `sampleCounts` per model (for the Cache Browser).
-`videoSamples` holds the samples in 5-minute media-time buckets keyed
-`[videoUrl+modelId+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There is no per-video sample cap;
-expiry follows the meta row's `accessedAt`, and an expired video is purged before a merge.
-`getVideoForcedVisibility` reads the meta row alone. The service buffers publishes per (video,
-model) and merges every 2 s or 50 samples; `getCached` flushes pending writes first. The Verdict
-Timeline keeps at most 4000 entries and evicts the one farthest from the playhead; evicted spans are
-not re-read from the cache.
+Dexie schema v4 keys the cache by Video Identity (its upgrade drops the v3 page-URL-keyed
+`videoPredictions` / `videoSamples` tables). `videos` holds one meta row per stable or local
+identity (`identityKey`, `identityKind`, `durationSec`, the last source URL) with the video's Forced
+Visibility, cache metadata and `sampleCounts` per model (the Cache Browser lists the identity key
+and kind). `videoSampleBuckets` holds the samples in 5-minute media-time buckets keyed
+`[identityKey+modelId+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There is no per-video sample cap;
+expiry follows the meta row's `accessedAt`, and an expired video is purged before a merge. A stored
+duration more than 1 s off the playing identity's purges that video's samples (on read and on merge)
+and adopts the new duration; its Forced Visibility is kept. `getVideoForcedVisibility` reads the
+meta row alone. The service buffers publishes per (video, model) and merges every 2 s or 50 samples;
+`getCached` flushes pending writes first. The Verdict Timeline keeps at most 4000 entries and evicts
+the one farthest from the playhead; evicted spans are not re-read from the cache.
 
 Live and post-live sessions neither read nor publish; Live Masking samples are never cached. A
 session's liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's
 duration (infinite → `live`, finite → `vod`, unset → `unknown`), re-sent on every `durationchange`.
 Samples analysed while it is `unknown` are held, published once it is `vod`, and dropped if it turns
 `live`; `live` is final for the session.
+
+The same hold applies to the Video Identity: the analysis opens with the identity known at attach
+(`OpenAnalysis.identity`) and receives a later one as an `identity` message. Its single cache read
+waits for a stable or local identity, at most 3 s (`IDENTITY_WAIT_MS`), then proceeds without the
+cache (analysis is held back meanwhile); samples are published only while liveness is `vod` and the
+identity is stable or local, held until then, and dropped if the session ends unidentified.
 
 ## Mask Presenter
 

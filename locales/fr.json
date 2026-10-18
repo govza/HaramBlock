@@ -22,6 +22,8 @@
       "clearConfirm": "Cliquez à nouveau pour confirmer",
       "noDetections": "Aucune détection",
       "samples": "$1 échantillons",
+      "identityStable": "Portable",
+      "identityLocal": "Cet appareil uniquement",
       "previous": "Précédent",
       "next": "Suivant",
       "pageOf": "Page $1 sur $2",

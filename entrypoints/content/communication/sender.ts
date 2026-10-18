@@ -38,6 +38,7 @@ import {
 } from '@/utils/types';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
+import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('sender');
 const tracer = getTracer('inference');
@@ -74,24 +75,24 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
   }
 }
 
-export async function requestVideoForcedVisibility(videoUrl: string): Promise<ForcedVisibility> {
+export async function requestVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
   try {
-    return await backgroundRpc.getVideoForcedVisibility(videoUrl);
+    return await backgroundRpc.getVideoForcedVisibility(identity);
   } catch (error) {
-    log.error('video_forced_visibility.request.failed', { [ATTR.src]: videoUrl, error });
+    log.error('video_forced_visibility.request.failed', { identity, error });
     return 'auto';
   }
 }
 
 export async function requestVideoToggleUpdate(
-  videoUrl: string,
+  identity: VideoIdentity,
   origin: { sourceUrl: string; hostname: string },
   forcedVisibility: ForcedVisibility,
 ): Promise<void> {
   try {
-    await backgroundRpc.updateVideoToggleState(videoUrl, origin, forcedVisibility);
+    await backgroundRpc.updateVideoToggleState(identity, origin, forcedVisibility);
   } catch (error) {
-    log.error('video_toggle.update.failed', { [ATTR.src]: videoUrl, forcedVisibility, error });
+    log.error('video_toggle.update.failed', { identity, forcedVisibility, error });
   }
 }
 

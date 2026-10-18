@@ -358,12 +358,12 @@ async function readFirstUnsafePointSec(): Promise<number | null> {
       request.onerror = () => done(null);
       request.onsuccess = () => {
         const db = request.result;
-        if (!db.objectStoreNames.contains('videoSamples')) {
+        if (!db.objectStoreNames.contains('videoSampleBuckets')) {
           db.close();
           done(null);
           return;
         }
-        const read = db.transaction('videoSamples', 'readonly').objectStore('videoSamples').getAll();
+        const read = db.transaction('videoSampleBuckets', 'readonly').objectStore('videoSampleBuckets').getAll();
         read.onsuccess = () => {
           db.close();
           const buckets = read.result as { samples: { pointUs: number; topUnsafeScore: number }[] }[];

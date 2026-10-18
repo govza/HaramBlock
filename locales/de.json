@@ -22,6 +22,8 @@
       "clearConfirm": "Zum Bestätigen erneut klicken",
       "noDetections": "Keine Erkennungen",
       "samples": "$1 Proben",
+      "identityStable": "Portabel",
+      "identityLocal": "Nur dieses Gerät",
       "previous": "Zurück",
       "next": "Weiter",
       "pageOf": "Seite $1 von $2",

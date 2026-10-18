@@ -1,4 +1,5 @@
 import type { IMaskTransform, RawSampleScores } from '@/utils/types';
+import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * Geometry of the model input a sample was inferred from, needed to map its scores back onto the video.
@@ -99,11 +100,12 @@ export interface InferencePort {
 }
 
 /**
- * The persistent verdict cache for the session's media: read once on open, published to as samples are inferred.
+ * The persistent verdict cache, addressed by the session's video identity: read once that identity is known,
+ * published to as samples are inferred.
  */
 export interface SampleCachePort {
-  read(): Promise<StoredSample[]>;
-  publish(samples: StoredSample[]): void;
+  read(identity: PersistentVideoIdentity): Promise<StoredSample[]>;
+  publish(identity: PersistentVideoIdentity, samples: StoredSample[]): void;
 }
 
 export type UnreachableReason = 'hook' | 'overflow' | 'fetch' | 'demux' | 'decode';
@@ -161,6 +163,7 @@ export function livenessOfDuration(durationSec: number): Liveness {
 export interface LookaheadOptions {
   liveness: Liveness;
   scoreThreshold: number;
+  identity: VideoIdentity;
 }
 
 /**

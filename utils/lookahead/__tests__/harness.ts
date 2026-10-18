@@ -8,13 +8,23 @@ import type {
   InferencePort,
   InferredSample,
   LookaheadEvents,
+  LookaheadOptions,
   SampleCachePort,
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
+import type { PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 export const fixture = (name: string): Uint8Array =>
   new Uint8Array(readFileSync(`utils/lookahead/__tests__/fixtures/${name}`));
+
+export const KNOWN_IDENTITY: PersistentVideoIdentity = {
+  kind: 'local',
+  key: 'page:https://example.test/watch|d=40',
+  durationSec: 4,
+};
+
+export const VOD_OPTIONS: LookaheadOptions = { liveness: 'vod', scoreThreshold: 0.5, identity: KNOWN_IDENTITY };
 
 export const CLEAN: InferredSample = {
   scores: { kind: 'detections', detections: [] },
@@ -58,6 +68,8 @@ export function createHarness(
   const requests: InferenceRequest[] = [];
   const frames: TestFrame[] = [];
   const published: StoredSample[] = [];
+  const publishedUnder: string[] = [];
+  const readUnder: string[] = [];
   const emitted: StoredSample[] = [];
   const unreachable: UnreachableReason[] = [];
   let cacheReads = 0;
@@ -90,12 +102,14 @@ export function createHarness(
   };
 
   const cache: SampleCachePort = {
-    read() {
+    read(identity) {
       cacheReads += 1;
+      readUnder.push(identity.key);
       return Promise.resolve(options.cached ?? []);
     },
-    publish(samples) {
+    publish(identity, samples) {
       published.push(...samples);
+      publishedUnder.push(identity.key);
     },
   };
 
@@ -109,6 +123,8 @@ export function createHarness(
     requests,
     frames,
     published,
+    publishedUnder,
+    readUnder,
     emitted,
     unreachable,
     cacheReads: () => cacheReads,
