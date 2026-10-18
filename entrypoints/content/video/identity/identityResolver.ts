@@ -24,7 +24,7 @@ export interface VideoIdentityContext {
  */
 export interface VideoIdentityAdapter {
   matches(location: URL): boolean;
-  resolve(context: VideoIdentityContext): VideoIdentity | null;
+  resolve(context: VideoIdentityContext, location: URL): VideoIdentity | null;
 }
 
 export const VIDEO_IDENTITY_ADAPTERS: readonly VideoIdentityAdapter[] = [youTubeIdentityAdapter, redditIdentityAdapter];
@@ -37,7 +37,7 @@ export function resolveVideoIdentity(
   if (location) {
     for (const adapter of adapters) {
       if (!adapter.matches(location)) continue;
-      const identity = adapter.resolve(context);
+      const identity = adapter.resolve(context, location);
       if (identity) return identity;
     }
   }
