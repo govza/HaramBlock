@@ -22,7 +22,12 @@ import {
 } from '@/utils/lookahead/ports';
 import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from '@/utils/lookahead/progressiveFile';
 import { isUnsafeAt, suspicionThresholdOf } from '@/utils/lookahead/sampleScores';
-import { isPersistentIdentity, type PersistentVideoIdentity, type VideoIdentity } from '@/utils/videoIdentity';
+import {
+  IDENTITY_WAIT_MS,
+  isPersistentIdentity,
+  type PersistentVideoIdentity,
+  type VideoIdentity,
+} from '@/utils/videoIdentity';
 
 export const URGENT_SLACK_SEC = 5;
 const MAX_INFLIGHT_INFERENCES = 6;
@@ -30,7 +35,6 @@ const MAX_RETAINED_UNITS = 64;
 const MAX_UNPUBLISHED_SAMPLES = 2_000;
 const REPLAY_BEHIND_US = 30e6;
 const REPLAY_AHEAD_US = 300e6;
-export const IDENTITY_WAIT_MS = 3_000;
 
 /**
  * A half-open span of media time, in microseconds, whose known samples the reader was last sent.

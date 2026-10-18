@@ -63,6 +63,22 @@ describe('compareSources', () => {
     expect(compareSources(ad, urlSource('blob:https://www.example.test/b', UNKNOWN_VIDEO_IDENTITY))).toBe('different');
   });
 
+  it('lets a new source awaiting the identity of the media playing so far wait to continue it', () => {
+    const video = stable('yt:abc');
+    const qualitySwitch = urlSource('blob:https://www.youtube.com/b', { kind: 'unknown', pendingKey: 'yt:abc' });
+    expect(compareSources(urlSource('blob:https://www.youtube.com/a', video), qualitySwitch)).toBe('pendingSameMedia');
+  });
+
+  it('never waits on a new source expecting another identity, or on media that was never identified', () => {
+    const autoplayNext = urlSource('blob:https://www.youtube.com/b', { kind: 'unknown', pendingKey: 'yt:next' });
+    expect(compareSources(urlSource('blob:https://www.youtube.com/a', stable('yt:abc')), autoplayNext)).toBe(
+      'different',
+    );
+    const unidentified = urlSource('blob:https://www.youtube.com/a', UNKNOWN_VIDEO_IDENTITY);
+    const pending = urlSource('blob:https://www.youtube.com/b', { kind: 'unknown', pendingKey: 'yt:abc' });
+    expect(compareSources(unidentified, pending)).toBe('different');
+  });
+
   it('treats a switch between a stream and a URL as different media', () => {
     const stream = {} as MediaStream;
     expect(compareSources(streamSource(stream), urlSource('https://cdn.test/a.mp4'))).toBe('different');

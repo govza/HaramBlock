@@ -1,11 +1,20 @@
 import { initPieceKindOf, initSegmentLength, type InitPieceKind } from '@/utils/lookahead/containerSniff';
 import {
+  HOOK_IDENTITY_ATTR,
   isArrayBufferTag,
   MSE_HOOK_HANDSHAKE,
   type HookCommand,
+  type HookIdentityClaim,
   type HookMessage,
   type WireChunk,
 } from '@/utils/lookahead/protocol';
+import {
+  playingVideoId,
+  videoDetailsOf,
+  YOUTUBE_HOST,
+  YOUTUBE_PLAYER_SELECTOR,
+  youTubeVideoIdentity,
+} from '@/utils/lookahead/youTubePlayer';
 
 import type { Liveness } from '@/utils/lookahead/ports';
 
@@ -16,6 +25,7 @@ const MAX_RECORDED_BYTES_PER_SOURCE = 48 * 1024 * 1024;
  * Hook-side bookkeeping for one page SourceBuffer, holding copied appends until the browser confirms them on `update`.
  */
 interface HookedBuffer {
+  mediaSource: MediaSource;
   sourceId: number;
   bufferId: number;
   audio: boolean;
@@ -265,54 +275,15 @@ function sliceOf(data: unknown): ArrayBuffer | null {
   return null;
 }
 
-/**
- * The fields of YouTube's player response that tell a live or post-live DVR stream from VOD.
- */
-interface YouTubeVideoDetails {
-  videoId?: string;
-  isLive?: boolean;
-  isPostLiveDvr?: boolean;
-}
-
-const YOUTUBE_HOST = /(^|\.)youtube(-nocookie)?\.com$/;
-const YOUTUBE_PATH_VIDEO_ID = /^\/(?:shorts|live|embed)\/([\w-]+)/;
-
-function callPlayer(player: HTMLElement, name: string): unknown {
-  const method: unknown = Reflect.get(player, name);
-  return typeof method === 'function' ? Reflect.apply(method, player, []) : undefined;
-}
-
-function objectOrUndefined(value: unknown): object | undefined {
-  return value && typeof value === 'object' ? value : undefined;
-}
-
-function videoIdInUrl(href: string): string | undefined {
-  try {
-    const url = new URL(href);
-    return url.searchParams.get('v') ?? YOUTUBE_PATH_VIDEO_ID.exec(url.pathname)?.[1];
-  } catch {
-    return undefined;
-  }
-}
-
-function currentYouTubeVideoId(player: HTMLElement, target: Window): string | undefined {
-  const playing: unknown = Reflect.get(objectOrUndefined(callPlayer(player, 'getVideoData')) ?? {}, 'video_id');
-  if (typeof playing === 'string' && playing) return playing;
-  return videoIdInUrl(target.location.href);
-}
-
 function youTubeLiveness(target: Window): Liveness {
   try {
     const player = target.document.getElementById('movie_player');
     if (!player || typeof Reflect.get(player, 'getPlayerResponse') !== 'function') {
       return YOUTUBE_HOST.test(target.location.hostname) ? 'unknown' : 'vod';
     }
-    const response = objectOrUndefined(callPlayer(player, 'getPlayerResponse'));
-    const details: YouTubeVideoDetails | undefined = objectOrUndefined(
-      response && Reflect.get(response, 'videoDetails'),
-    );
+    const details = videoDetailsOf(player);
     if (!details) return 'unknown';
-    const currentVideoId = currentYouTubeVideoId(player, target);
+    const currentVideoId = playingVideoId(player, target.location.href);
     if (currentVideoId && details.videoId !== currentVideoId) return 'unknown';
     return details.isLive || details.isPostLiveDvr ? 'live' : 'vod';
   } catch {
@@ -336,6 +307,96 @@ function guard(action: () => void): void {
   } catch {
     return;
   }
+}
+
+function runAfterSetter<T>(prototype: object, name: string, after: (self: T, value: unknown) => void): void {
+  const property = Object.getOwnPropertyDescriptor(prototype, name);
+  if (!property?.set) return;
+  Object.defineProperty(prototype, name, {
+    ...property,
+    set(this: T, value: unknown) {
+      property.set?.call(this, value);
+      guard(() => after(this, value));
+    },
+  });
+}
+
+/**
+ * The `<video>` a hooked `MediaSource` was assigned to, and whether its identity is settled for good.
+ */
+interface IdentityBinding {
+  video: HTMLMediaElement;
+  objectUrl: string;
+  settled: boolean;
+}
+
+/**
+ * Binds each `MediaSource` to the `<video>` its blob URL is assigned to and publishes the source's video identity on
+ * that element: re-evaluated as its duration is set and on each append, until an append finds it stable.
+ */
+interface IdentityBinder {
+  register(objectUrl: string, source: MediaSource): void;
+  durationSet(source: MediaSource): void;
+  appending(source: MediaSource): void;
+}
+
+function createIdentityBinder(target: Window & typeof globalThis): IdentityBinder {
+  const sourcesByUrl = new Map<string, WeakRef<MediaSource>>();
+  const bindings = new WeakMap<MediaSource, IdentityBinding>();
+  const adPlayers = new WeakSet<Element>();
+  const watchedPlayers = new WeakSet<Element>();
+  const MediaElementCtor = target.HTMLMediaElement as typeof HTMLMediaElement | undefined;
+  const mediaProto = MediaElementCtor?.prototype;
+  const originalSetAttribute = mediaProto && Reflect.get(mediaProto, 'setAttribute');
+  const onYouTube = () => YOUTUBE_HOST.test(target.location.hostname);
+
+  const watchAds = (player: Element) => {
+    if (watchedPlayers.has(player)) return;
+    watchedPlayers.add(player);
+    const subscribe: unknown = Reflect.get(player, 'addEventListener');
+    if (typeof subscribe !== 'function') return;
+    Reflect.apply(subscribe, player, ['onAdStart', () => adPlayers.add(player)]);
+    Reflect.apply(subscribe, player, ['onAdFinish', () => adPlayers.delete(player)]);
+  };
+
+  const evaluate = (source: MediaSource, settleIfStable: boolean) => {
+    const binding = bindings.get(source);
+    if (!binding || binding.settled || binding.video.src !== binding.objectUrl || !originalSetAttribute) return;
+    const player = binding.video.closest(YOUTUBE_PLAYER_SELECTOR);
+    if (!player) return;
+    watchAds(player);
+    const identity = youTubeVideoIdentity(player, source.duration, adPlayers.has(player), target.location.href);
+    binding.settled = settleIfStable && identity.kind === 'stable';
+    const claim: HookIdentityClaim = { objectUrl: binding.objectUrl, identity };
+    originalSetAttribute.call(binding.video, HOOK_IDENTITY_ATTR, JSON.stringify(claim));
+  };
+
+  const bind = (video: HTMLMediaElement, objectUrl: unknown) => {
+    if (typeof objectUrl !== 'string' || !onYouTube()) return;
+    const source = sourcesByUrl.get(objectUrl)?.deref();
+    if (!source) return;
+    bindings.set(source, { video, objectUrl, settled: false });
+    evaluate(source, false);
+  };
+
+  if (mediaProto) runAfterSetter<HTMLMediaElement>(mediaProto, 'src', bind);
+  if (mediaProto && originalSetAttribute) {
+    mediaProto.setAttribute = function setAttribute(this: HTMLMediaElement, name: string, value: string): void {
+      originalSetAttribute.call(this, name, value);
+      guard(() => {
+        if (String(name).toLowerCase() === 'src') bind(this, value);
+      });
+    };
+  }
+
+  return {
+    register: (objectUrl, source) => {
+      for (const [url, reference] of sourcesByUrl) if (!reference.deref()) sourcesByUrl.delete(url);
+      sourcesByUrl.set(objectUrl, new WeakRef(source));
+    },
+    durationSet: source => evaluate(source, false),
+    appending: source => evaluate(source, true),
+  };
 }
 
 export function installMseHook(target: Window & typeof globalThis): void {
@@ -368,11 +429,14 @@ export function installMseHook(target: Window & typeof globalThis): void {
     outbox.announce({ t: 'liveness', sourceId, liveness });
   };
 
+  const identities = createIdentityBinder(target);
+
   const originalCreateObjectURL = target.URL.createObjectURL.bind(target.URL);
   target.URL.createObjectURL = function createObjectURL(object: Blob | MediaSource): string {
     const objectUrl = originalCreateObjectURL(object);
     guard(() => {
       if (object instanceof MediaSourceCtor) {
+        identities.register(objectUrl, object);
         const sourceId = sourceIdOf(object);
         const liveness = youTubeLiveness(target);
         if (liveness === 'unknown') unresolvedLiveness.add(sourceId);
@@ -383,12 +447,14 @@ export function installMseHook(target: Window & typeof globalThis): void {
   };
 
   const sourceProto = MediaSourceCtor.prototype;
+  runAfterSetter<MediaSource>(sourceProto, 'duration', source => identities.durationSet(source));
   const originalAddSourceBuffer = originalMethod<MediaSource['addSourceBuffer']>(sourceProto, 'addSourceBuffer');
   sourceProto.addSourceBuffer = function addSourceBuffer(this: MediaSource, type: string): SourceBuffer {
     const buffer = originalAddSourceBuffer.call(this, type);
     guard(() => {
       const mime = typeof type === 'string' ? type : '';
       const hooked: HookedBuffer = {
+        mediaSource: this,
         sourceId: sourceIdOf(this),
         bufferId: nextId++,
         audio: isAudioMime(mime),
@@ -446,6 +512,7 @@ export function installMseHook(target: Window & typeof globalThis): void {
     guard(() => {
       const hooked = buffers.get(this);
       if (hooked) resolveLiveness(hooked.sourceId);
+      if (hooked) identities.appending(hooked.mediaSource);
       const bytes = hooked && !hooked.audio ? sliceOf(data) : null;
       if (hooked && bytes) {
         pending = { bytes, timestampOffset: this.timestampOffset };

@@ -50,16 +50,16 @@ import {
   type StoredSample,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
+import { HOOK_IDENTITY_ATTR, type TapKind } from '@/utils/lookahead/protocol';
 import { predictionsAt, toInferredSample } from '@/utils/lookahead/sampleScores';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
-import { isPersistentIdentity, persistentKeyOf, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
+import { IDENTITY_WAIT_MS, isPersistentIdentity, persistentKeyOf, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
-import type { TapKind } from '@/utils/lookahead/protocol';
 import type {
   FrameInferenceResult,
   FrameSampleKind,
@@ -168,6 +168,11 @@ class VideoSessionRegistry {
         this.changeSource(existing, source);
         return;
       }
+      if (relation === 'pendingSameMedia' && existing.state.phase === 'active') {
+        existing.hostSettings = hostSettings;
+        this.awaitSourceIdentity(existing, source);
+        return;
+      }
     }
     if (existing) this.dispose(video);
 
@@ -195,8 +200,33 @@ class VideoSessionRegistry {
     this.restoreForcedVisibility(handle);
   }
 
+  /**
+   * Keeps the session on a new source whose identity is pending on the session's own until the MSE
+   * hook settles it (rechecked on each claim it publishes): the same identity continues the media,
+   * anything else, or no answer in time, starts a new session.
+   */
+  private awaitSourceIdentity(handle: SessionHandle, source: ResolvedVideoSource): void {
+    if (handle.sourceIdentityWait?.url === source.url) return;
+    this.cancelSourceIdentityWait(handle);
+    const { video } = handle;
+    const giveUp = () => {
+      this.cancelSourceIdentityWait(handle);
+      if (this.byVideo.get(video) !== handle) return;
+      this.dispose(video);
+      this.attach(video, handle.hostSettings);
+    };
+    const timer = setTimeout(giveUp, IDENTITY_WAIT_MS);
+    handle.sourceIdentityWait = { url: source.url, cancel: () => clearTimeout(timer) };
+  }
+
+  private cancelSourceIdentityWait(handle: SessionHandle): void {
+    handle.sourceIdentityWait?.cancel();
+    handle.sourceIdentityWait = null;
+  }
+
   private changeSource(handle: SessionHandle, source: ResolvedVideoSource): void {
     const { video } = handle;
+    this.cancelSourceIdentityWait(handle);
     log.info('video.session.source_changed', { [ATTR.sessionId]: handle.sessionId, [ATTR.src]: source.url });
     handle.src = source.url;
     handle.verifyMediaOnDuration = handle.mediaDurationSec !== null;
@@ -276,6 +306,7 @@ class VideoSessionRegistry {
       lookahead: null,
       mediaDurationSec: Number.isFinite(video.duration) ? video.duration : null,
       verifyMediaOnDuration: false,
+      sourceIdentityWait: null,
       tap: null,
       nextFrameIndex: 0,
       pendingLive: new Map(),
@@ -795,6 +826,7 @@ class VideoSessionRegistry {
     handle.heldSamples.clear();
     this.suspension.clearGrace(handle);
     handle.removeListeners();
+    this.cancelSourceIdentityWait(handle);
     this.suspension.unobserve(video);
     clearWholeBlur(video);
     clearProcessedStatus(video);
@@ -839,6 +871,12 @@ class VideoSessionRegistry {
       this.resolveIdentity(handle);
     };
     const onLoadedMetadata = () => this.resolveIdentity(handle);
+    const onHookIdentityClaim = () => {
+      if (handle.sourceIdentityWait) this.attach(video, handle.hostSettings);
+      else this.resolveIdentity(handle);
+    };
+    const hookIdentityObserver = new MutationObserver(onHookIdentityClaim);
+    hookIdentityObserver.observe(video, { attributes: true, attributeFilter: [HOOK_IDENTITY_ATTR] });
     const onSourceChanged = () => {
       loopRestarts.reset();
       if (resolveVideoSource(video)) this.attach(video, handle.hostSettings);
@@ -864,6 +902,7 @@ class VideoSessionRegistry {
       video.removeEventListener('ratechange', onRateChange);
       video.removeEventListener('durationchange', onDurationChange);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      hookIdentityObserver.disconnect();
       video.removeEventListener('loadstart', onSourceChanged);
       video.removeEventListener('emptied', onSourceChanged);
     };

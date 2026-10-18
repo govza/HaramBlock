@@ -11,6 +11,16 @@ import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdenti
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
 export const LOOKAHEAD_PORT_NAME = 'hb-lookahead';
 export const LOOKAHEAD_HOST_PAGE = '/lookahead-host.html' as const;
+export const HOOK_IDENTITY_ATTR = 'data-hb-video-identity';
+
+/**
+ * The MSE hook's current verdict on the identity of the `MediaSource` a `<video>` plays, published
+ * as JSON on the element so the content script can read it synchronously when the source changes.
+ */
+export interface HookIdentityClaim {
+  objectUrl: string;
+  identity: VideoIdentity;
+}
 
 export type FirefoxPortMessage = { k: 'hook'; m: HookMessage } | { k: 'content'; m: ContentToHost };
 
