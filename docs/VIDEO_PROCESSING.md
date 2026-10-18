@@ -14,8 +14,10 @@ attaches to a video whose source is resolved; dies when the element is removed o
 to different media. A new source with an equal stable or local Video Identity (a direct file whose
 signed-URL tokens rotated) continues the session: Verdict Timeline, status and blur are kept and
 only the tap is re-opened; a finite duration that then differs by more than 1 s restarts it as new
-media. An unknown identity never continues another source's media. Pauses, replays, and seeks all
-happen inside one VideoSession. _Avoid_: playback session
+media. An unknown identity never continues another source's media; one pending on the session's own
+key (a YouTube quality switch to a new `MediaSource`, before its duration is checked) keeps the
+session waiting up to 3 s for it to settle, then continues it or starts a new session. Pauses,
+replays, and seeks all happen inside one VideoSession. _Avoid_: playback session
 
 **Video Identity**: What names a VideoSession's media for the verdict cache, independent of the
 page, rendition or URL spelling. `stable`: a portable `namespace:id` key with the media duration
@@ -26,8 +28,9 @@ identifies — persistent on this device, never shared. `unknown`: no duration y
 stream, a live stream or an adapter's veto (an ad) — analysed and masked in memory only, never read
 from or written to the cache. Resolved by `identityResolver.ts` (site adapters first, by page
 location, then `genericIdentityRules.ts`) when the source resolves and again on `loadedmetadata` /
-`durationchange`; the first stable or local identity is kept for the session. _Avoid_: cache key,
-video URL
+`durationchange` and whenever the MSE hook publishes a new claim; the first stable or local identity
+is kept for the session. YouTube (`youTubeIdentityAdapter.ts`) only takes the MSE hook's claim for
+the playing `blob:` URL (`yt:<video id>`), never the page. _Avoid_: cache key, video URL
 
 **Thumbnail**: The first-pass input for a video's initial verdict — its poster, or its first frame
 when no poster exists. Analysed before any playback. _Avoid_: poster (only one source of it)
@@ -113,27 +116,27 @@ bundled WebAssembly decoders (VP9, AV1) in a dedicated worker.
 
 ## Components
 
-| Component             | File                                                                                                                                         | Role                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Video Session reducer | `entrypoints/content/video/session/videoSession.ts`                                                                                          | Pure `(state, event) → (state, effects)`; no DOM, timers or transport                                      |
-| Registry              | `entrypoints/content/video/session/registry.ts`                                                                                              | Session lifecycle, media events, result routing, effect execution, telemetry                               |
-| Viewport suspension   | `entrypoints/content/video/session/viewportSuspension.ts`                                                                                    | IntersectionObserver suspend/resume (400 px margin, 1 s grace)                                             |
-| Forced presentation   | `entrypoints/content/video/session/forcedPresentation.ts`                                                                                    | Quick Toggle overrides (Forced Visibility) with no session behind them                                     |
-| Mask Presenter        | `entrypoints/content/video/presenter/{maskPresenter,presentationClock,maskClipPath}.ts`                                                      | rAF overlay, extrapolated playhead clock, mask grid → `clip-path`                                          |
-| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                                                              | rVFC/rAF ticker, one sample in flight, 250 ms floor, paused-frame samples                                  |
-| Page capture          | `entrypoints/content/video/sampling/capture.ts`                                                                                              | Model-input-sized capture, poster extraction, CORS clone and Relay Fetch tiers                             |
-| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                                                                 | Sample history, coverage ahead, per-frame cover lookup per mode                                            |
-| Lookahead client      | `entrypoints/content/video/tap/lookaheadClient.ts`                                                                                           | Hook handshake, host connection (Chrome iframe / Firefox port), cache and inference forwarding             |
-| MSE hook              | `entrypoints/mseHook.content.ts`, `utils/lookahead/mseHook.ts`                                                                               | MAIN-world `MediaSource` / `SourceBuffer` hook at `document_start`                                         |
-| Analysis core         | `utils/lookahead/{analysis,byteStream,demux,lattice,progressiveFile}.ts`                                                                     | DOM-free: unit cutter, mediabunny demux, Sample Lattice, scheduling, cache-first lookup, Refinement Probes |
-| Host runtime          | `utils/lookahead/{host,webCodecsDecoder,rangeFetchSource,protocol}.ts`                                                                       | Source registry and per-session analyses; WebCodecs decode; range fetch; wire protocol                     |
-| WASM decoders         | `utils/lookahead/{decoderSelection,wasmDecoder,wasmDecodeCore,yuvToRgba}.ts`, `entrypoints/wasm-decoder-worker.ts`, `scripts/wasm-decoders/` | Per-job choice native → WASM; worker decode and YUV → model-input bitmap; reproducible Emscripten builds   |
-| Chrome host           | `entrypoints/lookahead-host/`                                                                                                                | Hidden extension iframe running the host runtime                                                           |
-| Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                                                    | Host runtime in the event page, fed over `runtime.connect`                                                 |
-| Identity resolver     | `entrypoints/content/video/identity/{identityResolver,genericIdentityRules,redditIdentity}.ts`, `utils/videoIdentity.ts`                     | Video Identity from site adapters, then generic rules; same-media and duration-mismatch rules              |
-| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`                                    | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
-| Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                                                      | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
-| Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                                                                 | Blacklist styling or registry attachment                                                                   |
+| Component             | File                                                                                                                                            | Role                                                                                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Video Session reducer | `entrypoints/content/video/session/videoSession.ts`                                                                                             | Pure `(state, event) → (state, effects)`; no DOM, timers or transport                                      |
+| Registry              | `entrypoints/content/video/session/registry.ts`                                                                                                 | Session lifecycle, media events, result routing, effect execution, telemetry                               |
+| Viewport suspension   | `entrypoints/content/video/session/viewportSuspension.ts`                                                                                       | IntersectionObserver suspend/resume (400 px margin, 1 s grace)                                             |
+| Forced presentation   | `entrypoints/content/video/session/forcedPresentation.ts`                                                                                       | Quick Toggle overrides (Forced Visibility) with no session behind them                                     |
+| Mask Presenter        | `entrypoints/content/video/presenter/{maskPresenter,presentationClock,maskClipPath}.ts`                                                         | rAF overlay, extrapolated playhead clock, mask grid → `clip-path`                                          |
+| Live Masking sampler  | `entrypoints/content/video/live/liveSampler.ts`                                                                                                 | rVFC/rAF ticker, one sample in flight, 250 ms floor, paused-frame samples                                  |
+| Page capture          | `entrypoints/content/video/sampling/capture.ts`                                                                                                 | Model-input-sized capture, poster extraction, CORS clone and Relay Fetch tiers                             |
+| Verdict Timeline      | `entrypoints/content/video/timeline/{verdictTimeline,verdictInterpreter}.ts`                                                                    | Sample history, coverage ahead, per-frame cover lookup per mode                                            |
+| Lookahead client      | `entrypoints/content/video/tap/lookaheadClient.ts`                                                                                              | Hook handshake, host connection (Chrome iframe / Firefox port), cache and inference forwarding             |
+| MSE hook              | `entrypoints/mseHook.content.ts`, `utils/lookahead/mseHook.ts`                                                                                  | MAIN-world `MediaSource` / `SourceBuffer` hook at `document_start`                                         |
+| Analysis core         | `utils/lookahead/{analysis,byteStream,demux,lattice,progressiveFile}.ts`                                                                        | DOM-free: unit cutter, mediabunny demux, Sample Lattice, scheduling, cache-first lookup, Refinement Probes |
+| Host runtime          | `utils/lookahead/{host,webCodecsDecoder,rangeFetchSource,protocol}.ts`                                                                          | Source registry and per-session analyses; WebCodecs decode; range fetch; wire protocol                     |
+| WASM decoders         | `utils/lookahead/{decoderSelection,wasmDecoder,wasmDecodeCore,yuvToRgba}.ts`, `entrypoints/wasm-decoder-worker.ts`, `scripts/wasm-decoders/`    | Per-job choice native → WASM; worker decode and YUV → model-input bitmap; reproducible Emscripten builds   |
+| Chrome host           | `entrypoints/lookahead-host/`                                                                                                                   | Hidden extension iframe running the host runtime                                                           |
+| Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                                                       | Host runtime in the event page, fed over `runtime.connect`                                                 |
+| Identity resolver     | `entrypoints/content/video/identity/{identityResolver,genericIdentityRules,youTubeIdentityAdapter,redditIdentity}.ts`, `utils/videoIdentity.ts` | Video Identity from site adapters, then generic rules; same-media and duration-mismatch rules              |
+| Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`                                       | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
+| Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                                                         | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
+| Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                                                                    | Blacklist styling or registry attachment                                                                   |
 
 ## The Video Session reducer
 
@@ -185,8 +188,21 @@ tag, not `instanceof`. A quality switch is a new `MediaSource`, hooked like any 
 player response marks live and post-live DVR sources; after SPA navigation the response can still
 describe the previous video, so it is trusted only when its `videoId` matches the playing video
 (`getVideoData()`, else the page URL). Until it does the source's liveness is `unknown`, re-read on
-each append, and announced (`liveness`) once known. Every hook body is guarded so a failure can
-never break the page's player.
+each append, and announced (`liveness`) once known.
+
+On YouTube the hook also identifies each source (`youTubePlayer.ts`). The media element `src` setter
+and `setAttribute('src')` bind a hooked `MediaSource` to its `<video>`; the owning player is
+`video.closest('.html5-video-player')` (watch, `#shorts-player`, `#inline-preview-player`), never
+`#movie_player` or the page URL, which lags on Shorts swipes. Its `getVideoData().video_id` is the
+claim; it is `unknown` while the player shows `ad-showing` / `ad-interrupting` or between its
+`onAdStart` and `onAdFinish`, or when the player response describes another video. Until the
+`MediaSource` duration is set it is `unknown` with `pendingKey: yt:<id>`; then `stable` only if the
+duration is within 1 s of the response's `lengthSeconds`. It is re-evaluated on each duration set
+and append until an append finds it stable, and published as JSON (`HookIdentityClaim`: object URL
+plus identity) in the element's `data-hb-video-identity` attribute rather than over the hook port,
+so the content script can read it synchronously at `loadstart` and decide whether a new source
+continues the session. Page-visible like the rest of the hook; trusted for the local cache only.
+Every hook body is guarded so a failure can never break the page's player.
 
 The hook and the isolated content script start in unspecified order, so they handshake over
 `window.postMessage`: the hook announces `ready`; the content script offers a `MessagePort` (`port`)

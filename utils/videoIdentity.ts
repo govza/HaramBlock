@@ -1,4 +1,5 @@
 export const SAME_DURATION_TOLERANCE_SEC = 1;
+export const IDENTITY_WAIT_MS = 3_000;
 
 export type PersistentIdentityKind = 'stable' | 'local';
 export type VideoIdentityKind = PersistentIdentityKind | 'unknown';
@@ -16,10 +17,12 @@ export interface PersistentVideoIdentity {
 
 /**
  * Media that could not be identified (yet): analysed and masked in memory only, never read from or
- * written to the persistent verdict cache.
+ * written to the persistent verdict cache. `pendingKey` names the identity it is expected to settle
+ * on once a check that needs more of the media (its duration) passes.
  */
 export interface UnknownVideoIdentity {
   kind: 'unknown';
+  pendingKey?: string;
 }
 
 export type VideoIdentity = PersistentVideoIdentity | UnknownVideoIdentity;
@@ -34,6 +37,9 @@ export const persistentKeyOf = (identity: VideoIdentity): string | null =>
 
 export const isSameMedia = (known: VideoIdentity, next: VideoIdentity): boolean =>
   isPersistentIdentity(known) && isPersistentIdentity(next) && known.key === next.key;
+
+export const isPendingSameMedia = (known: VideoIdentity, next: VideoIdentity): boolean =>
+  isPersistentIdentity(known) && next.kind === 'unknown' && next.pendingKey === known.key;
 
 export const isDurationMismatch = (storedSec: number | undefined, identity: PersistentVideoIdentity): boolean =>
   storedSec !== undefined && Math.abs(storedSec - identity.durationSec) > SAME_DURATION_TOLERANCE_SEC;

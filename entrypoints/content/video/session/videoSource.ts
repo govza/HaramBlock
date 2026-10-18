@@ -1,5 +1,5 @@
 import { resolveVideoIdentity } from '@/entrypoints/content/video/identity/identityResolver';
-import { isSameMedia, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { isPendingSameMedia, isSameMedia, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * The media a video element currently plays: a `srcObject` stream or a URL, together with the
@@ -14,9 +14,10 @@ export interface ResolvedVideoSource {
 /**
  * How a newly resolved source relates to a known one: the very same source, different source
  * bytes that continue the same media (equal stable or local identities, e.g. rotated signed-URL
- * tokens), or different media.
+ * tokens), a source whose identity is pending on the known media's key (worth waiting for, e.g. a
+ * YouTube quality switch before its duration is checked), or different media.
  */
-export type SourceRelation = 'sameSource' | 'sameMedia' | 'different';
+export type SourceRelation = 'sameSource' | 'sameMedia' | 'pendingSameMedia' | 'different';
 
 export function identityOfVideo(video: HTMLVideoElement, sourceUrl: string): VideoIdentity {
   return resolveVideoIdentity({
@@ -42,8 +43,12 @@ const isSameSource = (known: ResolvedVideoSource, next: ResolvedVideoSource): bo
 const continuesSameMedia = (known: ResolvedVideoSource, next: ResolvedVideoSource): boolean =>
   known.srcObject === null && next.srcObject === null && isSameMedia(known.identity, next.identity);
 
+const mayContinueSameMedia = (known: ResolvedVideoSource, next: ResolvedVideoSource): boolean =>
+  known.srcObject === null && next.srcObject === null && isPendingSameMedia(known.identity, next.identity);
+
 export function compareSources(known: ResolvedVideoSource, next: ResolvedVideoSource): SourceRelation {
   if (isSameSource(known, next)) return 'sameSource';
   if (continuesSameMedia(known, next)) return 'sameMedia';
+  if (mayContinueSameMedia(known, next)) return 'pendingSameMedia';
   return 'different';
 }

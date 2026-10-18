@@ -3,7 +3,7 @@ import { runInNewContext } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { installMseHook } from '@/utils/lookahead/mseHook';
-import { MSE_HOOK_HANDSHAKE, type HookCommand, type HookMessage } from '@/utils/lookahead/protocol';
+import { HOOK_IDENTITY_ATTR, MSE_HOOK_HANDSHAKE, type HookCommand, type HookMessage } from '@/utils/lookahead/protocol';
 
 const VP9_MIME = 'video/webm; codecs="vp9"';
 const OPUS_MIME = 'audio/webm; codecs="opus"';
@@ -44,6 +44,15 @@ function createPage(page: FakePage = {}) {
 
   class FakeMediaSource {
     sourceBuffers: SourceBuffer[] = [];
+    private storedDuration = Number.NaN;
+
+    get duration(): number {
+      return this.storedDuration;
+    }
+
+    set duration(value: number) {
+      this.storedDuration = value;
+    }
 
     addSourceBuffer(_type: string): SourceBuffer {
       const buffer = new FakeSourceBufferImpl() as unknown as SourceBuffer;
@@ -58,10 +67,39 @@ function createPage(page: FakePage = {}) {
     endOfStream(): void {}
   }
 
+  class FakeVideo {
+    readonly attributes = new Map<string, string>();
+    private assignedSrc = '';
+
+    constructor(private readonly owner: object | null) {}
+
+    get src(): string {
+      return this.assignedSrc;
+    }
+
+    set src(value: string) {
+      this.assignedSrc = value;
+    }
+
+    setAttribute(name: string, value: string): void {
+      this.attributes.set(name, value);
+      if (name === 'src') this.assignedSrc = value;
+    }
+
+    getAttribute(name: string): string | null {
+      return this.attributes.get(name) ?? null;
+    }
+
+    closest(selector: string): object | null {
+      return selector === '.html5-video-player' ? this.owner : null;
+    }
+  }
+
   let nextObjectUrl = 1;
   const target = Object.assign(new EventTarget(), {
     MediaSource: FakeMediaSource,
     SourceBuffer: FakeSourceBufferImpl,
+    HTMLMediaElement: FakeVideo,
     URL: { createObjectURL: (_object: unknown) => `blob:https://page.test/${nextObjectUrl++}` },
     document: { getElementById: (id: string) => (id === 'movie_player' ? (page.player ?? null) : null) },
     location: new URL(page.href ?? 'https://page.test/'),
@@ -94,11 +132,21 @@ function createPage(page: FakePage = {}) {
     return { source, buffer };
   };
 
+  const playSource = (owner: object | null, assign: 'property' | 'attribute' = 'property') => {
+    const source = new FakeMediaSource() as unknown as MediaSource;
+    const objectUrl = target.URL.createObjectURL(source);
+    const buffer = source.addSourceBuffer(VP9_MIME) as FakeSourceBuffer;
+    const video = new FakeVideo(owner);
+    if (assign === 'property') video.src = objectUrl;
+    else video.setAttribute('src', objectUrl);
+    return { source, buffer, video, objectUrl };
+  };
+
   const close = () => {
     for (const port of openPorts) port.close();
   };
 
-  return { connect, openSource, received, close };
+  return { connect, openSource, playSource, received, close };
 }
 
 let page: ReturnType<typeof createPage> | null = null;
@@ -564,5 +612,137 @@ describe('MSE hook: live and post-live detection', () => {
       'liveness',
       'live',
     );
+  });
+});
+
+describe('MSE hook: YouTube video identity', () => {
+  const WATCH = 'https://www.youtube.com/watch?v=abc&t=42&list=PL1';
+
+  interface PlayerState {
+    videoId?: string;
+    responseVideoId?: string;
+    lengthSeconds?: string;
+    classes?: string[];
+  }
+
+  const ownerPlayer = (state: PlayerState) => {
+    const listeners = new Map<string, () => void>();
+    return {
+      classList: { contains: (name: string) => state.classes?.includes(name) ?? false },
+      getVideoData: () => (state.videoId ? { video_id: state.videoId } : {}),
+      getPlayerResponse: () => ({
+        videoDetails: { videoId: state.responseVideoId ?? state.videoId, lengthSeconds: state.lengthSeconds ?? '30' },
+      }),
+      addEventListener: (name: string, listener: () => void) => listeners.set(name, listener),
+      fire: (name: string) => listeners.get(name)?.(),
+    };
+  };
+
+  const claimOf = (video: { getAttribute(name: string): string | null }) => {
+    const raw = video.getAttribute(HOOK_IDENTITY_ATTR);
+    return raw === null ? null : (JSON.parse(raw) as unknown);
+  };
+
+  it.each([
+    ['the watch player', 'https://www.youtube.com/watch?v=abc'],
+    ['the Shorts player, while the page URL still names the previous short', 'https://www.youtube.com/shorts/old'],
+    ['an inline hover preview on the home page', 'https://www.youtube.com/'],
+  ])('identifies the video %s plays by its own video id once its duration matches', (_, href) => {
+    const { playSource } = newPage({ href, player: ownerPlayer({}) });
+    const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', lengthSeconds: '30' }));
+
+    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown', pendingKey: 'yt:abc' } });
+
+    source.duration = 30;
+    source.duration = 30.021;
+
+    expect(claimOf(video)).toEqual({
+      objectUrl,
+      identity: { kind: 'stable', key: 'yt:abc', durationSec: 30.021 },
+    });
+  });
+
+  it("binds a source assigned through setAttribute('src') too", () => {
+    const { playSource } = newPage({ href: WATCH });
+    const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc' }), 'attribute');
+    source.duration = 30;
+
+    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'stable', key: 'yt:abc', durationSec: 30 } });
+  });
+
+  it("keeps the source unknown when its duration is not the claimed video's", () => {
+    const { playSource } = newPage({ href: WATCH });
+    const { source, buffer, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', lengthSeconds: '30' }));
+    source.duration = 15.2;
+    appendAndComplete(buffer, [1]);
+
+    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown' } });
+  });
+
+  it('never trusts a player response left over from another video', () => {
+    const { playSource } = newPage({ href: WATCH });
+    const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', responseVideoId: 'previous' }));
+    source.duration = 30;
+
+    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown' } });
+  });
+
+  it.each(['ad-showing', 'ad-interrupting'])(
+    'keeps a source unknown while its player shows %s, re-evaluating it on each append',
+    adClass => {
+      const state: PlayerState = { videoId: 'abc', classes: [adClass] };
+      const { playSource } = newPage({ href: WATCH });
+      const { source, buffer, video, objectUrl } = playSource(ownerPlayer(state));
+      source.duration = 30;
+      appendAndComplete(buffer, [1]);
+
+      expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown' } });
+
+      state.classes = [];
+      appendAndComplete(buffer, [2]);
+
+      expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'stable', key: 'yt:abc', durationSec: 30 } });
+    },
+  );
+
+  it('keeps a source unknown between the player reporting an ad start and its finish', () => {
+    const player = ownerPlayer({ videoId: 'abc' });
+    const { playSource } = newPage({ href: WATCH });
+    const first = playSource(player);
+    player.fire('onAdStart');
+    const ad = playSource(player);
+    ad.source.duration = 30;
+    appendAndComplete(ad.buffer, [1]);
+
+    expect(claimOf(ad.video)).toEqual({ objectUrl: ad.objectUrl, identity: { kind: 'unknown' } });
+
+    player.fire('onAdFinish');
+    appendAndComplete(ad.buffer, [2]);
+
+    expect(claimOf(ad.video)).toHaveProperty('identity.kind', 'stable');
+    expect(claimOf(first.video)).toHaveProperty('identity.pendingKey', 'yt:abc');
+  });
+
+  it("never overwrites a video's claim for its new source from its previous one", () => {
+    const { playSource } = newPage({ href: WATCH });
+    const player = ownerPlayer({ videoId: 'abc' });
+    const previous = playSource(player);
+    const next = playSource(player);
+    previous.video.src = next.objectUrl;
+    previous.source.duration = 30;
+    appendAndComplete(previous.buffer, [1]);
+
+    expect(claimOf(previous.video)).toEqual({
+      objectUrl: next.objectUrl,
+      identity: { kind: 'unknown', pendingKey: 'yt:abc' },
+    });
+  });
+
+  it('claims nothing for a video outside YouTube', () => {
+    const { playSource } = newPage({ href: 'https://www.example.test/watch' });
+    const { source, video } = playSource(ownerPlayer({ videoId: 'abc' }));
+    source.duration = 30;
+
+    expect(claimOf(video)).toBeNull();
   });
 });

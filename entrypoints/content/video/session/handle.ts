@@ -19,6 +19,15 @@ export interface PendingLiveSample {
 }
 
 /**
+ * A new source of the session's video kept waiting for its identity to settle, which decides whether
+ * it continues the session's media; `cancel` stops waiting.
+ */
+export interface SourceIdentityWait {
+  url: string;
+  cancel: () => void;
+}
+
+/**
  * Mutable runtime state of one VideoSession held by the registry: the pure reducer state plus
  * everything impure around it (presenter, Live Masking sampler, lookahead session, in-flight
  * inference, listeners and telemetry).
@@ -38,6 +47,7 @@ export interface SessionHandle {
   lookahead: LookaheadSession | null;
   mediaDurationSec: number | null;
   verifyMediaOnDuration: boolean;
+  sourceIdentityWait: SourceIdentityWait | null;
   tap: TapKind | null;
   nextFrameIndex: number;
   readonly pendingLive: Map<number, PendingLiveSample>;
