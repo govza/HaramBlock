@@ -1,3 +1,5 @@
+import { videoIdentityFrom, type PersistentVideoIdentity, type VideoIdentity } from '@/utils/videoIdentity';
+
 import type {
   AnalysisStat,
   InferredSample,
@@ -7,7 +9,6 @@ import type {
   UnreachableReason,
 } from '@/utils/lookahead/ports';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
 export const LOOKAHEAD_PORT_NAME = 'hb-lookahead';
@@ -21,6 +22,25 @@ export const HOOK_IDENTITY_ATTR = 'data-hb-video-identity';
 export interface HookIdentityClaim {
   objectUrl: string;
   identity: VideoIdentity;
+}
+
+export const encodeHookIdentityClaim = (claim: HookIdentityClaim): string => JSON.stringify(claim);
+
+/**
+ * Parses a claim read back from the page-writable attribute, `null` for anything not shaped like one.
+ */
+export function decodeHookIdentityClaim(raw: string | null): HookIdentityClaim | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const objectUrl: unknown = Reflect.get(parsed, 'objectUrl');
+  const identity = videoIdentityFrom(Reflect.get(parsed, 'identity'));
+  return typeof objectUrl === 'string' && identity ? { objectUrl, identity } : null;
 }
 
 export type FirefoxPortMessage = { k: 'hook'; m: HookMessage } | { k: 'content'; m: ContentToHost };

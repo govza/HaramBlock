@@ -1,5 +1,6 @@
 import { initPieceKindOf, initSegmentLength, type InitPieceKind } from '@/utils/lookahead/containerSniff';
 import {
+  encodeHookIdentityClaim,
   HOOK_IDENTITY_ATTR,
   isArrayBufferTag,
   MSE_HOOK_HANDSHAKE,
@@ -368,7 +369,7 @@ function createIdentityBinder(target: Window & typeof globalThis): IdentityBinde
     const identity = youTubeVideoIdentity(player, source.duration, adPlayers.has(player), target.location.href);
     binding.settled = settleIfStable && identity.kind === 'stable';
     const claim: HookIdentityClaim = { objectUrl: binding.objectUrl, identity };
-    originalSetAttribute.call(binding.video, HOOK_IDENTITY_ATTR, JSON.stringify(claim));
+    originalSetAttribute.call(binding.video, HOOK_IDENTITY_ATTR, encodeHookIdentityClaim(claim));
   };
 
   const bind = (video: HTMLMediaElement, objectUrl: unknown) => {

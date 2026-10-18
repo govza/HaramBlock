@@ -1,5 +1,5 @@
-import { isKnownDuration } from '@/entrypoints/content/video/identity/genericIdentityRules';
-import { UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { tryParseUrl } from '@/utils/url';
+import { isKnownDuration, stableIdentityKey, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
 
 import type { VideoIdentityAdapter, VideoIdentityContext } from '@/entrypoints/content/video/identity/identityResolver';
 
@@ -15,25 +15,16 @@ const PREVIEW_HASH_PATTERN = /^\/([\w-]+)(?:\.\w+)?$/;
 const isRedditPage = (location: URL): boolean =>
   location.hostname === REDDIT_HOSTNAME || location.hostname.endsWith(`.${REDDIT_HOSTNAME}`);
 
-const parseUrl = (href: string | null): URL | null => {
-  if (!href) return null;
-  try {
-    return new URL(href);
-  } catch {
-    return null;
-  }
-};
-
 const mediaKeyOf = (href: string | null): string | null => {
-  const url = parseUrl(href);
+  const url = tryParseUrl(href);
   if (!url) return null;
   if (VIDEO_MEDIA_HOSTS.has(url.hostname)) {
     const mediaId = url.pathname.split('/')[1];
-    return mediaId ? `vreddit:${mediaId}` : null;
+    return mediaId ? stableIdentityKey('vreddit', mediaId) : null;
   }
   if (url.hostname === PREVIEW_MEDIA_HOST) {
     const previewHash = PREVIEW_HASH_PATTERN.exec(url.pathname)?.[1];
-    return previewHash ? `redditpreview:${previewHash}` : null;
+    return previewHash ? stableIdentityKey('redditpreview', previewHash) : null;
   }
   return null;
 };
