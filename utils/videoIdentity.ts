@@ -31,7 +31,7 @@ export type VideoIdentity = PersistentVideoIdentity | UnknownVideoIdentity;
 
 export const UNKNOWN_VIDEO_IDENTITY: UnknownVideoIdentity = { kind: 'unknown' };
 
-export type StableIdentityNamespace = 'yt' | 'vreddit' | 'redditpreview' | 'vimeo' | 'url';
+export type StableIdentityNamespace = 'yt' | 'vreddit' | 'redditpreview' | 'url';
 
 const LOCAL_PAGE_NAMESPACE = 'page';
 const DURATION_KEY_STEP_SEC = 0.1;
