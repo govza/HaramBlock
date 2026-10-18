@@ -8,6 +8,7 @@ import type { InferredSample } from '@/utils/lookahead/ports';
 import type { TapKind } from '@/utils/lookahead/protocol';
 import type { UmbrellaSession } from '@/utils/telemetry/roundtrip';
 import type { IHostSettings } from '@/utils/types';
+import type { VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * A Live Masking frame sent for inference and awaiting its result.
@@ -27,7 +28,7 @@ export interface SessionHandle {
   readonly video: HTMLVideoElement;
   readonly srcObject: HTMLVideoElement['srcObject'];
   src: string;
-  readonly cacheKey: string;
+  identity: VideoIdentity;
   readonly trace: UmbrellaSession;
   hostSettings: IHostSettings;
   state: VideoSessionState;

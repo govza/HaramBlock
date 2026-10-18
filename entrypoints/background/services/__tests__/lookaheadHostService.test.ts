@@ -15,7 +15,7 @@ const openMse: OpenAnalysis = {
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
   liveness: 'live',
   inputSize: 64,
-  cacheKey: '',
+  identity: { kind: 'unknown' },
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,

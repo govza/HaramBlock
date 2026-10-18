@@ -22,6 +22,8 @@
       "clearConfirm": "Нажмите ещё раз для подтверждения",
       "noDetections": "Нет обнаружений",
       "samples": "Сэмплов: $1",
+      "identityStable": "Переносимый",
+      "identityLocal": "Только это устройство",
       "previous": "Назад",
       "next": "Далее",
       "pageOf": "Страница $1 из $2",

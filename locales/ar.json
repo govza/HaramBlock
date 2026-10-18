@@ -22,6 +22,8 @@
       "clearConfirm": "انقر مرة أخرى للتأكيد",
       "noDetections": "لا توجد اكتشافات",
       "samples": "$1 عينات",
+      "identityStable": "قابل للنقل",
+      "identityLocal": "هذا الجهاز فقط",
       "previous": "السابق",
       "next": "التالي",
       "pageOf": "الصفحة $1 من $2",

@@ -1,9 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
 import { compareSources, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
+import { UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
 
-const urlSource = (url: string, cacheKey = url): ResolvedVideoSource => ({ srcObject: null, url, cacheKey });
-const streamSource = (stream: MediaStream): ResolvedVideoSource => ({ srcObject: stream, url: '', cacheKey: '' });
+const local = (key: string): VideoIdentity => ({ kind: 'local', key, durationSec: 60 });
+const stable = (key: string): VideoIdentity => ({ kind: 'stable', key, durationSec: 60 });
+
+const urlSource = (url: string, identity: VideoIdentity = stable(`url:${url}`)): ResolvedVideoSource => ({
+  srcObject: null,
+  url,
+  identity,
+});
+const streamSource = (stream: MediaStream): ResolvedVideoSource => ({
+  srcObject: stream,
+  url: '',
+  identity: UNKNOWN_VIDEO_IDENTITY,
+});
 
 describe('compareSources', () => {
   it('treats an identical URL as the same source', () => {
@@ -19,24 +31,36 @@ describe('compareSources', () => {
     expect(compareSources(streamSource({} as MediaStream), streamSource({} as MediaStream))).toBe('different');
   });
 
-  it('treats a new blob URL with the same cache key as the same media', () => {
-    const pageKey = 'https://www.youtube.com/watch?v=1';
+  it('treats a new blob URL with the same identity as the same media', () => {
+    const page = local('page:https://www.example.test/watch|d=600');
     expect(
       compareSources(
-        urlSource('blob:https://www.youtube.com/a', pageKey),
-        urlSource('blob:https://www.youtube.com/b', pageKey),
+        urlSource('blob:https://www.example.test/a', page),
+        urlSource('blob:https://www.example.test/b', page),
       ),
     ).toBe('sameMedia');
   });
 
-  it('treats URLs with different cache keys as different media', () => {
+  it('treats a direct file whose signed tokens rotated as the same media', () => {
+    const file = stable('url:https://cdn.test/a.mp4');
+    expect(
+      compareSources(
+        urlSource('https://cdn.test/a.mp4?Signature=1', file),
+        urlSource('https://cdn.test/a.mp4?Signature=2', file),
+      ),
+    ).toBe('sameMedia');
+  });
+
+  it('treats sources with different identities as different media', () => {
     expect(compareSources(urlSource('https://cdn.test/a.mp4'), urlSource('https://cdn.test/b.mp4'))).toBe('different');
   });
 
-  it('never continues media without a cache key', () => {
-    expect(compareSources(urlSource('https://cdn.test/a.mp4', ''), urlSource('https://cdn.test/b.mp4', ''))).toBe(
-      'different',
-    );
+  it('never lets an unknown source continue another source, nor be continued', () => {
+    const content = local('page:https://www.example.test/watch|d=600');
+    const ad = urlSource('blob:https://www.example.test/ad', UNKNOWN_VIDEO_IDENTITY);
+    expect(compareSources(urlSource('blob:https://www.example.test/a', content), ad)).toBe('different');
+    expect(compareSources(ad, urlSource('blob:https://www.example.test/a', content))).toBe('different');
+    expect(compareSources(ad, urlSource('blob:https://www.example.test/b', UNKNOWN_VIDEO_IDENTITY))).toBe('different');
   });
 
   it('treats a switch between a stream and a URL as different media', () => {

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createHarness, fileSource, fixture, withUnknownSizes } from '@/utils/lookahead/__tests__/harness';
+import {
+  createHarness,
+  fileSource,
+  fixture,
+  KNOWN_IDENTITY,
+  withUnknownSizes,
+} from '@/utils/lookahead/__tests__/harness';
 import { LookaheadHost } from '@/utils/lookahead/host';
 
 import type { ByteRangeSource, Liveness } from '@/utils/lookahead/ports';
@@ -30,7 +36,7 @@ const openMse = (sessionId: string): OpenAnalysis => ({
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
   liveness: 'vod',
   inputSize: 64,
-  cacheKey: '',
+  identity: KNOWN_IDENTITY,
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,
@@ -216,6 +222,18 @@ describe('Lookahead host: live and post-live sessions', () => {
     host.handleContent({ t: 'liveness', sessionId: 'session', liveness: 'vod' });
 
     expect(harness.published).toEqual([]);
+  });
+
+  it('reads and publishes under an identity the content resolved after opening', async () => {
+    const created = createHost();
+    created.host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' });
+    created.host.handleContent({ ...openMse('session'), identity: { kind: 'unknown' } });
+    created.host.handleContent({ t: 'identity', sessionId: 'session', identity: KNOWN_IDENTITY });
+    await vi.waitFor(() => expect(created.commands).toEqual([{ t: 'want', sourceId: 1 }]));
+    await analyseFixture(created.host, created.sent);
+
+    expect(created.harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
+    expect(created.harness.published).toHaveLength(8);
   });
 
   it('never publishes a session on a source the hook announced live, even with a finite duration', async () => {

@@ -21,6 +21,7 @@ import type {
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
+import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('lookaheadClient');
 
@@ -55,6 +56,7 @@ export interface LookaheadSession {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
+  setIdentity(identity: VideoIdentity): void;
   close(): void;
 }
 
@@ -72,7 +74,7 @@ let listeningToHook = false;
 let link: HostLink | null = null;
 /**
  * An open analysis as the client remembers it, so it can be re-opened with its latest playhead,
- * visibility and liveness after the Firefox host reconnects.
+ * visibility, liveness and identity after the Firefox host reconnects.
  */
 interface ClientSession {
   open: OpenAnalysis;
@@ -117,8 +119,7 @@ function onHostMessage(message: HostToContent): void {
     return;
   }
   if (message.t === 'cacheRead') {
-    const session = sessions.get(message.sessionId);
-    void readCache(session?.open).then(samples =>
+    void readCache(message.identity).then(samples =>
       link?.send({ t: 'cacheSamples', requestId: message.requestId, samples }),
     );
     return;
@@ -150,16 +151,15 @@ function onHostMessage(message: HostToContent): void {
       break;
     case 'cachePublish':
       void backgroundRpc
-        .publishVideoSamples(open.cacheKey, { sourceUrl: open.sourceUrl, hostname: open.hostname }, message.samples)
+        .publishVideoSamples(message.identity, { sourceUrl: open.sourceUrl, hostname: open.hostname }, message.samples)
         .catch((error: unknown) => log.debug('lookahead.cache.publish_failed', { error }));
       break;
   }
 }
 
-async function readCache(open: OpenAnalysis | undefined): Promise<StoredSample[]> {
-  if (!open?.cacheKey) return [];
+async function readCache(identity: PersistentVideoIdentity): Promise<StoredSample[]> {
   try {
-    return (await backgroundRpc.getCachedVideoPredictions(open.cacheKey)).samples;
+    return (await backgroundRpc.getCachedVideoPredictions(identity)).samples;
   } catch (error) {
     log.debug('lookahead.cache.read_failed', { error });
     return [];
@@ -255,6 +255,10 @@ export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): 
     setLiveness: liveness => {
       session.liveness = liveness;
       link?.send({ t: 'liveness', sessionId: open.sessionId, liveness });
+    },
+    setIdentity: identity => {
+      session.open = { ...session.open, identity };
+      link?.send({ t: 'identity', sessionId: open.sessionId, identity });
     },
     close: () => {
       if (!sessions.delete(open.sessionId)) return;

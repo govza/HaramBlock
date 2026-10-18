@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
 import {
@@ -12,6 +12,8 @@ import {
   CLUSTER_ID,
   indexesOfBytes,
   withUnknownSizes,
+  VOD_OPTIONS,
+  KNOWN_IDENTITY,
 } from '@/utils/lookahead/__tests__/harness';
 import { createMseAnalysis } from '@/utils/lookahead/analysis';
 
@@ -23,7 +25,7 @@ const H264_MIME = 'video/mp4; codecs="avc1.64000a"';
 describe('Lookahead Analysis over an MSE Source', () => {
   it('requests every level-0 Lattice Point with exact µs keys, however the appends are cut', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     for (const chunk of chunked(fixture('mse-vp9.webm'), [777, 13, 4096, 1])) analysis.append('v', chunk, 0);
     await analysis.settled();
@@ -35,7 +37,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('places fMP4 samples in page media time by applying timestampOffset', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', H264_MIME);
     analysis.append('v', fixture('mse-h264.mp4'), 10);
     await analysis.settled();
@@ -48,7 +50,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('describes a Lattice Point by the last frame presented at or before it', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', H264_MIME);
     analysis.append('v', fixture('mse-h264.mp4'), 0.01);
     await analysis.settled();
@@ -58,7 +60,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('analyses the playhead first after a seek: its unit from the point at or after it, then on in playback order', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.setPlayhead({ timeSec: 2.2, playbackRate: 1, paused: false });
     analysis.append('v', fixture('mse-vp9.webm'), 0);
@@ -71,7 +73,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('marks samples within ~5 s of slack urgent and the rest as ordinary lookahead', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', H264_MIME);
     analysis.setPlayhead({ timeSec: 6, playbackRate: 1, paused: false });
     analysis.append('v', fixture('mse-h264.mp4'), 8);
@@ -84,7 +86,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('analyses at the lowest priority while the video is offscreen', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.setVisible(false);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
@@ -100,7 +102,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
     ['fMP4', H264_MIME, 'mse-h264.mp4', [0x6d, 0x6f, 0x6f, 0x66]],
   ])('resumes at the next %s unit after bytes went missing', async (_label, mime, file, unitMarker) => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', mime);
     const bytes = fixture(file);
     const marker = unitMarker;
@@ -117,7 +119,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('analyses the last keyframe group of a chunk append without waiting for the next keyframe', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.appendChunks('v', { codec: 'vp09.00.10.08' }, chunksAt(0, 25));
     await analysis.settled();
@@ -127,7 +129,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('extends a keyframe group continued by a later chunk append', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.appendChunks('v', { codec: 'vp09.00.10.08' }, chunksAt(0, 13));
     await analysis.settled();
@@ -140,7 +142,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('analyses a trailing unknown-size Cluster once the stream ends', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', withUnknownSizes(fixture('mse-vp9.webm')), 0);
     await analysis.settled();
@@ -156,7 +158,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('places each unknown-size Cluster with the timestampOffset of the append that carried it', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     const bytes = withUnknownSizes(fixture('mse-vp9.webm'));
     const cuts = [0, ...indexesOfBytes(bytes, CLUSTER_ID).slice(1), bytes.length];
@@ -171,7 +173,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('maps each frame of a unit spanning appends with the timestampOffset of the append that delivered it', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', H264_MIME);
     const bytes = fixture('mse-h264.mp4');
     const [firstMdat = 0] = indexesOfBytes(bytes, MDAT_TYPE);
@@ -189,7 +191,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('ignores audio SourceBuffers', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('a', 'audio/webm; codecs="opus"');
     analysis.append('a', fixture('mse-vp9.webm'), 0);
     await analysis.settled();
@@ -211,7 +213,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
         });
       },
     };
-    const analysis = createMseAnalysis({ ...harness.ports, inference }, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis({ ...harness.ports, inference }, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     const copies = 20;
     for (let copy = 0; copy < copies; copy += 1) analysis.append('v', fixture('mse-vp9.webm'), copy * 4);
@@ -233,7 +235,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
       infer: request =>
         request.pointUs === 1_000_000 ? Promise.reject(new Error('inference failed')) : Promise.resolve(CLEAN),
     };
-    const analysis = createMseAnalysis({ ...harness.ports, inference }, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis({ ...harness.ports, inference }, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await analysis.settled();
@@ -261,7 +263,7 @@ describe('Lookahead Analysis over an MSE Source', () => {
         await Promise.reject(new Error('decoder crashed'));
       },
     };
-    const analysis = createMseAnalysis({ ...harness.ports, decoder }, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis({ ...harness.ports, decoder }, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await analysis.settled();
@@ -273,12 +275,127 @@ describe('Lookahead Analysis over an MSE Source', () => {
 
   it('holds no analysed unit except the newest, which a later unit may still refine into', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await analysis.settled();
 
     expect(analysis.heldUnits()).toBe(1);
+  });
+});
+
+describe('Lookahead Analysis cache under a video identity', () => {
+  const ANOTHER_IDENTITY = { kind: 'stable', key: 'url:https://cdn.test/other.mp4', durationSec: 4 } as const;
+
+  const startUnidentified = (harness: ReturnType<typeof createHarness>) => {
+    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, identity: { kind: 'unknown' } });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    return analysis;
+  };
+
+  const settleWithFakeTimers = async (analysis: { settled(): Promise<void> }) => {
+    const settled = analysis.settled();
+    await vi.runAllTimersAsync();
+    await settled;
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('reads and publishes under the identity the session opened with', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await analysis.settled();
+
+    expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
+    expect(new Set(harness.publishedUnder)).toEqual(new Set([KNOWN_IDENTITY.key]));
+  });
+
+  it('waits for the identity before reading the cache, then reads under it', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const analysis = startUnidentified(harness);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(harness.cacheReads()).toBe(0);
+    expect(harness.requests).toEqual([]);
+
+    analysis.setIdentity(KNOWN_IDENTITY);
+    await settleWithFakeTimers(analysis);
+
+    expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
+    expect(harness.requests).toHaveLength(8);
+  });
+
+  it('gives up waiting after 3 s and analyses without reading the cache', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness({ cached: [{ pointUs: 1_000_000, ...CLEAN }] });
+    const analysis = startUnidentified(harness);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(harness.requests).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await settleWithFakeTimers(analysis);
+
+    expect(harness.cacheReads()).toBe(0);
+    expect(harness.requestedPoints()).toContain(1_000_000);
+  });
+
+  it('holds samples analysed while unidentified and publishes them under the identity once it resolves', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const analysis = startUnidentified(harness);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await settleWithFakeTimers(analysis);
+    expect(harness.emitted).toHaveLength(8);
+    expect(harness.published).toEqual([]);
+
+    analysis.setIdentity(KNOWN_IDENTITY);
+
+    expect(harness.published.map(sample => sample.pointUs)).toEqual(harness.emitted.map(sample => sample.pointUs));
+    expect(new Set(harness.publishedUnder)).toEqual(new Set([KNOWN_IDENTITY.key]));
+  });
+
+  it('drops held samples when the session ends unidentified', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const analysis = startUnidentified(harness);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await settleWithFakeTimers(analysis);
+
+    analysis.stop();
+    analysis.setIdentity(KNOWN_IDENTITY);
+
+    expect(harness.published).toEqual([]);
+  });
+
+  it('keeps the first identity it resolved for the rest of the session', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    analysis.setIdentity(ANOTHER_IDENTITY);
+    analysis.setIdentity({ kind: 'unknown' });
+    await analysis.settled();
+
+    expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
+    expect(new Set(harness.publishedUnder)).toEqual(new Set([KNOWN_IDENTITY.key]));
+  });
+
+  it('still holds an identified session back while its liveness is unknown', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, liveness: 'unknown' });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await analysis.settled();
+    expect(harness.published).toEqual([]);
+
+    analysis.setLiveness('vod');
+
+    expect(harness.published).toHaveLength(8);
   });
 });
 
@@ -288,7 +405,7 @@ describe('Lookahead Analysis cache and refinement', () => {
     scoreThreshold = 0.5,
     liveness: Liveness = 'vod',
   ) => {
-    const analysis = createMseAnalysis(harness.ports, { liveness, scoreThreshold });
+    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, liveness, scoreThreshold });
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await analysis.settled();
@@ -402,7 +519,7 @@ describe('Lookahead Analysis cache and refinement', () => {
 
   it('reports a demux failure as an unreachable bitstream', async () => {
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { liveness: 'vod', scoreThreshold: 0.5 });
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     const bytes = fixture('mse-vp9.webm');
     const firstCluster = indexOfBytes(bytes, [0x1f, 0x43, 0xb6, 0x75]);

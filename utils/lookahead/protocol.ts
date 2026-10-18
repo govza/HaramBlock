@@ -6,6 +6,7 @@ import type {
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
+import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
 export const LOOKAHEAD_PORT_NAME = 'hb-lookahead';
@@ -57,7 +58,7 @@ export interface OpenAnalysis {
   tap: TapRequest;
   liveness: Liveness;
   inputSize: number;
-  cacheKey: string;
+  identity: VideoIdentity;
   sourceUrl: string;
   hostname: string;
   scoreThreshold: number;
@@ -68,6 +69,7 @@ export type ContentToHost =
   | { t: 'playhead'; sessionId: string; playhead: Playhead }
   | { t: 'visible'; sessionId: string; visible: boolean }
   | { t: 'liveness'; sessionId: string; liveness: Liveness }
+  | { t: 'identity'; sessionId: string; identity: VideoIdentity }
   | { t: 'close'; sessionId: string }
   | { t: 'inferResult'; requestId: number; sample: InferredSample | null }
   | { t: 'cacheSamples'; requestId: number; samples: StoredSample[] };
@@ -87,8 +89,8 @@ export type HostToContent =
       originalHeight: number;
       priority: number;
     }
-  | { t: 'cacheRead'; requestId: number; sessionId: string }
-  | { t: 'cachePublish'; sessionId: string; samples: StoredSample[] }
+  | { t: 'cacheRead'; requestId: number; sessionId: string; identity: PersistentVideoIdentity }
+  | { t: 'cachePublish'; sessionId: string; identity: PersistentVideoIdentity; samples: StoredSample[] }
   | { t: 'toHook'; command: HookCommand };
 
 export const isArrayBufferTag = (value: unknown): value is ArrayBuffer =>

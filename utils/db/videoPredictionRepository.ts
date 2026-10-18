@@ -5,6 +5,7 @@ import { mediaCacheDb } from '@/utils/db/db';
 import { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository';
 import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
+import { isDurationMismatch, type PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 import type { ForcedVisibility, ICacheMetadata, IStoredVideoSample, IVideoPredictionRecord } from '@/utils/types';
 
@@ -46,105 +47,137 @@ export interface VideoPredictionOrigin {
   cacheMetadata: ICacheMetadata;
 }
 
-const bucketKey = (videoUrl: string, modelId: string, bucketStartUs: number): [string, string, number] => [
-  videoUrl,
+const bucketKey = (identityKey: string, modelId: string, bucketStartUs: number): [string, string, number] => [
+  identityKey,
   modelId,
   bucketStartUs,
 ];
 
+const newRecord = (
+  identity: PersistentVideoIdentity,
+  origin: VideoPredictionOrigin,
+  forcedVisibility: ForcedVisibility,
+): IVideoPredictionRecord => ({
+  identityKey: identity.key,
+  identityKind: identity.kind,
+  durationSec: identity.durationSec,
+  sourceUrl: origin.sourceUrl,
+  hostname: origin.hostname,
+  forcedVisibility,
+  timestamp: Date.now(),
+  cacheMetadata: origin.cacheMetadata,
+  sampleCounts: {},
+});
+
 export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoPredictionRecord> {
-  private readonly buckets = mediaCacheDb.videoSamples;
+  private readonly buckets = mediaCacheDb.videoSampleBuckets;
 
   constructor() {
-    super(mediaCacheDb.videoPredictions);
+    super(mediaCacheDb.videos);
   }
 
-  async findValidByVideoUrl(videoUrl: string): Promise<IVideoPredictionRecord | undefined> {
+  async findValidByIdentityKey(identityKey: string): Promise<IVideoPredictionRecord | undefined> {
     if (isCacheDisabled) return undefined;
-    const record = await this.table.get(videoUrl);
+    const record = await this.table.get(identityKey);
     if (!record || !isVideoCacheFresh(record)) return undefined;
     return record;
   }
 
-  async readSamples(videoUrl: string, modelId: string): Promise<IStoredVideoSample[]> {
+  async readSamples(identityKey: string, modelId: string): Promise<IStoredVideoSample[]> {
     if (isCacheDisabled) return [];
     const buckets = await this.buckets
-      .where('[videoUrl+modelId+bucketStartUs]')
-      .between([videoUrl, modelId, Dexie.minKey], [videoUrl, modelId, Dexie.maxKey])
+      .where('[identityKey+modelId+bucketStartUs]')
+      .between([identityKey, modelId, Dexie.minKey], [identityKey, modelId, Dexie.maxKey])
       .toArray();
     return buckets.flatMap(bucket => bucket.samples);
   }
 
   async mergeSamples(
-    videoUrl: string,
+    identity: PersistentVideoIdentity,
     modelId: string,
     origin: VideoPredictionOrigin,
     samples: readonly IStoredVideoSample[],
   ): Promise<void> {
     if (isCacheDisabled || samples.length === 0) return;
     await mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
-      const stored = await this.table.get(videoUrl);
+      const stored = await this.table.get(identity.key);
       if (stored && !isVideoCacheFresh(stored)) {
-        await this.buckets.where('videoUrl').equals(videoUrl).delete();
-        await this.table.delete(videoUrl);
+        await this.buckets.where('identityKey').equals(identity.key).delete();
+        await this.table.delete(identity.key);
+      } else if (stored && isDurationMismatch(stored.durationSec, identity)) {
+        await this.purgeSamplesWithin(identity);
       }
       let added = 0;
       for (const [bucketStartUs, incoming] of groupByBucket(samples)) {
-        const existing = await this.buckets.get(bucketKey(videoUrl, modelId, bucketStartUs));
+        const existing = await this.buckets.get(bucketKey(identity.key, modelId, bucketStartUs));
         const merged = mergeVideoSamples(existing?.samples ?? [], incoming);
         added += merged.length - (existing?.samples.length ?? 0);
-        await this.buckets.put({ videoUrl, modelId, bucketStartUs, hostname: origin.hostname, samples: merged });
+        await this.buckets.put({
+          identityKey: identity.key,
+          modelId,
+          bucketStartUs,
+          hostname: origin.hostname,
+          samples: merged,
+        });
       }
-      const existing = await this.table.get(videoUrl);
-      const sampleCounts = existing?.sampleCounts ?? {};
+      const record = (await this.table.get(identity.key)) ?? newRecord(identity, origin, 'auto');
       await this.table.put({
-        videoUrl,
+        ...record,
         sourceUrl: origin.sourceUrl,
         hostname: origin.hostname,
-        forcedVisibility: existing?.forcedVisibility ?? 'auto',
         timestamp: Date.now(),
-        cacheMetadata: existing?.cacheMetadata ?? origin.cacheMetadata,
-        sampleCounts: { ...sampleCounts, [modelId]: (sampleCounts[modelId] ?? 0) + added },
+        sampleCounts: { ...record.sampleCounts, [modelId]: (record.sampleCounts[modelId] ?? 0) + added },
       });
     });
   }
 
+  /**
+   * Drops a video's samples once the media behind its key changed length (a trim, a re-upload under
+   * one URL), keeping its Forced Visibility and adopting the new duration.
+   */
+  async purgeSamples(identity: PersistentVideoIdentity): Promise<void> {
+    if (isCacheDisabled) return;
+    await mediaCacheDb.transaction('rw', this.table, this.buckets, () => this.purgeSamplesWithin(identity));
+  }
+
+  private async purgeSamplesWithin(identity: PersistentVideoIdentity): Promise<void> {
+    await this.buckets.where('identityKey').equals(identity.key).delete();
+    await this.table
+      .where('identityKey')
+      .equals(identity.key)
+      .modify(record => {
+        record.durationSec = identity.durationSec;
+        record.sampleCounts = {};
+      });
+  }
+
   async updateForcedVisibility(
-    videoUrl: string,
+    identity: PersistentVideoIdentity,
     origin: VideoPredictionOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     if (isCacheDisabled) return;
     await mediaCacheDb.transaction('rw', this.table, async () => {
-      const existing = await this.table.get(videoUrl);
+      const existing = await this.table.get(identity.key);
       if (!existing && forcedVisibility === 'auto') return;
-      const record: IVideoPredictionRecord = existing
-        ? { ...existing, forcedVisibility }
-        : {
-            videoUrl,
-            sourceUrl: origin.sourceUrl,
-            hostname: origin.hostname,
-            forcedVisibility,
-            timestamp: Date.now(),
-            cacheMetadata: origin.cacheMetadata,
-            sampleCounts: {},
-          };
-      await this.table.put(record);
+      await this.table.put(
+        existing ? { ...existing, forcedVisibility } : newRecord(identity, origin, forcedVisibility),
+      );
     });
   }
 
-  async touchAccessed(videoUrl: string): Promise<void> {
+  async touchAccessed(identityKey: string): Promise<void> {
     if (isCacheDisabled) return;
     await this.table
-      .where('videoUrl')
-      .equals(videoUrl)
+      .where('identityKey')
+      .equals(identityKey)
       .modify(record => {
         record.cacheMetadata.accessedAt = Date.now();
       });
   }
 
-  override async delete(videoUrl: string): Promise<void> {
-    await this.deleteVideos([videoUrl]);
+  override async delete(identityKey: string): Promise<void> {
+    await this.deleteVideos([identityKey]);
   }
 
   override async deleteByHostname(hostname: string): Promise<number> {
@@ -171,11 +204,11 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     });
   }
 
-  private async deleteVideos(videoUrls: string[]): Promise<void> {
-    if (isCacheDisabled || videoUrls.length === 0) return;
+  private async deleteVideos(identityKeys: string[]): Promise<void> {
+    if (isCacheDisabled || identityKeys.length === 0) return;
     await mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
-      await this.buckets.where('videoUrl').anyOf(videoUrls).delete();
-      await this.table.bulkDelete(videoUrls);
+      await this.buckets.where('identityKey').anyOf(identityKeys).delete();
+      await this.table.bulkDelete(identityKeys);
     });
   }
 }
