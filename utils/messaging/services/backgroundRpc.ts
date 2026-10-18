@@ -280,7 +280,7 @@ export class BackgroundRpc {
   async postInferenceVideoFrame(frameData: IVideoFrameTransfer): Promise<void> {
     const {
       hostname,
-      videoUrl,
+      mediaKey,
       sourceUrl,
       frameIndex,
       timestampSec,
@@ -291,14 +291,18 @@ export class BackgroundRpc {
     } = frameData;
 
     if (!hostname) {
-      log.error('inference.request.rejected', { reason: 'missing hostname', videoUrl, [ATTR.mediaKind]: 'frame' });
+      log.error('inference.request.rejected', {
+        reason: 'missing hostname',
+        [ATTR.src]: mediaKey,
+        [ATTR.mediaKind]: 'frame',
+      });
       return;
     }
 
     log.debug('inference.frame.received', {
       [ATTR.transferKind]: frameData.kind,
       [ATTR.hostname]: hostname,
-      videoUrl,
+      [ATTR.src]: mediaKey,
       [ATTR.frameIndex]: frameIndex,
       timestampSec,
       [ATTR.sessionId]: frameData.sessionId,
@@ -309,8 +313,8 @@ export class BackgroundRpc {
 
       const input =
         frameData.kind === 'bitmap'
-          ? { kind: 'bitmap' as const, imageSrc: videoUrl, bitmap: frameData.bitmap, originalWidth, originalHeight }
-          : { kind: 'blob' as const, imageSrc: videoUrl, blob: frameData.blob, originalWidth, originalHeight };
+          ? { kind: 'bitmap' as const, imageSrc: mediaKey, bitmap: frameData.bitmap, originalWidth, originalHeight }
+          : { kind: 'blob' as const, imageSrc: mediaKey, blob: frameData.blob, originalWidth, originalHeight };
 
       await this.inferenceService.scheduleInferenceTask({
         input,
@@ -318,7 +322,7 @@ export class BackgroundRpc {
         hostSettings,
         mediaMetadata: {
           kind: 'frame',
-          videoUrl,
+          mediaKey,
           sourceUrl,
           frameIndex,
           sessionId: frameData.sessionId,
@@ -331,7 +335,7 @@ export class BackgroundRpc {
     } catch (error) {
       log.error('inference.schedule.failed', {
         [ATTR.hostname]: hostname,
-        videoUrl,
+        [ATTR.src]: mediaKey,
         [ATTR.frameIndex]: frameIndex,
         [ATTR.mediaKind]: 'frame',
         error,

@@ -71,7 +71,7 @@ export class LookaheadHostService {
             hostSettings,
             mediaMetadata: {
               kind: 'frame',
-              videoUrl: open.sourceUrl,
+              mediaKey: open.sourceUrl,
               sourceUrl: open.sourceUrl,
               frameIndex: this.nextFrameIndex++,
               sessionId: open.sessionId,

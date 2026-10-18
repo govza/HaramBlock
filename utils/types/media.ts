@@ -8,9 +8,12 @@ export interface IFrameSampleRouting {
   frameIndex: number;
 }
 
-/** Reusable position on a video's media timeline; future cache identity starts here. */
+/**
+ * Reusable position on a video's media timeline: `mediaKey` is the video's identity key once it has a
+ * stable or local one, its source URL until then.
+ */
 export interface IVideoTimelinePosition {
-  videoUrl: string;
+  mediaKey: string;
   sourceUrl: string;
   timestampSec: number;
 }

@@ -408,7 +408,9 @@ class VideoSessionRegistry {
 
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
     const identity = this.byVideo.get(video)?.identity ?? resolveVideoSource(video)?.identity ?? UNKNOWN_VIDEO_IDENTITY;
-    this.userToggledIdentityKeys.set(video, persistentKeyOf(identity) ?? '');
+    const identityKey = persistentKeyOf(identity);
+    if (identityKey === null) this.userToggledIdentityKeys.delete(video);
+    else this.userToggledIdentityKeys.set(video, identityKey);
     this.applyForcedVisibility(video, next, true);
   }
 
@@ -622,7 +624,7 @@ class VideoSessionRegistry {
       sample: {
         sessionId: handle.sessionId,
         frameIndex: frame.frameIndex,
-        videoUrl: persistentKeyOf(handle.identity) ?? handle.src,
+        mediaKey: persistentKeyOf(handle.identity) ?? handle.src,
         sourceUrl: handle.src,
         timestampSec: frame.timestampSec,
         bitmap: frame.bitmap,
