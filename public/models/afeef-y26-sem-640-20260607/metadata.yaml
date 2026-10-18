@@ -29,3 +29,4 @@ output_shape:
 - 640
 id: sem-i640
 name: "YOLO26n-sem 640\xD7640 (4 classes)"
+rank: 3

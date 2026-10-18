@@ -19,13 +19,61 @@ function sample(pointUs: number, topUnsafeScore = 0.1): IStoredVideoSample {
   };
 }
 
+const IDENTITY_TRANSFORM = { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 };
+
+/**
+ * A sample analysed by a 320 model from a source frame of the given size, marked by its score.
+ */
+function analysedFrom(source: { width: number; height: number } | null, topUnsafeScore: number): IStoredVideoSample {
+  const scale = source ? Math.min(1, 320 / Math.max(source.width, source.height)) : 1;
+  const input = source
+    ? { width: Math.round(source.width * scale), height: Math.round(source.height * scale) }
+    : { width: 320, height: 180 };
+  return {
+    pointUs: 1_000_000,
+    scores: { kind: 'detections', detections: [] },
+    input: { ...input, maskTransform: IDENTITY_TRANSFORM },
+    topUnsafeScore,
+    ...(source ? { source } : {}),
+  };
+}
+
+const P1080 = { width: 1920, height: 1080 };
+const P360 = { width: 640, height: 360 };
+const P144 = { width: 256, height: 144 };
+
+const keptScore = (existing: IStoredVideoSample, incoming: IStoredVideoSample) =>
+  mergeVideoSamples([existing], [incoming])[0]?.topUnsafeScore;
+
 const MINUTE_US = 60_000_000;
 
 describe('mergeVideoSamples', () => {
-  it('keys samples by exact point, sorted, letting incoming samples replace existing ones', () => {
+  it('keys samples by exact point, sorted', () => {
     const merged = mergeVideoSamples([sample(2_000_000), sample(1_000_000)], [sample(2_000_000, 0.8), sample(500_000)]);
     expect(merged.map(e => e.pointUs)).toEqual([500_000, 1_000_000, 2_000_000]);
-    expect(merged[2]?.topUnsafeScore).toBe(0.8);
+  });
+
+  it('never replaces a sample analysed from a higher resolution with a lower one', () => {
+    expect(keptScore(analysedFrom(P1080, 0.1), analysedFrom(P144, 0.9))).toBe(0.1);
+  });
+
+  it('replaces a sample analysed from a lower resolution with a higher one', () => {
+    expect(keptScore(analysedFrom(P144, 0.1), analysedFrom(P1080, 0.9))).toBe(0.9);
+  });
+
+  it('prefers more source pixels once both sources exceed the model input', () => {
+    expect(keptScore(analysedFrom(P360, 0.1), analysedFrom(P1080, 0.9))).toBe(0.9);
+    expect(keptScore(analysedFrom(P1080, 0.1), analysedFrom(P360, 0.9))).toBe(0.1);
+  });
+
+  it('keeps the stored sample on equal quality', () => {
+    expect(keptScore(analysedFrom(P1080, 0.1), analysedFrom(P1080, 0.9))).toBe(0.1);
+  });
+
+  it('ranks a sample without a source size by its model input size', () => {
+    expect(keptScore(analysedFrom(null, 0.1), analysedFrom(P144, 0.9))).toBe(0.1);
+    expect(keptScore(analysedFrom(P144, 0.1), analysedFrom(null, 0.9))).toBe(0.9);
+    expect(keptScore(analysedFrom(null, 0.1), analysedFrom(P1080, 0.9))).toBe(0.9);
   });
 
   it('keeps neighbouring points apart however close they are', () => {

@@ -3,13 +3,13 @@ import { LookaheadHost } from '@/utils/lookahead/host';
 import { LOOKAHEAD_PORT_NAME, type FirefoxPortMessage, type OpenAnalysis } from '@/utils/lookahead/protocol';
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
 import { toInferredSample } from '@/utils/lookahead/sampleScores';
+import { withSourceSize, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 import { getLogger } from '@/utils/telemetry';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { InferencePort, InferredSample, SampleCachePort } from '@/utils/lookahead/ports';
-import type { BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('lookaheadHostService');
@@ -79,7 +79,10 @@ export class LookaheadHostService {
               sampleKind: 'lookahead',
             },
             priority,
-            onResult: result => (result instanceof Error ? reject(result) : resolve(toInferredSample(result))),
+            onResult: result =>
+              result instanceof Error
+                ? reject(result)
+                : resolve(withSourceSize(toInferredSample(result), { originalWidth, originalHeight })),
           });
         });
       },
@@ -88,7 +91,8 @@ export class LookaheadHostService {
 
   private cachePort(open: OpenAnalysis): SampleCachePort {
     return {
-      read: async (identity: VideoIdentity) => (await this.videoPredictionCacheService.getCached(identity)).samples,
+      read: async (identity: VideoIdentity, reader) =>
+        (await this.videoPredictionCacheService.getCached(identity, reader)).samples,
       publish: (identity, samples) =>
         this.videoPredictionCacheService.publish(
           identity,

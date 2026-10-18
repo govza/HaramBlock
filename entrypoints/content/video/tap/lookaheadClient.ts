@@ -21,6 +21,7 @@ import type {
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
+import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('lookaheadClient');
@@ -57,6 +58,7 @@ export interface LookaheadSession {
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
   setIdentity(identity: VideoIdentity): void;
+  setAspectRatio(aspectRatio: number): void;
   close(): void;
 }
 
@@ -119,7 +121,7 @@ function onHostMessage(message: HostToContent): void {
     return;
   }
   if (message.t === 'cacheRead') {
-    void readCache(message.identity).then(samples =>
+    void readCache(message.identity, message.reader).then(samples =>
       link?.send({ t: 'cacheSamples', requestId: message.requestId, samples }),
     );
     return;
@@ -157,9 +159,9 @@ function onHostMessage(message: HostToContent): void {
   }
 }
 
-async function readCache(identity: PersistentVideoIdentity): Promise<StoredSample[]> {
+async function readCache(identity: PersistentVideoIdentity, reader: CachedSampleReader): Promise<StoredSample[]> {
   try {
-    return (await backgroundRpc.getCachedVideoPredictions(identity)).samples;
+    return (await backgroundRpc.getCachedVideoPredictions(identity, reader)).samples;
   } catch (error) {
     log.debug('lookahead.cache.read_failed', { error });
     return [];
@@ -259,6 +261,10 @@ export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): 
     setIdentity: identity => {
       session.open = { ...session.open, identity };
       link?.send({ t: 'identity', sessionId: open.sessionId, identity });
+    },
+    setAspectRatio: aspectRatio => {
+      session.open = { ...session.open, aspectRatio };
+      link?.send({ t: 'aspectRatio', sessionId: open.sessionId, aspectRatio });
     },
     close: () => {
       if (!sessions.delete(open.sessionId)) return;

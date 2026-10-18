@@ -1,4 +1,5 @@
-import type { IMaskTransform, RawSampleScores } from '@/utils/types';
+import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
+import type { IFrameSize, IMaskTransform, RawSampleScores } from '@/utils/types';
 import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 /**
@@ -17,6 +18,7 @@ export interface InferredSample {
   scores: RawSampleScores;
   input: SampleInput;
   topUnsafeScore: number;
+  source?: IFrameSize;
 }
 
 /**
@@ -104,7 +106,7 @@ export interface InferencePort {
  * published to as samples are inferred.
  */
 export interface SampleCachePort {
-  read(identity: PersistentVideoIdentity): Promise<StoredSample[]>;
+  read(identity: PersistentVideoIdentity, reader: CachedSampleReader): Promise<StoredSample[]>;
   publish(identity: PersistentVideoIdentity, samples: StoredSample[]): void;
 }
 
@@ -164,6 +166,7 @@ export interface LookaheadOptions {
   liveness: Liveness;
   scoreThreshold: number;
   identity: VideoIdentity;
+  aspectRatio: number | null;
 }
 
 /**

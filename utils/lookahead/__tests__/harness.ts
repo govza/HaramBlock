@@ -13,6 +13,7 @@ import type {
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
+import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import type { PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 export const fixture = (name: string): Uint8Array =>
@@ -24,7 +25,14 @@ export const KNOWN_IDENTITY: PersistentVideoIdentity = {
   durationSec: 4,
 };
 
-export const VOD_OPTIONS: LookaheadOptions = { liveness: 'vod', scoreThreshold: 0.5, identity: KNOWN_IDENTITY };
+export const PLAYING_ASPECT_RATIO = 16 / 9;
+
+export const VOD_OPTIONS: LookaheadOptions = {
+  liveness: 'vod',
+  scoreThreshold: 0.5,
+  identity: KNOWN_IDENTITY,
+  aspectRatio: PLAYING_ASPECT_RATIO,
+};
 
 export const CLEAN: InferredSample = {
   scores: { kind: 'detections', detections: [] },
@@ -70,6 +78,7 @@ export function createHarness(
   const published: StoredSample[] = [];
   const publishedUnder: string[] = [];
   const readUnder: string[] = [];
+  const readAs: CachedSampleReader[] = [];
   const emitted: StoredSample[] = [];
   const unreachable: UnreachableReason[] = [];
   let cacheReads = 0;
@@ -102,9 +111,10 @@ export function createHarness(
   };
 
   const cache: SampleCachePort = {
-    read(identity) {
+    read(identity, reader) {
       cacheReads += 1;
       readUnder.push(identity.key);
+      readAs.push(reader);
       return Promise.resolve(options.cached ?? []);
     },
     publish(identity, samples) {
@@ -125,6 +135,7 @@ export function createHarness(
     published,
     publishedUnder,
     readUnder,
+    readAs,
     emitted,
     unreachable,
     cacheReads: () => cacheReads,

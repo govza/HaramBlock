@@ -47,6 +47,7 @@ export interface YamlModelMetadata {
   name: string;
   names: { [key: number]: string };
   imgsz: [number, number];
+  rank?: number;
   normalize?: {
     mean: [number, number, number];
     std: [number, number, number];

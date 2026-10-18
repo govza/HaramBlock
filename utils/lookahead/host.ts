@@ -88,6 +88,7 @@ export class LookaheadHost {
   private readonly latestOpens = new Map<string, OpenAnalysis>();
   private readonly contentLiveness = new Map<string, Liveness>();
   private readonly identities = new Map<string, VideoIdentity>();
+  private readonly aspectRatios = new Map<string, number | null>();
 
   constructor(private readonly ports: HostPorts) {}
 
@@ -157,6 +158,11 @@ export class LookaheadHost {
         this.identities.set(message.sessionId, message.identity);
         this.sessions.get(message.sessionId)?.setIdentity(message.identity);
         break;
+      case 'aspectRatio':
+        if (!this.aspectRatios.has(message.sessionId)) break;
+        this.aspectRatios.set(message.sessionId, message.aspectRatio);
+        this.sessions.get(message.sessionId)?.setAspectRatio(message.aspectRatio);
+        break;
       case 'close':
         this.close(message.sessionId);
         break;
@@ -174,6 +180,7 @@ export class LookaheadHost {
     this.latestOpens.delete(sessionId);
     this.contentLiveness.delete(sessionId);
     this.identities.delete(sessionId);
+    this.aspectRatios.delete(sessionId);
     const analysis = this.sessions.get(sessionId);
     if (!analysis) return;
     this.sessions.delete(sessionId);
@@ -205,13 +212,19 @@ export class LookaheadHost {
     this.latestOpens.set(open.sessionId, open);
     this.contentLiveness.set(open.sessionId, open.liveness);
     this.identities.set(open.sessionId, open.identity);
+    this.aspectRatios.set(open.sessionId, open.aspectRatio);
     const lookaheadPorts = {
       decoder: this.ports.decoder(open),
       inference: this.ports.inference(open),
       cache: this.ports.cache(open),
       events: this.events(open),
     };
-    const options = { liveness: open.liveness, scoreThreshold: open.scoreThreshold, identity: open.identity };
+    const options = {
+      liveness: open.liveness,
+      scoreThreshold: open.scoreThreshold,
+      identity: open.identity,
+      aspectRatio: open.aspectRatio,
+    };
     if (open.tap.kind === 'progressive') {
       const bytes = this.ports.rangeSource(open.tap.url);
       let reported = false;
@@ -247,6 +260,7 @@ export class LookaheadHost {
         ...options,
         liveness: this.livenessOf(open.sessionId, source),
         identity: this.identities.get(open.sessionId) ?? open.identity,
+        aspectRatio: this.aspectRatios.get(open.sessionId) ?? open.aspectRatio,
       },
       previous,
     );

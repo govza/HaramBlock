@@ -29,3 +29,4 @@ output_shape:
 - 448
 id: sem-i448
 name: "YOLO26n-sem 448\xD7448 (4 classes)"
+rank: 2

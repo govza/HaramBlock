@@ -10,6 +10,7 @@ import type { MediaFetchService } from '@/entrypoints/background/services/mediaF
 import type { ModelService } from '@/entrypoints/background/services/modelService';
 import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
+import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import type { ModelPreference } from '@/utils/modelSettings';
 import type {
   ForcedVisibility,
@@ -130,9 +131,12 @@ export class BackgroundRpc {
     }
   }
 
-  async getCachedVideoPredictions(identity: VideoIdentity): Promise<ICachedVideoPredictions> {
+  async getCachedVideoPredictions(
+    identity: VideoIdentity,
+    reader: CachedSampleReader,
+  ): Promise<ICachedVideoPredictions> {
     try {
-      return await this.videoPredictionCacheService.getCached(identity);
+      return await this.videoPredictionCacheService.getCached(identity, reader);
     } catch (error) {
       log.error('video_cache.read.failed', { identity, error });
       throw error;

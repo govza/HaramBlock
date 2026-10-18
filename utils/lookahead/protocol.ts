@@ -6,6 +6,7 @@ import type {
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
+import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
@@ -72,6 +73,7 @@ export interface OpenAnalysis {
   sourceUrl: string;
   hostname: string;
   scoreThreshold: number;
+  aspectRatio: number | null;
 }
 
 export type ContentToHost =
@@ -80,6 +82,7 @@ export type ContentToHost =
   | { t: 'visible'; sessionId: string; visible: boolean }
   | { t: 'liveness'; sessionId: string; liveness: Liveness }
   | { t: 'identity'; sessionId: string; identity: VideoIdentity }
+  | { t: 'aspectRatio'; sessionId: string; aspectRatio: number }
   | { t: 'close'; sessionId: string }
   | { t: 'inferResult'; requestId: number; sample: InferredSample | null }
   | { t: 'cacheSamples'; requestId: number; samples: StoredSample[] };
@@ -99,7 +102,13 @@ export type HostToContent =
       originalHeight: number;
       priority: number;
     }
-  | { t: 'cacheRead'; requestId: number; sessionId: string; identity: PersistentVideoIdentity }
+  | {
+      t: 'cacheRead';
+      requestId: number;
+      sessionId: string;
+      identity: PersistentVideoIdentity;
+      reader: CachedSampleReader;
+    }
   | { t: 'cachePublish'; sessionId: string; identity: PersistentVideoIdentity; samples: StoredSample[] }
   | { t: 'toHook'; command: HookCommand };
 

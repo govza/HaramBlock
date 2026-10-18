@@ -85,7 +85,9 @@ export class SampleScheduler {
   private idleWaiters: (() => void)[] = [];
   private liveness: Liveness;
   private identity: VideoIdentity;
-  private identityArrived: ((identity: PersistentVideoIdentity | null) => void) | null = null;
+  private aspectRatio: number | null;
+  private readWaitOver = false;
+  private readContextWaiters: (() => void)[] = [];
   private unpublished: StoredSample[] = [];
   private replayWindow: TimeWindowUs | null = null;
 
@@ -95,14 +97,21 @@ export class SampleScheduler {
   ) {
     this.liveness = options.liveness;
     this.identity = options.identity;
+    this.aspectRatio = options.aspectRatio;
     this.cacheLoaded = this.loadCache();
   }
 
   private async loadCache(): Promise<void> {
-    const identity = this.liveness === 'live' ? null : await this.awaitIdentity();
+    const readWait = setTimeout(() => this.endReadWait(), IDENTITY_WAIT_MS);
+    const identity = this.liveness === 'live' ? null : await this.awaitReadContext(() => this.persistentIdentity());
+    const aspectRatio = identity ? await this.awaitReadContext(() => this.aspectRatio) : null;
+    clearTimeout(readWait);
     if (identity && this.liveness !== 'live') {
       try {
-        const cached = await this.ports.cache.read(identity);
+        const cached = await this.ports.cache.read(identity, {
+          scoreThreshold: this.options.scoreThreshold,
+          aspectRatio,
+        });
         for (const sample of cached) {
           this.recordKnown(sample);
           this.cachedUnreported.add(sample.pointUs);
@@ -156,27 +165,44 @@ export class SampleScheduler {
     this.schedulePump();
   }
 
+  private persistentIdentity(): PersistentVideoIdentity | null {
+    return isPersistentIdentity(this.identity) ? this.identity : null;
+  }
+
   /**
-   * Resolves with the session's identity once it is stable or local, or with `null` when it is still unknown after
-   * the wait (or the session stopped), so an unidentified session analyses without the cache.
+   * Resolves with what the cache read needs (the identity, then the playing video's aspect ratio) once known, or with
+   * `null` when the shared wait ran out (or the session stopped), so an unidentified session analyses without the
+   * cache and a read without an aspect ratio skips the aspect guard.
    */
-  private awaitIdentity(): Promise<PersistentVideoIdentity | null> {
-    if (isPersistentIdentity(this.identity)) return Promise.resolve(this.identity);
-    return new Promise(resolve => {
-      const timer = setTimeout(() => this.identityArrived?.(null), IDENTITY_WAIT_MS);
-      this.identityArrived = identity => {
-        clearTimeout(timer);
-        this.identityArrived = null;
-        resolve(identity);
-      };
-    });
+  private async awaitReadContext<T>(current: () => T | null): Promise<T | null> {
+    for (;;) {
+      const value = current();
+      if (value !== null || this.readWaitOver || this.stopped) return value;
+      await new Promise<void>(resolve => this.readContextWaiters.push(resolve));
+    }
+  }
+
+  private readContextChanged(): void {
+    const waiters = this.readContextWaiters;
+    this.readContextWaiters = [];
+    for (const wake of waiters) wake();
+  }
+
+  private endReadWait(): void {
+    this.readWaitOver = true;
+    this.readContextChanged();
   }
 
   setIdentity(identity: VideoIdentity): void {
     if (this.stopped || isPersistentIdentity(this.identity) || !isPersistentIdentity(identity)) return;
     this.identity = identity;
-    this.identityArrived?.(identity);
+    this.readContextChanged();
     this.publishHeld();
+  }
+
+  setAspectRatio(aspectRatio: number): void {
+    this.aspectRatio = aspectRatio;
+    this.readContextChanged();
   }
 
   setLiveness(liveness: Liveness): void {
@@ -242,7 +268,7 @@ export class SampleScheduler {
     if (this.stopped) return;
     this.stopped = true;
     this.unpublished = [];
-    this.identityArrived?.(null);
+    this.readContextChanged();
     for (const source of this.sources) source.release();
     this.sources = [];
     this.wanted.clear();
@@ -593,6 +619,7 @@ export interface MseAnalysis {
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
   setIdentity(identity: VideoIdentity): void;
+  setAspectRatio(aspectRatio: number): void;
   stop(): void;
   releaseBuffers(): MseBuffers;
   heldUnits(): number;
@@ -681,6 +708,7 @@ export function createMseAnalysis(
     setVisible: visible => scheduler.setVisible(visible),
     setLiveness: liveness => scheduler.setLiveness(liveness),
     setIdentity: identity => scheduler.setIdentity(identity),
+    setAspectRatio: aspectRatio => scheduler.setAspectRatio(aspectRatio),
     stop: () => scheduler.stop(),
     releaseBuffers: () => {
       scheduler.stop();
@@ -704,6 +732,7 @@ export interface ProgressiveAnalysis {
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
   setIdentity(identity: VideoIdentity): void;
+  setAspectRatio(aspectRatio: number): void;
   stop(): void;
   settled(): Promise<void>;
 }
@@ -804,6 +833,7 @@ export function createProgressiveAnalysis(
     },
     setLiveness: liveness => scheduler.setLiveness(liveness),
     setIdentity: identity => scheduler.setIdentity(identity),
+    setAspectRatio: aspectRatio => scheduler.setAspectRatio(aspectRatio),
     stop: () => scheduler.stop(),
     settled: async () => {
       await opening;

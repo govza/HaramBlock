@@ -51,6 +51,7 @@ import {
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
 import { HOOK_IDENTITY_ATTR, type TapKind } from '@/utils/lookahead/protocol';
+import { aspectRatioOf } from '@/utils/lookahead/sampleQuality';
 import { predictionsAt, toInferredSample } from '@/utils/lookahead/sampleScores';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
@@ -69,6 +70,9 @@ import type {
 } from '@/utils/types';
 
 const log = getLogger('videoSession:registry');
+
+const playingAspectRatioOf = (video: HTMLVideoElement): number | null =>
+  aspectRatioOf({ width: video.videoWidth, height: video.videoHeight });
 
 const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   safe: 'safe',
@@ -524,6 +528,7 @@ class VideoSessionRegistry {
         scoreThreshold: scoreThresholdOf(handle),
         inputSize: currentInferenceCaptureSize(),
         identity: handle.identity,
+        aspectRatio: playingAspectRatioOf(handle.video),
         sourceUrl: handle.src,
         hostname: handle.hostSettings.hostname,
       },
@@ -870,7 +875,11 @@ class VideoSessionRegistry {
       handle.lookahead?.setLiveness(livenessOfDuration(video.duration));
       this.resolveIdentity(handle);
     };
-    const onLoadedMetadata = () => this.resolveIdentity(handle);
+    const onLoadedMetadata = () => {
+      this.resolveIdentity(handle);
+      const aspectRatio = playingAspectRatioOf(video);
+      if (aspectRatio !== null) handle.lookahead?.setAspectRatio(aspectRatio);
+    };
     const onHookIdentityClaim = () => {
       if (handle.sourceIdentityWait) this.attach(video, handle.hostSettings);
       else this.resolveIdentity(handle);

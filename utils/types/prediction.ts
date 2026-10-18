@@ -145,16 +145,27 @@ export interface IInferenceInputGeometry {
   maskTransform: IMaskTransform;
 }
 
+/**
+ * Pixel size of a decoded video frame before it was scaled to the model input: what a sample's
+ * quality and aspect ratio are judged by.
+ */
+export interface IFrameSize {
+  width: number;
+  height: number;
+}
+
 export interface IStoredVideoSample {
   pointUs: number;
   scores: RawSampleScores;
   input: IInferenceInputGeometry;
   topUnsafeScore: number;
+  source?: IFrameSize;
 }
 
 /**
  * One video's meta row in the verdict cache, keyed by its video identity: the duration its samples
- * were analysed against, its Forced Visibility, cache metadata and per-model sample counts.
+ * were analysed against, its Forced Visibility, cache metadata, and per versioned model its sample
+ * count and the rank it had when written (so superseded versions stay ordered after they ship no more).
  */
 export interface IVideoPredictionRecord {
   identityKey: string;
@@ -166,15 +177,18 @@ export interface IVideoPredictionRecord {
   timestamp: number;
   cacheMetadata: ICacheMetadata;
   sampleCounts: Record<string, number>;
+  modelRanks: Record<string, number>;
 }
 
 /**
- * Up to five minutes of one video's lookahead samples from one model, stored as a single row.
+ * Up to five minutes of one video's lookahead samples from one versioned model on one Sample Lattice
+ * version, stored as a single row.
  */
 export interface IVideoSampleBucket {
   identityKey: string;
   modelId: string;
   bucketStartUs: number;
+  latticeVersion: number;
   hostname: string;
   samples: IStoredVideoSample[];
 }

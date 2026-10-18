@@ -1,6 +1,6 @@
 import { fanOutToTargets, groupTargetsByPts } from '@/utils/lookahead/targetFanOut';
 
-import type { AnalysisFrame, CapableDecoder, DecodedTarget, DecodeJob } from '@/utils/lookahead/ports';
+import type { AnalysisFrame, CapableDecoder, DecodedTarget, DecodeJob, InferredSample } from '@/utils/lookahead/ports';
 
 /**
  * A decoded frame downscaled to the model input as a transferable bitmap, keeping the source dimensions for mask
@@ -11,6 +11,11 @@ export interface BitmapFrame extends AnalysisFrame {
   originalWidth: number;
   originalHeight: number;
 }
+
+export const withSourceSize = (
+  sample: InferredSample,
+  { originalWidth, originalHeight }: Pick<BitmapFrame, 'originalWidth' | 'originalHeight'>,
+): InferredSample => ({ ...sample, source: { width: originalWidth, height: originalHeight } });
 
 export async function toModelInputBitmap(frame: VideoFrame, inputSize: number): Promise<BitmapFrame> {
   const originalWidth = frame.displayWidth;
