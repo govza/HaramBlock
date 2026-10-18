@@ -146,10 +146,6 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     });
   }
 
-  /**
-   * Drops a video's samples once the media behind its key changed length (a trim, a re-upload under
-   * one URL), keeping its Forced Visibility and adopting the new duration.
-   */
   async purgeSamples(identity: PersistentVideoIdentity): Promise<void> {
     if (isCacheDisabled) return;
     await mediaCacheDb.transaction('rw', this.table, this.buckets, () => this.purgeSamplesWithin(identity));

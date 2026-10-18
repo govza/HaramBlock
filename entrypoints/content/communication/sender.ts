@@ -18,6 +18,7 @@ import {
   METRIC,
   recordCounter,
   recordHistogram,
+  videoIdentityAttributes,
 } from '@/utils/telemetry';
 import {
   endRoundtrip,
@@ -79,7 +80,7 @@ export async function requestVideoForcedVisibility(identity: VideoIdentity): Pro
   try {
     return await backgroundRpc.getVideoForcedVisibility(identity);
   } catch (error) {
-    log.error('video_forced_visibility.request.failed', { identity, error });
+    log.error('video_forced_visibility.request.failed', { ...videoIdentityAttributes(identity), error });
     return 'auto';
   }
 }
@@ -92,7 +93,7 @@ export async function requestVideoToggleUpdate(
   try {
     await backgroundRpc.updateVideoToggleState(identity, origin, forcedVisibility);
   } catch (error) {
-    log.error('video_toggle.update.failed', { identity, forcedVisibility, error });
+    log.error('video_toggle.update.failed', { ...videoIdentityAttributes(identity), forcedVisibility, error });
   }
 }
 

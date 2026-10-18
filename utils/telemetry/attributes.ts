@@ -32,10 +32,14 @@ export const ATTR = {
   videoTapReason: 'hb.video.tap.reason',
   lookaheadSampleSource: 'hb.lookahead.sample_source',
   lookaheadFailureStage: 'hb.lookahead.failure_stage',
+  videoIdentityKey: 'hb.video.identity.key',
+  videoIdentityKind: 'hb.video.identity.kind',
   errorType: 'error.type',
   errorMessage: 'error.message',
   errorStack: 'error.stack',
 } as const;
+
+import type { VideoIdentity } from '@/utils/videoIdentity';
 
 export type AttributeValue = string | number | boolean | string[] | number[] | boolean[];
 export type Attributes = Record<string, AttributeValue | undefined>;
@@ -49,6 +53,11 @@ export function requestIdFor(src: string): string {
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
+
+export const videoIdentityAttributes = (identity: VideoIdentity): Attributes => ({
+  [ATTR.videoIdentityKind]: identity.kind,
+  [ATTR.videoIdentityKey]: identity.kind === 'unknown' ? identity.pendingKey : identity.key,
+});
 
 export function errorAttributes(error: unknown): Attributes {
   if (error instanceof Error) {

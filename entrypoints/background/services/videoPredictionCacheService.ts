@@ -4,7 +4,7 @@ import { clampMaxAge } from '@/utils/cacheUtils';
 import { VideoPredictionRepository } from '@/utils/db/videoPredictionRepository';
 import { cacheModelIdOf, type CacheModel } from '@/utils/inference/shared/modelRegistry';
 import { selectAcrossVersions, type CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import { ATTR, getLogger } from '@/utils/telemetry';
+import { getLogger, videoIdentityAttributes } from '@/utils/telemetry';
 import {
   EMPTY_CACHED_VIDEO_PREDICTIONS,
   type ForcedVisibility,
@@ -79,17 +79,13 @@ export class VideoPredictionCacheService {
     }
   }
 
-  /**
-   * Reads a video's cached samples for one reader, choosing per stretch the best-ranked model version
-   * that covers it (see `selectAcrossVersions`).
-   */
   async getCached(identity: VideoIdentity, reader: CachedSampleReader): Promise<ICachedVideoPredictions> {
     if (!isPersistentIdentity(identity)) return EMPTY_CACHED_VIDEO_PREDICTIONS;
     await this.flush(identity.key);
     const record = await this.repository.findValidByIdentityKey(identity.key);
     if (!record) return EMPTY_CACHED_VIDEO_PREDICTIONS;
     this.repository.touchAccessed(identity.key).catch((error: unknown) => {
-      log.warn('cache.touch.failed', { [ATTR.src]: identity.key, error });
+      log.warn('cache.touch.failed', { ...videoIdentityAttributes(identity), error });
     });
     if (isDurationMismatch(record.durationSec, identity)) {
       await this.repository.purgeSamples(identity);
@@ -158,7 +154,7 @@ export class VideoPredictionCacheService {
           write.samples,
         );
       } catch (error) {
-        log.warn('cache.write.failed', { [ATTR.src]: write.identity.key, error });
+        log.warn('cache.write.failed', { ...videoIdentityAttributes(write.identity), error });
       }
     }
   }

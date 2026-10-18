@@ -55,7 +55,7 @@ import { aspectRatioOf } from '@/utils/lookahead/sampleQuality';
 import { predictionsAt, toInferredSample } from '@/utils/lookahead/sampleScores';
 import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
-import { ATTR, getLogger, METRIC, recordCounter, recordHistogram } from '@/utils/telemetry';
+import { ATTR, getLogger, METRIC, recordCounter, recordHistogram, videoIdentityAttributes } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 import { IDENTITY_WAIT_MS, isPersistentIdentity, persistentKeyOf, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
 
@@ -266,7 +266,10 @@ class VideoSessionRegistry {
     const identity = identityOfVideo(handle.video, handle.src);
     if (!isPersistentIdentity(identity)) return;
     handle.identity = identity;
-    log.debug('video.session.identity_resolved', { [ATTR.sessionId]: handle.sessionId, kind: identity.kind });
+    log.debug('video.session.identity_resolved', {
+      [ATTR.sessionId]: handle.sessionId,
+      ...videoIdentityAttributes(identity),
+    });
     handle.lookahead?.setIdentity(identity);
     this.restoreForcedVisibility(handle);
   }
