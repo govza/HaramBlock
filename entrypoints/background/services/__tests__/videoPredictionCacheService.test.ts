@@ -219,9 +219,32 @@ describe('VideoPredictionCacheService', () => {
     const service = new VideoPredictionCacheService();
     const { samples } = await service.getCached(VIDEO, READER);
     expect(points(samples)).toEqual([
-      0, 500_000, 1_000_000, 1_250_000, 2_000_000, 2_500_000, 3_000_000, 3_500_000, 4_000_000,
+      0, 500_000, 1_000_000, 1_250_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000, 3_500_000, 4_000_000,
     ]);
-    expect(samples.find(entry => entry.pointUs === 1_500_000)).toBeUndefined();
+    expect(samples.filter(entry => entry.pointUs <= 1_250_000)).toEqual([...spaced(0, 1_000_000), sample(1_250_000)]);
+  });
+
+  it('never fills between the Keyframe Points a better version analysed a long-GOP stretch at', async () => {
+    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
+    const keyframePoints = [sample(0), sample(2_000_000), sample(4_000_000)];
+    repository.readSamplesByModel.mockResolvedValueOnce({
+      [V320]: spaced(0, 6_000_000, { unsafe: true }),
+      [V640]: keyframePoints,
+    });
+    const service = new VideoPredictionCacheService();
+    const { samples } = await service.getCached(VIDEO, READER);
+    expect(points(samples)).toEqual([0, 2_000_000, 4_000_000, 4_500_000, 5_000_000, 5_500_000, 6_000_000]);
+  });
+
+  it('fills a hole between two stretches a better version analysed at lattice spacing', async () => {
+    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
+    const before = spaced(0, 1_000_000, { source: { width: 1920, height: 1080 } });
+    const after = spaced(5_000_000, 6_000_000, { source: { width: 1920, height: 1080 } });
+    const lower = spaced(0, 6_000_000);
+    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: lower, [V640]: [...before, ...after] });
+    const service = new VideoPredictionCacheService();
+    const { samples } = await service.getCached(VIDEO, READER);
+    expect(samples).toEqual([...before, ...spaced(1_500_000, 4_500_000), ...after]);
   });
 
   it('ranks a superseded version no longer shipped by the rank stored with its samples', async () => {

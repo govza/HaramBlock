@@ -333,14 +333,18 @@ Within one model version a merge keeps, per point, the sample of higher quality
 replaces, ties keep the stored sample, and a sample without `source` ranks by its input size. Across
 versions `getCached` never mixes samples per point: each model metadata declares an integer `rank`
 (stored per model on the meta row as `modelRanks`, so a version that no longer ships keeps its
-order), the best-ranked version's samples are taken wherever it has them, and lower-ranked versions
-fill only points with no better sample within a Level-0 spacing, best first. Where a lower-ranked
-sample at the same point is unsafe under the reader's strictness and the selected one is clean, the
-unsafe one is returned (fail closed). Samples whose source aspect ratio differs from the playing
-video's by more than 1 % are skipped; the scheduler's cache read waits (within the same 3 s bound as
-the identity) for the playing aspect ratio the content reports on `loadedmetadata`, and reads
-without the guard if none arrives. The Verdict Timeline keeps at most 4000 entries and evicts the
-one farthest from the playhead; evicted spans are not re-read from the cache.
+order), the best-ranked version's samples are taken across each stretch it covers, and lower-ranked
+versions fill only outside every better version's covered stretches, best first. A covered stretch
+runs from a version's first to its last sample while neighbours are at most a level-0 spacing apart,
+or, from a sample whose previous neighbour is also further than that (a Keyframe Point standing for
+its GOP), up to 10 s apart; a lattice-spaced run ends at its last point, so a seek hole is filled.
+Where a lower-ranked sample at the same point is unsafe under the reader's strictness and the
+selected one is clean, the unsafe one is returned (fail closed). Samples whose source aspect ratio
+differs from the playing video's by more than 1 % are skipped; the scheduler's cache read waits
+(within the same 3 s bound as the identity) for the playing aspect ratio the content reports on
+`loadedmetadata`, and reads without the guard if none arrives. The Verdict Timeline keeps at most
+4000 entries and evicts the one farthest from the playhead; evicted spans are not re-read from the
+cache.
 
 Live and post-live sessions neither read nor publish; Live Masking samples are never cached. A
 session's liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's
