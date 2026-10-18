@@ -300,31 +300,32 @@ A sample is identified by (video identity, versioned `modelId`, Sample Lattice v
 integer µs); readers accept a stored sample only for its exact point. The cache model id is
 `<id>@<version>`, the version being the model folder's date suffix, so new weights under an existing
 id start a new cache version; superseded versions stay readable until expiry. `LATTICE_VERSION`
-(`utils/db/videoPredictionRepository.ts`) is stored on every bucket and buckets of another lattice
-version are never read. Video frames are inferred at the floor threshold (`MIN_SCORE_THRESHOLD`,
-0.05) whatever the site's strictness, so a stored sample means the same to every reader:
-`{ pointUs, scores, input, topUnsafeScore, source }`, clean samples included; `source` is the
-decoded frame size before scaling to the model input (WebCodecs `displayWidth/Height`, the WASM
-decoder's frame size). `scores` is raw — `detections` (instance models, floor detections) or `grid`
-(semantic models, an `IScoreGrid` of uint8 value-runs for per-cell probability and class id,
-`utils/scoreGrid.ts`). `topUnsafeScore` is the best target-class score. Each reader applies its own
-strictness on read (`predictionsAt` / `isUnsafeAt` in `utils/lookahead/sampleScores.ts`) when
-building the Verdict Timeline and planning Refinement Probes; the suspicion threshold is
-`suspicionThresholdOf` (half the reader's threshold). Changing strictness rebuilds the content
-pipeline, so new sessions re-read the same samples under the new threshold; video samples are never
-cleared for it.
+(`utils/db/videoPredictionRepository.ts`) is part of every bucket key, so a new lattice never
+overwrites an old bucket, and buckets of another lattice version are never read. Video frames are
+inferred at the floor threshold (`MIN_SCORE_THRESHOLD`, 0.05) whatever the site's strictness, so a
+stored sample means the same to every reader: `{ pointUs, scores, input, topUnsafeScore, source }`,
+clean samples included; `source` is the decoded frame size before scaling to the model input
+(WebCodecs `displayWidth/Height`, the WASM decoder's frame size). `scores` is raw — `detections`
+(instance models, floor detections) or `grid` (semantic models, an `IScoreGrid` of uint8 value-runs
+for per-cell probability and class id, `utils/scoreGrid.ts`). `topUnsafeScore` is the best
+target-class score. Each reader applies its own strictness on read (`predictionsAt` / `isUnsafeAt`
+in `utils/lookahead/sampleScores.ts`) when building the Verdict Timeline and planning Refinement
+Probes; the suspicion threshold is `suspicionThresholdOf` (half the reader's threshold). Changing
+strictness rebuilds the content pipeline, so new sessions re-read the same samples under the new
+threshold; video samples are never cleared for it.
 
 Dexie schema v4 keys the cache by Video Identity (its upgrade drops the v3 page-URL-keyed
 `videoPredictions` / `videoSamples` tables). `videos` holds one meta row per stable or local
 identity (`identityKey`, `identityKind`, `durationSec`, the last source URL) with the video's Forced
 Visibility, cache metadata and `sampleCounts` per model (the Cache Browser lists the identity key
 and kind). `videoSampleBuckets` holds the samples in 5-minute media-time buckets keyed
-`[identityKey+modelId+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There is no per-video sample cap;
-expiry follows the meta row's `accessedAt`, and an expired video is purged before a merge. A stored
-duration more than 1 s off the playing identity's purges that video's samples (on read and on merge)
-and adopts the new duration; its Forced Visibility is kept. `getVideoForcedVisibility` reads the
-meta row alone. The service buffers publishes per (video, model) and merges every 2 s or 50 samples;
-`getCached` flushes pending writes first. Sessions publish only under the active model version.
+`[identityKey+modelId+latticeVersion+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There is no
+per-video sample cap; expiry follows the meta row's `accessedAt`, and an expired video is purged
+before a merge. A stored duration more than 1 s off the playing identity's purges that video's
+samples (on read and on merge) and adopts the new duration; its Forced Visibility is kept.
+`getVideoForcedVisibility` reads the meta row alone. The service buffers publishes per (video,
+model) and merges every 2 s or 50 samples; `getCached` flushes pending writes first. Sessions
+publish only under the active model version.
 
 Within one model version a merge keeps, per point, the sample of higher quality
 (`utils/lookahead/sampleQuality.ts`): the long side the model actually saw,

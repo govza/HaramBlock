@@ -180,9 +180,12 @@ export interface IVideoPredictionRecord {
   modelRanks: Record<string, number>;
 }
 
+export type SampleBucketKey = [identityKey: string, modelId: string, latticeVersion: number, bucketStartUs: number];
+
 /**
  * Up to five minutes of one video's lookahead samples from one versioned model on one Sample Lattice
- * version, stored as a single row.
+ * version, stored as a single row; the lattice version is part of its key so a new lattice never
+ * overwrites the old one's samples.
  */
 export interface IVideoSampleBucket {
   identityKey: string;

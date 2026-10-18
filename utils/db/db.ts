@@ -2,7 +2,13 @@ import Dexie, { type Table } from 'dexie';
 
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 
-import type { IHostSettings, IImagePrediction, IVideoPredictionRecord, IVideoSampleBucket } from '@/utils/types';
+import type {
+  IHostSettings,
+  IImagePrediction,
+  IVideoPredictionRecord,
+  IVideoSampleBucket,
+  SampleBucketKey,
+} from '@/utils/types';
 
 /**
  * HostSettingsDatabase - Dexie database for host settings
@@ -29,7 +35,7 @@ hostSettingsDb.on('populate', () => {
 export class MediaCacheDatabase extends Dexie {
   imagePredictions!: Table<IImagePrediction, string>;
   videos!: Table<IVideoPredictionRecord, string>;
-  videoSampleBuckets!: Table<IVideoSampleBucket, [string, string, number]>;
+  videoSampleBuckets!: Table<IVideoSampleBucket, SampleBucketKey>;
 
   constructor() {
     super('MediaCacheDatabase');
@@ -55,7 +61,7 @@ export class MediaCacheDatabase extends Dexie {
       videoPredictions: null,
       videoSamples: null,
       videos: '&identityKey, hostname, timestamp, [hostname+timestamp]',
-      videoSampleBuckets: '[identityKey+modelId+bucketStartUs], identityKey, hostname',
+      videoSampleBuckets: '[identityKey+modelId+latticeVersion+bucketStartUs], identityKey, hostname',
     });
   }
 }
