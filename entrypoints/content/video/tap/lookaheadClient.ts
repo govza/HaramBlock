@@ -153,7 +153,11 @@ function onHostMessage(message: HostToContent): void {
       break;
     case 'cachePublish':
       void backgroundRpc
-        .publishVideoSamples(message.identity, { sourceUrl: open.sourceUrl, hostname: open.hostname }, message.samples)
+        .publishVideoSamples(
+          message.identity,
+          { sourceUrl: open.sourceUrl, pageUrl: open.pageUrl, hostname: open.hostname },
+          message.samples,
+        )
         .catch((error: unknown) => log.debug('lookahead.cache.publish_failed', { error }));
       break;
   }

@@ -96,7 +96,7 @@ export class LookaheadHostService {
       publish: (identity, samples) =>
         this.videoPredictionCacheService.publish(
           identity,
-          { sourceUrl: open.sourceUrl, hostname: open.hostname },
+          { sourceUrl: open.sourceUrl, pageUrl: open.pageUrl, hostname: open.hostname },
           samples,
         ),
     };

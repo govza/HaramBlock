@@ -20,6 +20,7 @@ const openMse: OpenAnalysis = {
     aspectRatio: null,
   },
   sourceUrl: OBJECT_URL,
+  pageUrl: 'https://example.test/watch',
   hostname: 'example.test',
   scoreThreshold: 0.5,
 };

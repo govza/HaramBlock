@@ -11,6 +11,7 @@ import type {
   ForcedVisibility,
   ICacheMetadata,
   IStoredVideoSample,
+  IVideoCacheOrigin,
   IVideoPredictionRecord,
   SampleBucketKey,
 } from '@/utils/types';
@@ -56,9 +57,7 @@ export const isVideoCacheFresh = (record: { cacheMetadata: ICacheMetadata }, now
 /**
  * Fields written to a video's meta row when samples or a forced visibility create it.
  */
-export interface VideoPredictionOrigin {
-  sourceUrl: string;
-  hostname: string;
+export interface VideoPredictionOrigin extends IVideoCacheOrigin {
   cacheMetadata: ICacheMetadata;
 }
 
@@ -78,6 +77,7 @@ const newRecord = (
   identityKind: identity.kind,
   durationSec: identity.durationSec,
   sourceUrl: origin.sourceUrl,
+  pageUrl: origin.pageUrl,
   hostname: origin.hostname,
   forcedVisibility,
   timestamp: Date.now(),
@@ -145,6 +145,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       await this.table.put({
         ...record,
         sourceUrl: origin.sourceUrl,
+        pageUrl: origin.pageUrl,
         hostname: origin.hostname,
         timestamp: Date.now(),
         sampleCounts: { ...record.sampleCounts, [modelId]: (record.sampleCounts[modelId] ?? 0) + added },

@@ -29,6 +29,7 @@ import {
 } from '@/utils/telemetry/roundtrip';
 import {
   type ForcedVisibility,
+  type IVideoCacheOrigin,
   type IHostSettings,
   type IImagePrediction,
   type IImageMetadata,
@@ -87,7 +88,7 @@ export async function requestVideoForcedVisibility(identity: VideoIdentity): Pro
 
 export async function requestVideoToggleUpdate(
   identity: VideoIdentity,
-  origin: { sourceUrl: string; hostname: string },
+  origin: IVideoCacheOrigin,
   forcedVisibility: ForcedVisibility,
 ): Promise<void> {
   try {

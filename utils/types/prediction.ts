@@ -163,16 +163,25 @@ export interface IStoredVideoSample {
 }
 
 /**
+ * Where a video's cached samples or Forced Visibility came from, kept on its meta row for the Cache
+ * Browser: the media source URL (a dead `blob:` URL for MSE videos), the page it played on (local to
+ * this device, never part of anything shared) and the host whose settings applied.
+ */
+export interface IVideoCacheOrigin {
+  sourceUrl: string;
+  pageUrl: string;
+  hostname: string;
+}
+
+/**
  * One video's meta row in the verdict cache, keyed by its video identity: the duration its samples
  * were analysed against, its Forced Visibility, cache metadata, and per versioned model its sample
  * count and the rank it had when written (so superseded versions stay ordered after they ship no more).
  */
-export interface IVideoPredictionRecord {
+export interface IVideoPredictionRecord extends IVideoCacheOrigin {
   identityKey: string;
   identityKind: PersistentIdentityKind;
   durationSec: number;
-  sourceUrl: string;
-  hostname: string;
   forcedVisibility: ForcedVisibility;
   timestamp: number;
   cacheMetadata: ICacheMetadata;

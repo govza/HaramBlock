@@ -17,6 +17,7 @@ const openMse: OpenAnalysis = {
   inputSize: 64,
   readContext: { identity: { kind: 'unknown' }, aspectRatio: null },
   sourceUrl: OBJECT_URL,
+  pageUrl: 'https://example.test/watch',
   hostname: 'example.test',
   scoreThreshold: 0.5,
 };
