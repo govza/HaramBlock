@@ -19,7 +19,8 @@ happen inside one VideoSession. _Avoid_: playback session
 
 **Video Identity**: What names a VideoSession's media for the verdict cache, independent of the
 page, rendition or URL spelling. `stable`: a portable `namespace:id` key with the media duration
-(`url:` plus the direct file URL without allowlisted auth params; site adapters add `yt`, `vreddit`,
+(`url:` plus the direct file URL without allowlisted auth params; site adapters add `yt`, `vreddit`
+(Reddit media id from the owning `shreddit-player`/`shreddit-post`), `redditpreview` (comment GIFs),
 …). `local`: `page:<page URL without fragment>|d=<duration in 100 ms>` for MSE sources no adapter
 identifies — persistent on this device, never shared. `unknown`: no duration yet, a `srcObject`
 stream, a live stream or an adapter's veto (an ad) — analysed and masked in memory only, never read
@@ -129,7 +130,7 @@ bundled WebAssembly decoders (VP9, AV1) in a dedicated worker.
 | WASM decoders         | `utils/lookahead/{decoderSelection,wasmDecoder,wasmDecodeCore,yuvToRgba}.ts`, `entrypoints/wasm-decoder-worker.ts`, `scripts/wasm-decoders/` | Per-job choice native → WASM; worker decode and YUV → model-input bitmap; reproducible Emscripten builds   |
 | Chrome host           | `entrypoints/lookahead-host/`                                                                                                                | Hidden extension iframe running the host runtime                                                           |
 | Firefox host          | `entrypoints/background/services/lookaheadHostService.ts`                                                                                    | Host runtime in the event page, fed over `runtime.connect`                                                 |
-| Identity resolver     | `entrypoints/content/video/identity/{identityResolver,genericIdentityRules}.ts`, `utils/videoIdentity.ts`                                    | Video Identity from site adapters, then generic rules; same-media and duration-mismatch rules              |
+| Identity resolver     | `entrypoints/content/video/identity/{identityResolver,genericIdentityRules,redditIdentity}.ts`, `utils/videoIdentity.ts`                     | Video Identity from site adapters, then generic rules; same-media and duration-mismatch rules              |
 | Verdict cache         | `entrypoints/background/services/videoPredictionCacheService.ts`, `utils/db/videoPredictionRepository.ts`                                    | Buffered persistence of raw-score samples: meta row + 5-minute bucket rows                                 |
 | Sample scores         | `utils/lookahead/sampleScores.ts`, `utils/scoreGrid.ts`                                                                                      | Raw floor scores → predictions / unsafe under the reader's threshold; suspicion threshold                  |
 | Discovery             | `entrypoints/content/core/VideoProcessor.ts`                                                                                                 | Blacklist styling or registry attachment                                                                   |

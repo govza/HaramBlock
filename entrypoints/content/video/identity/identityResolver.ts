@@ -1,4 +1,5 @@
 import { genericVideoIdentity } from '@/entrypoints/content/video/identity/genericIdentityRules';
+import { redditIdentityAdapter } from '@/entrypoints/content/video/identity/redditIdentity';
 
 import type { VideoIdentity } from '@/utils/videoIdentity';
 
@@ -24,7 +25,7 @@ export interface VideoIdentityAdapter {
   resolve(context: VideoIdentityContext): VideoIdentity | null;
 }
 
-export const VIDEO_IDENTITY_ADAPTERS: readonly VideoIdentityAdapter[] = [];
+export const VIDEO_IDENTITY_ADAPTERS: readonly VideoIdentityAdapter[] = [redditIdentityAdapter];
 
 const pageLocationOf = (pageHref: string): URL | null => {
   try {
