@@ -1,5 +1,5 @@
 import { getRpcContext } from '@/utils/messaging/rpcContext';
-import { ATTR, getLogger, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
+import { ATTR, getLogger, videoIdentityAttributes, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
 import { exportTelemetry, ingestForwardedTelemetry } from '@/utils/telemetry/setup/background';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
@@ -138,7 +138,7 @@ export class BackgroundRpc {
     try {
       return await this.videoPredictionCacheService.getCached(identity, reader);
     } catch (error) {
-      log.error('video_cache.read.failed', { identity, error });
+      log.error('video_cache.read.failed', { ...videoIdentityAttributes(identity), error });
       throw error;
     }
   }
@@ -147,7 +147,7 @@ export class BackgroundRpc {
     try {
       return await this.videoPredictionCacheService.getForcedVisibility(identity);
     } catch (error) {
-      log.error('video_cache.read.failed', { identity, error });
+      log.error('video_cache.read.failed', { ...videoIdentityAttributes(identity), error });
       throw error;
     }
   }
@@ -169,7 +169,7 @@ export class BackgroundRpc {
     try {
       await this.videoPredictionCacheService.setForcedVisibility(identity, origin, forcedVisibility);
     } catch (error) {
-      log.error('video_cache.toggle.update.failed', { identity, error });
+      log.error('video_cache.toggle.update.failed', { ...videoIdentityAttributes(identity), error });
       throw error;
     }
   }
