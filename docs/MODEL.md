@@ -130,7 +130,13 @@ names: # Class mapping
   1: aurat_female
   2: aurat_male
   3: safe_person
+rank: 1 # Video cache order, from offline evaluation; higher is better
 ```
+
+`rank` orders model versions in the video verdict cache: a session reads the best-ranked version
+that has samples and falls back to lower ranks for gaps. Convention: a newer generation ranks above
+an older one; within a generation, a larger input ranks above a smaller one. The folder's date
+suffix is the model version: shipping new weights in a new dated folder starts a new cache version.
 
 ### Model Loader API
 

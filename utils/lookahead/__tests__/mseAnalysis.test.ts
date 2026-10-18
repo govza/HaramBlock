@@ -14,6 +14,7 @@ import {
   withUnknownSizes,
   VOD_OPTIONS,
   KNOWN_IDENTITY,
+  PLAYING_ASPECT_RATIO,
 } from '@/utils/lookahead/__tests__/harness';
 import { createMseAnalysis } from '@/utils/lookahead/analysis';
 
@@ -313,6 +314,42 @@ describe('Lookahead Analysis cache under a video identity', () => {
 
     expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
     expect(new Set(harness.publishedUnder)).toEqual(new Set([KNOWN_IDENTITY.key]));
+  });
+
+  it('reads the cache with the session strictness and the playing video aspect ratio', async () => {
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await analysis.settled();
+
+    expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: PLAYING_ASPECT_RATIO }]);
+  });
+
+  it('waits for the playing video aspect ratio before reading the cache', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, aspectRatio: null });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(harness.cacheReads()).toBe(0);
+
+    analysis.setAspectRatio(4 / 3);
+    await settleWithFakeTimers(analysis);
+
+    expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: 4 / 3 }]);
+  });
+
+  it('reads without an aspect ratio once the identity wait runs out', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, aspectRatio: null });
+    analysis.addBuffer('v', VP9_MIME);
+    analysis.append('v', fixture('mse-vp9.webm'), 0);
+    await settleWithFakeTimers(analysis);
+
+    expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: null }]);
   });
 
   it('waits for the identity before reading the cache, then reads under it', async () => {

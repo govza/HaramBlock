@@ -40,6 +40,7 @@ const openMse = (sessionId: string): OpenAnalysis => ({
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,
+  aspectRatio: 16 / 9,
 });
 
 const reachableSessions = (sent: HostToContent[]) =>
@@ -234,6 +235,17 @@ describe('Lookahead host: live and post-live sessions', () => {
 
     expect(created.harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
     expect(created.harness.published).toHaveLength(8);
+  });
+
+  it('reads with the aspect ratio the content reported after opening', async () => {
+    const created = createHost();
+    created.host.handleHook({ t: 'source', sourceId: 1, objectUrl: OBJECT_URL, liveness: 'vod' });
+    created.host.handleContent({ ...openMse('session'), aspectRatio: null });
+    created.host.handleContent({ t: 'aspectRatio', sessionId: 'session', aspectRatio: 4 / 3 });
+    await vi.waitFor(() => expect(created.commands).toEqual([{ t: 'want', sourceId: 1 }]));
+    await analyseFixture(created.host, created.sent);
+
+    expect(created.harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: 4 / 3 }]);
   });
 
   it('never publishes a session on a source the hook announced live, even with a finite duration', async () => {

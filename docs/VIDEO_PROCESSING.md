@@ -296,17 +296,23 @@ hidden). The background keeps the one-queued-frame-per-session rule for live fra
 
 ### Sampling contract and cache
 
-A sample is identified by (video identity, `modelId`, point in integer µs); readers accept a stored
-sample only for its exact point. Video frames are inferred at the floor threshold
-(`MIN_SCORE_THRESHOLD`, 0.05) whatever the site's strictness, so a stored sample means the same to
-every reader: `{ pointUs, scores, input, topUnsafeScore }`, clean samples included. `scores` is raw
-— `detections` (instance models, floor detections) or `grid` (semantic models, an `IScoreGrid` of
-uint8 value-runs for per-cell probability and class id, `utils/scoreGrid.ts`). `topUnsafeScore` is
-the best target-class score. Each reader applies its own strictness on read (`predictionsAt` /
-`isUnsafeAt` in `utils/lookahead/sampleScores.ts`) when building the Verdict Timeline and planning
-Refinement Probes; the suspicion threshold is `suspicionThresholdOf` (half the reader's threshold).
-Changing strictness rebuilds the content pipeline, so new sessions re-read the same samples under
-the new threshold; video samples are never cleared for it.
+A sample is identified by (video identity, versioned `modelId`, Sample Lattice version, point in
+integer µs); readers accept a stored sample only for its exact point. The cache model id is
+`<id>@<version>`, the version being the model folder's date suffix, so new weights under an existing
+id start a new cache version; superseded versions stay readable until expiry. `LATTICE_VERSION`
+(`utils/db/videoPredictionRepository.ts`) is stored on every bucket and buckets of another lattice
+version are never read. Video frames are inferred at the floor threshold (`MIN_SCORE_THRESHOLD`,
+0.05) whatever the site's strictness, so a stored sample means the same to every reader:
+`{ pointUs, scores, input, topUnsafeScore, source }`, clean samples included; `source` is the
+decoded frame size before scaling to the model input (WebCodecs `displayWidth/Height`, the WASM
+decoder's frame size). `scores` is raw — `detections` (instance models, floor detections) or `grid`
+(semantic models, an `IScoreGrid` of uint8 value-runs for per-cell probability and class id,
+`utils/scoreGrid.ts`). `topUnsafeScore` is the best target-class score. Each reader applies its own
+strictness on read (`predictionsAt` / `isUnsafeAt` in `utils/lookahead/sampleScores.ts`) when
+building the Verdict Timeline and planning Refinement Probes; the suspicion threshold is
+`suspicionThresholdOf` (half the reader's threshold). Changing strictness rebuilds the content
+pipeline, so new sessions re-read the same samples under the new threshold; video samples are never
+cleared for it.
 
 Dexie schema v4 keys the cache by Video Identity (its upgrade drops the v3 page-URL-keyed
 `videoPredictions` / `videoSamples` tables). `videos` holds one meta row per stable or local
@@ -318,8 +324,22 @@ expiry follows the meta row's `accessedAt`, and an expired video is purged befor
 duration more than 1 s off the playing identity's purges that video's samples (on read and on merge)
 and adopts the new duration; its Forced Visibility is kept. `getVideoForcedVisibility` reads the
 meta row alone. The service buffers publishes per (video, model) and merges every 2 s or 50 samples;
-`getCached` flushes pending writes first. The Verdict Timeline keeps at most 4000 entries and evicts
-the one farthest from the playhead; evicted spans are not re-read from the cache.
+`getCached` flushes pending writes first. Sessions publish only under the active model version.
+
+Within one model version a merge keeps, per point, the sample of higher quality
+(`utils/lookahead/sampleQuality.ts`): the long side the model actually saw,
+`min(source long side, model input size)`, then source pixels; only a strictly higher quality
+replaces, ties keep the stored sample, and a sample without `source` ranks by its input size. Across
+versions `getCached` never mixes samples per point: each model metadata declares an integer `rank`
+(stored per model on the meta row as `modelRanks`, so a version that no longer ships keeps its
+order), the best-ranked version's samples are taken wherever it has them, and lower-ranked versions
+fill only points with no better sample within a Level-0 spacing, best first. Where a lower-ranked
+sample at the same point is unsafe under the reader's strictness and the selected one is clean, the
+unsafe one is returned (fail closed). Samples whose source aspect ratio differs from the playing
+video's by more than 1 % are skipped; the scheduler's cache read waits (within the same 3 s bound as
+the identity) for the playing aspect ratio the content reports on `loadedmetadata`, and reads
+without the guard if none arrives. The Verdict Timeline keeps at most 4000 entries and evicts the
+one farthest from the playhead; evicted spans are not re-read from the cache.
 
 Live and post-live sessions neither read nor publish; Live Masking samples are never cached. A
 session's liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's

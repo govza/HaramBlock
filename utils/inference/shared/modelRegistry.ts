@@ -6,12 +6,34 @@ import type { ModelMetadata, YamlModelMetadata } from '@/utils/types';
 
 const log = getLogger('modelLoader');
 
+/**
+ * A shipped model as discovered from its folder: the id settings refer to, plus the weights version
+ * (the folder's date suffix) and the developer-declared rank the video cache orders versions by.
+ */
 export interface ModelDefinition {
   id: string;
   name: string;
   basePath: string;
   inputSize: number;
+  version: string;
+  rank: number;
 }
+
+/**
+ * A versioned model as the video verdict cache stores it (`<id>@<version>`), with the rank readers
+ * order versions by.
+ */
+export interface CacheModel {
+  modelId: string;
+  rank: number;
+}
+
+const MODEL_FOLDER_VERSION = /-(\d{8})$/;
+
+export const modelVersionOf = (basePath: string): string => MODEL_FOLDER_VERSION.exec(basePath)?.[1] ?? 'unversioned';
+
+export const cacheModelIdOf = (model: Pick<ModelDefinition, 'id' | 'version'>): string =>
+  `${model.id}@${model.version}`;
 
 const NON_TARGET_CLASSES = new Set(['background', 'safe_person', 'person']);
 
@@ -117,6 +139,8 @@ export async function discoverModels(
         name: metadata.name,
         basePath,
         inputSize: metadata.imgsz[0],
+        version: modelVersionOf(basePath),
+        rank: metadata.rank ?? 0,
       };
     }),
   );

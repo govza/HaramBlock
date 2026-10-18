@@ -29,3 +29,4 @@ output_shape:
 - 320
 id: sem-i320
 name: "YOLO26n-sem 320\xD7320 (4 classes)"
+rank: 1

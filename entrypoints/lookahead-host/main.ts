@@ -1,10 +1,10 @@
 import { lookaheadDecoder } from '@/utils/lookahead/decoderSelection';
 import { LookaheadHost } from '@/utils/lookahead/host';
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
+import { withSourceSize, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 
 import type { InferredSample, StoredSample } from '@/utils/lookahead/ports';
 import type { ContentToHost, HookMessage, HostToContent } from '@/utils/lookahead/protocol';
-import type { BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
 
 const secret = new URLSearchParams(location.search).get('secret');
 
@@ -21,7 +21,10 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
         const { bitmap, originalWidth, originalHeight } = frame as BitmapFrame;
         const requestId = nextRequestId++;
         return new Promise((resolve, reject) => {
-          inferences.set(requestId, { resolve, reject });
+          inferences.set(requestId, {
+            resolve: sample => resolve(withSourceSize(sample, { originalWidth, originalHeight })),
+            reject,
+          });
           send(
             {
               t: 'infer',
@@ -39,11 +42,11 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
       },
     }),
     cache: open => ({
-      read: identity => {
+      read: (identity, reader) => {
         const requestId = nextRequestId++;
         return new Promise(resolve => {
           cacheReads.set(requestId, resolve);
-          send({ t: 'cacheRead', requestId, sessionId: open.sessionId, identity });
+          send({ t: 'cacheRead', requestId, sessionId: open.sessionId, identity, reader });
         });
       },
       publish: (identity, samples) => send({ t: 'cachePublish', sessionId: open.sessionId, identity, samples }),

@@ -19,6 +19,7 @@ const openMse: OpenAnalysis = {
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,
+  aspectRatio: null,
 };
 
 type Listener<T extends unknown[]> = (...args: T) => void;

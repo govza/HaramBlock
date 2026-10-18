@@ -1,15 +1,21 @@
-import Dexie from 'dexie';
-
 import { isCacheDisabled } from '@/utils/db/cacheAvailability';
 import { mediaCacheDb } from '@/utils/db/db';
 import { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository';
 import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
+import { isHigherQuality } from '@/utils/lookahead/sampleQuality';
 import { isDurationMismatch, type PersistentVideoIdentity } from '@/utils/videoIdentity';
 
+import type { CacheModel } from '@/utils/inference/shared/modelRegistry';
 import type { ForcedVisibility, ICacheMetadata, IStoredVideoSample, IVideoPredictionRecord } from '@/utils/types';
 
 export const VIDEO_SAMPLE_BUCKET_US = 5 * 60 * 1_000_000;
+
+/**
+ * Version of the Sample Lattice the stored points were placed on; bump it when lattice spacing or
+ * point placement changes, so samples of the old lattice are never read again.
+ */
+export const LATTICE_VERSION = 1;
 
 export const bucketStartOf = (pointUs: number): number =>
   Math.floor(pointUs / VIDEO_SAMPLE_BUCKET_US) * VIDEO_SAMPLE_BUCKET_US;
@@ -31,7 +37,10 @@ export function mergeVideoSamples(
 ): IStoredVideoSample[] {
   const byPoint = new Map<number, IStoredVideoSample>();
   for (const sample of existing) byPoint.set(sample.pointUs, sample);
-  for (const sample of incoming) byPoint.set(sample.pointUs, sample);
+  for (const sample of incoming) {
+    const stored = byPoint.get(sample.pointUs);
+    if (!stored || isHigherQuality(sample, stored)) byPoint.set(sample.pointUs, sample);
+  }
   return [...byPoint.values()].sort((a, b) => a.pointUs - b.pointUs);
 }
 
@@ -67,6 +76,7 @@ const newRecord = (
   timestamp: Date.now(),
   cacheMetadata: origin.cacheMetadata,
   sampleCounts: {},
+  modelRanks: {},
 });
 
 export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoPredictionRecord> {
@@ -83,18 +93,20 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     return record;
   }
 
-  async readSamples(identityKey: string, modelId: string): Promise<IStoredVideoSample[]> {
-    if (isCacheDisabled) return [];
-    const buckets = await this.buckets
-      .where('[identityKey+modelId+bucketStartUs]')
-      .between([identityKey, modelId, Dexie.minKey], [identityKey, modelId, Dexie.maxKey])
-      .toArray();
-    return buckets.flatMap(bucket => bucket.samples);
+  async readSamplesByModel(identityKey: string): Promise<Record<string, IStoredVideoSample[]>> {
+    if (isCacheDisabled) return {};
+    const buckets = await this.buckets.where('identityKey').equals(identityKey).toArray();
+    const samplesByModel: Record<string, IStoredVideoSample[]> = {};
+    for (const bucket of buckets) {
+      if (bucket.latticeVersion !== LATTICE_VERSION) continue;
+      (samplesByModel[bucket.modelId] ??= []).push(...bucket.samples);
+    }
+    return samplesByModel;
   }
 
   async mergeSamples(
     identity: PersistentVideoIdentity,
-    modelId: string,
+    { modelId, rank }: CacheModel,
     origin: VideoPredictionOrigin,
     samples: readonly IStoredVideoSample[],
   ): Promise<void> {
@@ -110,12 +122,14 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       let added = 0;
       for (const [bucketStartUs, incoming] of groupByBucket(samples)) {
         const existing = await this.buckets.get(bucketKey(identity.key, modelId, bucketStartUs));
-        const merged = mergeVideoSamples(existing?.samples ?? [], incoming);
-        added += merged.length - (existing?.samples.length ?? 0);
+        const existingSamples = existing?.latticeVersion === LATTICE_VERSION ? existing.samples : [];
+        const merged = mergeVideoSamples(existingSamples, incoming);
+        added += merged.length - existingSamples.length;
         await this.buckets.put({
           identityKey: identity.key,
           modelId,
           bucketStartUs,
+          latticeVersion: LATTICE_VERSION,
           hostname: origin.hostname,
           samples: merged,
         });
@@ -127,6 +141,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
         hostname: origin.hostname,
         timestamp: Date.now(),
         sampleCounts: { ...record.sampleCounts, [modelId]: (record.sampleCounts[modelId] ?? 0) + added },
+        modelRanks: { ...record.modelRanks, [modelId]: rank },
       });
     });
   }
@@ -148,6 +163,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       .modify(record => {
         record.durationSec = identity.durationSec;
         record.sampleCounts = {};
+        record.modelRanks = {};
       });
   }
 
