@@ -19,6 +19,7 @@ import {
 import { createMseAnalysis } from '@/utils/lookahead/analysis';
 
 import type { DecoderPort, InferencePort, Liveness } from '@/utils/lookahead/ports';
+import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const VP9_MIME = 'video/webm; codecs="vp9"';
 const H264_MIME = 'video/mp4; codecs="avc1.64000a"';
@@ -288,8 +289,12 @@ describe('Lookahead Analysis over an MSE Source', () => {
 describe('Lookahead Analysis cache under a video identity', () => {
   const ANOTHER_IDENTITY = { kind: 'stable', key: 'url:https://cdn.test/other.mp4', durationSec: 4 } as const;
 
+  const UNIDENTIFIED = { identity: { kind: 'unknown' }, aspectRatio: PLAYING_ASPECT_RATIO } as const;
+  const identifiedAs = (identity: VideoIdentity) => ({ identity, aspectRatio: PLAYING_ASPECT_RATIO });
+  const withoutAspectRatio = { ...VOD_OPTIONS, readContext: { identity: KNOWN_IDENTITY, aspectRatio: null } };
+
   const startUnidentified = (harness: ReturnType<typeof createHarness>) => {
-    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, identity: { kind: 'unknown' } });
+    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, readContext: UNIDENTIFIED });
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     return analysis;
@@ -329,13 +334,13 @@ describe('Lookahead Analysis cache under a video identity', () => {
   it('waits for the playing video aspect ratio before reading the cache', async () => {
     vi.useFakeTimers();
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, aspectRatio: null });
+    const analysis = createMseAnalysis(harness.ports, withoutAspectRatio);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(harness.cacheReads()).toBe(0);
 
-    analysis.setAspectRatio(4 / 3);
+    analysis.setReadContext({ identity: KNOWN_IDENTITY, aspectRatio: 4 / 3 });
     await settleWithFakeTimers(analysis);
 
     expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: 4 / 3 }]);
@@ -344,7 +349,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
   it('reads without an aspect ratio once the identity wait runs out', async () => {
     vi.useFakeTimers();
     const harness = createHarness();
-    const analysis = createMseAnalysis(harness.ports, { ...VOD_OPTIONS, aspectRatio: null });
+    const analysis = createMseAnalysis(harness.ports, withoutAspectRatio);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await settleWithFakeTimers(analysis);
@@ -360,7 +365,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
     expect(harness.cacheReads()).toBe(0);
     expect(harness.requests).toEqual([]);
 
-    analysis.setIdentity(KNOWN_IDENTITY);
+    analysis.setReadContext(identifiedAs(KNOWN_IDENTITY));
     await settleWithFakeTimers(analysis);
 
     expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
@@ -390,7 +395,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
     expect(harness.emitted).toHaveLength(8);
     expect(harness.published).toEqual([]);
 
-    analysis.setIdentity(KNOWN_IDENTITY);
+    analysis.setReadContext(identifiedAs(KNOWN_IDENTITY));
 
     expect(harness.published.map(sample => sample.pointUs)).toEqual(harness.emitted.map(sample => sample.pointUs));
     expect(new Set(harness.publishedUnder)).toEqual(new Set([KNOWN_IDENTITY.key]));
@@ -404,7 +409,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
     await settleWithFakeTimers(analysis);
 
     analysis.stop();
-    analysis.setIdentity(KNOWN_IDENTITY);
+    analysis.setReadContext(identifiedAs(KNOWN_IDENTITY));
 
     expect(harness.published).toEqual([]);
   });
@@ -414,8 +419,8 @@ describe('Lookahead Analysis cache under a video identity', () => {
     const analysis = createMseAnalysis(harness.ports, VOD_OPTIONS);
     analysis.addBuffer('v', VP9_MIME);
     analysis.append('v', fixture('mse-vp9.webm'), 0);
-    analysis.setIdentity(ANOTHER_IDENTITY);
-    analysis.setIdentity({ kind: 'unknown' });
+    analysis.setReadContext(identifiedAs(ANOTHER_IDENTITY));
+    analysis.setReadContext(UNIDENTIFIED);
     await analysis.settled();
 
     expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);

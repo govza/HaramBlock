@@ -15,11 +15,13 @@ const openMse: OpenAnalysis = {
   tap: { kind: 'mse', objectUrl: OBJECT_URL },
   liveness: 'vod',
   inputSize: 64,
-  identity: { kind: 'local', key: 'page:https://example.test/watch|d=600', durationSec: 60 },
+  readContext: {
+    identity: { kind: 'local', key: 'page:https://example.test/watch|d=600', durationSec: 60 },
+    aspectRatio: null,
+  },
   sourceUrl: OBJECT_URL,
   hostname: 'example.test',
   scoreThreshold: 0.5,
-  aspectRatio: null,
 };
 
 type Listener<T extends unknown[]> = (...args: T) => void;

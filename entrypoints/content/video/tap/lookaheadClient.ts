@@ -18,11 +18,12 @@ import type {
   InferredSample,
   Liveness,
   Playhead,
+  SessionReadContext,
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
+import type { PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('lookaheadClient');
 
@@ -57,8 +58,7 @@ export interface LookaheadSession {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
-  setIdentity(identity: VideoIdentity): void;
-  setAspectRatio(aspectRatio: number): void;
+  updateReadContext(change: Partial<SessionReadContext>): void;
   close(): void;
 }
 
@@ -76,7 +76,7 @@ let listeningToHook = false;
 let link: HostLink | null = null;
 /**
  * An open analysis as the client remembers it, so it can be re-opened with its latest playhead,
- * visibility, liveness and identity after the Firefox host reconnects.
+ * visibility, liveness and read context after the Firefox host reconnects.
  */
 interface ClientSession {
   open: OpenAnalysis;
@@ -258,13 +258,10 @@ export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): 
       session.liveness = liveness;
       link?.send({ t: 'liveness', sessionId: open.sessionId, liveness });
     },
-    setIdentity: identity => {
-      session.open = { ...session.open, identity };
-      link?.send({ t: 'identity', sessionId: open.sessionId, identity });
-    },
-    setAspectRatio: aspectRatio => {
-      session.open = { ...session.open, aspectRatio };
-      link?.send({ t: 'aspectRatio', sessionId: open.sessionId, aspectRatio });
+    updateReadContext: change => {
+      const readContext = { ...session.open.readContext, ...change };
+      session.open = { ...session.open, readContext };
+      link?.send({ t: 'readContext', sessionId: open.sessionId, readContext });
     },
     close: () => {
       if (!sessions.delete(open.sessionId)) return;

@@ -30,8 +30,7 @@ export const PLAYING_ASPECT_RATIO = 16 / 9;
 export const VOD_OPTIONS: LookaheadOptions = {
   liveness: 'vod',
   scoreThreshold: 0.5,
-  identity: KNOWN_IDENTITY,
-  aspectRatio: PLAYING_ASPECT_RATIO,
+  readContext: { identity: KNOWN_IDENTITY, aspectRatio: PLAYING_ASPECT_RATIO },
 };
 
 export const CLEAN: InferredSample = {

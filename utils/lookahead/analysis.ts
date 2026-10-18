@@ -17,17 +17,13 @@ import {
   type LookaheadOptions,
   type LookaheadPorts,
   type Playhead,
+  type SessionReadContext,
   type StoredSample,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
 import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from '@/utils/lookahead/progressiveFile';
 import { isUnsafeAt, suspicionThresholdOf } from '@/utils/lookahead/sampleScores';
-import {
-  IDENTITY_WAIT_MS,
-  isPersistentIdentity,
-  type PersistentVideoIdentity,
-  type VideoIdentity,
-} from '@/utils/videoIdentity';
+import { IDENTITY_WAIT_MS, isPersistentIdentity, type PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 export const URGENT_SLACK_SEC = 5;
 const MAX_INFLIGHT_INFERENCES = 6;
@@ -84,8 +80,7 @@ export class SampleScheduler {
   private cacheReady = false;
   private idleWaiters: (() => void)[] = [];
   private liveness: Liveness;
-  private identity: VideoIdentity;
-  private aspectRatio: number | null;
+  private readContext: SessionReadContext;
   private readWaitOver = false;
   private readContextWaiters: (() => void)[] = [];
   private unpublished: StoredSample[] = [];
@@ -96,15 +91,14 @@ export class SampleScheduler {
     private readonly options: LookaheadOptions,
   ) {
     this.liveness = options.liveness;
-    this.identity = options.identity;
-    this.aspectRatio = options.aspectRatio;
+    this.readContext = options.readContext;
     this.cacheLoaded = this.loadCache();
   }
 
   private async loadCache(): Promise<void> {
     const readWait = setTimeout(() => this.endReadWait(), IDENTITY_WAIT_MS);
     const identity = this.liveness === 'live' ? null : await this.awaitReadContext(() => this.persistentIdentity());
-    const aspectRatio = identity ? await this.awaitReadContext(() => this.aspectRatio) : null;
+    const aspectRatio = identity ? await this.awaitReadContext(() => this.readContext.aspectRatio) : null;
     clearTimeout(readWait);
     if (identity && this.liveness !== 'live') {
       try {
@@ -166,7 +160,8 @@ export class SampleScheduler {
   }
 
   private persistentIdentity(): PersistentVideoIdentity | null {
-    return isPersistentIdentity(this.identity) ? this.identity : null;
+    const { identity } = this.readContext;
+    return isPersistentIdentity(identity) ? identity : null;
   }
 
   /**
@@ -193,16 +188,19 @@ export class SampleScheduler {
     this.readContextChanged();
   }
 
-  setIdentity(identity: VideoIdentity): void {
-    if (this.stopped || isPersistentIdentity(this.identity) || !isPersistentIdentity(identity)) return;
-    this.identity = identity;
+  /**
+   * A settled persistent identity is never replaced, so everything the session publishes stays under one key; an
+   * aspect ratio that is no longer known keeps the last one.
+   */
+  setReadContext({ identity, aspectRatio }: SessionReadContext): void {
+    if (this.stopped) return;
+    const identityResolves = !this.persistentIdentity() && isPersistentIdentity(identity);
+    this.readContext = {
+      identity: identityResolves ? identity : this.readContext.identity,
+      aspectRatio: aspectRatio ?? this.readContext.aspectRatio,
+    };
     this.readContextChanged();
-    this.publishHeld();
-  }
-
-  setAspectRatio(aspectRatio: number): void {
-    this.aspectRatio = aspectRatio;
-    this.readContextChanged();
+    if (identityResolves) this.publishHeld();
   }
 
   setLiveness(liveness: Liveness): void {
@@ -213,7 +211,7 @@ export class SampleScheduler {
   }
 
   private publishableIdentity(): PersistentVideoIdentity | null {
-    return this.liveness === 'vod' && isPersistentIdentity(this.identity) ? this.identity : null;
+    return this.liveness === 'vod' ? this.persistentIdentity() : null;
   }
 
   private publishHeld(): void {
@@ -618,8 +616,7 @@ export interface MseAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
-  setIdentity(identity: VideoIdentity): void;
-  setAspectRatio(aspectRatio: number): void;
+  setReadContext(readContext: SessionReadContext): void;
   stop(): void;
   releaseBuffers(): MseBuffers;
   heldUnits(): number;
@@ -707,8 +704,7 @@ export function createMseAnalysis(
     setPlayhead: playhead => scheduler.setPlayhead(playhead),
     setVisible: visible => scheduler.setVisible(visible),
     setLiveness: liveness => scheduler.setLiveness(liveness),
-    setIdentity: identity => scheduler.setIdentity(identity),
-    setAspectRatio: aspectRatio => scheduler.setAspectRatio(aspectRatio),
+    setReadContext: readContext => scheduler.setReadContext(readContext),
     stop: () => scheduler.stop(),
     releaseBuffers: () => {
       scheduler.stop();
@@ -731,8 +727,7 @@ export interface ProgressiveAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
-  setIdentity(identity: VideoIdentity): void;
-  setAspectRatio(aspectRatio: number): void;
+  setReadContext(readContext: SessionReadContext): void;
   stop(): void;
   settled(): Promise<void>;
 }
@@ -832,8 +827,7 @@ export function createProgressiveAnalysis(
       refresh();
     },
     setLiveness: liveness => scheduler.setLiveness(liveness),
-    setIdentity: identity => scheduler.setIdentity(identity),
-    setAspectRatio: aspectRatio => scheduler.setAspectRatio(aspectRatio),
+    setReadContext: readContext => scheduler.setReadContext(readContext),
     stop: () => scheduler.stop(),
     settled: async () => {
       await opening;

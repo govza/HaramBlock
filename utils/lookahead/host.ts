@@ -13,11 +13,11 @@ import {
   type Liveness,
   type LookaheadEvents,
   type SampleCachePort,
+  type SessionReadContext,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
 
 import type { ContentToHost, HookCommand, HookMessage, HostToContent, OpenAnalysis } from '@/utils/lookahead/protocol';
-import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const SOURCE_WAIT_MS = 3_000;
 
@@ -87,8 +87,7 @@ export class LookaheadHost {
   private readonly waiters = new Map<string, Set<(sourceId: number) => void>>();
   private readonly latestOpens = new Map<string, OpenAnalysis>();
   private readonly contentLiveness = new Map<string, Liveness>();
-  private readonly identities = new Map<string, VideoIdentity>();
-  private readonly aspectRatios = new Map<string, number | null>();
+  private readonly readContexts = new Map<string, SessionReadContext>();
 
   constructor(private readonly ports: HostPorts) {}
 
@@ -153,15 +152,10 @@ export class LookaheadHost {
         if (analysis) this.applyLiveness(analysis);
         break;
       }
-      case 'identity':
-        if (!this.identities.has(message.sessionId)) break;
-        this.identities.set(message.sessionId, message.identity);
-        this.sessions.get(message.sessionId)?.setIdentity(message.identity);
-        break;
-      case 'aspectRatio':
-        if (!this.aspectRatios.has(message.sessionId)) break;
-        this.aspectRatios.set(message.sessionId, message.aspectRatio);
-        this.sessions.get(message.sessionId)?.setAspectRatio(message.aspectRatio);
+      case 'readContext':
+        if (!this.readContexts.has(message.sessionId)) break;
+        this.readContexts.set(message.sessionId, message.readContext);
+        this.sessions.get(message.sessionId)?.setReadContext(message.readContext);
         break;
       case 'close':
         this.close(message.sessionId);
@@ -179,8 +173,7 @@ export class LookaheadHost {
   private close(sessionId: string): void {
     this.latestOpens.delete(sessionId);
     this.contentLiveness.delete(sessionId);
-    this.identities.delete(sessionId);
-    this.aspectRatios.delete(sessionId);
+    this.readContexts.delete(sessionId);
     const analysis = this.sessions.get(sessionId);
     if (!analysis) return;
     this.sessions.delete(sessionId);
@@ -211,8 +204,7 @@ export class LookaheadHost {
     this.close(open.sessionId);
     this.latestOpens.set(open.sessionId, open);
     this.contentLiveness.set(open.sessionId, open.liveness);
-    this.identities.set(open.sessionId, open.identity);
-    this.aspectRatios.set(open.sessionId, open.aspectRatio);
+    this.readContexts.set(open.sessionId, open.readContext);
     const lookaheadPorts = {
       decoder: this.ports.decoder(open),
       inference: this.ports.inference(open),
@@ -222,8 +214,7 @@ export class LookaheadHost {
     const options = {
       liveness: open.liveness,
       scoreThreshold: open.scoreThreshold,
-      identity: open.identity,
-      aspectRatio: open.aspectRatio,
+      readContext: open.readContext,
     };
     if (open.tap.kind === 'progressive') {
       const bytes = this.ports.rangeSource(open.tap.url);
@@ -259,8 +250,7 @@ export class LookaheadHost {
       {
         ...options,
         liveness: this.livenessOf(open.sessionId, source),
-        identity: this.identities.get(open.sessionId) ?? open.identity,
-        aspectRatio: this.aspectRatios.get(open.sessionId) ?? open.aspectRatio,
+        readContext: this.readContexts.get(open.sessionId) ?? open.readContext,
       },
       previous,
     );

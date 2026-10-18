@@ -270,7 +270,7 @@ class VideoSessionRegistry {
       [ATTR.sessionId]: handle.sessionId,
       ...videoIdentityAttributes(identity),
     });
-    handle.lookahead?.setIdentity(identity);
+    handle.lookahead?.updateReadContext({ identity });
     this.restoreForcedVisibility(handle);
   }
 
@@ -530,8 +530,7 @@ class VideoSessionRegistry {
         liveness: livenessOfDuration(handle.video.duration),
         scoreThreshold: scoreThresholdOf(handle),
         inputSize: currentInferenceCaptureSize(),
-        identity: handle.identity,
-        aspectRatio: playingAspectRatioOf(handle.video),
+        readContext: { identity: handle.identity, aspectRatio: playingAspectRatioOf(handle.video) },
         sourceUrl: handle.src,
         hostname: handle.hostSettings.hostname,
       },
@@ -881,7 +880,7 @@ class VideoSessionRegistry {
     const onLoadedMetadata = () => {
       this.resolveIdentity(handle);
       const aspectRatio = playingAspectRatioOf(video);
-      if (aspectRatio !== null) handle.lookahead?.setAspectRatio(aspectRatio);
+      if (aspectRatio !== null) handle.lookahead?.updateReadContext({ aspectRatio });
     };
     const onHookIdentityClaim = () => {
       if (handle.sourceIdentityWait) this.attach(video, handle.hostSettings);
