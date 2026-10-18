@@ -4,6 +4,7 @@ import { isUnsafeAt } from '@/utils/lookahead/sampleScores';
 import type { IFrameSize, IStoredVideoSample } from '@/utils/types';
 
 const ASPECT_RATIO_TOLERANCE = 0.01;
+const LONGEST_COVERED_GOP_US = 10_000_000;
 
 /**
  * How well a sample saw its frame, compared within one model version: the long side the model
@@ -73,49 +74,73 @@ export interface CachedSampleReader {
   aspectRatio: number | null;
 }
 
-function nearestDistanceUs(sortedPoints: readonly number[], pointUs: number): number {
-  let low = 0;
-  let high = sortedPoints.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if ((sortedPoints[middle] ?? 0) < pointUs) low = middle + 1;
-    else high = middle;
-  }
-  const after = sortedPoints[low];
-  const before = sortedPoints[low - 1];
-  return Math.min(
-    after === undefined ? Number.POSITIVE_INFINITY : after - pointUs,
-    before === undefined ? Number.POSITIVE_INFINITY : pointUs - before,
-  );
+/**
+ * A stretch of media time one model version analysed, from its first to its last sample.
+ */
+interface CoveredStretch {
+  startUs: number;
+  endUs: number;
 }
+
+/**
+ * A sample whose neighbours are both further apart than the lattice spacing is a Keyframe Point standing for its
+ * whole GOP, so the run it belongs to continues across that GOP; a lattice-spaced run ends at its last point, where
+ * a hole (a seek past unanalysed media) begins.
+ */
+function coveredStretchesOf(sortedPoints: readonly number[]): CoveredStretch[] {
+  const stretches: CoveredStretch[] = [];
+  let current: CoveredStretch | null = null;
+  let gapBeforeEndUs = Number.POSITIVE_INFINITY;
+  for (const pointUs of sortedPoints) {
+    if (current) {
+      const gapUs = pointUs - current.endUs;
+      const endStandsForGop = gapBeforeEndUs > LEVEL0_SPACING_US && gapUs <= LONGEST_COVERED_GOP_US;
+      if (gapUs <= LEVEL0_SPACING_US || endStandsForGop) {
+        current.endUs = pointUs;
+        gapBeforeEndUs = gapUs;
+        continue;
+      }
+      stretches.push(current);
+    }
+    current = { startUs: pointUs, endUs: pointUs };
+    gapBeforeEndUs = Number.POSITIVE_INFINITY;
+  }
+  if (current) stretches.push(current);
+  return stretches;
+}
+
+const isWithin = (stretches: readonly CoveredStretch[], pointUs: number): boolean =>
+  stretches.some(stretch => pointUs >= stretch.startUs && pointUs <= stretch.endUs);
 
 const byRankDescending = (a: RankedSamples, b: RankedSamples): number =>
   b.rank - a.rank || a.modelId.localeCompare(b.modelId);
 
 /**
- * Picks one sample per point across model versions: the best-ranked version wherever it has samples,
- * lower-ranked ones only where no better version has a sample within a Level-0 spacing. Where a
- * lower-ranked sample at the same point is unsafe for this reader and the selected one is clean, the
- * unsafe sample wins so the cache fails closed.
+ * Picks one sample per point across model versions without mixing them within a stretch: the best-ranked version
+ * wherever it covers the media, lower-ranked ones only outside every better version's covered stretches. Where a
+ * lower-ranked sample at the same point is unsafe for this reader and the selected one is clean, the unsafe sample
+ * wins so the cache fails closed.
  */
 export function selectAcrossVersions(
   versions: readonly RankedSamples[],
   reader: CachedSampleReader,
 ): IStoredVideoSample[] {
   const selected = new Map<number, IStoredVideoSample>();
+  const covered: CoveredStretch[] = [];
   const isUnsafe = (sample: IStoredVideoSample) => isUnsafeAt(sample, reader.scoreThreshold);
   for (const version of [...versions].sort(byRankDescending)) {
-    const coveredPoints = [...selected.keys()].sort((a, b) => a - b);
+    const admitted: IStoredVideoSample[] = [];
     for (const sample of version.samples) {
       if (!matchesAspectRatio(sample, reader.aspectRatio)) continue;
       const better = selected.get(sample.pointUs);
       if (better) {
         if (isUnsafe(sample) && !isUnsafe(better)) selected.set(sample.pointUs, sample);
-        continue;
+      } else if (!isWithin(covered, sample.pointUs)) {
+        admitted.push(sample);
       }
-      if (nearestDistanceUs(coveredPoints, sample.pointUs) < LEVEL0_SPACING_US) continue;
-      selected.set(sample.pointUs, sample);
     }
+    for (const sample of admitted) selected.set(sample.pointUs, sample);
+    covered.push(...coveredStretchesOf(admitted.map(sample => sample.pointUs).sort((a, b) => a - b)));
   }
   return [...selected.values()].sort((a, b) => a.pointUs - b.pointUs);
 }
