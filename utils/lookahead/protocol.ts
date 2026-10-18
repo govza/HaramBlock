@@ -92,6 +92,7 @@ export interface OpenAnalysis {
   inputSize: number;
   readContext: SessionReadContext;
   sourceUrl: string;
+  pageUrl: string;
   hostname: string;
   scoreThreshold: number;
 }

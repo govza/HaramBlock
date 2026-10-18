@@ -39,7 +39,11 @@ vi.mock('@inference-runtime', () => ({
 }));
 
 const VIDEO: PersistentVideoIdentity = { kind: 'stable', key: 'url:https://example.com/video.mp4', durationSec: 60 };
-const ORIGIN = { sourceUrl: 'https://example.com/video.mp4?Signature=1', hostname: 'example.com' };
+const ORIGIN = {
+  sourceUrl: 'https://example.com/video.mp4?Signature=1',
+  pageUrl: 'https://example.com/watch/42',
+  hostname: 'example.com',
+};
 
 const V320 = 'sem-i320@20260607';
 const V640 = 'sem-i640@20260607';
@@ -138,6 +142,15 @@ describe('VideoPredictionCacheService', () => {
     );
   });
 
+  it('records the page a video played on with its samples and its forced visibility', async () => {
+    const service = new VideoPredictionCacheService();
+    service.publish(VIDEO, ORIGIN, [sample(0)]);
+    await service.setForcedVisibility(VIDEO, ORIGIN, 'blocked');
+    const page: unknown = expect.objectContaining({ pageUrl: 'https://example.com/watch/42' });
+    expect(repository.mergeSamples).toHaveBeenCalledWith(VIDEO, expect.anything(), page, [sample(0)]);
+    expect(repository.updateForcedVisibility).toHaveBeenCalledWith(VIDEO, page, 'blocked');
+  });
+
   it('keeps videos with different identities apart', async () => {
     const other: PersistentVideoIdentity = {
       kind: 'local',
@@ -175,6 +188,7 @@ describe('VideoPredictionCacheService', () => {
     identityKind: 'stable',
     durationSec: 60,
     sourceUrl: ORIGIN.sourceUrl,
+    pageUrl: ORIGIN.pageUrl,
     hostname: 'example.com',
     forcedVisibility: 'blocked',
     timestamp: 0,

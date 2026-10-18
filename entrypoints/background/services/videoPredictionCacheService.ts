@@ -9,6 +9,7 @@ import {
   EMPTY_CACHED_VIDEO_PREDICTIONS,
   type ForcedVisibility,
   type ICachedVideoPredictions,
+  type IVideoCacheOrigin,
   type ICacheMetadata,
   type IStoredVideoSample,
 } from '@/utils/types';
@@ -25,19 +26,12 @@ const FLUSH_INTERVAL_MS = 2000;
 const FLUSH_ENTRY_THRESHOLD = 50;
 
 /**
- * Where published samples came from, stored on the video's meta row.
- */
-export interface VideoSampleOrigin {
-  sourceUrl: string;
-  hostname: string;
-}
-
-/**
  * Samples buffered for one video identity and model until the next flush.
  */
-interface PendingWrite extends VideoSampleOrigin {
+interface PendingWrite {
   identity: PersistentVideoIdentity;
   model: CacheModel;
+  origin: IVideoCacheOrigin;
   samples: IStoredVideoSample[];
 }
 
@@ -65,11 +59,11 @@ export class VideoPredictionCacheService {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushed: Promise<void> = Promise.resolve();
 
-  publish(identity: VideoIdentity, origin: VideoSampleOrigin, samples: readonly IStoredVideoSample[]): void {
+  publish(identity: VideoIdentity, origin: IVideoCacheOrigin, samples: readonly IStoredVideoSample[]): void {
     if (samples.length === 0 || !isPersistentIdentity(identity)) return;
     const model = activeCacheModel();
     const key = `${identity.key}\n${model.modelId}`;
-    const write = this.pending.get(key) ?? { identity, model, ...origin, samples: [] };
+    const write = this.pending.get(key) ?? { identity, model, origin, samples: [] };
     write.samples.push(...samples);
     this.pending.set(key, write);
     if (write.samples.length >= FLUSH_ENTRY_THRESHOLD) {
@@ -108,7 +102,7 @@ export class VideoPredictionCacheService {
 
   async setForcedVisibility(
     identity: VideoIdentity,
-    origin: VideoSampleOrigin,
+    origin: IVideoCacheOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     if (!isPersistentIdentity(identity)) return;
@@ -150,7 +144,7 @@ export class VideoPredictionCacheService {
         await this.repository.mergeSamples(
           write.identity,
           write.model,
-          { sourceUrl: write.sourceUrl, hostname: write.hostname, cacheMetadata: defaultCacheMetadata() },
+          { ...write.origin, cacheMetadata: defaultCacheMetadata() },
           write.samples,
         );
       } catch (error) {

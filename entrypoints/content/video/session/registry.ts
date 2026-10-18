@@ -74,6 +74,8 @@ const log = getLogger('videoSession:registry');
 const playingAspectRatioOf = (video: HTMLVideoElement): number | null =>
   aspectRatioOf({ width: video.videoWidth, height: video.videoHeight });
 
+const currentPageUrl = (): string => globalThis.location?.href ?? '';
+
 const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   safe: 'safe',
   unsafe: 'unsafe',
@@ -439,7 +441,11 @@ class VideoSessionRegistry {
     const handleIdentity = this.byVideo.get(video)?.identity;
     const identity = handleIdentity && isPersistentIdentity(handleIdentity) ? handleIdentity : source.identity;
     if (!isPersistentIdentity(identity)) return;
-    void requestVideoToggleUpdate(identity, { sourceUrl: source.url, hostname: settings.hostname }, next);
+    void requestVideoToggleUpdate(
+      identity,
+      { sourceUrl: source.url, pageUrl: currentPageUrl(), hostname: settings.hostname },
+      next,
+    );
   }
 
   private restoreForcedVisibility(handle: SessionHandle): void {
@@ -534,6 +540,7 @@ class VideoSessionRegistry {
         inputSize: currentInferenceCaptureSize(),
         readContext: { identity: handle.identity, aspectRatio: playingAspectRatioOf(handle.video) },
         sourceUrl: handle.src,
+        pageUrl: currentPageUrl(),
         hostname: handle.hostSettings.hostname,
       },
       {

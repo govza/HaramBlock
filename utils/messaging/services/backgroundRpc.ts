@@ -18,6 +18,7 @@ import type {
   IImagePrediction,
   ICachedVideoPredictions,
   IStoredVideoSample,
+  IVideoCacheOrigin,
   IImageTransfer,
   IVideoFrameTransfer,
   IGifFrameTransfer,
@@ -154,7 +155,7 @@ export class BackgroundRpc {
 
   publishVideoSamples(
     identity: VideoIdentity,
-    origin: { sourceUrl: string; hostname: string },
+    origin: IVideoCacheOrigin,
     samples: IStoredVideoSample[],
   ): Promise<void> {
     this.videoPredictionCacheService.publish(identity, origin, samples);
@@ -163,7 +164,7 @@ export class BackgroundRpc {
 
   async updateVideoToggleState(
     identity: VideoIdentity,
-    origin: { sourceUrl: string; hostname: string },
+    origin: IVideoCacheOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     try {

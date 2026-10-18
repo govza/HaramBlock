@@ -25,7 +25,8 @@ type CacheRecord = IImagePrediction | IVideoPredictionRecord;
 
 interface ICacheRow {
   key: string;
-  mediaUrl: string;
+  linkUrl: string;
+  previewUrl: string | null;
   kindLabel?: string;
   timestamp: number;
   forcedVisibility: ForcedVisibility;
@@ -90,7 +91,8 @@ const useCacheSources = (): Record<CacheKind, ICacheSource> => {
         repository: imagePredictionRepository,
         toRow: record => ({
           key: record.src,
-          mediaUrl: record.src,
+          linkUrl: record.src,
+          previewUrl: record.src,
           timestamp: record.timestamp,
           forcedVisibility: record.forcedVisibility,
           modelId: record.modelId,
@@ -104,7 +106,8 @@ const useCacheSources = (): Record<CacheKind, ICacheSource> => {
         repository: videoPredictionRepository,
         toRow: record => ({
           key: record.identityKey,
-          mediaUrl: record.sourceUrl,
+          linkUrl: record.pageUrl,
+          previewUrl: record.sourceUrl.startsWith('blob:') ? null : record.sourceUrl,
           kindLabel: t(identityKindLabelKeys[record.identityKind]),
           timestamp: record.timestamp,
           forcedVisibility: record.forcedVisibility,
@@ -184,10 +187,14 @@ const LoadableList = <T,>({ items, renderItem }: { items: T[] | undefined; rende
 
 const CacheRow = ({ source, row }: { source: ICacheSource; row: ICacheRow }) => (
   <div className='flex items-center gap-3 bg-surface p-3 rounded'>
-    <Thumbnail source={source} src={row.mediaUrl} />
+    {row.previewUrl ? (
+      <Thumbnail source={source} src={row.previewUrl} />
+    ) : (
+      <div className='w-20 h-20 shrink-0 rounded bg-secondary' />
+    )}
     <div className='flex-1 min-w-0 space-y-1'>
       <a
-        href={row.mediaUrl}
+        href={row.linkUrl}
         target='_blank'
         rel='noreferrer'
         className='block truncate text-text-secondary text-sm hover:underline'

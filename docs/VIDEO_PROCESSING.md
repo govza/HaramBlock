@@ -316,13 +316,14 @@ threshold; video samples are never cleared for it.
 
 Dexie schema v4 keys the cache by Video Identity (its upgrade drops the v3 page-URL-keyed
 `videoPredictions` / `videoSamples` tables). `videos` holds one meta row per stable or local
-identity (`identityKey`, `identityKind`, `durationSec`, the last source URL) with the video's Forced
-Visibility, cache metadata and `sampleCounts` per model (the Cache Browser lists the identity key
-and kind). `videoSampleBuckets` holds the samples in 5-minute media-time buckets keyed
-`[identityKey+modelId+latticeVersion+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There is no
-per-video sample cap; expiry follows the meta row's `accessedAt`, and an expired video is purged
-before a merge. A stored duration more than 1 s off the playing identity's purges that video's
-samples (on read and on merge) and adopts the new duration; its Forced Visibility is kept.
+identity (`identityKey`, `identityKind`, `durationSec`, the last source URL and the last page URL —
+local to this device, never shared) with the video's Forced Visibility, cache metadata and
+`sampleCounts` per model (the Cache Browser lists the identity key and kind, links the page URL, and
+previews only non-`blob:` sources). `videoSampleBuckets` holds the samples in 5-minute media-time
+buckets keyed `[identityKey+modelId+latticeVersion+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There
+is no per-video sample cap; expiry follows the meta row's `accessedAt`, and an expired video is
+purged before a merge. A stored duration more than 1 s off the playing identity's purges that
+video's samples (on read and on merge) and adopts the new duration; its Forced Visibility is kept.
 `getVideoForcedVisibility` reads the meta row alone. The service buffers publishes per (video,
 model) and merges every 2 s or 50 samples; `getCached` flushes pending writes first. Sessions
 publish only under the active model version.
