@@ -76,8 +76,9 @@ export class SampleScheduler {
   private pumpQueued = false;
   private pendingWork = 0;
   private stopped = false;
-  private readonly cacheLoaded: Promise<void>;
-  private cacheReady = false;
+  private cacheRead: Promise<void> = Promise.resolve();
+  private cacheReadStarted = false;
+  private cacheReady = true;
   private idleWaiters: (() => void)[] = [];
   private liveness: Liveness;
   private readContext: SessionReadContext;
@@ -92,15 +93,22 @@ export class SampleScheduler {
   ) {
     this.liveness = options.liveness;
     this.readContext = options.readContext;
-    this.cacheLoaded = this.loadCache();
+    this.startCacheReadOnceIdentified();
   }
 
-  private async loadCache(): Promise<void> {
+  private startCacheReadOnceIdentified(): void {
+    const identity = this.persistentIdentity();
+    if (!identity || this.cacheReadStarted || this.liveness === 'live' || this.stopped) return;
+    this.cacheReadStarted = true;
+    this.cacheReady = false;
+    this.cacheRead = this.readCache(identity);
+  }
+
+  private async readCache(identity: PersistentVideoIdentity): Promise<void> {
     const readWait = setTimeout(() => this.endReadWait(), IDENTITY_WAIT_MS);
-    const identity = this.liveness === 'live' ? null : await this.awaitReadContext(() => this.persistentIdentity());
-    const aspectRatio = identity ? await this.awaitReadContext(() => this.readContext.aspectRatio) : null;
+    const aspectRatio = await this.awaitReadContext(() => this.readContext.aspectRatio);
     clearTimeout(readWait);
-    if (identity && this.liveness !== 'live') {
+    if (this.liveness !== 'live' && !this.stopped) {
       try {
         const cached = await this.ports.cache.read(identity, {
           scoreThreshold: this.options.scoreThreshold,
@@ -191,7 +199,9 @@ export class SampleScheduler {
       aspectRatio: aspectRatio ?? this.readContext.aspectRatio,
     };
     this.readContextChanged();
-    if (identityResolves) this.publishHeld();
+    if (!identityResolves) return;
+    this.publishHeld();
+    this.startCacheReadOnceIdentified();
   }
 
   setLiveness(liveness: Liveness): void {
@@ -388,7 +398,7 @@ export class SampleScheduler {
     }
     this.decoding = true;
     try {
-      await this.cacheLoaded;
+      await this.cacheRead;
       const job = await source.buildJob(points);
       if (job) await this.decodeAndInfer(job, points);
       else for (const point of points) this.inflight.delete(point);

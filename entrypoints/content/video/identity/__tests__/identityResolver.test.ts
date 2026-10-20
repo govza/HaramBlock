@@ -18,12 +18,19 @@ const context = (overrides: Partial<VideoIdentityContext>): VideoIdentityContext
 });
 
 describe('resolveVideoIdentity: MSE sources', () => {
-  it('identifies an MSE source locally by its page without fragment and its duration in 100 ms', () => {
+  it('identifies an MSE source locally by its page without fragment and its duration in whole seconds', () => {
     expect(resolveVideoIdentity(context({ sourceUrl: 'blob:https://www.example.test/1a2b' }))).toEqual({
       kind: 'local',
-      key: 'page:https://www.example.test/feed?tab=new|d=123',
+      key: 'page:https://www.example.test/feed?tab=new|d=12',
       durationSec: 12.34,
     });
+  });
+
+  it('keeps one local identity across small duration jitter between loads', () => {
+    const keyAt = (durationSec: number) =>
+      resolveVideoIdentity(context({ sourceUrl: 'blob:https://www.example.test/a', durationSec }));
+    expect(keyAt(600.04)).toHaveProperty('key', 'page:https://www.example.test/feed?tab=new|d=600');
+    expect(keyAt(600.06)).toHaveProperty('key', 'page:https://www.example.test/feed?tab=new|d=600');
   });
 
   it('keeps two MSE videos on one page with different durations apart', () => {

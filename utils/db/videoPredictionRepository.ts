@@ -164,6 +164,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
         record.durationSec = identity.durationSec;
         record.sampleCounts = {};
         record.modelRanks = {};
+        record.forcedVisibility = 'auto';
       });
   }
 
@@ -173,9 +174,11 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
     if (isCacheDisabled) return;
-    await mediaCacheDb.transaction('rw', this.table, async () => {
+    await mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
+      const stored = await this.table.get(identity.key);
+      if (!stored && forcedVisibility === 'auto') return;
+      if (stored && isDurationMismatch(stored.durationSec, identity)) await this.purgeSamplesWithin(identity);
       const existing = await this.table.get(identity.key);
-      if (!existing && forcedVisibility === 'auto') return;
       await this.table.put(
         existing ? { ...existing, forcedVisibility } : newRecord(identity, origin, forcedVisibility),
       );

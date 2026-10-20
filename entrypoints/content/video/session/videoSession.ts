@@ -47,6 +47,7 @@ export type SessionEvent =
   | { type: 'liveCaptureFailed'; permanent: boolean }
   | { type: 'presented'; unsafe: boolean }
   | { type: 'visibility'; visible: boolean }
+  | { type: 'unsafeRemembered' }
   | { type: 'dispose' };
 
 export type SessionEffect =
@@ -103,6 +104,7 @@ export function reduce(state: VideoSessionState, event: SessionEvent): ReduceRes
       effects: [...(state.liveMasking ? [{ kind: 'stopLiveMasking' } as const] : []), { kind: 'cleanup' }],
     };
   }
+  if (event.type === 'unsafeRemembered') return rememberUnsafe(state);
   if (state.phase === 'skipped') return { state, effects: [] };
   return withLiveMaskingSynced(reduceActive(state, event));
 }
@@ -141,9 +143,17 @@ function reduceActive(state: VideoSessionState, event: SessionEvent): ReduceResu
       return presented(state, event.unsafe);
     case 'visibility':
       return unchanged({ ...state, visible: event.visible });
+    case 'unsafeRemembered':
     case 'dispose':
       return unchanged(state);
   }
+}
+
+function rememberUnsafe(state: VideoSessionState): ReduceResult {
+  if (state.unsafeSeen) return unchanged(state);
+  const remembered = { ...state, unsafeSeen: true };
+  if (state.status === null || state.status === 'unsafe') return unchanged(remembered);
+  return { state: { ...remembered, status: 'unsafe' }, effects: [{ kind: 'setStatus', status: 'unsafe' }] };
 }
 
 function unchanged(state: VideoSessionState): ReduceResult {
