@@ -6,3 +6,5 @@ export function tryParseUrl(href: string | null | undefined): URL | null {
     return null;
   }
 }
+
+export const isOnHost = (hostname: string, host: string): boolean => hostname === host || hostname.endsWith(`.${host}`);

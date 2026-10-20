@@ -154,10 +154,13 @@ describe('Reddit video identity', () => {
     expect(identify(shadowVideo, 'https://cdn.example.test/clip.mp4')).toEqual({ kind: 'unknown' });
   });
 
-  it('leaves Reddit media unknown until a duration is known', () => {
+  it('keeps Reddit media pending on its media id until a duration is known', () => {
     const { shadowVideo } = mountInPost(feedPlayer(MEDIA_ID, '1,sig'), `https://v.redd.it/${MEDIA_ID}`);
 
-    expect(identify(shadowVideo, 'blob:https://www.reddit.com/x', FEED_PAGE, Number.NaN)).toEqual({ kind: 'unknown' });
+    expect(identify(shadowVideo, 'blob:https://www.reddit.com/x', FEED_PAGE, Number.NaN)).toEqual({
+      kind: 'unknown',
+      pendingKey: `vreddit:${MEDIA_ID}`,
+    });
   });
 
   it('applies on old.reddit and leaves other sites to the generic rules', () => {

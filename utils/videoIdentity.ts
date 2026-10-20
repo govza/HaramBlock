@@ -31,7 +31,26 @@ export type VideoIdentity = PersistentVideoIdentity | UnknownVideoIdentity;
 
 export const UNKNOWN_VIDEO_IDENTITY: UnknownVideoIdentity = { kind: 'unknown' };
 
-export type StableIdentityNamespace = 'yt' | 'vreddit' | 'redditpreview' | 'url';
+const STABLE_IDENTITY_NAMESPACES = ['yt', 'vreddit', 'redditpreview', 'url'] as const;
+
+export type StableIdentityNamespace = (typeof STABLE_IDENTITY_NAMESPACES)[number];
+
+/**
+ * Media a site adapter or the generic rules name portably, across pages and renditions: the
+ * Identity resolver keys it `namespace:id` once the media's duration is known, and only if that
+ * duration matches the length the site itself reports for it, when it reports one.
+ */
+export interface StableMediaReference {
+  kind: 'stable';
+  namespace: StableIdentityNamespace;
+  id: string;
+  expectedDurationSec?: number;
+}
+
+export type MediaReference = StableMediaReference | { kind: 'local' } | { kind: 'unidentifiable' };
+
+export const LOCAL_MEDIA_REFERENCE: MediaReference = { kind: 'local' };
+export const UNIDENTIFIABLE_MEDIA_REFERENCE: MediaReference = { kind: 'unidentifiable' };
 
 const LOCAL_PAGE_NAMESPACE = 'page';
 const DURATION_KEY_STEP_SEC = 0.1;
@@ -40,15 +59,6 @@ export const isKnownDuration = (durationSec: number): boolean => Number.isFinite
 
 export const stableIdentityKey = (namespace: StableIdentityNamespace, id: string): string => `${namespace}:${id}`;
 
-export const isKeyInNamespace = (key: unknown, namespace: StableIdentityNamespace): key is string =>
-  typeof key === 'string' && key.startsWith(`${namespace}:`);
-
-export const stableIdentity = (
-  namespace: StableIdentityNamespace,
-  id: string,
-  durationSec: number,
-): PersistentVideoIdentity => ({ kind: 'stable', key: stableIdentityKey(namespace, id), durationSec });
-
 function withoutFragment(href: string): string {
   const url = tryParseUrl(href);
   if (!url) return href;
@@ -56,20 +66,42 @@ function withoutFragment(href: string): string {
   return url.href;
 }
 
-export const localPageIdentity = (pageHref: string, durationSec: number): PersistentVideoIdentity => ({
+const localPageIdentity = (pageHref: string, durationSec: number): PersistentVideoIdentity => ({
   kind: 'local',
   key: `${LOCAL_PAGE_NAMESPACE}:${withoutFragment(pageHref)}|d=${Math.round(durationSec / DURATION_KEY_STEP_SEC)}`,
   durationSec,
 });
 
-export function videoIdentityFrom(value: unknown): VideoIdentity | null {
+const matchesExpectedDuration = ({ expectedDurationSec }: StableMediaReference, durationSec: number): boolean =>
+  expectedDurationSec === undefined || Math.abs(durationSec - expectedDurationSec) <= SAME_DURATION_TOLERANCE_SEC;
+
+function stableIdentityOf(reference: StableMediaReference, durationSec: number): VideoIdentity {
+  const key = stableIdentityKey(reference.namespace, reference.id);
+  if (Number.isNaN(durationSec)) return { kind: 'unknown', pendingKey: key };
+  if (!isKnownDuration(durationSec) || !matchesExpectedDuration(reference, durationSec)) return UNKNOWN_VIDEO_IDENTITY;
+  return { kind: 'stable', key, durationSec };
+}
+
+export function identityOfMediaReference(
+  reference: MediaReference,
+  durationSec: number,
+  pageHref: string,
+): VideoIdentity {
+  if (reference.kind === 'stable') return stableIdentityOf(reference, durationSec);
+  if (reference.kind === 'local' && isKnownDuration(durationSec)) return localPageIdentity(pageHref, durationSec);
+  return UNKNOWN_VIDEO_IDENTITY;
+}
+
+const isStableIdentityNamespace = (value: unknown): value is StableIdentityNamespace =>
+  STABLE_IDENTITY_NAMESPACES.some(namespace => namespace === value);
+
+export function mediaReferenceFrom(value: unknown): MediaReference | null {
   if (!value || typeof value !== 'object') return null;
-  const { kind, key, durationSec, pendingKey } = value as Record<string, unknown>;
-  if ((kind === 'stable' || kind === 'local') && typeof key === 'string' && typeof durationSec === 'number') {
-    return isKnownDuration(durationSec) ? { kind, key, durationSec } : null;
-  }
-  if (kind !== 'unknown') return null;
-  return typeof pendingKey === 'string' ? { kind, pendingKey } : UNKNOWN_VIDEO_IDENTITY;
+  const { kind, namespace, id, expectedDurationSec } = value as Record<string, unknown>;
+  if (kind === 'local' || kind === 'unidentifiable') return { kind };
+  if (kind !== 'stable' || !isStableIdentityNamespace(namespace) || typeof id !== 'string' || !id) return null;
+  if (expectedDurationSec === undefined) return { kind, namespace, id };
+  return typeof expectedDurationSec === 'number' ? { kind, namespace, id, expectedDurationSec } : null;
 }
 
 export const isPersistentIdentity = (identity: VideoIdentity): identity is PersistentVideoIdentity =>

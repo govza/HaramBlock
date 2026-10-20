@@ -10,12 +10,12 @@ const videoClaiming = (claim: HookIdentityClaim | string | null): HTMLVideoEleme
   return { getAttribute: (name: string) => (name === HOOK_IDENTITY_ATTR ? raw : null) } as HTMLVideoElement;
 };
 
-const identityOn = (pageHref: string, video: HTMLVideoElement, sourceUrl = OBJECT_URL) =>
-  resolveVideoIdentity({ sourceUrl, pageHref, durationSec: 30.021, video });
+const identityOn = (pageHref: string, video: HTMLVideoElement, sourceUrl = OBJECT_URL, durationSec = 30.021) =>
+  resolveVideoIdentity({ sourceUrl, pageHref, durationSec, video });
 
-const STABLE: HookIdentityClaim = {
+const CLAIM: HookIdentityClaim = {
   objectUrl: OBJECT_URL,
-  identity: { kind: 'stable', key: 'yt:abc', durationSec: 30.021 },
+  reference: { kind: 'stable', namespace: 'yt', id: 'abc', expectedDurationSec: 30 },
 };
 
 describe('YouTube identity adapter', () => {
@@ -26,18 +26,23 @@ describe('YouTube identity adapter', () => {
     'https://m.youtube.com/watch?v=abc',
     'https://www.youtube-nocookie.com/embed/abc?start=10',
   ])('identifies the video on %s by the video id the MSE hook established', pageHref => {
-    expect(identityOn(pageHref, videoClaiming(STABLE))).toEqual({
+    expect(identityOn(pageHref, videoClaiming(CLAIM))).toEqual({
       kind: 'stable',
       key: 'yt:abc',
       durationSec: 30.021,
     });
   });
 
-  it('keeps a source unknown while the hook waits for its duration, naming the identity it expects', () => {
-    const pending: HookIdentityClaim = { objectUrl: OBJECT_URL, identity: { kind: 'unknown', pendingKey: 'yt:abc' } };
-    expect(identityOn('https://www.youtube.com/watch?v=abc', videoClaiming(pending))).toEqual({
+  it('keeps a source pending on the claimed video until its duration is known', () => {
+    expect(identityOn('https://www.youtube.com/watch?v=abc', videoClaiming(CLAIM), OBJECT_URL, Number.NaN)).toEqual({
       kind: 'unknown',
       pendingKey: 'yt:abc',
+    });
+  });
+
+  it("keeps a source unknown when its duration is not the claimed video's", () => {
+    expect(identityOn('https://www.youtube.com/watch?v=abc', videoClaiming(CLAIM), OBJECT_URL, 15.2)).toEqual({
+      kind: 'unknown',
     });
   });
 
@@ -45,20 +50,18 @@ describe('YouTube identity adapter', () => {
     const watch = 'https://www.youtube.com/watch?v=abc';
     const unknown = { kind: 'unknown' };
     expect(identityOn(watch, videoClaiming(null))).toEqual(unknown);
-    expect(identityOn(watch, videoClaiming({ ...STABLE, objectUrl: 'blob:https://www.youtube.com/old' }))).toEqual(
+    expect(identityOn(watch, videoClaiming({ ...CLAIM, objectUrl: 'blob:https://www.youtube.com/old' }))).toEqual(
       unknown,
     );
     expect(identityOn(watch, videoClaiming('{not json'))).toEqual(unknown);
+    expect(identityOn(watch, videoClaiming({ objectUrl: OBJECT_URL, reference: { kind: 'unidentifiable' } }))).toEqual(
+      unknown,
+    );
+    expect(identityOn(watch, videoClaiming({ objectUrl: OBJECT_URL, reference: { kind: 'local' } }))).toEqual(unknown);
     expect(
       identityOn(
         watch,
-        videoClaiming({ objectUrl: OBJECT_URL, identity: { kind: 'local', key: 'page:x', durationSec: 30 } }),
-      ),
-    ).toEqual(unknown);
-    expect(
-      identityOn(
-        watch,
-        videoClaiming({ objectUrl: OBJECT_URL, identity: { kind: 'stable', key: 'url:x', durationSec: 30 } }),
+        videoClaiming({ objectUrl: OBJECT_URL, reference: { kind: 'stable', namespace: 'url', id: 'x' } }),
       ),
     ).toEqual(unknown);
   });
@@ -70,7 +73,7 @@ describe('YouTube identity adapter', () => {
   });
 
   it('ignores hook claims outside YouTube', () => {
-    expect(identityOn('https://www.example.test/watch', videoClaiming(STABLE))).toEqual({
+    expect(identityOn('https://www.example.test/watch', videoClaiming(CLAIM))).toEqual({
       kind: 'local',
       key: 'page:https://www.example.test/watch|d=300',
       durationSec: 30.021,

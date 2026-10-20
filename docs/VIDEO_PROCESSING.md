@@ -21,16 +21,26 @@ replays, and seeks all happen inside one VideoSession. _Avoid_: playback session
 
 **Video Identity**: What names a VideoSession's media for the verdict cache, independent of the
 page, rendition or URL spelling. `stable`: a portable `namespace:id` key with the media duration
-(`url:` plus the direct file URL without allowlisted auth params; site adapters add `yt`, `vreddit`
-(Reddit media id from the owning `shreddit-player`/`shreddit-post`), `redditpreview` (comment GIFs),
-…). `local`: `page:<page URL without fragment>|d=<duration in 100 ms>` for MSE sources no adapter
-identifies — persistent on this device, never shared. `unknown`: no duration yet, a `srcObject`
-stream, a live stream or an adapter's veto (an ad) — analysed and masked in memory only, never read
-from or written to the cache. Resolved by `identityResolver.ts` (site adapters first, by page
-location, then `genericIdentityRules.ts`) when the source resolves and again on `loadedmetadata` /
-`durationchange` and whenever the MSE hook publishes a new claim; the first stable or local identity
-is kept for the session. YouTube (`youTubeIdentityAdapter.ts`) only takes the MSE hook's claim for
-the playing `blob:` URL (`yt:<video id>`), never the page. _Avoid_: cache key, video URL
+(`url:` plus the direct file URL without allowlisted auth params — CloudFront, S3 `X-Amz-*`, Akamai
+`hdnts`/`hdntl`; site adapters add `yt`, `vreddit` (Reddit media id from the owning
+`shreddit-player`/`shreddit-post`), `redditpreview` (comment GIFs)). `local`:
+`page:<page URL without fragment>|d=<duration in 100 ms>` for MSE sources no adapter identifies —
+persistent on this device, never shared. `unknown`: no duration yet (with `pendingKey` naming the
+stable key it expects), a `srcObject` stream, a live stream, a duration more than 1 s off the length
+the site reports, or an unidentifiable Media Reference (an ad) — analysed and masked in memory only,
+never read from or written to the cache. Resolved by `identityResolver.ts` from the Media Reference
+when the source resolves and again on `loadedmetadata` / `durationchange` and whenever the MSE hook
+publishes a new claim; the first stable or local identity is kept for the session. _Avoid_: cache
+key, video URL
+
+**Media Reference**: What a site adapter or the generic rules say the playing media is — `stable` (a
+namespace and id, plus the length the site itself reports when it does), `local` (an MSE source
+named only by its page) or `unidentifiable`. Site adapters (`VIDEO_IDENTITY_ADAPTERS`) declare the
+`hosts` they apply on (and their subdomains) and are tried first; `genericIdentityRules.ts` names
+anything left over. The Identity resolver alone turns it into a Video Identity (duration gate,
+pending key, reported-length check), so an adapter only extracts ids. YouTube
+(`youTubeIdentityAdapter.ts`) only takes the MSE hook's claim for the playing `blob:` URL
+(`yt:<video id>`), never the page. _Avoid_: media id, identity hint
 
 **Thumbnail**: The first-pass input for a video's initial verdict — its poster, or its first frame
 when no poster exists. Analysed before any playback. _Avoid_: poster (only one source of it)
@@ -194,15 +204,15 @@ On YouTube the hook also identifies each source (`youTubePlayer.ts`). The media 
 and `setAttribute('src')` bind a hooked `MediaSource` to its `<video>`; the owning player is
 `video.closest('.html5-video-player')` (watch, `#shorts-player`, `#inline-preview-player`), never
 `#movie_player` or the page URL, which lags on Shorts swipes. Its `getVideoData().video_id` is the
-claim; it is `unknown` while the player shows `ad-showing` / `ad-interrupting` or between its
-`onAdStart` and `onAdFinish`, or when the player response describes another video. Until the
-`MediaSource` duration is set it is `unknown` with `pendingKey: yt:<id>`; then `stable` only if the
-duration is within 1 s of the response's `lengthSeconds`. It is re-evaluated on each duration set
-and append until an append finds it stable, and published as JSON (`HookIdentityClaim`: object URL
-plus identity) in the element's `data-hb-video-identity` attribute rather than over the hook port,
-so the content script can read it synchronously at `loadstart` and decide whether a new source
-continues the session. Page-visible like the rest of the hook; trusted for the local cache only.
-Every hook body is guarded so a failure can never break the page's player.
+claim, a Media Reference with the response's `lengthSeconds` as its expected length; it is
+`unidentifiable` while the player shows `ad-showing` / `ad-interrupting` or between its `onAdStart`
+and `onAdFinish`, or when the player response describes another video. It is re-evaluated on each
+duration set and append until an append finds the identity it resolves to stable, and published as
+JSON (`HookIdentityClaim`: object URL plus Media Reference) in the element's
+`data-hb-video-identity` attribute rather than over the hook port, so the content script can read it
+synchronously at `loadstart` and decide whether a new source continues the session. Page-visible
+like the rest of the hook; trusted for the local cache only. Every hook body is guarded so a failure
+can never break the page's player.
 
 The hook and the isolated content script start in unspecified order, so they handshake over
 `window.postMessage`: the hook announces `ready`; the content script offers a `MessagePort` (`port`)

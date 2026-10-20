@@ -14,8 +14,9 @@ import {
   videoDetailsOf,
   YOUTUBE_HOST,
   YOUTUBE_PLAYER_SELECTOR,
-  youTubeVideoIdentity,
+  youTubeMediaReference,
 } from '@/utils/lookahead/youTubePlayer';
+import { identityOfMediaReference } from '@/utils/videoIdentity';
 
 import type { Liveness } from '@/utils/lookahead/ports';
 
@@ -366,9 +367,11 @@ function createIdentityBinder(target: Window & typeof globalThis): IdentityBinde
     const player = binding.video.closest(YOUTUBE_PLAYER_SELECTOR);
     if (!player) return;
     watchAds(player);
-    const identity = youTubeVideoIdentity(player, source.duration, adPlayers.has(player), target.location.href);
-    binding.settled = settleIfStable && identity.kind === 'stable';
-    const claim: HookIdentityClaim = { objectUrl: binding.objectUrl, identity };
+    const pageHref = target.location.href;
+    const reference = youTubeMediaReference(player, adPlayers.has(player), pageHref);
+    binding.settled =
+      settleIfStable && identityOfMediaReference(reference, source.duration, pageHref).kind === 'stable';
+    const claim: HookIdentityClaim = { objectUrl: binding.objectUrl, reference };
     originalSetAttribute.call(binding.video, HOOK_IDENTITY_ATTR, encodeHookIdentityClaim(claim));
   };
 

@@ -1,11 +1,5 @@
 import { tryParseUrl } from '@/utils/url';
-import {
-  SAME_DURATION_TOLERANCE_SEC,
-  stableIdentity,
-  stableIdentityKey,
-  UNKNOWN_VIDEO_IDENTITY,
-  type VideoIdentity,
-} from '@/utils/videoIdentity';
+import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
 
 export const YOUTUBE_HOST = /(^|\.)youtube(-nocookie)?\.com$/;
 export const YOUTUBE_PLAYER_SELECTOR = '.html5-video-player';
@@ -52,18 +46,11 @@ export function videoDetailsOf(player: Element): YouTubeVideoDetails | undefined
 
 const showsAd = (player: Element): boolean => AD_CLASSES.some(name => player.classList.contains(name));
 
-export function youTubeVideoIdentity(
-  player: Element,
-  mediaDurationSec: number,
-  adPlaying: boolean,
-  pageHref: string,
-): VideoIdentity {
-  if (adPlaying || showsAd(player)) return UNKNOWN_VIDEO_IDENTITY;
+export function youTubeMediaReference(player: Element, adPlaying: boolean, pageHref: string): MediaReference {
+  if (adPlaying || showsAd(player)) return UNIDENTIFIABLE_MEDIA_REFERENCE;
   const videoId = playingVideoId(player, pageHref);
   const details = videoDetailsOf(player);
   const lengthSec = Number(details?.lengthSeconds);
-  if (!videoId || details?.videoId !== videoId || !(lengthSec > 0)) return UNKNOWN_VIDEO_IDENTITY;
-  if (Number.isNaN(mediaDurationSec)) return { kind: 'unknown', pendingKey: stableIdentityKey('yt', videoId) };
-  if (!(Math.abs(mediaDurationSec - lengthSec) <= SAME_DURATION_TOLERANCE_SEC)) return UNKNOWN_VIDEO_IDENTITY;
-  return stableIdentity('yt', videoId, mediaDurationSec);
+  if (!videoId || details?.videoId !== videoId || !(lengthSec > 0)) return UNIDENTIFIABLE_MEDIA_REFERENCE;
+  return { kind: 'stable', namespace: 'yt', id: videoId, expectedDurationSec: lengthSec };
 }

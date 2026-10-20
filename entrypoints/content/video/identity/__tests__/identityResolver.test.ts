@@ -6,6 +6,8 @@ import {
   type VideoIdentityContext,
 } from '@/entrypoints/content/video/identity/identityResolver';
 
+import type { MediaReference } from '@/utils/videoIdentity';
+
 const PAGE = 'https://www.example.test/feed?tab=new#comments';
 
 const context = (overrides: Partial<VideoIdentityContext>): VideoIdentityContext => ({
@@ -85,10 +87,16 @@ describe('resolveVideoIdentity: direct files', () => {
     expect(keyOf('https://cdn.test/play?id=1')).not.toBe(keyOf('https://cdn.test/play?id=2'));
   });
 
-  it('leaves a direct file unknown until a duration is known', () => {
+  it('keeps a direct file pending on its URL key until a duration is known', () => {
     expect(resolveVideoIdentity(context({ sourceUrl: 'https://cdn.test/v.mp4', durationSec: Number.NaN }))).toEqual({
       kind: 'unknown',
+      pendingKey: 'url:https://cdn.test/v.mp4',
     });
+  });
+
+  it('leaves a live direct file unknown', () => {
+    const live = context({ sourceUrl: 'https://cdn.test/v.mp4', durationSec: Number.POSITIVE_INFINITY });
+    expect(resolveVideoIdentity(live)).toEqual({ kind: 'unknown' });
   });
 });
 
@@ -100,25 +108,57 @@ describe('resolveVideoIdentity: unidentifiable media', () => {
 });
 
 describe('resolveVideoIdentity: identity adapters', () => {
-  const stableAdapter = (hostname: string, key: string): VideoIdentityAdapter => ({
-    matches: location => location.hostname === hostname,
-    resolve: ({ durationSec }) => ({ kind: 'stable', key, durationSec }),
+  const adapterNaming = (hosts: string[], reference: MediaReference | null): VideoIdentityAdapter => ({
+    hosts,
+    mediaReference: () => reference,
+  });
+  const MSE_SOURCE = 'blob:https://www.example.test/a';
+
+  it('lets the first adapter on the page host or a parent domain name the media', () => {
+    const adapters = [
+      adapterNaming(['other.test'], { kind: 'stable', namespace: 'yt', id: '1' }),
+      adapterNaming(['example.test'], { kind: 'stable', namespace: 'yt', id: '2' }),
+    ];
+    expect(resolveVideoIdentity(context({ sourceUrl: MSE_SOURCE }), adapters)).toEqual({
+      kind: 'stable',
+      key: 'yt:2',
+      durationSec: 12.34,
+    });
   });
 
-  it('lets the first adapter matching the page location identify the video', () => {
-    const adapters = [stableAdapter('other.test', 'x:1'), stableAdapter('www.example.test', 'x:2')];
-    const identity = resolveVideoIdentity(context({ sourceUrl: 'blob:https://www.example.test/a' }), adapters);
-    expect(identity).toEqual({ kind: 'stable', key: 'x:2', durationSec: 12.34 });
+  it('never applies an adapter on a host that only ends with its domain', () => {
+    const adapter = adapterNaming(['ample.test'], { kind: 'stable', namespace: 'yt', id: '1' });
+    expect(resolveVideoIdentity(context({ sourceUrl: MSE_SOURCE }), [adapter])).toHaveProperty('kind', 'local');
   });
 
-  it('falls back to the generic rules when a matching adapter cannot identify the video', () => {
-    const declining: VideoIdentityAdapter = { matches: () => true, resolve: () => null };
-    const identity = resolveVideoIdentity(context({ sourceUrl: 'https://cdn.test/v.mp4' }), [declining]);
+  it('falls back to the generic rules when a matching adapter cannot name the media', () => {
+    const identity = resolveVideoIdentity(context({ sourceUrl: 'https://cdn.test/v.mp4' }), [
+      adapterNaming(['example.test'], null),
+    ]);
     expect(identity).toEqual({ kind: 'stable', key: 'url:https://cdn.test/v.mp4', durationSec: 12.34 });
   });
 
-  it('lets an adapter declare a video unknown, keeping it out of the generic rules', () => {
-    const ad: VideoIdentityAdapter = { matches: () => true, resolve: () => ({ kind: 'unknown' }) };
+  it('lets an adapter declare the media unidentifiable, keeping it out of the generic rules', () => {
+    const ad = adapterNaming(['example.test'], { kind: 'unidentifiable' });
     expect(resolveVideoIdentity(context({ sourceUrl: 'https://cdn.test/ad.mp4' }), [ad])).toEqual({ kind: 'unknown' });
+  });
+
+  it("keeps an adapter's media pending on its key until a duration is known", () => {
+    const adapter = adapterNaming(['example.test'], { kind: 'stable', namespace: 'vreddit', id: 'm1' });
+    expect(resolveVideoIdentity(context({ sourceUrl: MSE_SOURCE, durationSec: Number.NaN }), [adapter])).toEqual({
+      kind: 'unknown',
+      pendingKey: 'vreddit:m1',
+    });
+  });
+
+  it('identifies media only when its duration is within 1 s of the length the site reports', () => {
+    const reporting = (expectedDurationSec: number) =>
+      adapterNaming(['example.test'], { kind: 'stable', namespace: 'yt', id: 'abc', expectedDurationSec });
+    expect(resolveVideoIdentity(context({ sourceUrl: MSE_SOURCE }), [reporting(13)])).toEqual({
+      kind: 'stable',
+      key: 'yt:abc',
+      durationSec: 12.34,
+    });
+    expect(resolveVideoIdentity(context({ sourceUrl: MSE_SOURCE }), [reporting(30)])).toEqual({ kind: 'unknown' });
   });
 });

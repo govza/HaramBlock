@@ -1,4 +1,4 @@
-import { videoIdentityFrom, type PersistentVideoIdentity, type VideoIdentity } from '@/utils/videoIdentity';
+import { mediaReferenceFrom, type MediaReference, type PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 import type {
   AnalysisStat,
@@ -17,12 +17,12 @@ export const LOOKAHEAD_HOST_PAGE = '/lookahead-host.html' as const;
 export const HOOK_IDENTITY_ATTR = 'data-hb-video-identity';
 
 /**
- * The MSE hook's current verdict on the identity of the `MediaSource` a `<video>` plays, published
- * as JSON on the element so the content script can read it synchronously when the source changes.
+ * The MSE hook's current Media Reference for the `MediaSource` a `<video>` plays, published as JSON
+ * on the element so the content script can read it synchronously when the source changes.
  */
 export interface HookIdentityClaim {
   objectUrl: string;
-  identity: VideoIdentity;
+  reference: MediaReference;
 }
 
 export const encodeHookIdentityClaim = (claim: HookIdentityClaim): string => JSON.stringify(claim);
@@ -37,8 +37,8 @@ export function decodeHookIdentityClaim(raw: string | null): HookIdentityClaim |
   }
   if (!parsed || typeof parsed !== 'object') return null;
   const objectUrl: unknown = Reflect.get(parsed, 'objectUrl');
-  const identity = videoIdentityFrom(Reflect.get(parsed, 'identity'));
-  return typeof objectUrl === 'string' && identity ? { objectUrl, identity } : null;
+  const reference = mediaReferenceFrom(Reflect.get(parsed, 'reference'));
+  return typeof objectUrl === 'string' && reference ? { objectUrl, reference } : null;
 }
 
 export type FirefoxPortMessage = { k: 'hook'; m: HookMessage } | { k: 'content'; m: ContentToHost };

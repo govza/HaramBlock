@@ -1,9 +1,8 @@
 import { tryParseUrl } from '@/utils/url';
-import { isKnownDuration, stableIdentityKey, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference, type StableMediaReference } from '@/utils/videoIdentity';
 
 import type { VideoIdentityAdapter, VideoIdentityContext } from '@/entrypoints/content/video/identity/identityResolver';
 
-const REDDIT_HOSTNAME = 'reddit.com';
 const VIDEO_MEDIA_HOSTS = new Set(['v.redd.it', 'packaged-media.redd.it']);
 const PREVIEW_MEDIA_HOST = 'external-preview.redd.it';
 const PLAYER_TAG = 'shreddit-player';
@@ -12,19 +11,16 @@ const PLAYER_MEDIA_ATTRS = ['src', 'preview', 'caption-url'];
 const POST_MEDIA_ATTR = 'content-href';
 const PREVIEW_HASH_PATTERN = /^\/([\w-]+)(?:\.\w+)?$/;
 
-const isRedditPage = (location: URL): boolean =>
-  location.hostname === REDDIT_HOSTNAME || location.hostname.endsWith(`.${REDDIT_HOSTNAME}`);
-
-const mediaKeyOf = (href: string | null): string | null => {
+const mediaReferenceOfHref = (href: string | null): StableMediaReference | null => {
   const url = tryParseUrl(href);
   if (!url) return null;
   if (VIDEO_MEDIA_HOSTS.has(url.hostname)) {
     const mediaId = url.pathname.split('/')[1];
-    return mediaId ? stableIdentityKey('vreddit', mediaId) : null;
+    return mediaId ? { kind: 'stable', namespace: 'vreddit', id: mediaId } : null;
   }
   if (url.hostname === PREVIEW_MEDIA_HOST) {
     const previewHash = PREVIEW_HASH_PATTERN.exec(url.pathname)?.[1];
-    return previewHash ? stableIdentityKey('redditpreview', previewHash) : null;
+    return previewHash ? { kind: 'stable', namespace: 'redditpreview', id: previewHash } : null;
   }
   return null;
 };
@@ -52,13 +48,10 @@ const mediaHrefsOf = ({ sourceUrl, video }: VideoIdentityContext): (string | nul
   ];
 };
 
-const resolveRedditIdentity = (context: VideoIdentityContext): VideoIdentity => {
-  if (!isKnownDuration(context.durationSec)) return UNKNOWN_VIDEO_IDENTITY;
-  const key = mediaHrefsOf(context).map(mediaKeyOf).find(Boolean);
-  return key ? { kind: 'stable', key, durationSec: context.durationSec } : UNKNOWN_VIDEO_IDENTITY;
-};
+const redditMediaReference = (context: VideoIdentityContext): MediaReference =>
+  mediaHrefsOf(context).map(mediaReferenceOfHref).find(Boolean) ?? UNIDENTIFIABLE_MEDIA_REFERENCE;
 
 export const redditIdentityAdapter: VideoIdentityAdapter = {
-  matches: isRedditPage,
-  resolve: resolveRedditIdentity,
+  hosts: ['reddit.com'],
+  mediaReference: redditMediaReference,
 };
