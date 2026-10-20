@@ -30,6 +30,11 @@ Bitstream Tap, Live Masking, Verdict Timeline and status. A same-media source ch
 quality switch) keeps it. _Avoid_: video machine, video processor. See
 [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
 
+**Media Reference**: What a site adapter or the generic rules say a playing video's media is (a
+namespaced id, an MSE source known only by its page, or unidentifiable); the Identity resolver alone
+turns it into the Video Identity the verdict cache keys by. _Avoid_: media id, identity hint. See
+[VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)
+
 **Verdict Timeline**: A Video Session's media-time-keyed history of samples — lookahead, cached and
 Live Masking alike; two samples at the same time keep the unsafe one. _Avoid_: verdict track. See
 [VIDEO_PROCESSING.md](docs/VIDEO_PROCESSING.md)

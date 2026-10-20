@@ -1,22 +1,19 @@
 import { decodeHookIdentityClaim, HOOK_IDENTITY_ATTR } from '@/utils/lookahead/protocol';
-import { YOUTUBE_HOST } from '@/utils/lookahead/youTubePlayer';
-import { isKeyInNamespace, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
 
 import type { VideoIdentityAdapter, VideoIdentityContext } from '@/entrypoints/content/video/identity/identityResolver';
 
-const isYouTubeClaim = (identity: VideoIdentity): boolean => {
-  if (identity.kind === 'unknown') return isKeyInNamespace(identity.pendingKey, 'yt');
-  return identity.kind === 'stable' && isKeyInNamespace(identity.key, 'yt');
-};
+const isYouTubeReference = (reference: MediaReference): boolean =>
+  reference.kind === 'stable' && reference.namespace === 'yt';
 
-function resolveYouTubeIdentity({ sourceUrl, video }: VideoIdentityContext): VideoIdentity | null {
+function claimedMediaReference({ sourceUrl, video }: VideoIdentityContext): MediaReference | null {
   if (!sourceUrl.startsWith('blob:')) return null;
   const claim = decodeHookIdentityClaim(video?.getAttribute(HOOK_IDENTITY_ATTR) ?? null);
-  if (claim?.objectUrl !== sourceUrl || !isYouTubeClaim(claim.identity)) return UNKNOWN_VIDEO_IDENTITY;
-  return claim.identity;
+  if (claim?.objectUrl !== sourceUrl || !isYouTubeReference(claim.reference)) return UNIDENTIFIABLE_MEDIA_REFERENCE;
+  return claim.reference;
 }
 
 export const youTubeIdentityAdapter: VideoIdentityAdapter = {
-  matches: location => YOUTUBE_HOST.test(location.hostname),
-  resolve: resolveYouTubeIdentity,
+  hosts: ['youtube.com', 'youtube-nocookie.com'],
+  mediaReference: claimedMediaReference,
 };

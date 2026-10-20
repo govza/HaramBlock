@@ -643,23 +643,27 @@ describe('MSE hook: YouTube video identity', () => {
     return raw === null ? null : (JSON.parse(raw) as unknown);
   };
 
+  const referenceTo = (id: string, expectedDurationSec = 30) => ({
+    kind: 'stable',
+    namespace: 'yt',
+    id,
+    expectedDurationSec,
+  });
+  const UNIDENTIFIABLE = { kind: 'unidentifiable' };
+
   it.each([
     ['the watch player', 'https://www.youtube.com/watch?v=abc'],
     ['the Shorts player, while the page URL still names the previous short', 'https://www.youtube.com/shorts/old'],
     ['an inline hover preview on the home page', 'https://www.youtube.com/'],
-  ])('identifies the video %s plays by its own video id once its duration matches', (_, href) => {
+  ])('names the video %s plays by its own video id and reported length', (_, href) => {
     const { playSource } = newPage({ href, player: ownerPlayer({}) });
     const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', lengthSeconds: '30' }));
 
-    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown', pendingKey: 'yt:abc' } });
+    expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('abc') });
 
-    source.duration = 30;
     source.duration = 30.021;
 
-    expect(claimOf(video)).toEqual({
-      objectUrl,
-      identity: { kind: 'stable', key: 'yt:abc', durationSec: 30.021 },
-    });
+    expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('abc') });
   });
 
   it("binds a source assigned through setAttribute('src') too", () => {
@@ -667,16 +671,31 @@ describe('MSE hook: YouTube video identity', () => {
     const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc' }), 'attribute');
     source.duration = 30;
 
-    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'stable', key: 'yt:abc', durationSec: 30 } });
+    expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('abc') });
   });
 
-  it("keeps the source unknown when its duration is not the claimed video's", () => {
+  it("keeps re-evaluating a source whose duration is not the claimed video's", () => {
+    const state: PlayerState = { videoId: 'abc', lengthSeconds: '30' };
     const { playSource } = newPage({ href: WATCH });
-    const { source, buffer, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', lengthSeconds: '30' }));
+    const { source, buffer, video, objectUrl } = playSource(ownerPlayer(state));
     source.duration = 15.2;
     appendAndComplete(buffer, [1]);
+    Object.assign(state, { videoId: 'def', lengthSeconds: '15' });
+    appendAndComplete(buffer, [2]);
 
-    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown' } });
+    expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('def', 15) });
+  });
+
+  it('settles a source once an append finds its duration matching', () => {
+    const state: PlayerState = { videoId: 'abc', lengthSeconds: '30' };
+    const { playSource } = newPage({ href: WATCH });
+    const { source, buffer, video, objectUrl } = playSource(ownerPlayer(state));
+    source.duration = 30;
+    appendAndComplete(buffer, [1]);
+    state.videoId = 'def';
+    appendAndComplete(buffer, [2]);
+
+    expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('abc') });
   });
 
   it('never trusts a player response left over from another video', () => {
@@ -684,11 +703,11 @@ describe('MSE hook: YouTube video identity', () => {
     const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', responseVideoId: 'previous' }));
     source.duration = 30;
 
-    expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown' } });
+    expect(claimOf(video)).toEqual({ objectUrl, reference: UNIDENTIFIABLE });
   });
 
   it.each(['ad-showing', 'ad-interrupting'])(
-    'keeps a source unknown while its player shows %s, re-evaluating it on each append',
+    'claims a source unidentifiable while its player shows %s, re-evaluating it on each append',
     adClass => {
       const state: PlayerState = { videoId: 'abc', classes: [adClass] };
       const { playSource } = newPage({ href: WATCH });
@@ -696,16 +715,16 @@ describe('MSE hook: YouTube video identity', () => {
       source.duration = 30;
       appendAndComplete(buffer, [1]);
 
-      expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'unknown' } });
+      expect(claimOf(video)).toEqual({ objectUrl, reference: UNIDENTIFIABLE });
 
       state.classes = [];
       appendAndComplete(buffer, [2]);
 
-      expect(claimOf(video)).toEqual({ objectUrl, identity: { kind: 'stable', key: 'yt:abc', durationSec: 30 } });
+      expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('abc') });
     },
   );
 
-  it('keeps a source unknown between the player reporting an ad start and its finish', () => {
+  it('claims a source unidentifiable between the player reporting an ad start and its finish', () => {
     const player = ownerPlayer({ videoId: 'abc' });
     const { playSource } = newPage({ href: WATCH });
     const first = playSource(player);
@@ -714,13 +733,13 @@ describe('MSE hook: YouTube video identity', () => {
     ad.source.duration = 30;
     appendAndComplete(ad.buffer, [1]);
 
-    expect(claimOf(ad.video)).toEqual({ objectUrl: ad.objectUrl, identity: { kind: 'unknown' } });
+    expect(claimOf(ad.video)).toEqual({ objectUrl: ad.objectUrl, reference: UNIDENTIFIABLE });
 
     player.fire('onAdFinish');
     appendAndComplete(ad.buffer, [2]);
 
-    expect(claimOf(ad.video)).toHaveProperty('identity.kind', 'stable');
-    expect(claimOf(first.video)).toHaveProperty('identity.pendingKey', 'yt:abc');
+    expect(claimOf(ad.video)).toHaveProperty('reference.kind', 'stable');
+    expect(claimOf(first.video)).toHaveProperty('reference.id', 'abc');
   });
 
   it("never overwrites a video's claim for its new source from its previous one", () => {
@@ -732,10 +751,7 @@ describe('MSE hook: YouTube video identity', () => {
     previous.source.duration = 30;
     appendAndComplete(previous.buffer, [1]);
 
-    expect(claimOf(previous.video)).toEqual({
-      objectUrl: next.objectUrl,
-      identity: { kind: 'unknown', pendingKey: 'yt:abc' },
-    });
+    expect(claimOf(previous.video)).toEqual({ objectUrl: next.objectUrl, reference: referenceTo('abc') });
   });
 
   it('claims nothing for a video outside YouTube', () => {

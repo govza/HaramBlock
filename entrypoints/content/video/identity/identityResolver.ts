@@ -1,9 +1,8 @@
-import { genericVideoIdentity } from '@/entrypoints/content/video/identity/genericIdentityRules';
+import { genericMediaReference } from '@/entrypoints/content/video/identity/genericIdentityRules';
 import { redditIdentityAdapter } from '@/entrypoints/content/video/identity/redditIdentityAdapter';
 import { youTubeIdentityAdapter } from '@/entrypoints/content/video/identity/youTubeIdentityAdapter';
-import { tryParseUrl } from '@/utils/url';
-
-import type { VideoIdentity } from '@/utils/videoIdentity';
+import { isOnHost, tryParseUrl } from '@/utils/url';
+import { identityOfMediaReference, type MediaReference, type VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * What the content script knows about a playing video when identifying it: its source URL (empty
@@ -18,28 +17,31 @@ export interface VideoIdentityContext {
 }
 
 /**
- * Site-specific identification, tried before the generic rules on pages whose location it
- * matches. `resolve` returns `null` to defer to the next adapter and the generic rules, or an
- * `unknown` identity to keep the video out of the persistent cache altogether.
+ * Site-specific naming of the playing media, tried before the generic rules on pages on one of its
+ * `hosts` or their subdomains. `mediaReference` returns `null` to defer to the next adapter and the
+ * generic rules, or an unidentifiable reference to keep the video out of the persistent cache.
  */
 export interface VideoIdentityAdapter {
-  matches(location: URL): boolean;
-  resolve(context: VideoIdentityContext, location: URL): VideoIdentity | null;
+  hosts: readonly string[];
+  mediaReference(context: VideoIdentityContext): MediaReference | null;
 }
 
 export const VIDEO_IDENTITY_ADAPTERS: readonly VideoIdentityAdapter[] = [youTubeIdentityAdapter, redditIdentityAdapter];
 
-export function resolveVideoIdentity(
-  context: VideoIdentityContext,
-  adapters: readonly VideoIdentityAdapter[] = VIDEO_IDENTITY_ADAPTERS,
-): VideoIdentity {
-  const location = tryParseUrl(context.pageHref);
-  if (location) {
+function mediaReferenceOf(context: VideoIdentityContext, adapters: readonly VideoIdentityAdapter[]): MediaReference {
+  const hostname = tryParseUrl(context.pageHref)?.hostname;
+  if (hostname) {
     for (const adapter of adapters) {
-      if (!adapter.matches(location)) continue;
-      const identity = adapter.resolve(context, location);
-      if (identity) return identity;
+      if (!adapter.hosts.some(host => isOnHost(hostname, host))) continue;
+      const reference = adapter.mediaReference(context);
+      if (reference) return reference;
     }
   }
-  return genericVideoIdentity(context.sourceUrl, context.pageHref, context.durationSec);
+  return genericMediaReference(context.sourceUrl);
 }
+
+export const resolveVideoIdentity = (
+  context: VideoIdentityContext,
+  adapters: readonly VideoIdentityAdapter[] = VIDEO_IDENTITY_ADAPTERS,
+): VideoIdentity =>
+  identityOfMediaReference(mediaReferenceOf(context, adapters), context.durationSec, context.pageHref);
