@@ -24,14 +24,14 @@ page, rendition or URL spelling. `stable`: a portable `namespace:id` key with th
 (`url:` plus the direct file URL without allowlisted auth params — CloudFront, S3 `X-Amz-*`, Akamai
 `hdnts`/`hdntl`; site adapters add `yt`, `vreddit` (Reddit media id from the owning
 `shreddit-player`/`shreddit-post`), `redditpreview` (comment GIFs)). `local`:
-`page:<page URL without fragment>|d=<duration in 100 ms>` for MSE sources no adapter identifies —
-persistent on this device, never shared. `unknown`: no duration yet (with `pendingKey` naming the
-stable key it expects), a `srcObject` stream, a live stream, a duration more than 1 s off the length
-the site reports, or an unidentifiable Media Reference (an ad) — analysed and masked in memory only,
-never read from or written to the cache. Resolved by `identityResolver.ts` from the Media Reference
-when the source resolves and again on `loadedmetadata` / `durationchange` and whenever the MSE hook
-publishes a new claim; the first stable or local identity is kept for the session. _Avoid_: cache
-key, video URL
+`page:<page URL without fragment>|d=<duration in whole seconds>` for MSE sources no adapter
+identifies — persistent on this device, never shared. `unknown`: no duration yet (with `pendingKey`
+naming the stable key it expects), a `srcObject` stream, a live stream, a duration more than 1 s off
+the length the site reports, or an unidentifiable Media Reference (an ad) — analysed and masked in
+memory only, never read from or written to the cache. Resolved by `identityResolver.ts` from the
+Media Reference when the source resolves and again on `loadedmetadata` / `durationchange` and
+whenever the MSE hook publishes a new claim; the first stable or local identity is kept for the
+session. _Avoid_: cache key, video URL
 
 **Media Reference**: What a site adapter or the generic rules say the playing media is — `stable` (a
 namespace and id, plus the length the site itself reports when it does), `local` (an MSE source
@@ -177,8 +177,12 @@ Rules:
   presented, not when its verdict arrives ahead, and is sticky: it never returns to `safe`, and a
   later `skipped` doesn't replace it. The registry remembers unsafe Video Identity keys for the
   page's lifetime (`createVideoSession({ unsafeSeen })`), so the same media stays unsafe across a
-  Forced Visibility round-trip, re-attach or loop; sources with an unknown identity are sticky per
-  session only.
+  Forced Visibility round-trip, re-attach or loop. A session that starts before its identity is
+  known checks the remembered keys once it resolves (`unsafeRemembered`) and records its own unsafe
+  status under it; sources that never resolve an identity are sticky per session only.
+- **Quick Toggle before identity**: a toggle made while the identity is unknown is kept against its
+  source; the identity that source resolves to persists that choice instead of restoring a stored
+  one.
 - **Paused frames**: a pause or paused seek on an uncovered frame requests one live sample.
 - **Unreadable page pixels** (permanent capture failure): with no tap, the session finalises
   `skipped` and un-blurred; with a tap, Live Masking stops, uncovered spans play un-blurred until
@@ -207,12 +211,12 @@ and `setAttribute('src')` bind a hooked `MediaSource` to its `<video>`; the owni
 claim, a Media Reference with the response's `lengthSeconds` as its expected length; it is
 `unidentifiable` while the player shows `ad-showing` / `ad-interrupting` or between its `onAdStart`
 and `onAdFinish`, or when the player response describes another video. It is re-evaluated on each
-duration set and append until an append finds the identity it resolves to stable, and published as
-JSON (`HookIdentityClaim`: object URL plus Media Reference) in the element's
-`data-hb-video-identity` attribute rather than over the hook port, so the content script can read it
-synchronously at `loadstart` and decide whether a new source continues the session. Page-visible
-like the rest of the hook; trusted for the local cache only. Every hook body is guarded so a failure
-can never break the page's player.
+duration set and append until an append finds the identity it resolves to stable, and published,
+only when it changed, as JSON (`HookIdentityClaim`: object URL plus Media Reference) in the
+element's `data-hb-video-identity` attribute rather than over the hook port, so the content script
+can read it synchronously at `loadstart` and decide whether a new source continues the session.
+Page-visible like the rest of the hook; trusted for the local cache only. Every hook body is guarded
+so a failure can never break the page's player.
 
 The hook and the isolated content script start in unspecified order, so they handshake over
 `window.postMessage`: the hook announces `ready`; the content script offers a `MessagePort` (`port`)
@@ -333,10 +337,11 @@ previews only non-`blob:` sources). `videoSampleBuckets` holds the samples in 5-
 buckets keyed `[identityKey+modelId+latticeVersion+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There
 is no per-video sample cap; expiry follows the meta row's `accessedAt`, and an expired video is
 purged before a merge. A stored duration more than 1 s off the playing identity's purges that
-video's samples (on read and on merge) and adopts the new duration; its Forced Visibility is kept.
-`getVideoForcedVisibility` reads the meta row alone. The service buffers publishes per (video,
-model) and merges every 2 s or 50 samples; `getCached` flushes pending writes first. Sessions
-publish only under the active model version.
+video's samples and its Forced Visibility (on read, on merge and on a toggle update) and adopts the
+new duration; `getVideoForcedVisibility` reads the meta row alone and ignores a Forced Visibility
+stored for another duration. The service buffers publishes per (video, model) and merges every 2 s
+or 50 samples; `getCached` flushes pending writes first. Sessions publish only under the active
+model version.
 
 Within one model version a merge keeps, per point, the sample of higher quality
 (`utils/lookahead/sampleQuality.ts`): the long side the model actually saw,
@@ -351,11 +356,10 @@ or, from a sample whose previous neighbour is also further than that (a Keyframe
 its GOP), up to 10 s apart; a lattice-spaced run ends at its last point, so a seek hole is filled.
 Where a lower-ranked sample at the same point is unsafe under the reader's strictness and the
 selected one is clean, the unsafe one is returned (fail closed). Samples whose source aspect ratio
-differs from the playing video's by more than 1 % are skipped; the scheduler's cache read waits
-(within the same 3 s bound as the identity) for the playing aspect ratio the content reports on
-`loadedmetadata`, and reads without the guard if none arrives. The Verdict Timeline keeps at most
-4000 entries and evicts the one farthest from the playhead; evicted spans are not re-read from the
-cache.
+differs from the playing video's by more than 1 % are skipped; the scheduler's cache read waits (at
+most 3 s) for the playing aspect ratio the content reports on `loadedmetadata`, and reads without
+the guard if none arrives. The Verdict Timeline keeps at most 4000 entries and evicts the one
+farthest from the playhead; evicted spans are not re-read from the cache.
 
 Live and post-live sessions neither read nor publish; Live Masking samples are never cached. A
 session's liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's
@@ -365,10 +369,11 @@ Samples analysed while it is `unknown` are held, published once it is `vod`, and
 
 The same hold applies to the Video Identity: the analysis opens with the identity known at attach in
 its Session Read Context (`OpenAnalysis.readContext`: identity plus playing aspect ratio) and
-receives later ones as a `readContext` message. Its single cache read waits for a stable or local
-identity, at most 3 s (`IDENTITY_WAIT_MS`), then proceeds without the cache (analysis is held back
-meanwhile); samples are published only while liveness is `vod` and the identity is stable or local,
-held until then, and dropped if the session ends unidentified.
+receives later ones as a `readContext` message. Analysis never waits for the identity: its single
+cache read starts whenever a stable or local identity arrives, however late, and holds analysis back
+only while it waits for the aspect ratio (at most 3 s, `IDENTITY_WAIT_MS`) and reads; samples are
+published only while liveness is `vod` and the identity is stable or local, held until then, and
+dropped if the session ends unidentified.
 
 ## Mask Presenter
 

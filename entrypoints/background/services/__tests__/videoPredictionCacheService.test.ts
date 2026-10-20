@@ -326,11 +326,11 @@ describe('VideoPredictionCacheService', () => {
     expect(repository.purgeSamples).not.toHaveBeenCalled();
   });
 
-  it('purges and skips samples stored for a duration more than 1 s off', async () => {
+  it('purges and skips samples and the forced visibility stored for a duration more than 1 s off', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce({ ...META, durationSec: 58.5 });
     repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [sample(0)] });
     const service = new VideoPredictionCacheService();
-    await expect(service.getCached(VIDEO, READER)).resolves.toEqual({ samples: [], forcedVisibility: 'blocked' });
+    await expect(service.getCached(VIDEO, READER)).resolves.toEqual({ samples: [], forcedVisibility: 'auto' });
     expect(repository.purgeSamples).toHaveBeenCalledWith(VIDEO);
   });
 
@@ -372,6 +372,12 @@ describe('VideoPredictionCacheService', () => {
     const service = new VideoPredictionCacheService();
     await expect(service.getForcedVisibility(VIDEO)).resolves.toBe('blocked');
     expect(repository.readSamplesByModel).not.toHaveBeenCalled();
+  });
+
+  it('never restores a forced visibility stored for a duration more than 1 s off', async () => {
+    repository.findValidByIdentityKey.mockResolvedValueOnce({ ...META, durationSec: 58.5 });
+    const service = new VideoPredictionCacheService();
+    await expect(service.getForcedVisibility(VIDEO)).resolves.toBe('auto');
   });
 
   it('returns empty samples on a miss without touching the row', async () => {

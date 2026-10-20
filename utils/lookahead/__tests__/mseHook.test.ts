@@ -698,6 +698,22 @@ describe('MSE hook: YouTube video identity', () => {
     expect(claimOf(video)).toEqual({ objectUrl, reference: referenceTo('abc') });
   });
 
+  it('rewrites the claim only when it changes while the source is unsettled', () => {
+    const state: PlayerState = { videoId: 'abc', classes: ['ad-showing'] };
+    const { playSource } = newPage({ href: WATCH });
+    const { source, buffer, video } = playSource(ownerPlayer(state));
+    const claimWrites = vi.spyOn(video.attributes, 'set');
+    source.duration = 30;
+    appendAndComplete(buffer, [1, 2, 3]);
+
+    expect(claimWrites.mock.calls.filter(([name]) => name === HOOK_IDENTITY_ATTR)).toHaveLength(0);
+
+    state.classes = [];
+    appendAndComplete(buffer, [4]);
+
+    expect(claimWrites.mock.calls.filter(([name]) => name === HOOK_IDENTITY_ATTR)).toHaveLength(1);
+  });
+
   it('never trusts a player response left over from another video', () => {
     const { playSource } = newPage({ href: WATCH });
     const { source, video, objectUrl } = playSource(ownerPlayer({ videoId: 'abc', responseVideoId: 'previous' }));

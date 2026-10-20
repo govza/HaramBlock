@@ -1,3 +1,5 @@
+import type { VideoIdentity } from '@/utils/videoIdentity';
+
 export const ATTR = {
   context: 'hb.context',
   version: 'hb.version',
@@ -38,8 +40,6 @@ export const ATTR = {
   errorMessage: 'error.message',
   errorStack: 'error.stack',
 } as const;
-
-import type { VideoIdentity } from '@/utils/videoIdentity';
 
 export type AttributeValue = string | number | boolean | string[] | number[] | boolean[];
 export type Attributes = Record<string, AttributeValue | undefined>;

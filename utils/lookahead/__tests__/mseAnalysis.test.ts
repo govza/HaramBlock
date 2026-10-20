@@ -357,33 +357,27 @@ describe('Lookahead Analysis cache under a video identity', () => {
     expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: null }]);
   });
 
-  it('waits for the identity before reading the cache, then reads under it', async () => {
+  it('analyses an unidentified video without waiting for its identity', async () => {
     vi.useFakeTimers();
-    const harness = createHarness();
-    const analysis = startUnidentified(harness);
-    await vi.advanceTimersByTimeAsync(1_000);
+    const harness = createHarness({ cached: [{ pointUs: 1_000_000, ...CLEAN }] });
+    startUnidentified(harness);
+    await vi.advanceTimersByTimeAsync(100);
+
     expect(harness.cacheReads()).toBe(0);
-    expect(harness.requests).toEqual([]);
+    expect(harness.requestedPoints()).toContain(1_000_000);
+  });
+
+  it('reads the cache under the identity whenever it resolves, however late', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness({ cached: [{ pointUs: 1_000_000, ...CLEAN }] });
+    const analysis = startUnidentified(harness);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(harness.cacheReads()).toBe(0);
 
     analysis.setReadContext(identifiedAs(KNOWN_IDENTITY));
     await settleWithFakeTimers(analysis);
 
     expect(harness.readUnder).toEqual([KNOWN_IDENTITY.key]);
-    expect(harness.requests).toHaveLength(8);
-  });
-
-  it('gives up waiting after 3 s and analyses without reading the cache', async () => {
-    vi.useFakeTimers();
-    const harness = createHarness({ cached: [{ pointUs: 1_000_000, ...CLEAN }] });
-    const analysis = startUnidentified(harness);
-    await vi.advanceTimersByTimeAsync(2_999);
-    expect(harness.requests).toEqual([]);
-
-    await vi.advanceTimersByTimeAsync(1);
-    await settleWithFakeTimers(analysis);
-
-    expect(harness.cacheReads()).toBe(0);
-    expect(harness.requestedPoints()).toContain(1_000_000);
   });
 
   it('holds samples analysed while unidentified and publishes them under the identity once it resolves', async () => {

@@ -57,7 +57,13 @@ import { generateNonce } from '@/utils/nonce';
 import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram, videoIdentityAttributes } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
-import { IDENTITY_WAIT_MS, isPersistentIdentity, persistentKeyOf, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
+import {
+  IDENTITY_WAIT_MS,
+  isPersistentIdentity,
+  persistentKeyOf,
+  UNKNOWN_VIDEO_IDENTITY,
+  type PersistentVideoIdentity,
+} from '@/utils/videoIdentity';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
@@ -120,12 +126,23 @@ interface PendingAttachment {
   cancel: () => void;
 }
 
+/**
+ * The user's last Quick Toggle choice on a video: the Video Identity it was persisted under, or, when
+ * the identity was still unknown, the source it was made on, so the identity that source later
+ * resolves to adopts the choice instead of restoring a stale stored one.
+ */
+interface UserToggle {
+  identityKey: string | null;
+  sourceUrl: string;
+  forcedVisibility: ForcedVisibility;
+}
+
 class VideoSessionRegistry {
   private readonly byId = new Map<string, SessionHandle>();
   private readonly byVideo = new WeakMap<HTMLVideoElement, SessionHandle>();
   private readonly pendingByVideo = new Map<HTMLVideoElement, PendingAttachment>();
   private readonly settingsByVideo = new WeakMap<HTMLVideoElement, IHostSettings>();
-  private readonly userToggledIdentityKeys = new WeakMap<HTMLVideoElement, string>();
+  private readonly userToggles = new WeakMap<HTMLVideoElement, UserToggle>();
   private readonly unsafeStrictnessByIdentityKey = new Map<string, number>();
   private documentVisibilityBound = false;
   private pagePixelsReadable = true;
@@ -264,7 +281,22 @@ class VideoSessionRegistry {
       ...videoIdentityAttributes(identity),
     });
     handle.lookahead?.updateReadContext({ identity });
+    this.syncRememberedUnsafe(handle, identity);
     this.restoreForcedVisibility(handle);
+  }
+
+  private syncRememberedUnsafe(handle: SessionHandle, identity: PersistentVideoIdentity): void {
+    const { strictness } = handle.hostSettings;
+    if (handle.state.unsafeSeen) {
+      this.unsafeStrictnessByIdentityKey.set(identity.key, strictness);
+    } else if (this.unsafeStrictnessByIdentityKey.get(identity.key) === strictness) {
+      this.dispatch(handle, { type: 'unsafeRemembered' });
+    }
+  }
+
+  private recheckIdentity(handle: SessionHandle): void {
+    if (handle.sourceIdentityWait) this.attach(handle.video, handle.hostSettings);
+    else this.resolveIdentity(handle);
   }
 
   private reopenTap(handle: SessionHandle): void {
@@ -400,10 +432,13 @@ class VideoSessionRegistry {
   }
 
   setForcedVisibility(video: HTMLVideoElement, next: ForcedVisibility): void {
-    const identity = this.byVideo.get(video)?.identity ?? resolveVideoSource(video)?.identity ?? UNKNOWN_VIDEO_IDENTITY;
-    const identityKey = persistentKeyOf(identity);
-    if (identityKey === null) this.userToggledIdentityKeys.delete(video);
-    else this.userToggledIdentityKeys.set(video, identityKey);
+    const source = resolveVideoSource(video);
+    const identity = this.byVideo.get(video)?.identity ?? source?.identity ?? UNKNOWN_VIDEO_IDENTITY;
+    this.userToggles.set(video, {
+      identityKey: persistentKeyOf(identity),
+      sourceUrl: source?.url ?? '',
+      forcedVisibility: next,
+    });
     this.applyForcedVisibility(video, next, true);
   }
 
@@ -440,14 +475,27 @@ class VideoSessionRegistry {
   }
 
   private restoreForcedVisibility(handle: SessionHandle): void {
-    const { identity } = handle;
+    const { identity, video } = handle;
     if (!isPersistentIdentity(identity)) return;
+    if (this.adoptUnpersistedToggle(handle, identity)) return;
     void requestVideoForcedVisibility(identity).then(forcedVisibility => {
       if (this.byId.get(handle.sessionId) !== handle || handle.state.phase === 'disposed') return;
-      if (forcedVisibility === 'auto' || this.userToggledIdentityKeys.get(handle.video) === identity.key) return;
+      if (forcedVisibility === 'auto' || this.userToggles.get(video)?.identityKey === identity.key) return;
       log.debug('registry.forced_visibility.restored', { [ATTR.sessionId]: handle.sessionId, forcedVisibility });
       this.applyForcedVisibility(handle.video, forcedVisibility, false);
     });
+  }
+
+  private adoptUnpersistedToggle(handle: SessionHandle, identity: PersistentVideoIdentity): boolean {
+    const toggle = this.userToggles.get(handle.video);
+    if (!toggle || toggle.identityKey !== null || toggle.sourceUrl !== handle.src) return false;
+    this.userToggles.set(handle.video, { ...toggle, identityKey: identity.key });
+    void requestVideoToggleUpdate(
+      identity,
+      { sourceUrl: handle.src, pageUrl: currentPageUrl(), hostname: handle.hostSettings.hostname },
+      toggle.forcedVisibility,
+    );
+    return true;
   }
 
   private registerToggle(
@@ -875,18 +923,14 @@ class VideoSessionRegistry {
     const onDurationChange = () => {
       if (this.restartIfDifferentMedia(handle)) return;
       handle.lookahead?.setLiveness(livenessOfDuration(video.duration));
-      this.resolveIdentity(handle);
+      this.recheckIdentity(handle);
     };
     const onLoadedMetadata = () => {
-      this.resolveIdentity(handle);
+      this.recheckIdentity(handle);
       const aspectRatio = playingAspectRatioOf(video);
       if (aspectRatio !== null) handle.lookahead?.updateReadContext({ aspectRatio });
     };
-    const onHookIdentityClaim = () => {
-      if (handle.sourceIdentityWait) this.attach(video, handle.hostSettings);
-      else this.resolveIdentity(handle);
-    };
-    const hookIdentityObserver = new MutationObserver(onHookIdentityClaim);
+    const hookIdentityObserver = new MutationObserver(() => this.recheckIdentity(handle));
     hookIdentityObserver.observe(video, { attributes: true, attributeFilter: [HOOK_IDENTITY_ATTR] });
     const onSourceChanged = () => {
       loopRestarts.reset();

@@ -5,7 +5,6 @@ import {
   isArrayBufferTag,
   MSE_HOOK_HANDSHAKE,
   type HookCommand,
-  type HookIdentityClaim,
   type HookMessage,
   type WireChunk,
 } from '@/utils/lookahead/protocol';
@@ -324,11 +323,13 @@ function runAfterSetter<T>(prototype: object, name: string, after: (self: T, val
 }
 
 /**
- * The `<video>` a hooked `MediaSource` was assigned to, and whether its identity is settled for good.
+ * The `<video>` a hooked `MediaSource` was assigned to, the claim last published on it, and whether
+ * its identity is settled for good.
  */
 interface IdentityBinding {
   video: HTMLMediaElement;
   objectUrl: string;
+  publishedClaim: string | null;
   settled: boolean;
 }
 
@@ -371,15 +372,17 @@ function createIdentityBinder(target: Window & typeof globalThis): IdentityBinde
     const reference = youTubeMediaReference(player, adPlayers.has(player), pageHref);
     binding.settled =
       settleIfStable && identityOfMediaReference(reference, source.duration, pageHref).kind === 'stable';
-    const claim: HookIdentityClaim = { objectUrl: binding.objectUrl, reference };
-    originalSetAttribute.call(binding.video, HOOK_IDENTITY_ATTR, encodeHookIdentityClaim(claim));
+    const claim = encodeHookIdentityClaim({ objectUrl: binding.objectUrl, reference });
+    if (claim === binding.publishedClaim) return;
+    binding.publishedClaim = claim;
+    originalSetAttribute.call(binding.video, HOOK_IDENTITY_ATTR, claim);
   };
 
   const bind = (video: HTMLMediaElement, objectUrl: unknown) => {
     if (typeof objectUrl !== 'string' || !onYouTube()) return;
     const source = sourcesByUrl.get(objectUrl)?.deref();
     if (!source) return;
-    bindings.set(source, { video, objectUrl, settled: false });
+    bindings.set(source, { video, objectUrl, publishedClaim: null, settled: false });
     evaluate(source, false);
   };
 

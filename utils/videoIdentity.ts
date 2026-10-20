@@ -53,7 +53,7 @@ export const LOCAL_MEDIA_REFERENCE: MediaReference = { kind: 'local' };
 export const UNIDENTIFIABLE_MEDIA_REFERENCE: MediaReference = { kind: 'unidentifiable' };
 
 const LOCAL_PAGE_NAMESPACE = 'page';
-const DURATION_KEY_STEP_SEC = 0.1;
+const DURATION_KEY_STEP_SEC = SAME_DURATION_TOLERANCE_SEC;
 
 export const isKnownDuration = (durationSec: number): boolean => Number.isFinite(durationSec) && durationSec > 0;
 

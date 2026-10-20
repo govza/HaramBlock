@@ -75,7 +75,7 @@ describe('YouTube identity adapter', () => {
   it('ignores hook claims outside YouTube', () => {
     expect(identityOn('https://www.example.test/watch', videoClaiming(CLAIM))).toEqual({
       kind: 'local',
-      key: 'page:https://www.example.test/watch|d=300',
+      key: 'page:https://www.example.test/watch|d=30',
       durationSec: 30.021,
     });
   });

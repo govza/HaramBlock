@@ -83,7 +83,7 @@ export class VideoPredictionCacheService {
     });
     if (isDurationMismatch(record.durationSec, identity)) {
       await this.repository.purgeSamples(identity);
-      return { samples: [], forcedVisibility: record.forcedVisibility };
+      return EMPTY_CACHED_VIDEO_PREDICTIONS;
     }
     const samplesByModel = await this.repository.readSamplesByModel(identity.key);
     const versions = Object.entries(samplesByModel).map(([modelId, samples]) => ({
@@ -97,7 +97,8 @@ export class VideoPredictionCacheService {
   async getForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
     if (!isPersistentIdentity(identity)) return 'auto';
     const record = await this.repository.findValidByIdentityKey(identity.key);
-    return record?.forcedVisibility ?? 'auto';
+    if (!record || isDurationMismatch(record.durationSec, identity)) return 'auto';
+    return record.forcedVisibility;
   }
 
   async setForcedVisibility(

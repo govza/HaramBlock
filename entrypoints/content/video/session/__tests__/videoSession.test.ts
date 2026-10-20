@@ -171,6 +171,31 @@ describe('Video Session: status', () => {
     expect(state.status).toBe('unsafe');
     expect(last).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
   });
+
+  it('turns unsafe when its identity resolves to media already seen unsafe', () => {
+    const { state, last } = run([{ type: 'verdict', sampleId: 'a' }, { type: 'unsafeRemembered' }]);
+
+    expect(state.status).toBe('unsafe');
+    expect(last).toEqual([{ kind: 'setStatus', status: 'unsafe' }]);
+  });
+
+  it('starts unsafe when it learns the media was seen unsafe before its first verdict', () => {
+    const { last } = run([{ type: 'unsafeRemembered' }, { type: 'verdict', sampleId: 'a' }]);
+
+    expect(last).toContainEqual({ kind: 'setStatus', status: 'unsafe' });
+  });
+
+  it('reports a skipped session unsafe once it learns the media was seen unsafe', () => {
+    const { state, last } = run([
+      { type: 'liveCaptureFailed', permanent: true },
+      { type: 'tapUnreachable' },
+      { type: 'unsafeRemembered' },
+    ]);
+
+    expect(state.phase).toBe('skipped');
+    expect(state.status).toBe('unsafe');
+    expect(last).toEqual([{ kind: 'setStatus', status: 'unsafe' }]);
+  });
 });
 
 describe('Video Session: paused frames', () => {
