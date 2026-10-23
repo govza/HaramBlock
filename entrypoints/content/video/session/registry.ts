@@ -73,6 +73,7 @@ import type {
   ForcedVisibility,
   IFramePrediction,
   IHostSettings,
+  IVideoCacheOrigin,
 } from '@/utils/types';
 
 const log = getLogger('videoSession:registry');
@@ -81,6 +82,12 @@ const playingAspectRatioOf = (video: HTMLVideoElement): number | null =>
   aspectRatioOf({ width: video.videoWidth, height: video.videoHeight });
 
 const currentPageUrl = (): string => globalThis.location?.href ?? '';
+
+const cacheOriginOf = (sourceUrl: string, hostname: string): IVideoCacheOrigin => ({
+  sourceUrl,
+  pageUrl: currentPageUrl(),
+  hostname,
+});
 
 const STATUS_TO_PROCESSED: Record<SessionStatus, ProcessedStatus> = {
   safe: 'safe',
@@ -467,11 +474,7 @@ class VideoSessionRegistry {
     const handleIdentity = this.byVideo.get(video)?.identity;
     const identity = handleIdentity && isPersistentIdentity(handleIdentity) ? handleIdentity : source.identity;
     if (!isPersistentIdentity(identity)) return;
-    void requestVideoToggleUpdate(
-      identity,
-      { sourceUrl: source.url, pageUrl: currentPageUrl(), hostname: settings.hostname },
-      next,
-    );
+    void requestVideoToggleUpdate(identity, cacheOriginOf(source.url, settings.hostname), next);
   }
 
   private restoreForcedVisibility(handle: SessionHandle): void {
@@ -492,7 +495,7 @@ class VideoSessionRegistry {
     this.userToggles.set(handle.video, { ...toggle, identityKey: identity.key });
     void requestVideoToggleUpdate(
       identity,
-      { sourceUrl: handle.src, pageUrl: currentPageUrl(), hostname: handle.hostSettings.hostname },
+      cacheOriginOf(handle.src, handle.hostSettings.hostname),
       toggle.forcedVisibility,
     );
     return true;
@@ -578,9 +581,7 @@ class VideoSessionRegistry {
         scoreThreshold: scoreThresholdOf(handle),
         inputSize: currentInferenceCaptureSize(),
         readContext: { identity: handle.identity, aspectRatio: playingAspectRatioOf(handle.video) },
-        sourceUrl: handle.src,
-        pageUrl: currentPageUrl(),
-        hostname: handle.hostSettings.hostname,
+        origin: cacheOriginOf(handle.src, handle.hostSettings.hostname),
       },
       {
         reachable: kind => this.tapResolved(handle, kind, 'reachable'),
