@@ -37,9 +37,7 @@ const openMse = (sessionId: string): OpenAnalysis => ({
   liveness: 'vod',
   inputSize: 64,
   readContext: { identity: KNOWN_IDENTITY, aspectRatio: 16 / 9 },
-  sourceUrl: OBJECT_URL,
-  pageUrl: 'https://example.test/watch',
-  hostname: 'example.test',
+  origin: { sourceUrl: OBJECT_URL, pageUrl: 'https://example.test/watch', hostname: 'example.test' },
   scoreThreshold: 0.5,
 });
 

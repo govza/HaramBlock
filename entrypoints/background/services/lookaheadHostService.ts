@@ -63,16 +63,16 @@ export class LookaheadHostService {
     return {
       infer: async ({ pointUs, frame, priority }) => {
         const { bitmap, originalWidth, originalHeight } = frame as BitmapFrame;
-        const hostSettings = await this.hostSettingsService.getHostSettings(open.hostname);
+        const hostSettings = await this.hostSettingsService.getHostSettings(open.origin.hostname);
         return new Promise<InferredSample>((resolve, reject) => {
           void this.inferenceService.scheduleInferenceTask({
-            input: { kind: 'bitmap', imageSrc: open.sourceUrl, bitmap, originalWidth, originalHeight },
-            hostname: open.hostname,
+            input: { kind: 'bitmap', imageSrc: open.origin.sourceUrl, bitmap, originalWidth, originalHeight },
+            hostname: open.origin.hostname,
             hostSettings,
             mediaMetadata: {
               kind: 'frame',
-              mediaKey: open.sourceUrl,
-              sourceUrl: open.sourceUrl,
+              mediaKey: open.origin.sourceUrl,
+              sourceUrl: open.origin.sourceUrl,
               frameIndex: this.nextFrameIndex++,
               sessionId: open.sessionId,
               timestampSec: pointUs / 1e6,
@@ -93,12 +93,7 @@ export class LookaheadHostService {
     return {
       read: async (identity: VideoIdentity, reader) =>
         (await this.videoPredictionCacheService.getCached(identity, reader)).samples,
-      publish: (identity, samples) =>
-        this.videoPredictionCacheService.publish(
-          identity,
-          { sourceUrl: open.sourceUrl, pageUrl: open.pageUrl, hostname: open.hostname },
-          samples,
-        ),
+      publish: (identity, samples) => this.videoPredictionCacheService.publish(identity, open.origin, samples),
     };
   }
 }

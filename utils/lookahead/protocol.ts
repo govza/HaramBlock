@@ -10,6 +10,7 @@ import type {
   UnreachableReason,
 } from '@/utils/lookahead/ports';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
+import type { IVideoCacheOrigin } from '@/utils/types';
 
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
 export const LOOKAHEAD_PORT_NAME = 'hb-lookahead';
@@ -88,9 +89,7 @@ export interface OpenAnalysis {
   liveness: Liveness;
   inputSize: number;
   readContext: SessionReadContext;
-  sourceUrl: string;
-  pageUrl: string;
-  hostname: string;
+  origin: IVideoCacheOrigin;
   scoreThreshold: number;
 }
 

@@ -19,9 +19,7 @@ const openMse: OpenAnalysis = {
     identity: { kind: 'local', key: 'page:https://example.test/watch|d=600', durationSec: 60 },
     aspectRatio: null,
   },
-  sourceUrl: OBJECT_URL,
-  pageUrl: 'https://example.test/watch',
-  hostname: 'example.test',
+  origin: { sourceUrl: OBJECT_URL, pageUrl: 'https://example.test/watch', hostname: 'example.test' },
   scoreThreshold: 0.5,
 };
 
