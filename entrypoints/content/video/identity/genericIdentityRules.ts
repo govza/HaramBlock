@@ -1,5 +1,7 @@
 import { tryParseUrl } from '@/utils/url';
-import { LOCAL_MEDIA_REFERENCE, UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
+import { LOCAL_MEDIA_REFERENCE, UNIDENTIFIABLE_MEDIA_REFERENCE } from '@/utils/videoIdentity';
+
+import type { MediaReference } from '@/utils/types';
 
 const SIGNED_URL_PARAMS = ['expires', 'signature', 'key-pair-id', 'policy', 'hdnts', 'hdntl'];
 const SIGNED_URL_PARAM_PREFIXES = ['x-amz-'];

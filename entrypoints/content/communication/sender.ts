@@ -37,10 +37,10 @@ import {
   type IVideoFrameTransfer,
   type IGifFrameTransfer,
   type FrameSampleKind,
+  type VideoIdentity,
 } from '@/utils/types';
 
 import type { CapturedFrameSample } from '@/entrypoints/content/video/sampling/sample';
-import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('sender');
 const tracer = getTracer('inference');

@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
-
-import type { IStoredVideoSample, IVideoPredictionRecord } from '@/utils/types';
-import type { PersistentVideoIdentity } from '@/utils/videoIdentity';
+import { type IStoredVideoSample, type IVideoPredictionRecord, type IPersistentVideoIdentity } from '@/utils/types';
 
 const repository = vi.hoisted(() => ({
   mergeSamples: vi.fn(() => Promise.resolve()),
@@ -38,7 +36,7 @@ vi.mock('@inference-runtime', () => ({
   getAvailableModels: () => runtime.models,
 }));
 
-const VIDEO: PersistentVideoIdentity = { kind: 'stable', key: 'url:https://example.com/video.mp4', durationSec: 60 };
+const VIDEO: IPersistentVideoIdentity = { kind: 'stable', key: 'url:https://example.com/video.mp4', durationSec: 60 };
 const ORIGIN = {
   sourceUrl: 'https://example.com/video.mp4?Signature=1',
   pageUrl: 'https://example.com/watch/42',
@@ -81,7 +79,7 @@ const points = (samples: IStoredVideoSample[]) => samples.map(entry => entry.poi
 const mergedCalls = () =>
   repository.mergeSamples.mock.calls.map(call => {
     const [identity, model, , samples] = call as unknown as [
-      PersistentVideoIdentity,
+      IPersistentVideoIdentity,
       { modelId: string; rank: number },
       unknown,
       unknown[],
@@ -152,7 +150,7 @@ describe('VideoPredictionCacheService', () => {
   });
 
   it('keeps videos with different identities apart', async () => {
-    const other: PersistentVideoIdentity = {
+    const other: IPersistentVideoIdentity = {
       kind: 'local',
       key: 'page:https://example.com/feed|d=450',
       durationSec: 45,

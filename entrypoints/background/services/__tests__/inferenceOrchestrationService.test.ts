@@ -5,7 +5,7 @@ import { QueueService } from '@/entrypoints/background/services/queueService';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants/hostsettings';
 
 import type { ImageCacheService } from '@/entrypoints/background/services/imageCacheService';
-import type { IImagePrediction, IMediaMetadata, ImageInferenceResult, InferenceTask } from '@/utils/types';
+import type { IImagePrediction, IMediaMetadata, ImageInferenceResult, IInferenceTask } from '@/utils/types';
 
 const { processInferenceTask, gates } = vi.hoisted(() => {
   const gates = new Map<string, () => void>();
@@ -101,7 +101,7 @@ describe('InferenceOrchestrationService image dedupe', () => {
 
     release('running');
     await vi.waitFor(() => expect(statuses(results, 'queued')).toEqual(['started']));
-    const queuedTask = processInferenceTask.mock.calls.at(-1)?.[0] as InferenceTask;
+    const queuedTask = processInferenceTask.mock.calls.at(-1)?.[0] as IInferenceTask;
     expect(queuedTask.priority).toBe(30);
     release('queued');
     await vi.waitFor(() => expect(statuses(results, 'queued')).toEqual(['started', 'ok']));

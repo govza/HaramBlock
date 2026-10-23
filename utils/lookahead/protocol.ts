@@ -1,4 +1,5 @@
-import { mediaReferenceFrom, type MediaReference, type PersistentVideoIdentity } from '@/utils/videoIdentity';
+import { type MediaReference, type IPersistentVideoIdentity, type IVideoCacheOrigin } from '@/utils/types';
+import { mediaReferenceFrom } from '@/utils/videoIdentity';
 
 import type {
   AnalysisStat,
@@ -10,7 +11,6 @@ import type {
   UnreachableReason,
 } from '@/utils/lookahead/ports';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import type { IVideoCacheOrigin } from '@/utils/types';
 
 export const MSE_HOOK_HANDSHAKE = '__haramblockMseHookPort';
 export const LOOKAHEAD_PORT_NAME = 'hb-lookahead';
@@ -122,10 +122,10 @@ export type HostToContent =
       t: 'cacheRead';
       requestId: number;
       sessionId: string;
-      identity: PersistentVideoIdentity;
+      identity: IPersistentVideoIdentity;
       reader: CachedSampleReader;
     }
-  | { t: 'cachePublish'; sessionId: string; identity: PersistentVideoIdentity; samples: StoredSample[] }
+  | { t: 'cachePublish'; sessionId: string; identity: IPersistentVideoIdentity; samples: StoredSample[] }
   | { t: 'toHook'; command: HookCommand };
 
 export const isArrayBufferTag = (value: unknown): value is ArrayBuffer =>

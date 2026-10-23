@@ -19,7 +19,7 @@ import {
 import { createMseAnalysis } from '@/utils/lookahead/analysis';
 
 import type { DecoderPort, InferencePort, Liveness } from '@/utils/lookahead/ports';
-import type { VideoIdentity } from '@/utils/videoIdentity';
+import type { VideoIdentity } from '@/utils/types';
 
 const VP9_MIME = 'video/webm; codecs="vp9"';
 const H264_MIME = 'video/mp4; codecs="avc1.64000a"';

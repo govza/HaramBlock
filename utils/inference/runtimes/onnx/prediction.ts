@@ -13,7 +13,7 @@ import { MIN_SCORE_THRESHOLD, strictnessToScoreThreshold } from '@/utils/scoreTh
 import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { IImagePrediction } from '@/utils/types';
-import type { InferenceTask } from '@/utils/types/model';
+import type { IInferenceTask } from '@/utils/types/model';
 
 const log = getLogger('prediction');
 const profilerLog = getLogger('profiler');
@@ -25,7 +25,7 @@ export interface BatchItemResult {
 }
 
 interface PreparedImage {
-  task: InferenceTask;
+  task: IInferenceTask;
   bitmap: ImageBitmap;
   imageWidth: number;
   imageHeight: number;
@@ -36,9 +36,9 @@ interface PreparedImage {
   queueTime: number;
 }
 
-const isVideoFrame = (task: InferenceTask): boolean => task.mediaMetadata.kind === 'frame';
+const isVideoFrame = (task: IInferenceTask): boolean => task.mediaMetadata.kind === 'frame';
 
-function scoreThresholdFor(task: InferenceTask): number {
+function scoreThresholdFor(task: IInferenceTask): number {
   if (isVideoFrame(task)) return MIN_SCORE_THRESHOLD;
   return strictnessToScoreThreshold(task.hostSettings.strictness);
 }
@@ -53,7 +53,7 @@ interface ResolvedBitmap {
 
 // Mirrors processInferenceTask's old bitmap sources: MessageChannel transferable, Firefox
 // structured-clone blob, or a URL fetch fallback.
-async function resolveBitmap(task: InferenceTask): Promise<ResolvedBitmap> {
+async function resolveBitmap(task: IInferenceTask): Promise<ResolvedBitmap> {
   // The decoded bitmap is the ground truth for dimensions. task.originalWidth carries
   // img.naturalWidth, which for srcset images with w descriptors is the density-corrected
   // CSS size, not the fetched resource's pixels — trusting it skews prediction metadata.
@@ -89,7 +89,7 @@ async function resolveBitmap(task: InferenceTask): Promise<ResolvedBitmap> {
   };
 }
 
-async function prepareImage(task: InferenceTask): Promise<PreparedImage> {
+async function prepareImage(task: IInferenceTask): Promise<PreparedImage> {
   const queueTime = task.queueStartAt ? Date.now() - task.queueStartAt : 0;
   const resolved = await resolveBitmap(task);
   return {
@@ -165,7 +165,7 @@ function buildImagePrediction(
  * each slot carrying a prediction or that image's error, so one bad image never fails the batch. A
  * failure in the shared preprocess or GPU run still fails the whole batch.
  */
-export async function processInferenceBatch(tasks: InferenceTask[]): Promise<BatchItemResult[]> {
+export async function processInferenceBatch(tasks: IInferenceTask[]): Promise<BatchItemResult[]> {
   const results: BatchItemResult[] = new Array<BatchItemResult>(tasks.length);
 
   // Decode all images up front (independent, so in parallel); failures drop out of the GPU batch.
@@ -270,7 +270,7 @@ export async function processInferenceBatch(tasks: InferenceTask[]): Promise<Bat
   return results;
 }
 
-export async function processInferenceTask(task: InferenceTask): Promise<IImagePrediction> {
+export async function processInferenceTask(task: IInferenceTask): Promise<IImagePrediction> {
   const [item] = await processInferenceBatch([task]);
   if (!item || item.error) {
     throw new Error(`Failed to process image task for ${task.imageSrc}`, { cause: item?.error });

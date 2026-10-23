@@ -1,7 +1,8 @@
 import { tryParseUrl } from '@/utils/url';
-import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference, type StableMediaReference } from '@/utils/videoIdentity';
+import { UNIDENTIFIABLE_MEDIA_REFERENCE } from '@/utils/videoIdentity';
 
 import type { VideoIdentityAdapter, VideoIdentityContext } from '@/entrypoints/content/video/identity/identityResolver';
+import type { MediaReference, IStableMediaReference } from '@/utils/types';
 
 const VIDEO_MEDIA_HOSTS = new Set(['v.redd.it', 'packaged-media.redd.it']);
 const PREVIEW_MEDIA_HOST = 'external-preview.redd.it';
@@ -11,7 +12,7 @@ const PLAYER_MEDIA_ATTRS = ['src', 'preview', 'caption-url'];
 const POST_MEDIA_ATTR = 'content-href';
 const PREVIEW_HASH_PATTERN = /^\/([\w-]+)(?:\.\w+)?$/;
 
-const mediaReferenceOfHref = (href: string | null): StableMediaReference | null => {
+const mediaReferenceOfHref = (href: string | null): IStableMediaReference | null => {
   const url = tryParseUrl(href);
   if (!url) return null;
   if (VIDEO_MEDIA_HOSTS.has(url.hostname)) {

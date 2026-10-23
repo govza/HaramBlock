@@ -58,23 +58,18 @@ import { strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger, METRIC, recordCounter, recordHistogram, videoIdentityAttributes } from '@/utils/telemetry';
 import { SPAN, startUmbrellaSession } from '@/utils/telemetry/roundtrip';
 import {
-  IDENTITY_WAIT_MS,
-  isPersistentIdentity,
-  persistentKeyOf,
-  UNKNOWN_VIDEO_IDENTITY,
-  type PersistentVideoIdentity,
-} from '@/utils/videoIdentity';
+  type IPersistentVideoIdentity,
+  type FrameInferenceResult,
+  type FrameSampleKind,
+  type ForcedVisibility,
+  type IFramePrediction,
+  type IHostSettings,
+  type IVideoCacheOrigin,
+} from '@/utils/types';
+import { IDENTITY_WAIT_MS, isPersistentIdentity, persistentKeyOf, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
 
 import type { SessionHandle } from '@/entrypoints/content/video/session/handle';
 import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictTimeline';
-import type {
-  FrameInferenceResult,
-  FrameSampleKind,
-  ForcedVisibility,
-  IFramePrediction,
-  IHostSettings,
-  IVideoCacheOrigin,
-} from '@/utils/types';
 
 const log = getLogger('videoSession:registry');
 
@@ -292,7 +287,7 @@ class VideoSessionRegistry {
     this.restoreForcedVisibility(handle);
   }
 
-  private syncRememberedUnsafe(handle: SessionHandle, identity: PersistentVideoIdentity): void {
+  private syncRememberedUnsafe(handle: SessionHandle, identity: IPersistentVideoIdentity): void {
     const { strictness } = handle.hostSettings;
     if (handle.state.unsafeSeen) {
       this.unsafeStrictnessByIdentityKey.set(identity.key, strictness);
@@ -489,7 +484,7 @@ class VideoSessionRegistry {
     });
   }
 
-  private adoptUnpersistedToggle(handle: SessionHandle, identity: PersistentVideoIdentity): boolean {
+  private adoptUnpersistedToggle(handle: SessionHandle, identity: IPersistentVideoIdentity): boolean {
     const toggle = this.userToggles.get(handle.video);
     if (!toggle || toggle.identityKey !== null || toggle.sourceUrl !== handle.src) return false;
     this.userToggles.set(handle.video, { ...toggle, identityKey: identity.key });

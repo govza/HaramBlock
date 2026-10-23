@@ -174,6 +174,16 @@ export default [
       },
     },
   },
+  // Shared types: interfaces are I-prefixed
+  {
+    files: ['utils/types/**/*.ts'],
+    rules: {
+      '@typescript-eslint/naming-convention': [
+        'error',
+        { selector: 'interface', format: ['PascalCase'], prefix: ['I'] },
+      ],
+    },
+  },
   // Test files override
   {
     files: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**/*.ts'],

@@ -1,4 +1,4 @@
-import type { VideoIdentity } from '@/utils/videoIdentity';
+import type { VideoIdentity } from '@/utils/types';
 
 export const ATTR = {
   context: 'hb.context',

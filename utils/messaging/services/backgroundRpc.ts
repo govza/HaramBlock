@@ -1,6 +1,21 @@
 import { getRpcContext } from '@/utils/messaging/rpcContext';
 import { ATTR, getLogger, videoIdentityAttributes, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
 import { exportTelemetry, ingestForwardedTelemetry } from '@/utils/telemetry/setup/background';
+import {
+  type ForcedVisibility,
+  type IHostSettings,
+  type IImagePrediction,
+  type ICachedVideoPredictions,
+  type IStoredVideoSample,
+  type IVideoCacheOrigin,
+  type IImageTransfer,
+  type IVideoFrameTransfer,
+  type IGifFrameTransfer,
+  type FrameInferenceResult,
+  type GifFrameInferenceResult,
+  type ImageInferenceResult,
+  type VideoIdentity,
+} from '@/utils/types';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
 import type { IconService } from '@/entrypoints/background/services/iconService';
@@ -12,21 +27,6 @@ import type { VideoPredictionCacheService } from '@/entrypoints/background/servi
 import type { LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import type { ModelPreference } from '@/utils/modelSettings';
-import type {
-  ForcedVisibility,
-  IHostSettings,
-  IImagePrediction,
-  ICachedVideoPredictions,
-  IStoredVideoSample,
-  IVideoCacheOrigin,
-  IImageTransfer,
-  IVideoFrameTransfer,
-  IGifFrameTransfer,
-  FrameInferenceResult,
-  GifFrameInferenceResult,
-  ImageInferenceResult,
-} from '@/utils/types';
-import type { VideoIdentity } from '@/utils/videoIdentity';
 
 const BASE64_CHUNK_BYTES = 0x8000;
 const log = getLogger('backgroundRpc');

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { compareSources, type ResolvedVideoSource } from '@/entrypoints/content/video/session/videoSource';
-import { UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
+
+import type { VideoIdentity } from '@/utils/types';
 
 const local = (key: string): VideoIdentity => ({ kind: 'local', key, durationSec: 60 });
 const stable = (key: string): VideoIdentity => ({ kind: 'stable', key, durationSec: 60 });

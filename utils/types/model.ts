@@ -2,7 +2,7 @@ import type { IHostSettings } from '@/utils/types/host';
 import type { IMediaMetadata } from '@/utils/types/media';
 import type { Context } from '@opentelemetry/api';
 
-export interface InferenceTask {
+export interface IInferenceTask {
   imageSrc: string;
   hostname: string;
   createdAt: Date;
@@ -32,7 +32,7 @@ export enum ProcessingStatus {
 /**
  * Represents the coordinate transformation parameters for converting model coordinates to image coordinates.
  */
-export interface CoordinateTransform {
+export interface ICoordinateTransform {
   scaleX: number;
   scaleY: number;
   offsetX: number;
@@ -42,7 +42,7 @@ export interface CoordinateTransform {
 /**
  * Model metadata from YAML file.
  */
-export interface YamlModelMetadata {
+export interface IYamlModelMetadata {
   id: string;
   name: string;
   names: { [key: number]: string };
@@ -85,7 +85,7 @@ export interface YamlModelMetadata {
 /**
  * Model configuration used at runtime.
  */
-export interface ModelMetadata {
+export interface IModelMetadata {
   names: { [key: number]: string };
   imgsz: [number, number];
   /** ImageNet normalization params (null for YOLO-style 0-1 normalization) */

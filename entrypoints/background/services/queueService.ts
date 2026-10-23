@@ -1,11 +1,11 @@
 import PQueue from 'p-queue';
 
 import { getMeter, METRIC } from '@/utils/telemetry';
-import { type InferenceTask } from '@/utils/types';
+import { type IInferenceTask } from '@/utils/types';
 
 export class QueueService {
   private queue: PQueue;
-  private onTaskProcessing?: (task: InferenceTask) => Promise<void>;
+  private onTaskProcessing?: (task: IInferenceTask) => Promise<void>;
   private readonly queuedIds = new Set<string>();
 
   constructor() {
@@ -19,7 +19,7 @@ export class QueueService {
       .addCallback(result => result.observe(this.queue.size + this.queue.pending));
   }
 
-  setTaskProcessingHandler(handler: (task: InferenceTask) => Promise<void>): void {
+  setTaskProcessingHandler(handler: (task: IInferenceTask) => Promise<void>): void {
     this.onTaskProcessing = handler;
   }
 
@@ -37,7 +37,7 @@ export class QueueService {
     return () => this.queue.off('idle', callback);
   }
 
-  enqueue(task: InferenceTask, signal?: AbortSignal, id?: string): Promise<void> {
+  enqueue(task: IInferenceTask, signal?: AbortSignal, id?: string): Promise<void> {
     if (id) this.queuedIds.add(id);
     // p-queue: higher priority number = runs first
     return this.queue

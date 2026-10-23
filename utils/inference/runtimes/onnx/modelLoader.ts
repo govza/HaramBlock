@@ -17,7 +17,7 @@ import {
 } from '@/utils/inference/shared/modelRegistry';
 import { ATTR, getLogger } from '@/utils/telemetry';
 
-import type { ModelMetadata } from '@/utils/types';
+import type { IModelMetadata } from '@/utils/types';
 
 declare const __WEBGPU_WARMUP_RUNS__: number;
 
@@ -65,7 +65,7 @@ const availableModels: Map<string, ModelDefinition> = new Map();
 
 interface ModelRuntime {
   session: ort.InferenceSession;
-  config: ModelMetadata;
+  config: IModelMetadata;
   modelId: string;
   backend: Backend;
 }
@@ -76,11 +76,11 @@ interface ModelRuntimeLease extends ModelRuntime {
 
 let currentModelId: string = DEFAULT_MODEL_ID;
 let session: ort.InferenceSession | null = null;
-let sessionConfig: ModelMetadata | null = null;
+let sessionConfig: IModelMetadata | null = null;
 let sessionModelId: string | null = null;
 let loadingPromise: Promise<ModelRuntime> | null = null;
 let loadingModelId: string | null = null; // Track which model is currently being loaded
-let config: ModelMetadata = { ...DEFAULT_CONFIG };
+let config: IModelMetadata = { ...DEFAULT_CONFIG };
 let cachedBackend: Backend | 'unknown' = 'unknown';
 let activeRuntimeLeases = 0;
 let switchPromise: Promise<void> | null = null;
@@ -209,7 +209,7 @@ export async function discoverModels(): Promise<void> {
 
 async function runSingleWarmup(
   sessionToWarm: ort.InferenceSession,
-  modelConfig: ModelMetadata,
+  modelConfig: IModelMetadata,
   height: number,
   width: number,
 ): Promise<number> {
@@ -228,7 +228,7 @@ async function runSingleWarmup(
   return elapsed;
 }
 
-async function warmupModel(sessionToWarm: ort.InferenceSession, modelConfig: ModelMetadata): Promise<void> {
+async function warmupModel(sessionToWarm: ort.InferenceSession, modelConfig: IModelMetadata): Promise<void> {
   try {
     const [height, width] = modelConfig.imgsz;
 
@@ -398,7 +398,7 @@ export function getCurrentModelId(): string {
 
 // Config of the active session, used to size adaptive batches. Falls back to the latest loaded
 // metadata before the first session exists.
-export function getActiveModelConfig(): ModelMetadata {
+export function getActiveModelConfig(): IModelMetadata {
   return sessionConfig ?? config;
 }
 

@@ -4,17 +4,18 @@ import { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository'
 import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { isHigherQuality } from '@/utils/lookahead/sampleQuality';
-import { isDurationMismatch, type PersistentVideoIdentity } from '@/utils/videoIdentity';
+import {
+  type IPersistentVideoIdentity,
+  type ForcedVisibility,
+  type ICacheMetadata,
+  type IStoredVideoSample,
+  type IVideoCacheOrigin,
+  type IVideoPredictionRecord,
+  type SampleBucketKey,
+} from '@/utils/types';
+import { isDurationMismatch } from '@/utils/videoIdentity';
 
 import type { CacheModel } from '@/utils/inference/shared/modelRegistry';
-import type {
-  ForcedVisibility,
-  ICacheMetadata,
-  IStoredVideoSample,
-  IVideoCacheOrigin,
-  IVideoPredictionRecord,
-  SampleBucketKey,
-} from '@/utils/types';
 
 export const VIDEO_SAMPLE_BUCKET_US = 5 * 60 * 1_000_000;
 
@@ -65,7 +66,7 @@ const currentLatticeBucketKey = (identityKey: string, modelId: string, bucketSta
 ];
 
 const newRecord = (
-  identity: PersistentVideoIdentity,
+  identity: IPersistentVideoIdentity,
   origin: VideoPredictionOrigin,
   forcedVisibility: ForcedVisibility,
 ): IVideoPredictionRecord => ({
@@ -108,7 +109,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
   }
 
   async mergeSamples(
-    identity: PersistentVideoIdentity,
+    identity: IPersistentVideoIdentity,
     { modelId, rank }: CacheModel,
     origin: VideoPredictionOrigin,
     samples: readonly IStoredVideoSample[],
@@ -150,12 +151,12 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     });
   }
 
-  async purgeSamples(identity: PersistentVideoIdentity): Promise<void> {
+  async purgeSamples(identity: IPersistentVideoIdentity): Promise<void> {
     if (isCacheDisabled) return;
     await mediaCacheDb.transaction('rw', this.table, this.buckets, () => this.purgeSamplesWithin(identity));
   }
 
-  private async purgeSamplesWithin(identity: PersistentVideoIdentity): Promise<void> {
+  private async purgeSamplesWithin(identity: IPersistentVideoIdentity): Promise<void> {
     await this.buckets.where('identityKey').equals(identity.key).delete();
     await this.table
       .where('identityKey')
@@ -169,7 +170,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
   }
 
   async updateForcedVisibility(
-    identity: PersistentVideoIdentity,
+    identity: IPersistentVideoIdentity,
     origin: VideoPredictionOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {

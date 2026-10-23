@@ -12,13 +12,10 @@ import {
   type IVideoCacheOrigin,
   type ICacheMetadata,
   type IStoredVideoSample,
-} from '@/utils/types';
-import {
-  isDurationMismatch,
-  isPersistentIdentity,
-  type PersistentVideoIdentity,
+  type IPersistentVideoIdentity,
   type VideoIdentity,
-} from '@/utils/videoIdentity';
+} from '@/utils/types';
+import { isDurationMismatch, isPersistentIdentity } from '@/utils/videoIdentity';
 
 const log = getLogger('videoPredictionCacheService');
 
@@ -29,7 +26,7 @@ const FLUSH_ENTRY_THRESHOLD = 50;
  * Samples buffered for one video identity and model until the next flush.
  */
 interface PendingWrite {
-  identity: PersistentVideoIdentity;
+  identity: IPersistentVideoIdentity;
   model: CacheModel;
   origin: IVideoCacheOrigin;
   samples: IStoredVideoSample[];

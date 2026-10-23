@@ -1,3 +1,5 @@
+import { type IHostSettings, type VideoIdentity } from '@/utils/types';
+
 import type { LiveSampler } from '@/entrypoints/content/video/live/liveSampler';
 import type { MaskPresenter } from '@/entrypoints/content/video/presenter/maskPresenter';
 import type { VideoSessionState } from '@/entrypoints/content/video/session/videoSession';
@@ -7,8 +9,6 @@ import type { VerdictEntry } from '@/entrypoints/content/video/timeline/verdictT
 import type { InferredSample } from '@/utils/lookahead/ports';
 import type { TapKind } from '@/utils/lookahead/protocol';
 import type { UmbrellaSession } from '@/utils/telemetry/roundtrip';
-import type { IHostSettings } from '@/utils/types';
-import type { VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * A Live Masking frame sent for inference and awaiting its result.
