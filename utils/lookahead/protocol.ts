@@ -5,7 +5,7 @@ import type {
   InferredSample,
   Liveness,
   Playhead,
-  SessionReadContext,
+  CacheReadContext,
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
@@ -88,7 +88,7 @@ export interface OpenAnalysis {
   tap: TapRequest;
   liveness: Liveness;
   inputSize: number;
-  readContext: SessionReadContext;
+  readContext: CacheReadContext;
   origin: IVideoCacheOrigin;
   scoreThreshold: number;
 }
@@ -98,7 +98,7 @@ export type ContentToHost =
   | { t: 'playhead'; sessionId: string; playhead: Playhead }
   | { t: 'visible'; sessionId: string; visible: boolean }
   | { t: 'liveness'; sessionId: string; liveness: Liveness }
-  | { t: 'readContext'; sessionId: string; readContext: SessionReadContext }
+  | { t: 'readContext'; sessionId: string; readContext: CacheReadContext }
   | { t: 'close'; sessionId: string }
   | { t: 'inferResult'; requestId: number; sample: InferredSample | null }
   | { t: 'cacheSamples'; requestId: number; samples: StoredSample[] };

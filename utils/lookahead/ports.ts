@@ -164,7 +164,7 @@ export function livenessOfDuration(durationSec: number): Liveness {
  * analysis uses the persistent cache: the identity it reads and publishes under, and the playing
  * aspect ratio its cache read guards against.
  */
-export interface SessionReadContext {
+export interface CacheReadContext {
   identity: VideoIdentity;
   aspectRatio: number | null;
 }
@@ -175,7 +175,7 @@ export interface SessionReadContext {
 export interface LookaheadOptions {
   liveness: Liveness;
   scoreThreshold: number;
-  readContext: SessionReadContext;
+  readContext: CacheReadContext;
 }
 
 /**

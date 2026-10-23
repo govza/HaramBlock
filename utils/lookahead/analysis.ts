@@ -17,7 +17,7 @@ import {
   type LookaheadOptions,
   type LookaheadPorts,
   type Playhead,
-  type SessionReadContext,
+  type CacheReadContext,
   type StoredSample,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
@@ -82,7 +82,7 @@ export class SampleScheduler {
   private cacheReady = true;
   private idleWaiters: (() => void)[] = [];
   private liveness: Liveness;
-  private readContext: SessionReadContext;
+  private readContext: CacheReadContext;
   private readWaitOver = false;
   private readContextWaiters: (() => void)[] = [];
   private unpublished: StoredSample[] = [];
@@ -192,7 +192,7 @@ export class SampleScheduler {
     this.readContextChanged();
   }
 
-  setReadContext({ identity, aspectRatio }: SessionReadContext): void {
+  setReadContext({ identity, aspectRatio }: CacheReadContext): void {
     if (this.stopped) return;
     const identityResolves = !this.persistentIdentity() && isPersistentIdentity(identity);
     this.readContext = {
@@ -618,7 +618,7 @@ export interface MseAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
-  setReadContext(readContext: SessionReadContext): void;
+  setReadContext(readContext: CacheReadContext): void;
   stop(): void;
   releaseBuffers(): MseBuffers;
   heldUnits(): number;
@@ -729,7 +729,7 @@ export interface ProgressiveAnalysis {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
-  setReadContext(readContext: SessionReadContext): void;
+  setReadContext(readContext: CacheReadContext): void;
   stop(): void;
   settled(): Promise<void>;
 }

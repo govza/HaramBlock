@@ -18,7 +18,7 @@ import type {
   InferredSample,
   Liveness,
   Playhead,
-  SessionReadContext,
+  CacheReadContext,
   StoredSample,
   UnreachableReason,
 } from '@/utils/lookahead/ports';
@@ -58,7 +58,7 @@ export interface LookaheadSession {
   setPlayhead(playhead: Playhead): void;
   setVisible(visible: boolean): void;
   setLiveness(liveness: Liveness): void;
-  updateReadContext(change: Partial<SessionReadContext>): void;
+  updateReadContext(change: Partial<CacheReadContext>): void;
   close(): void;
 }
 
