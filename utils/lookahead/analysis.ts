@@ -23,9 +23,10 @@ import {
 } from '@/utils/lookahead/ports';
 import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from '@/utils/lookahead/progressiveFile';
 import { isUnsafeAt, suspicionThresholdOf } from '@/utils/lookahead/sampleScores';
-import { IDENTITY_WAIT_MS, isPersistentIdentity, type PersistentVideoIdentity } from '@/utils/videoIdentity';
+import { isPersistentIdentity, type PersistentVideoIdentity } from '@/utils/videoIdentity';
 
 export const URGENT_SLACK_SEC = 5;
+const ASPECT_RATIO_WAIT_MS = 3_000;
 const MAX_INFLIGHT_INFERENCES = 6;
 const MAX_RETAINED_UNITS = 64;
 const MAX_UNPUBLISHED_SAMPLES = 2_000;
@@ -105,7 +106,7 @@ export class SampleScheduler {
   }
 
   private async readCache(identity: PersistentVideoIdentity): Promise<void> {
-    const readWait = setTimeout(() => this.endReadWait(), IDENTITY_WAIT_MS);
+    const readWait = setTimeout(() => this.endReadWait(), ASPECT_RATIO_WAIT_MS);
     const aspectRatio = await this.awaitReadContext(() => this.readContext.aspectRatio);
     clearTimeout(readWait);
     if (this.liveness !== 'live' && !this.stopped) {
