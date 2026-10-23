@@ -371,8 +371,8 @@ The same hold applies to the Video Identity: the analysis opens with the identit
 its Session Read Context (`OpenAnalysis.readContext`: identity plus playing aspect ratio) and
 receives later ones as a `readContext` message. Analysis never waits for the identity: its single
 cache read starts whenever a stable or local identity arrives, however late, and holds analysis back
-only while it waits for the aspect ratio (at most 3 s, `IDENTITY_WAIT_MS`) and reads; samples are
-published only while liveness is `vod` and the identity is stable or local, held until then, and
+only while it waits for the aspect ratio (at most 3 s, `ASPECT_RATIO_WAIT_MS`) and reads; samples
+are published only while liveness is `vod` and the identity is stable or local, held until then, and
 dropped if the session ends unidentified.
 
 ## Mask Presenter
