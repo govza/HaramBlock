@@ -13,7 +13,7 @@ import {
   type Liveness,
   type LookaheadEvents,
   type SampleCachePort,
-  type SessionReadContext,
+  type CacheReadContext,
   type UnreachableReason,
 } from '@/utils/lookahead/ports';
 
@@ -87,7 +87,7 @@ export class LookaheadHost {
   private readonly waiters = new Map<string, Set<(sourceId: number) => void>>();
   private readonly latestOpens = new Map<string, OpenAnalysis>();
   private readonly contentLiveness = new Map<string, Liveness>();
-  private readonly readContexts = new Map<string, SessionReadContext>();
+  private readonly readContexts = new Map<string, CacheReadContext>();
 
   constructor(private readonly ports: HostPorts) {}
 
