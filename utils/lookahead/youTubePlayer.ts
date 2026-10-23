@@ -1,7 +1,7 @@
-import { tryParseUrl } from '@/utils/url';
+import { isOnHost, tryParseUrl } from '@/utils/url';
 import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
 
-export const YOUTUBE_HOST = /(^|\.)youtube(-nocookie)?\.com$/;
+export const YOUTUBE_HOSTS = ['youtube.com', 'youtube-nocookie.com'] as const;
 export const YOUTUBE_PLAYER_SELECTOR = '.html5-video-player';
 
 const YOUTUBE_PATH_VIDEO_ID = /^\/(?:shorts|live|embed)\/([\w-]+)/;
@@ -43,6 +43,8 @@ export function videoDetailsOf(player: Element): YouTubeVideoDetails | undefined
   const response = objectOrUndefined(callPlayer(player, 'getPlayerResponse'));
   return objectOrUndefined(response && Reflect.get(response, 'videoDetails'));
 }
+
+export const isYouTubeHost = (hostname: string): boolean => YOUTUBE_HOSTS.some(host => isOnHost(hostname, host));
 
 const showsAd = (player: Element): boolean => AD_CLASSES.some(name => player.classList.contains(name));
 
