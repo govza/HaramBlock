@@ -1,4 +1,5 @@
 import { decodeHookIdentityClaim, HOOK_IDENTITY_ATTR } from '@/utils/lookahead/protocol';
+import { YOUTUBE_HOSTS } from '@/utils/lookahead/youTubePlayer';
 import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
 
 import type { VideoIdentityAdapter, VideoIdentityContext } from '@/entrypoints/content/video/identity/identityResolver';
@@ -14,6 +15,6 @@ function claimedMediaReference({ sourceUrl, video }: VideoIdentityContext): Medi
 }
 
 export const youTubeIdentityAdapter: VideoIdentityAdapter = {
-  hosts: ['youtube.com', 'youtube-nocookie.com'],
+  hosts: YOUTUBE_HOSTS,
   mediaReference: claimedMediaReference,
 };

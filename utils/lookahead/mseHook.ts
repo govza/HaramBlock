@@ -9,9 +9,9 @@ import {
   type WireChunk,
 } from '@/utils/lookahead/protocol';
 import {
+  isYouTubeHost,
   playingVideoId,
   videoDetailsOf,
-  YOUTUBE_HOST,
   YOUTUBE_PLAYER_SELECTOR,
   youTubeMediaReference,
 } from '@/utils/lookahead/youTubePlayer';
@@ -280,7 +280,7 @@ function youTubeLiveness(target: Window): Liveness {
   try {
     const player = target.document.getElementById('movie_player');
     if (!player || typeof Reflect.get(player, 'getPlayerResponse') !== 'function') {
-      return YOUTUBE_HOST.test(target.location.hostname) ? 'unknown' : 'vod';
+      return isYouTubeHost(target.location.hostname) ? 'unknown' : 'vod';
     }
     const details = videoDetailsOf(player);
     if (!details) return 'unknown';
@@ -351,7 +351,7 @@ function createIdentityBinder(target: Window & typeof globalThis): IdentityBinde
   const MediaElementCtor = target.HTMLMediaElement as typeof HTMLMediaElement | undefined;
   const mediaProto = MediaElementCtor?.prototype;
   const originalSetAttribute = mediaProto && Reflect.get(mediaProto, 'setAttribute');
-  const onYouTube = () => YOUTUBE_HOST.test(target.location.hostname);
+  const onYouTube = () => isYouTubeHost(target.location.hostname);
 
   const watchAds = (player: Element) => {
     if (watchedPlayers.has(player)) return;
