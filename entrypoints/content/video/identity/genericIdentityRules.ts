@@ -12,9 +12,11 @@ function isAuthParam(name: string): boolean {
 function normaliseDirectUrl(url: URL): string {
   const normalised = new URL(url.href);
   normalised.hash = '';
-  for (const name of [...new Set(normalised.searchParams.keys())]) {
-    if (isAuthParam(name)) normalised.searchParams.delete(name);
-  }
+  const authParams = new Set<string>();
+  normalised.searchParams.forEach((_value, name) => {
+    if (isAuthParam(name)) authParams.add(name);
+  });
+  for (const name of authParams) normalised.searchParams.delete(name);
   return normalised.href;
 }
 
