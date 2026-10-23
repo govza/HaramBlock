@@ -113,10 +113,7 @@ export class SampleScheduler {
     clearTimeout(readWait);
     if (this.liveness !== 'live' && !this.stopped) {
       try {
-        const cached = await this.ports.cache.read(identity, {
-          scoreThreshold: this.options.scoreThreshold,
-          aspectRatio,
-        });
+        const cached = await this.ports.cache.read(identity, { aspectRatio });
         for (const sample of cached) {
           this.recordKnown(sample);
           this.cachedUnreported.add(sample.pointUs);

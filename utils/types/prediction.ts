@@ -154,6 +154,11 @@ export interface IFrameSize {
   height: number;
 }
 
+/**
+ * One lookahead sample as a video sample bucket stores it: the raw floor-threshold scores at a
+ * Sample Lattice point, with the model-input geometry and source frame size its quality and aspect
+ * ratio are judged by.
+ */
 export interface IStoredVideoSample {
   pointUs: number;
   scores: RawSampleScores;
@@ -176,7 +181,8 @@ export interface IVideoCacheOrigin {
 /**
  * One video's meta row in the verdict cache, keyed by its video identity: the duration its samples
  * were analysed against, its Forced Visibility, cache metadata, and per versioned model its sample
- * count and the rank it had when written (so superseded versions stay ordered after they ship no more).
+ * count and compatibility key (kept with the samples, so a version that no longer ships stays
+ * readable by compatible ones).
  */
 export interface IVideoPredictionRecord extends IVideoCacheOrigin {
   identityKey: string;
@@ -186,7 +192,7 @@ export interface IVideoPredictionRecord extends IVideoCacheOrigin {
   timestamp: number;
   cacheMetadata: ICacheMetadata;
   sampleCounts: Record<string, number>;
-  modelRanks: Record<string, number>;
+  modelCompatibility: Record<string, string>;
 }
 
 export type SampleBucketKey = [identityKey: string, modelId: string, latticeVersion: number, bucketStartUs: number];
@@ -194,13 +200,15 @@ export type SampleBucketKey = [identityKey: string, modelId: string, latticeVers
 /**
  * Up to five minutes of one video's lookahead samples from one versioned model on one Sample Lattice
  * version, stored as a single row; the lattice version is part of its key so a new lattice never
- * overwrites the old one's samples.
+ * overwrites the old one's samples. The sample format version (score floor, encoding) is not: a
+ * bucket in another format is unreadable and the next write replaces it.
  */
 export interface IVideoSampleBucket {
   identityKey: string;
   modelId: string;
   bucketStartUs: number;
   latticeVersion: number;
+  formatVersion: number;
   hostname: string;
   samples: IStoredVideoSample[];
 }

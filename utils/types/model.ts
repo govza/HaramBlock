@@ -2,24 +2,55 @@ import type { IHostSettings } from '@/utils/types/host';
 import type { IMediaMetadata } from '@/utils/types/media';
 import type { Context } from '@opentelemetry/api';
 
+/**
+ * One image queued for background inference with the settings it is judged under. Higher
+ * `priority` runs first. The pixels arrive pre-decoded as a transferred `bitmap` (MessageChannel)
+ * or as a `blob` (Firefox structured clone) the inference library decodes, with the original
+ * dimensions alongside; the timestamps and durations feed pipeline timing telemetry.
+ */
 export interface IInferenceTask {
   imageSrc: string;
   hostname: string;
   createdAt: Date;
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
-  priority: number; // Queue priority (higher = runs first)
+  priority: number;
   traceContext?: Context;
-  bitmap?: ImageBitmap; // Pre-loaded bitmap (from MessageChannel transferable)
-  blob?: Blob; // Blob (from Firefox structured clone) - converted to bitmap by inference library
-  originalWidth?: number; // Original image dimensions (when bitmap or blob is provided)
+  bitmap?: ImageBitmap;
+  blob?: Blob;
+  originalWidth?: number;
   originalHeight?: number;
-  // Timing
-  requestStartAt?: number; // Timestamp when content script started processing (before fetch/decode)
-  receivedAt?: number; // Timestamp when background received the message
-  queueStartAt?: number; // Timestamp when task was enqueued
-  fetchTime?: number; // Fetch duration (content-side, may hit cache or network)
-  decodeTime?: number; // Time to createImageBitmap (content-side, Chrome only)
+  requestStartAt?: number;
+  receivedAt?: number;
+  queueStartAt?: number;
+  fetchTime?: number;
+  decodeTime?: number;
+}
+
+export type ModelTask = 'segment' | 'semantic';
+
+export type EvaluationMetric = 'mIoU' | 'mAP50-95';
+
+/**
+ * A versioned model (`<id>@<version>`) as the video verdict cache files samples under, with the
+ * compatibility key (task and masked classes) that decides whether another model may read them.
+ */
+export interface ICacheModelVersion {
+  modelId: string;
+  compatibilityKey: string;
+}
+
+/**
+ * A model version's offline validation result as its metadata declares it: the task's own metric on
+ * a named benchmark split, overall and per class. Not read by the extension; it is the source a
+ * future shared cache ranks model versions by.
+ */
+export interface IModelEvaluation {
+  benchmark: string;
+  metric: EvaluationMetric;
+  score: number;
+  pixelAccuracy?: number;
+  classScores?: Record<string, number>;
 }
 
 export enum ProcessingStatus {
@@ -47,7 +78,7 @@ export interface IYamlModelMetadata {
   name: string;
   names: { [key: number]: string };
   imgsz: [number, number];
-  rank?: number;
+  evaluation?: IModelEvaluation;
   normalize?: {
     mean: [number, number, number];
     std: [number, number, number];
@@ -106,7 +137,7 @@ export interface IModelMetadata {
   /** Model stride for calculating output dimensions */
   stride: number;
   /** Model task type: 'segment' for instance segmentation, 'semantic' for semantic segmentation */
-  task: 'segment' | 'semantic';
+  task: ModelTask;
   /** Whether the export has a dynamic batch dim ([N,3,H,W]); enables adaptive batching */
   dynamicBatch: boolean;
 }

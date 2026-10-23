@@ -254,7 +254,7 @@ describe('Lookahead host: live and post-live sessions', () => {
     await vi.waitFor(() => expect(created.commands).toEqual([{ t: 'want', sourceId: 1 }]));
     await analyseFixture(created.host, created.sent);
 
-    expect(created.harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: 4 / 3 }]);
+    expect(created.harness.readAs).toEqual([{ aspectRatio: 4 / 3 }]);
   });
 
   it('never publishes a session on a source the hook announced live, even with a finite duration', async () => {

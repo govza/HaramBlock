@@ -29,4 +29,13 @@ output_shape:
 - 448
 id: sem-i448
 name: "YOLO26n-sem 448\xD7448 (4 classes)"
-rank: 2
+evaluation:
+  benchmark: samin-yolo-sem/val
+  metric: mIoU
+  score: 0.6342
+  pixelAccuracy: 0.9633
+  classScores:
+    background: 0.9736
+    aurat_female: 0.5041
+    aurat_male: 0.4661
+    safe_person: 0.5932
