@@ -23,7 +23,9 @@ import {
 } from '@/utils/lookahead/ports';
 import { openProgressiveFile, UnreachableFetchError, type ProgressiveFile } from '@/utils/lookahead/progressiveFile';
 import { isUnsafeAt, suspicionThresholdOf } from '@/utils/lookahead/sampleScores';
-import { isPersistentIdentity, type PersistentVideoIdentity } from '@/utils/videoIdentity';
+import { isPersistentIdentity } from '@/utils/videoIdentity';
+
+import type { IPersistentVideoIdentity } from '@/utils/types';
 
 export const URGENT_SLACK_SEC = 5;
 const ASPECT_RATIO_WAIT_MS = 3_000;
@@ -105,7 +107,7 @@ export class SampleScheduler {
     this.cacheRead = this.readCache(identity);
   }
 
-  private async readCache(identity: PersistentVideoIdentity): Promise<void> {
+  private async readCache(identity: IPersistentVideoIdentity): Promise<void> {
     const readWait = setTimeout(() => this.endReadWait(), ASPECT_RATIO_WAIT_MS);
     const aspectRatio = await this.awaitReadContext(() => this.readContext.aspectRatio);
     clearTimeout(readWait);
@@ -168,7 +170,7 @@ export class SampleScheduler {
     this.schedulePump();
   }
 
-  private persistentIdentity(): PersistentVideoIdentity | null {
+  private persistentIdentity(): IPersistentVideoIdentity | null {
     const { identity } = this.readContext;
     return isPersistentIdentity(identity) ? identity : null;
   }
@@ -212,7 +214,7 @@ export class SampleScheduler {
     else this.publishHeld();
   }
 
-  private publishableIdentity(): PersistentVideoIdentity | null {
+  private publishableIdentity(): IPersistentVideoIdentity | null {
     return this.liveness === 'vod' ? this.persistentIdentity() : null;
   }
 

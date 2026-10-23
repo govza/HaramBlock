@@ -2,7 +2,7 @@ import { load } from 'js-yaml';
 
 import { getLogger } from '@/utils/telemetry';
 
-import type { ModelMetadata, YamlModelMetadata } from '@/utils/types';
+import type { IModelMetadata, IYamlModelMetadata } from '@/utils/types';
 
 const log = getLogger('modelLoader');
 
@@ -54,7 +54,7 @@ export const MODEL_PATHS = [
 const BATCH_CAPS: Record<number, number> = { 320: 8, 448: 4, 640: 4 };
 
 /** Max images per batched session.run for the active model (1 = no batching / static export). */
-export function computeBatchCap(config: ModelMetadata): number {
+export function computeBatchCap(config: IModelMetadata): number {
   if (!config.dynamicBatch) return 1;
   return BATCH_CAPS[config.imgsz[0]] ?? 4;
 }
@@ -63,7 +63,7 @@ export function computeBatchCap(config: ModelMetadata): number {
 export const DEFAULT_MODEL_ID = 'sem-i320';
 
 /** Default model configuration used before metadata is loaded */
-export const DEFAULT_CONFIG: ModelMetadata = {
+export const DEFAULT_CONFIG: IModelMetadata = {
   names: { 0: 'background', 1: 'aurat_female', 2: 'aurat_male', 3: 'safe_person' },
   imgsz: [320, 320],
   normalize: null,
@@ -82,20 +82,20 @@ export const DEFAULT_CONFIG: ModelMetadata = {
 /**
  * Fetch and parse model metadata from YAML file.
  */
-export async function fetchMetadata(basePath: string): Promise<YamlModelMetadata> {
+export async function fetchMetadata(basePath: string): Promise<IYamlModelMetadata> {
   const response = await fetch(`${basePath}/metadata.yaml`);
   if (!response.ok) {
     throw new Error(`Failed to fetch metadata: ${response.status} ${response.statusText}`);
   }
   const text = await response.text();
-  return load(text) as YamlModelMetadata;
+  return load(text) as IYamlModelMetadata;
 }
 
 /**
- * Create a ModelMetadata config from YAML metadata.
+ * Create a IModelMetadata config from YAML metadata.
  * Pure function - returns a new config object.
  */
-export function createConfigFromMetadata(metadata: YamlModelMetadata, defaults: ModelMetadata): ModelMetadata {
+export function createConfigFromMetadata(metadata: IYamlModelMetadata, defaults: IModelMetadata): IModelMetadata {
   const imgsz = metadata.imgsz || defaults.imgsz;
   const stride = metadata.stride || defaults.stride;
   const names = metadata.names || defaults.names;

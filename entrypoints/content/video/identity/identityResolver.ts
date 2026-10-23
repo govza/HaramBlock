@@ -2,7 +2,9 @@ import { genericMediaReference } from '@/entrypoints/content/video/identity/gene
 import { redditIdentityAdapter } from '@/entrypoints/content/video/identity/redditIdentityAdapter';
 import { youTubeIdentityAdapter } from '@/entrypoints/content/video/identity/youTubeIdentityAdapter';
 import { isOnHost, tryParseUrl } from '@/utils/url';
-import { identityOfMediaReference, type MediaReference, type VideoIdentity } from '@/utils/videoIdentity';
+import { identityOfMediaReference } from '@/utils/videoIdentity';
+
+import type { MediaReference, VideoIdentity } from '@/utils/types';
 
 /**
  * What the content script knows about a playing video when identifying it: its source URL (empty

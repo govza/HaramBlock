@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { processInstanceSegmentation } from '@/utils/inference/runtimes/onnx/postprocessors/instance';
 
 import type { PostprocessContext, TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors/types';
-import type { ModelMetadata } from '@/utils/types';
+import type { IModelMetadata } from '@/utils/types';
 
 const NUM_FEATURES = 38; // x1, y1, x2, y2, conf, cls + 32 mask coefficients
 const PROTO = 40; // prototype grid is 40x40 for a 160px model (stride 4)
 
-function makeConfig(overrides: Partial<ModelMetadata> = {}): ModelMetadata {
+function makeConfig(overrides: Partial<IModelMetadata> = {}): IModelMetadata {
   return {
     names: { 0: 'person', 1: 'cat' },
     imgsz: [160, 160],

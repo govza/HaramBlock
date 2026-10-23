@@ -29,7 +29,7 @@ import type {
   IHostSettings,
   IMediaMetadata,
   ImageInferenceResult,
-  InferenceTask,
+  IInferenceTask,
 } from '@/utils/types';
 
 type OnImagePredictionsCallback = (results: ImageInferenceResult[], hostname: string) => void;
@@ -103,7 +103,7 @@ function getInstruments(): InferenceInstruments {
   return instruments;
 }
 
-type TaskIdentity = Pick<InferenceTask, 'imageSrc' | 'hostname' | 'mediaMetadata'>;
+type TaskIdentity = Pick<IInferenceTask, 'imageSrc' | 'hostname' | 'mediaMetadata'>;
 
 function mediaKindOf(mediaMetadata: IMediaMetadata): 'image' | 'frame' | 'gif' {
   if (mediaMetadata.kind === 'frame') return 'frame';
@@ -141,15 +141,15 @@ export class InferenceOrchestrationService {
   private onFramePredictionsCallback?: OnFramePredictionsCallback;
   private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
   /** At most one not-yet-started playback frame is retained per video session. */
-  private queuedPlaybackFrames = new Map<string, { task: InferenceTask; controller: AbortController }>();
-  private readonly queuedLookaheadFrames = new Map<string, Map<InferenceTask, AbortController>>();
+  private queuedPlaybackFrames = new Map<string, { task: IInferenceTask; controller: AbortController }>();
+  private readonly queuedLookaheadFrames = new Map<string, Map<IInferenceTask, AbortController>>();
   private readonly cancelledSessionIds = new Set<string>();
-  private readonly inFlightImages = new Map<ImageTaskKey, { task: InferenceTask; started: boolean }>();
-  private queueWaitSpans = new WeakMap<InferenceTask, Span>();
-  private readonly resultHandlers = new WeakMap<InferenceTask, (result: IImagePrediction | Error) => void>();
+  private readonly inFlightImages = new Map<ImageTaskKey, { task: IInferenceTask; started: boolean }>();
+  private queueWaitSpans = new WeakMap<IInferenceTask, Span>();
+  private readonly resultHandlers = new WeakMap<IInferenceTask, (result: IImagePrediction | Error) => void>();
 
   // Batches concurrent queue tasks into one session.run for dynamic-batch models.
-  private batchCollector = new BatchCollector<InferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
+  private batchCollector = new BatchCollector<IInferenceTask, IImagePrediction>(tasks => processInferenceBatch(tasks), {
     getCap: getBatchCap,
     getPriority: task => task.priority,
   });
@@ -235,7 +235,7 @@ export class InferenceOrchestrationService {
       queueStartAt,
     };
 
-    let task: InferenceTask;
+    let task: IInferenceTask;
     if (input.kind === 'bitmap') {
       task = {
         ...baseTask,
@@ -325,13 +325,13 @@ export class InferenceOrchestrationService {
     return true;
   }
 
-  private releaseInFlightImage(task: InferenceTask): void {
+  private releaseInFlightImage(task: IInferenceTask): void {
     if (task.mediaMetadata.kind !== 'image') return;
     const key = imageTaskKey(task.hostname, task.imageSrc);
     if (this.inFlightImages.get(key)?.task === task) this.inFlightImages.delete(key);
   }
 
-  private endQueueWait(task: InferenceTask, outcome: 'started' | 'aborted' | 'superseded' | 'error'): void {
+  private endQueueWait(task: IInferenceTask, outcome: 'started' | 'aborted' | 'superseded' | 'error'): void {
     const span = this.queueWaitSpans.get(task);
     if (!span) return;
     this.queueWaitSpans.delete(task);
@@ -340,7 +340,7 @@ export class InferenceOrchestrationService {
   }
 
   private setupEventHandlers(): void {
-    this.queueService.setTaskProcessingHandler(async (task: InferenceTask) => {
+    this.queueService.setTaskProcessingHandler(async (task: IInferenceTask) => {
       this.markPlaybackFrameStarted(task);
       this.endQueueWait(task, 'started');
       this.notifyImageInferenceStarted(task);
@@ -374,7 +374,7 @@ export class InferenceOrchestrationService {
     });
   }
 
-  private recordRun(runSpan: Span, task: InferenceTask, prediction: IImagePrediction, runStartedAt: number): void {
+  private recordRun(runSpan: Span, task: IInferenceTask, prediction: IImagePrediction, runStartedAt: number): void {
     const { processingTime } = prediction;
     const mediaKind = mediaKindOf(task.mediaMetadata);
     const timing = {
@@ -427,7 +427,7 @@ export class InferenceOrchestrationService {
     if (oldest !== undefined) this.cancelledSessionIds.delete(oldest);
   }
 
-  private rejectAborted(task: InferenceTask): void {
+  private rejectAborted(task: IInferenceTask): void {
     this.resultHandlers.get(task)?.(new Error('Video session inference cancelled'));
   }
 
@@ -442,13 +442,13 @@ export class InferenceOrchestrationService {
     }
   }
 
-  private trackLookaheadFrame(sessionId: string, task: InferenceTask, controller: AbortController): void {
-    const queued = this.queuedLookaheadFrames.get(sessionId) ?? new Map<InferenceTask, AbortController>();
+  private trackLookaheadFrame(sessionId: string, task: IInferenceTask, controller: AbortController): void {
+    const queued = this.queuedLookaheadFrames.get(sessionId) ?? new Map<IInferenceTask, AbortController>();
     queued.set(task, controller);
     this.queuedLookaheadFrames.set(sessionId, queued);
   }
 
-  private untrackLookaheadFrame(task: InferenceTask): void {
+  private untrackLookaheadFrame(task: IInferenceTask): void {
     const sessionId = lookaheadSessionOf(task.mediaMetadata);
     if (sessionId === null) return;
     const queued = this.queuedLookaheadFrames.get(sessionId);
@@ -456,14 +456,14 @@ export class InferenceOrchestrationService {
     this.queuedLookaheadFrames.delete(sessionId);
   }
 
-  private markPlaybackFrameStarted(task: InferenceTask): void {
+  private markPlaybackFrameStarted(task: IInferenceTask): void {
     this.untrackLookaheadFrame(task);
     if (!isQueuedLiveFrame(task.mediaMetadata)) return;
     const queued = this.queuedPlaybackFrames.get(task.mediaMetadata.sessionId);
     if (queued?.task === task) this.queuedPlaybackFrames.delete(task.mediaMetadata.sessionId);
   }
 
-  private async handleSuccess(task: InferenceTask, imagePrediction: IImagePrediction): Promise<void> {
+  private async handleSuccess(task: IInferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     const traceparent = injectTraceparent(task.traceContext);
     const resultHandler = this.resultHandlers.get(task);
     if (resultHandler) {
@@ -539,7 +539,7 @@ export class InferenceOrchestrationService {
    * video frames free the in-flight sample slot, GIF frames count toward the
    * session's failed-frame tally.
    */
-  private sendErrorToContent(task: InferenceTask, error: unknown): void {
+  private sendErrorToContent(task: IInferenceTask, error: unknown): void {
     const resultHandler = this.resultHandlers.get(task);
     if (resultHandler) {
       resultHandler(error instanceof Error ? error : new Error(String(error)));
@@ -584,7 +584,7 @@ export class InferenceOrchestrationService {
     }
   }
 
-  private notifyImageInferenceStarted(task: InferenceTask): void {
+  private notifyImageInferenceStarted(task: IInferenceTask): void {
     if (task.mediaMetadata.kind !== 'image') return;
     const inFlight = this.inFlightImages.get(imageTaskKey(task.hostname, task.imageSrc));
     if (inFlight?.task === task) inFlight.started = true;

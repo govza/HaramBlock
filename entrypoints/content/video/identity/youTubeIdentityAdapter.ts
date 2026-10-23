@@ -1,8 +1,9 @@
 import { decodeHookIdentityClaim, HOOK_IDENTITY_ATTR } from '@/utils/lookahead/protocol';
 import { YOUTUBE_HOSTS } from '@/utils/lookahead/youTubePlayer';
-import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
+import { UNIDENTIFIABLE_MEDIA_REFERENCE } from '@/utils/videoIdentity';
 
 import type { VideoIdentityAdapter, VideoIdentityContext } from '@/entrypoints/content/video/identity/identityResolver';
+import type { MediaReference } from '@/utils/types';
 
 const isYouTubeReference = (reference: MediaReference): boolean =>
   reference.kind === 'stable' && reference.namespace === 'yt';

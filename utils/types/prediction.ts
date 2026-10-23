@@ -1,6 +1,6 @@
 import type { IRLEMask } from '@/utils/rle';
 import type { IFrameSampleRouting, IVideoTimelinePosition } from '@/utils/types/media';
-import type { PersistentIdentityKind } from '@/utils/videoIdentity';
+import type { PersistentIdentityKind } from '@/utils/types/videoIdentity';
 
 export interface ICacheMetadata {
   // HTTP Cache headers

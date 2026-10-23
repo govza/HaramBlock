@@ -10,7 +10,7 @@ import type { HostSettingsService } from '@/entrypoints/background/services/host
 import type { InferenceOrchestrationService } from '@/entrypoints/background/services/inferenceOrchestrationService';
 import type { VideoPredictionCacheService } from '@/entrypoints/background/services/videoPredictionCacheService';
 import type { InferencePort, InferredSample, SampleCachePort } from '@/utils/lookahead/ports';
-import type { VideoIdentity } from '@/utils/videoIdentity';
+import type { VideoIdentity } from '@/utils/types';
 
 const log = getLogger('lookaheadHostService');
 

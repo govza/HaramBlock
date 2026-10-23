@@ -23,7 +23,7 @@ import type {
   UnreachableReason,
 } from '@/utils/lookahead/ports';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import type { PersistentVideoIdentity } from '@/utils/videoIdentity';
+import type { IPersistentVideoIdentity } from '@/utils/types';
 
 const log = getLogger('lookaheadClient');
 
@@ -159,7 +159,7 @@ function onHostMessage(message: HostToContent): void {
   }
 }
 
-async function readCache(identity: PersistentVideoIdentity, reader: CachedSampleReader): Promise<StoredSample[]> {
+async function readCache(identity: IPersistentVideoIdentity, reader: CachedSampleReader): Promise<StoredSample[]> {
   try {
     return (await backgroundRpc.getCachedVideoPredictions(identity, reader)).samples;
   } catch (error) {

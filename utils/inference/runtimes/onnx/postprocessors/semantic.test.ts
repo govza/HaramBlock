@@ -5,13 +5,13 @@ import { predictionsFromScoreGrid } from '@/utils/scoreGrid';
 import { MIN_SCORE_THRESHOLD } from '@/utils/scoreThreshold';
 
 import type { TypedResults } from '@/utils/inference/runtimes/onnx/postprocessors/types';
-import type { IElementPrediction, ModelMetadata } from '@/utils/types';
+import type { IElementPrediction, IModelMetadata } from '@/utils/types';
 
 const MODEL = 64;
 const OUT = 16;
 const CLASSES = 4;
 
-const config: ModelMetadata = {
+const config: IModelMetadata = {
   names: { 0: 'background', 1: 'breast', 2: 'genitals', 3: 'face' },
   imgsz: [MODEL, MODEL],
   normalize: null,

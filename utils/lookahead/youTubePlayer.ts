@@ -1,5 +1,7 @@
 import { isOnHost, tryParseUrl } from '@/utils/url';
-import { UNIDENTIFIABLE_MEDIA_REFERENCE, type MediaReference } from '@/utils/videoIdentity';
+import { UNIDENTIFIABLE_MEDIA_REFERENCE } from '@/utils/videoIdentity';
+
+import type { MediaReference } from '@/utils/types';
 
 export const YOUTUBE_HOSTS = ['youtube.com', 'youtube-nocookie.com'] as const;
 export const YOUTUBE_PLAYER_SELECTOR = '.html5-video-player';

@@ -23,17 +23,17 @@ import {
 
 import { computeBatchCap } from '@/utils/inference/shared/modelRegistry';
 
-import type { InferenceTask } from '@/utils/types';
+import type { IInferenceTask } from '@/utils/types';
 
 export async function initializeInference(modelId?: string): Promise<void> {
   await initializeModel(modelId);
 }
 
-export function processInferenceTask(task: InferenceTask) {
+export function processInferenceTask(task: IInferenceTask) {
   return runInferenceTask(task);
 }
 
-export function processInferenceBatch(tasks: InferenceTask[]) {
+export function processInferenceBatch(tasks: IInferenceTask[]) {
   return runInferenceBatch(tasks);
 }
 

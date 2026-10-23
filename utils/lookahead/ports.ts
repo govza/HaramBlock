@@ -1,6 +1,12 @@
+import {
+  type IFrameSize,
+  type IMaskTransform,
+  type RawSampleScores,
+  type IPersistentVideoIdentity,
+  type VideoIdentity,
+} from '@/utils/types';
+
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import type { IFrameSize, IMaskTransform, RawSampleScores } from '@/utils/types';
-import type { PersistentVideoIdentity, VideoIdentity } from '@/utils/videoIdentity';
 
 /**
  * Geometry of the model input a sample was inferred from, needed to map its scores back onto the video.
@@ -106,8 +112,8 @@ export interface InferencePort {
  * published to as samples are inferred.
  */
 export interface SampleCachePort {
-  read(identity: PersistentVideoIdentity, reader: CachedSampleReader): Promise<StoredSample[]>;
-  publish(identity: PersistentVideoIdentity, samples: StoredSample[]): void;
+  read(identity: IPersistentVideoIdentity, reader: CachedSampleReader): Promise<StoredSample[]>;
+  publish(identity: IPersistentVideoIdentity, samples: StoredSample[]): void;
 }
 
 export type UnreachableReason = 'hook' | 'overflow' | 'fetch' | 'demux' | 'decode';

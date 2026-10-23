@@ -6,7 +6,7 @@ import {
   type VideoIdentityContext,
 } from '@/entrypoints/content/video/identity/identityResolver';
 
-import type { MediaReference } from '@/utils/videoIdentity';
+import type { MediaReference } from '@/utils/types';
 
 const PAGE = 'https://www.example.test/feed?tab=new#comments';
 

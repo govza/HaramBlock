@@ -1,5 +1,7 @@
 import { resolveVideoIdentity } from '@/entrypoints/content/video/identity/identityResolver';
-import { isPendingSameMedia, isSameMedia, UNKNOWN_VIDEO_IDENTITY, type VideoIdentity } from '@/utils/videoIdentity';
+import { isPendingSameMedia, isSameMedia, UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
+
+import type { VideoIdentity } from '@/utils/types';
 
 /**
  * The media a video element currently plays: a `srcObject` stream or a URL, together with the

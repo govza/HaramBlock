@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QueueService } from '@/entrypoints/background/services/queueService';
 
-import type { InferenceTask } from '@/utils/types';
+import type { IInferenceTask } from '@/utils/types';
 
-function task(imageSrc: string, priority = 0): InferenceTask {
-  return { imageSrc, priority } as InferenceTask;
+function task(imageSrc: string, priority = 0): IInferenceTask {
+  return { imageSrc, priority } as IInferenceTask;
 }
 
 function deferred() {

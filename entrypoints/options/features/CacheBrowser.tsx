@@ -5,10 +5,15 @@ import { LoadingSpinner } from '@/entrypoints/options/components/LoadingSpinner'
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 import { getLogger } from '@/utils/telemetry';
+import {
+  type ForcedVisibility,
+  type IElementPrediction,
+  type IImagePrediction,
+  type IVideoPredictionRecord,
+  type PersistentIdentityKind,
+} from '@/utils/types';
 
 import type { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository';
-import type { ForcedVisibility, IElementPrediction, IImagePrediction, IVideoPredictionRecord } from '@/utils/types';
-import type { PersistentIdentityKind } from '@/utils/videoIdentity';
 
 const log = getLogger('CacheBrowser');
 

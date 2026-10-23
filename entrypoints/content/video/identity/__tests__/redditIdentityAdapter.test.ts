@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { resolveVideoIdentity } from '@/entrypoints/content/video/identity/identityResolver';
 
-import type { VideoIdentity } from '@/utils/videoIdentity';
+import type { VideoIdentity } from '@/utils/types';
 
 const FEED_PAGE = 'https://www.reddit.com/r/aww/';
 const POST_PAGE = 'https://www.reddit.com/r/aww/comments/1x63bfs/a_cat/';

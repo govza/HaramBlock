@@ -1,6 +1,6 @@
 import { ATTR, getLogger } from '@/utils/telemetry';
 
-import type { ModelMetadata } from '@/utils/types';
+import type { IModelMetadata } from '@/utils/types';
 
 const log = getLogger('preprocessing');
 
@@ -51,7 +51,7 @@ async function createBitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
  * @param config Model configuration with imgsz and normalize params
  * @returns Float32Array in NCHW format [1, 3, height, width]
  */
-export function preprocessImage(imageBitmap: ImageBitmap, config: ModelMetadata): Float32Array {
+export function preprocessImage(imageBitmap: ImageBitmap, config: IModelMetadata): Float32Array {
   const [modelHeight, modelWidth] = config.imgsz;
   const { normalize } = config;
 

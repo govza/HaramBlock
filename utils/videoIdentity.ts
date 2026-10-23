@@ -1,53 +1,25 @@
 import { tryParseUrl } from '@/utils/url';
 
+import type {
+  IPersistentVideoIdentity,
+  IStableMediaReference,
+  IUnknownVideoIdentity,
+  MediaReference,
+  StableIdentityNamespace,
+  VideoIdentity,
+} from '@/utils/types/videoIdentity';
+
 export const SAME_DURATION_TOLERANCE_SEC = 1;
 export const IDENTITY_WAIT_MS = 3_000;
 
-export type PersistentIdentityKind = 'stable' | 'local';
-export type VideoIdentityKind = PersistentIdentityKind | 'unknown';
+export const UNKNOWN_VIDEO_IDENTITY: IUnknownVideoIdentity = { kind: 'unknown' };
 
-/**
- * A video identity the persistent verdict cache may key by: `stable` names the media portably
- * (`namespace:id`), `local` only on this device (page plus duration). Its duration lets the cache
- * notice that the media behind a key changed.
- */
-export interface PersistentVideoIdentity {
-  kind: PersistentIdentityKind;
-  key: string;
-  durationSec: number;
-}
-
-/**
- * Media that could not be identified (yet): analysed and masked in memory only, never read from or
- * written to the persistent verdict cache. `pendingKey` names the identity it is expected to settle
- * on once a check that needs more of the media (its duration) passes.
- */
-export interface UnknownVideoIdentity {
-  kind: 'unknown';
-  pendingKey?: string;
-}
-
-export type VideoIdentity = PersistentVideoIdentity | UnknownVideoIdentity;
-
-export const UNKNOWN_VIDEO_IDENTITY: UnknownVideoIdentity = { kind: 'unknown' };
-
-const STABLE_IDENTITY_NAMESPACES = ['yt', 'vreddit', 'redditpreview', 'url'] as const;
-
-export type StableIdentityNamespace = (typeof STABLE_IDENTITY_NAMESPACES)[number];
-
-/**
- * Media a site adapter or the generic rules name portably, across pages and renditions: the
- * Identity resolver keys it `namespace:id` once the media's duration is known, and only if that
- * duration matches the length the site itself reports for it, when it reports one.
- */
-export interface StableMediaReference {
-  kind: 'stable';
-  namespace: StableIdentityNamespace;
-  id: string;
-  expectedDurationSec?: number;
-}
-
-export type MediaReference = StableMediaReference | { kind: 'local' } | { kind: 'unidentifiable' };
+const STABLE_IDENTITY_NAMESPACES: Record<StableIdentityNamespace, true> = {
+  yt: true,
+  vreddit: true,
+  redditpreview: true,
+  url: true,
+};
 
 export const LOCAL_MEDIA_REFERENCE: MediaReference = { kind: 'local' };
 export const UNIDENTIFIABLE_MEDIA_REFERENCE: MediaReference = { kind: 'unidentifiable' };
@@ -66,16 +38,16 @@ function withoutFragment(href: string): string {
   return url.href;
 }
 
-const localPageIdentity = (pageHref: string, durationSec: number): PersistentVideoIdentity => ({
+const localPageIdentity = (pageHref: string, durationSec: number): IPersistentVideoIdentity => ({
   kind: 'local',
   key: `${LOCAL_PAGE_NAMESPACE}:${withoutFragment(pageHref)}|d=${Math.round(durationSec / DURATION_KEY_STEP_SEC)}`,
   durationSec,
 });
 
-const matchesExpectedDuration = ({ expectedDurationSec }: StableMediaReference, durationSec: number): boolean =>
+const matchesExpectedDuration = ({ expectedDurationSec }: IStableMediaReference, durationSec: number): boolean =>
   expectedDurationSec === undefined || Math.abs(durationSec - expectedDurationSec) <= SAME_DURATION_TOLERANCE_SEC;
 
-function stableIdentityOf(reference: StableMediaReference, durationSec: number): VideoIdentity {
+function stableIdentityOf(reference: IStableMediaReference, durationSec: number): VideoIdentity {
   const key = stableIdentityKey(reference.namespace, reference.id);
   if (Number.isNaN(durationSec)) return { kind: 'unknown', pendingKey: key };
   if (!isKnownDuration(durationSec) || !matchesExpectedDuration(reference, durationSec)) return UNKNOWN_VIDEO_IDENTITY;
@@ -93,7 +65,7 @@ export function identityOfMediaReference(
 }
 
 const isStableIdentityNamespace = (value: unknown): value is StableIdentityNamespace =>
-  STABLE_IDENTITY_NAMESPACES.some(namespace => namespace === value);
+  typeof value === 'string' && Object.hasOwn(STABLE_IDENTITY_NAMESPACES, value);
 
 export function mediaReferenceFrom(value: unknown): MediaReference | null {
   if (!value || typeof value !== 'object') return null;
@@ -104,7 +76,7 @@ export function mediaReferenceFrom(value: unknown): MediaReference | null {
   return typeof expectedDurationSec === 'number' ? { kind, namespace, id, expectedDurationSec } : null;
 }
 
-export const isPersistentIdentity = (identity: VideoIdentity): identity is PersistentVideoIdentity =>
+export const isPersistentIdentity = (identity: VideoIdentity): identity is IPersistentVideoIdentity =>
   identity.kind !== 'unknown';
 
 export const persistentKeyOf = (identity: VideoIdentity): string | null =>
@@ -116,5 +88,5 @@ export const isSameMedia = (known: VideoIdentity, next: VideoIdentity): boolean 
 export const isPendingSameMedia = (known: VideoIdentity, next: VideoIdentity): boolean =>
   isPersistentIdentity(known) && next.kind === 'unknown' && next.pendingKey === known.key;
 
-export const isDurationMismatch = (storedSec: number | undefined, identity: PersistentVideoIdentity): boolean =>
+export const isDurationMismatch = (storedSec: number | undefined, identity: IPersistentVideoIdentity): boolean =>
   storedSec !== undefined && Math.abs(storedSec - identity.durationSec) > SAME_DURATION_TOLERANCE_SEC;

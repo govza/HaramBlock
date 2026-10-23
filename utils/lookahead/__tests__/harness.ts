@@ -14,12 +14,12 @@ import type {
   UnreachableReason,
 } from '@/utils/lookahead/ports';
 import type { CachedSampleReader } from '@/utils/lookahead/sampleQuality';
-import type { PersistentVideoIdentity } from '@/utils/videoIdentity';
+import type { IPersistentVideoIdentity } from '@/utils/types';
 
 export const fixture = (name: string): Uint8Array =>
   new Uint8Array(readFileSync(`utils/lookahead/__tests__/fixtures/${name}`));
 
-export const KNOWN_IDENTITY: PersistentVideoIdentity = {
+export const KNOWN_IDENTITY: IPersistentVideoIdentity = {
   kind: 'local',
   key: 'page:https://example.test/watch|d=40',
   durationSec: 4,
