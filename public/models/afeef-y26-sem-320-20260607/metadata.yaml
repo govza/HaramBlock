@@ -29,4 +29,13 @@ output_shape:
 - 320
 id: sem-i320
 name: "YOLO26n-sem 320\xD7320 (4 classes)"
-rank: 1
+evaluation:
+  benchmark: samin-yolo-sem/val
+  metric: mIoU
+  score: 0.5871
+  pixelAccuracy: 0.9573
+  classScores:
+    background: 0.9684
+    aurat_female: 0.4501
+    aurat_male: 0.387
+    safe_person: 0.5426

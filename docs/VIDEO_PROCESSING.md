@@ -313,17 +313,20 @@ hidden). The background keeps the one-queued-frame-per-session rule for live fra
 A sample is identified by (video identity, versioned `modelId`, Sample Lattice version, point in
 integer µs); readers accept a stored sample only for its exact point. The cache model id is
 `<id>@<version>`, the version being the model folder's date suffix, so new weights under an existing
-id start a new cache version; superseded versions stay readable until expiry. `LATTICE_VERSION`
-(`utils/db/videoPredictionRepository.ts`) is part of every bucket key, so a new lattice never
-overwrites an old bucket, and buckets of another lattice version are never read. Video frames are
-inferred at the floor threshold (`MIN_SCORE_THRESHOLD`, 0.05) whatever the site's strictness, so a
-stored sample means the same to every reader: `{ pointUs, scores, input, topUnsafeScore, source }`,
-clean samples included; `source` is the decoded frame size before scaling to the model input
-(WebCodecs `displayWidth/Height`, the WASM decoder's frame size). `scores` is raw — `detections`
-(instance models, floor detections) or `grid` (semantic models, an `IScoreGrid` of uint8 value-runs
-for per-cell probability and class id, `utils/scoreGrid.ts`). `topUnsafeScore` is the best
-target-class score. Each reader applies its own strictness on read (`predictionsAt` / `isUnsafeAt`
-in `utils/lookahead/sampleScores.ts`) when building the Verdict Timeline and planning Refinement
+id start a new cache version; superseded versions stay readable by compatible ones until expiry.
+`LATTICE_VERSION` (`utils/db/videoPredictionRepository.ts`) is part of every bucket key, so a new
+lattice never overwrites an old bucket, and buckets of another lattice version are never read.
+`SAMPLE_FORMAT_VERSION` covers storage rules shared by every model (the score floor, score and mask
+encoding, which corrections run at write vs read time): bump it when one changes. Buckets of another
+format are never read, and the next write to the same key replaces them. Video frames are inferred
+at the floor threshold (`MIN_SCORE_THRESHOLD`, 0.05) whatever the site's strictness, so a stored
+sample means the same to every reader: `{ pointUs, scores, input, topUnsafeScore, source }`, clean
+samples included; `source` is the decoded frame size before scaling to the model input (WebCodecs
+`displayWidth/Height`, the WASM decoder's frame size). `scores` is raw — `detections` (instance
+models, floor detections) or `grid` (semantic models, an `IScoreGrid` of uint8 value-runs for
+per-cell probability and class id, `utils/scoreGrid.ts`). `topUnsafeScore` is the best target-class
+score. Each reader applies its own strictness on read (`predictionsAt` / `isUnsafeAt` in
+`utils/lookahead/sampleScores.ts`) when building the Verdict Timeline and planning Refinement
 Probes; the suspicion threshold is `suspicionThresholdOf` (half the reader's threshold). Changing
 strictness rebuilds the content pipeline, so new sessions re-read the same samples under the new
 threshold; video samples are never cleared for it.
@@ -346,20 +349,17 @@ model version.
 Within one model version a merge keeps, per point, the sample of higher quality
 (`utils/lookahead/sampleQuality.ts`): the long side the model actually saw,
 `min(source long side, model input size)`, then source pixels; only a strictly higher quality
-replaces, ties keep the stored sample, and a sample without `source` ranks by its input size. Across
-versions `getCached` never mixes samples per point: each model metadata declares an integer `rank`
-(stored per model on the meta row as `modelRanks`, so a version that no longer ships keeps its
-order), the best-ranked version's samples are taken across each stretch it covers, and lower-ranked
-versions fill only outside every better version's covered stretches, best first. A covered stretch
-runs from a version's first to its last sample while neighbours are at most a level-0 spacing apart,
-or, from a sample whose previous neighbour is also further than that (a Keyframe Point standing for
-its GOP), up to 10 s apart; a lattice-spaced run ends at its last point, so a seek hole is filled.
-Where a lower-ranked sample at the same point is unsafe under the reader's strictness and the
-selected one is clean, the unsafe one is returned (fail closed). Samples whose source aspect ratio
-differs from the playing video's by more than 1 % are skipped; the scheduler's cache read waits (at
-most 3 s) for the playing aspect ratio the content reports on `loadedmetadata`, and reads without
-the guard if none arrives. The Verdict Timeline keeps at most 4000 entries and evicts the one
-farthest from the playhead; evicted spans are not re-read from the cache.
+replaces, ties keep the stored sample, and a sample without `source` ranks by its input size. A read
+takes one version's samples, never mixing versions: the active version's when it has any, otherwise
+the compatible version with the most samples. Compatible means the same compatibility key, the model
+task plus its sorted masked classes (`semantic:aurat_female,aurat_male`), stored per model on the
+meta row as `modelCompatibility` so a version that no longer ships stays readable; incompatible
+versions are never read and expire with their row (ranking versions is left to a future shared
+cache). Samples whose source aspect ratio differs from the playing video's by more than 1 % are
+skipped; the scheduler's cache read waits (at most 3 s) for the playing aspect ratio the content
+reports on `loadedmetadata`, and reads without the guard if none arrives. The Verdict Timeline keeps
+at most 4000 entries and evicts the one farthest from the playhead; evicted spans are not re-read
+from the cache.
 
 Live and post-live sessions neither read nor publish; Live Masking samples are never cached. A
 session's liveness (`live` / `vod` / `unknown`) combines the hook's YouTube reading with the video's

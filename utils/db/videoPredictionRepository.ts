@@ -5,21 +5,25 @@ import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
 import { isHigherQuality } from '@/utils/lookahead/sampleQuality';
 import {
+  type ICacheModelVersion,
   type IPersistentVideoIdentity,
   type ForcedVisibility,
   type ICacheMetadata,
   type IStoredVideoSample,
   type IVideoCacheOrigin,
   type IVideoPredictionRecord,
+  type IVideoSampleBucket,
   type SampleBucketKey,
 } from '@/utils/types';
 import { isDurationMismatch } from '@/utils/videoIdentity';
 
-import type { CacheModel } from '@/utils/inference/shared/modelRegistry';
-
 export const VIDEO_SAMPLE_BUCKET_US = 5 * 60 * 1_000_000;
 
 export const LATTICE_VERSION = 1;
+
+export const SAMPLE_FORMAT_VERSION = 1;
+
+const isCurrentFormat = (bucket: IVideoSampleBucket): boolean => bucket.formatVersion === SAMPLE_FORMAT_VERSION;
 
 export const bucketStartOf = (pointUs: number): number =>
   Math.floor(pointUs / VIDEO_SAMPLE_BUCKET_US) * VIDEO_SAMPLE_BUCKET_US;
@@ -80,7 +84,7 @@ const newRecord = (
   timestamp: Date.now(),
   cacheMetadata: origin.cacheMetadata,
   sampleCounts: {},
-  modelRanks: {},
+  modelCompatibility: {},
 });
 
 export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoPredictionRecord> {
@@ -97,20 +101,21 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     return record;
   }
 
-  async readSamplesByModel(identityKey: string): Promise<Record<string, IStoredVideoSample[]>> {
-    if (isCacheDisabled) return {};
-    const buckets = await this.buckets.where('identityKey').equals(identityKey).toArray();
-    const samplesByModel: Record<string, IStoredVideoSample[]> = {};
-    for (const bucket of buckets) {
-      if (bucket.latticeVersion !== LATTICE_VERSION) continue;
-      (samplesByModel[bucket.modelId] ??= []).push(...bucket.samples);
-    }
-    return samplesByModel;
+  async readSamples(identityKey: string, modelId: string): Promise<IStoredVideoSample[]> {
+    if (isCacheDisabled) return [];
+    const buckets = await this.buckets
+      .where('identityKey')
+      .equals(identityKey)
+      .filter(
+        bucket => bucket.modelId === modelId && bucket.latticeVersion === LATTICE_VERSION && isCurrentFormat(bucket),
+      )
+      .toArray();
+    return buckets.flatMap(bucket => bucket.samples);
   }
 
   async mergeSamples(
     identity: IPersistentVideoIdentity,
-    { modelId, rank }: CacheModel,
+    { modelId, compatibilityKey }: ICacheModelVersion,
     origin: VideoPredictionOrigin,
     samples: readonly IStoredVideoSample[],
   ): Promise<void> {
@@ -126,7 +131,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       let added = 0;
       for (const [bucketStartUs, incoming] of groupByBucket(samples)) {
         const existing = await this.buckets.get(currentLatticeBucketKey(identity.key, modelId, bucketStartUs));
-        const existingSamples = existing?.samples ?? [];
+        const existingSamples = existing && isCurrentFormat(existing) ? existing.samples : [];
         const merged = mergeVideoSamples(existingSamples, incoming);
         added += merged.length - existingSamples.length;
         await this.buckets.put({
@@ -134,6 +139,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
           modelId,
           bucketStartUs,
           latticeVersion: LATTICE_VERSION,
+          formatVersion: SAMPLE_FORMAT_VERSION,
           hostname: origin.hostname,
           samples: merged,
         });
@@ -146,7 +152,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
         hostname: origin.hostname,
         timestamp: Date.now(),
         sampleCounts: { ...record.sampleCounts, [modelId]: (record.sampleCounts[modelId] ?? 0) + added },
-        modelRanks: { ...record.modelRanks, [modelId]: rank },
+        modelCompatibility: { ...record.modelCompatibility, [modelId]: compatibilityKey },
       });
     });
   }
@@ -164,7 +170,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       .modify(record => {
         record.durationSec = identity.durationSec;
         record.sampleCounts = {};
-        record.modelRanks = {};
+        record.modelCompatibility = {};
         record.forcedVisibility = 'auto';
       });
   }

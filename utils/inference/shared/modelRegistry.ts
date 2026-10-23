@@ -2,13 +2,14 @@ import { load } from 'js-yaml';
 
 import { getLogger } from '@/utils/telemetry';
 
-import type { IModelMetadata, IYamlModelMetadata } from '@/utils/types';
+import type { IModelMetadata, IYamlModelMetadata, ModelTask } from '@/utils/types';
 
 const log = getLogger('modelLoader');
 
 /**
  * A shipped model as discovered from its folder: the id settings refer to, plus the weights version
- * (the folder's date suffix) and the developer-declared rank the video cache orders versions by.
+ * (the folder's date suffix) the video cache keys its samples by, and the compatibility key that
+ * decides which other versions' cached samples it may read.
  */
 export interface ModelDefinition {
   id: string;
@@ -16,16 +17,7 @@ export interface ModelDefinition {
   basePath: string;
   inputSize: number;
   version: string;
-  rank: number;
-}
-
-/**
- * A versioned model as the video verdict cache stores it (`<id>@<version>`), with the rank readers
- * order versions by.
- */
-export interface CacheModel {
-  modelId: string;
-  rank: number;
+  compatibilityKey: string;
 }
 
 const MODEL_FOLDER_VERSION = /-(\d{8})$/;
@@ -36,6 +28,16 @@ export const cacheModelIdOf = (model: Pick<ModelDefinition, 'id' | 'version'>): 
   `${model.id}@${model.version}`;
 
 const NON_TARGET_CLASSES = new Set(['background', 'safe_person', 'person']);
+
+const targetClassesOf = (names: Record<number, string>): string[] =>
+  Object.values(names).filter(name => !NON_TARGET_CLASSES.has(name));
+
+const taskOf = (metadata: IYamlModelMetadata): ModelTask => (metadata.task === 'semantic' ? 'semantic' : 'segment');
+
+export const compatibilityKeyOf = (metadata: IYamlModelMetadata): string =>
+  `${taskOf(metadata)}:${targetClassesOf(metadata.names ?? {})
+    .sort()
+    .join(',')}`;
 
 /**
  * Model directory paths - each contains metadata.yaml and model files.
@@ -99,13 +101,13 @@ export function createConfigFromMetadata(metadata: IYamlModelMetadata, defaults:
   const imgsz = metadata.imgsz || defaults.imgsz;
   const stride = metadata.stride || defaults.stride;
   const names = metadata.names || defaults.names;
-  const task = metadata.task === 'semantic' ? 'semantic' : 'segment';
+  const task = taskOf(metadata);
   return {
     ...defaults,
     names,
     imgsz,
     normalize: metadata.normalize || null,
-    namesToCheck: Object.values(names).filter(name => !NON_TARGET_CLASSES.has(name)),
+    namesToCheck: targetClassesOf(names),
     outputShape: metadata.output_shape || [imgsz[0] / stride, imgsz[1] / stride],
     inputName: metadata.input_name || defaults.inputName,
     outputNames: {
@@ -140,7 +142,7 @@ export async function discoverModels(
         basePath,
         inputSize: metadata.imgsz[0],
         version: modelVersionOf(basePath),
-        rank: metadata.rank ?? 0,
+        compatibilityKey: compatibilityKeyOf(metadata),
       };
     }),
   );

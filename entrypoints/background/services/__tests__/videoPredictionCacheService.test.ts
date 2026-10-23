@@ -9,7 +9,7 @@ const repository = vi.hoisted(() => ({
   updateForcedVisibility: vi.fn(() => Promise.resolve()),
   findValidByIdentityKey: vi.fn((): Promise<IVideoPredictionRecord | undefined> => Promise.resolve(undefined)),
   touchAccessed: vi.fn(() => Promise.resolve()),
-  readSamplesByModel: vi.fn((): Promise<Record<string, IStoredVideoSample[]>> => Promise.resolve({})),
+  readSamples: vi.fn((): Promise<IStoredVideoSample[]> => Promise.resolve([])),
 }));
 
 vi.mock('@/utils/db/videoPredictionRepository', () => ({
@@ -25,9 +25,9 @@ const runtime = vi.hoisted(() => {
     basePath: '/models/sem-320-20260607',
     inputSize: 320,
     version: '20260607',
-    rank: 1,
+    compatibilityKey: 'semantic:aurat_female,aurat_male',
   };
-  const shipped640 = { ...shipped320, id: 'sem-i640', basePath: '/models/sem-640-20260607', inputSize: 640, rank: 3 };
+  const shipped640 = { ...shipped320, id: 'sem-i640', basePath: '/models/sem-640-20260607', inputSize: 640 };
   return { shipped320, currentModelId: 'sem-i320', models: [shipped320, shipped640] };
 });
 
@@ -45,42 +45,24 @@ const ORIGIN = {
 
 const V320 = 'sem-i320@20260607';
 const V640 = 'sem-i640@20260607';
-const READER = { scoreThreshold: 0.5, aspectRatio: 16 / 9 };
+const SEMANTIC = 'semantic:aurat_female,aurat_male';
+const READER = { aspectRatio: 16 / 9 };
 
-const unsafeDetection = {
-  classId: 1,
-  className: 'aurat_female',
-  probability: 0.4,
-  boundingBox: { x: 0, y: 0, width: 10, height: 10 },
-  masks: { width: 1, height: 1, startValue: 1 as const, runs: [1] },
-};
-
-/**
- * Shape of a test sample: whether it holds a detection above the reader's strictness, and the frame
- * size it was analysed from.
- */
-interface SampleShape {
-  unsafe?: boolean;
-  source?: { width: number; height: number };
-}
-
-function sample(pointUs: number, { unsafe = false, source }: SampleShape = {}): IStoredVideoSample {
+function sample(pointUs: number, source?: { width: number; height: number }): IStoredVideoSample {
   return {
     pointUs,
-    scores: { kind: 'detections', detections: unsafe ? [{ ...unsafeDetection, probability: 0.9 }] : [] },
+    scores: { kind: 'detections', detections: [] },
     input: { width: 320, height: 180, maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 } },
-    topUnsafeScore: unsafe ? 0.9 : 0.1,
+    topUnsafeScore: 0.1,
     ...(source ? { source } : {}),
   };
 }
-
-const points = (samples: IStoredVideoSample[]) => samples.map(entry => entry.pointUs);
 
 const mergedCalls = () =>
   repository.mergeSamples.mock.calls.map(call => {
     const [identity, model, , samples] = call as unknown as [
       IPersistentVideoIdentity,
-      { modelId: string; rank: number },
+      { modelId: string },
       unknown,
       unknown[],
     ];
@@ -134,7 +116,7 @@ describe('VideoPredictionCacheService', () => {
     expect(mergedCalls().map(call => call.modelId)).toEqual(['sem-i320@20260607', 'sem-i320@20261001']);
     expect(repository.mergeSamples).toHaveBeenCalledWith(
       VIDEO,
-      { modelId: 'sem-i320@20261001', rank: 1 },
+      { modelId: 'sem-i320@20261001', compatibilityKey: SEMANTIC },
       expect.anything(),
       [sample(0)],
     );
@@ -191,134 +173,73 @@ describe('VideoPredictionCacheService', () => {
     forcedVisibility: 'blocked',
     timestamp: 0,
     cacheMetadata: { createdAt: 0, accessedAt: 0 },
-    sampleCounts: { 'sem-i320@20260607': 1 },
-    modelRanks: { 'sem-i320@20260607': 1 },
+    sampleCounts: { [V320]: 1 },
+    modelCompatibility: { [V320]: SEMANTIC },
   };
 
-  it('reads the active model samples from their buckets', async () => {
+  it('reads the active model version samples, sorted by point', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [sample(0)] });
+    repository.readSamples.mockResolvedValueOnce([sample(500_000), sample(0)]);
     const service = new VideoPredictionCacheService();
     await expect(service.getCached(VIDEO, READER)).resolves.toEqual({
-      samples: [sample(0)],
+      samples: [sample(0), sample(500_000)],
       forcedVisibility: 'blocked',
     });
-    expect(repository.readSamplesByModel).toHaveBeenCalledWith(VIDEO.key);
+    expect(repository.readSamples).toHaveBeenCalledWith(VIDEO.key, V320);
   });
 
-  const spaced = (fromUs: number, toUs: number, shape?: SampleShape) =>
-    Array.from({ length: (toUs - fromUs) / 500_000 + 1 }, (_, index) => sample(fromUs + index * 500_000, shape));
-
-  it('reads the best-ranked version covering a stretch instead of a lower-ranked one', async () => {
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const best = spaced(0, 1_000_000, { source: { width: 1920, height: 1080 } });
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: spaced(0, 1_000_000), [V640]: best });
-    const service = new VideoPredictionCacheService();
-    const { samples } = await service.getCached(VIDEO, READER);
-    expect(samples).toEqual(best);
-  });
-
-  it('fills stretches the best-ranked version has not covered from lower-ranked versions, best first', async () => {
+  it('reads the active version even when a compatible version holds more samples', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce({
       ...META,
-      modelRanks: { [V320]: 1, 'sem-i448@20260607': 2 },
-    });
-    repository.readSamplesByModel.mockResolvedValueOnce({
-      [V320]: spaced(0, 4_000_000),
-      'sem-i448@20260607': spaced(0, 2_000_000),
-      [V640]: [...spaced(0, 1_000_000), sample(1_250_000)],
+      sampleCounts: { [V320]: 1, [V640]: 40 },
+      modelCompatibility: { [V320]: SEMANTIC, [V640]: SEMANTIC },
     });
     const service = new VideoPredictionCacheService();
-    const { samples } = await service.getCached(VIDEO, READER);
-    expect(points(samples)).toEqual([
-      0, 500_000, 1_000_000, 1_250_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000, 3_500_000, 4_000_000,
-    ]);
-    expect(samples.filter(entry => entry.pointUs <= 1_250_000)).toEqual([...spaced(0, 1_000_000), sample(1_250_000)]);
+    await service.getCached(VIDEO, READER);
+    expect(repository.readSamples).toHaveBeenCalledWith(VIDEO.key, V320);
   });
 
-  it('never fills between the Keyframe Points a better version analysed a long-GOP stretch at', async () => {
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const keyframePoints = [sample(0), sample(2_000_000), sample(4_000_000)];
-    repository.readSamplesByModel.mockResolvedValueOnce({
-      [V320]: spaced(0, 6_000_000, { unsafe: true }),
-      [V640]: keyframePoints,
-    });
-    const service = new VideoPredictionCacheService();
-    const { samples } = await service.getCached(VIDEO, READER);
-    expect(points(samples)).toEqual([0, 2_000_000, 4_000_000, 4_500_000, 5_000_000, 5_500_000, 6_000_000]);
-  });
-
-  it('fills a hole between two stretches a better version analysed at lattice spacing', async () => {
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const before = spaced(0, 1_000_000, { source: { width: 1920, height: 1080 } });
-    const after = spaced(5_000_000, 6_000_000, { source: { width: 1920, height: 1080 } });
-    const lower = spaced(0, 6_000_000);
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: lower, [V640]: [...before, ...after] });
-    const service = new VideoPredictionCacheService();
-    const { samples } = await service.getCached(VIDEO, READER);
-    expect(samples).toEqual([...before, ...spaced(1_500_000, 4_500_000), ...after]);
-  });
-
-  it('ranks a superseded version no longer shipped by the rank stored with its samples', async () => {
+  it('falls back to the compatible version with the most samples when the active one has none', async () => {
     const superseded = 'sem-i640@20250101';
-    repository.findValidByIdentityKey.mockResolvedValueOnce({ ...META, modelRanks: { [V320]: 1, [superseded]: 2 } });
-    const old = spaced(0, 1_000_000, { source: { width: 1280, height: 720 } });
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: spaced(0, 1_000_000), [superseded]: old });
-    const service = new VideoPredictionCacheService();
-    const { samples } = await service.getCached(VIDEO, READER);
-    expect(samples).toEqual(old);
-  });
-
-  it('fails closed where a lower-ranked version is unsafe under the reader strictness and the selected one is clean', async () => {
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const lowerUnsafe = sample(500_000, { unsafe: true });
-    repository.readSamplesByModel.mockResolvedValueOnce({
-      [V320]: [sample(0), lowerUnsafe, sample(1_000_000)],
-      [V640]: spaced(0, 1_000_000),
+    repository.findValidByIdentityKey.mockResolvedValueOnce({
+      ...META,
+      sampleCounts: { [V640]: 10, [superseded]: 30 },
+      modelCompatibility: { [V640]: SEMANTIC, [superseded]: SEMANTIC },
     });
-    const service = new VideoPredictionCacheService();
-    const { samples } = await service.getCached(VIDEO, READER);
-    expect(samples).toEqual([sample(0), lowerUnsafe, sample(1_000_000)]);
-  });
-
-  it('keeps the selected sample where a lower-ranked one is only unsafe under a stricter reader', async () => {
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const borderline = { ...sample(0), scores: { kind: 'detections' as const, detections: [unsafeDetection] } };
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [borderline], [V640]: [sample(0)] });
+    repository.readSamples.mockResolvedValueOnce([sample(0)]);
     const service = new VideoPredictionCacheService();
     await expect(service.getCached(VIDEO, READER)).resolves.toMatchObject({ samples: [sample(0)] });
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [borderline], [V640]: [sample(0)] });
-    await expect(service.getCached(VIDEO, { ...READER, scoreThreshold: 0.3 })).resolves.toMatchObject({
-      samples: [borderline],
+    expect(repository.readSamples).toHaveBeenCalledWith(VIDEO.key, superseded);
+  });
+
+  it('never reads a version whose task or masked classes differ', async () => {
+    repository.findValidByIdentityKey.mockResolvedValueOnce({
+      ...META,
+      sampleCounts: { 'seg-i640@20260619': 30, 'sem-i640@20261201': 30 },
+      modelCompatibility: {
+        'seg-i640@20260619': 'segment:aurat_female,aurat_male',
+        'sem-i640@20261201': 'semantic:aurat_child,aurat_female,aurat_male',
+      },
     });
+    const service = new VideoPredictionCacheService();
+    await expect(service.getCached(VIDEO, READER)).resolves.toEqual({ samples: [], forcedVisibility: 'blocked' });
+    expect(repository.readSamples).not.toHaveBeenCalled();
   });
 
   it('skips samples analysed from a rendition whose aspect ratio differs by more than 1 %', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const pillarboxed = sample(0, { source: { width: 640, height: 480 } });
-    const nearlyWide = sample(500_000, { source: { width: 1918, height: 1080 } });
+    const pillarboxed = sample(0, { width: 640, height: 480 });
+    const nearlyWide = sample(500_000, { width: 1918, height: 1080 });
     const unsized = sample(1_000_000);
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [pillarboxed, nearlyWide, unsized] });
+    repository.readSamples.mockResolvedValueOnce([pillarboxed, nearlyWide, unsized]);
     const service = new VideoPredictionCacheService();
     const { samples } = await service.getCached(VIDEO, READER);
     expect(samples).toEqual([nearlyWide, unsized]);
   });
 
-  it('lets a lower-ranked version fill a stretch whose best-ranked samples were skipped for their aspect ratio', async () => {
-    repository.findValidByIdentityKey.mockResolvedValueOnce(META);
-    const lower = spaced(0, 1_000_000, { source: { width: 1280, height: 720 } });
-    repository.readSamplesByModel.mockResolvedValueOnce({
-      [V320]: lower,
-      [V640]: spaced(0, 1_000_000, { source: { width: 1080, height: 1080 } }),
-    });
-    const service = new VideoPredictionCacheService();
-    await expect(service.getCached(VIDEO, READER)).resolves.toMatchObject({ samples: lower });
-  });
-
   it('reads samples stored for a duration within 1 s of the playing one', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce({ ...META, durationSec: 60.9 });
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [sample(0)] });
+    repository.readSamples.mockResolvedValueOnce([sample(0)]);
     const service = new VideoPredictionCacheService();
     await expect(service.getCached(VIDEO, READER)).resolves.toMatchObject({ samples: [sample(0)] });
     expect(repository.purgeSamples).not.toHaveBeenCalled();
@@ -326,7 +247,7 @@ describe('VideoPredictionCacheService', () => {
 
   it('purges and skips samples and the forced visibility stored for a duration more than 1 s off', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce({ ...META, durationSec: 58.5 });
-    repository.readSamplesByModel.mockResolvedValueOnce({ [V320]: [sample(0)] });
+    repository.readSamples.mockResolvedValueOnce([sample(0)]);
     const service = new VideoPredictionCacheService();
     await expect(service.getCached(VIDEO, READER)).resolves.toEqual({ samples: [], forcedVisibility: 'auto' });
     expect(repository.purgeSamples).toHaveBeenCalledWith(VIDEO);
@@ -337,7 +258,7 @@ describe('VideoPredictionCacheService', () => {
     const service = new VideoPredictionCacheService();
     service.publish(VIDEO, ORIGIN, [sample(0)]);
     await service.getCached(VIDEO, READER);
-    expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.readSamplesByModel);
+    expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.readSamples);
   });
 
   it('reads only after a flush already writing has committed its samples', async () => {
@@ -357,19 +278,19 @@ describe('VideoPredictionCacheService', () => {
     );
     const read = service.getCached(VIDEO, READER);
     await vi.advanceTimersByTimeAsync(0);
-    expect(repository.readSamplesByModel).not.toHaveBeenCalled();
+    expect(repository.readSamples).not.toHaveBeenCalled();
 
     commitWrite();
     await read;
 
-    expect(repository.readSamplesByModel).toHaveBeenCalled();
+    expect(repository.readSamples).toHaveBeenCalled();
   });
 
   it('reads the forced visibility without loading samples', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce(META);
     const service = new VideoPredictionCacheService();
     await expect(service.getForcedVisibility(VIDEO)).resolves.toBe('blocked');
-    expect(repository.readSamplesByModel).not.toHaveBeenCalled();
+    expect(repository.readSamples).not.toHaveBeenCalled();
   });
 
   it('never restores a forced visibility stored for a duration more than 1 s off', async () => {

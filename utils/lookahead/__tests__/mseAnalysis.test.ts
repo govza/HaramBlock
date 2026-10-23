@@ -328,7 +328,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await analysis.settled();
 
-    expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: PLAYING_ASPECT_RATIO }]);
+    expect(harness.readAs).toEqual([{ aspectRatio: PLAYING_ASPECT_RATIO }]);
   });
 
   it('waits for the playing video aspect ratio before reading the cache', async () => {
@@ -343,7 +343,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
     analysis.setReadContext({ identity: KNOWN_IDENTITY, aspectRatio: 4 / 3 });
     await settleWithFakeTimers(analysis);
 
-    expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: 4 / 3 }]);
+    expect(harness.readAs).toEqual([{ aspectRatio: 4 / 3 }]);
   });
 
   it('reads without an aspect ratio once the identity wait runs out', async () => {
@@ -354,7 +354,7 @@ describe('Lookahead Analysis cache under a video identity', () => {
     analysis.append('v', fixture('mse-vp9.webm'), 0);
     await settleWithFakeTimers(analysis);
 
-    expect(harness.readAs).toEqual([{ scoreThreshold: 0.5, aspectRatio: null }]);
+    expect(harness.readAs).toEqual([{ aspectRatio: null }]);
   });
 
   it('analyses an unidentified video without waiting for its identity', async () => {

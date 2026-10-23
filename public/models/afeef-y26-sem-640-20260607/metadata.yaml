@@ -29,4 +29,13 @@ output_shape:
 - 640
 id: sem-i640
 name: "YOLO26n-sem 640\xD7640 (4 classes)"
-rank: 3
+evaluation:
+  benchmark: samin-yolo-sem/val
+  metric: mIoU
+  score: 0.6635
+  pixelAccuracy: 0.9662
+  classScores:
+    background: 0.976
+    aurat_female: 0.5254
+    aurat_male: 0.532
+    safe_person: 0.6205

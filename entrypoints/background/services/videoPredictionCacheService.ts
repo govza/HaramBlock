@@ -2,16 +2,18 @@ import { getAvailableModels, getCurrentModelId } from '@inference-runtime';
 
 import { clampMaxAge } from '@/utils/cacheUtils';
 import { VideoPredictionRepository } from '@/utils/db/videoPredictionRepository';
-import { cacheModelIdOf, type CacheModel } from '@/utils/inference/shared/modelRegistry';
-import { selectAcrossVersions, type CachedSampleReader } from '@/utils/lookahead/sampleQuality';
+import { cacheModelIdOf } from '@/utils/inference/shared/modelRegistry';
+import { selectCachedSamples, type CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import { getLogger, videoIdentityAttributes } from '@/utils/telemetry';
 import {
   EMPTY_CACHED_VIDEO_PREDICTIONS,
   type ForcedVisibility,
+  type ICacheModelVersion,
   type ICachedVideoPredictions,
   type IVideoCacheOrigin,
   type ICacheMetadata,
   type IStoredVideoSample,
+  type IVideoPredictionRecord,
   type IPersistentVideoIdentity,
   type VideoIdentity,
 } from '@/utils/types';
@@ -27,21 +29,24 @@ const FLUSH_ENTRY_THRESHOLD = 50;
  */
 interface PendingWrite {
   identity: IPersistentVideoIdentity;
-  model: CacheModel;
+  model: ICacheModelVersion;
   origin: IVideoCacheOrigin;
   samples: IStoredVideoSample[];
 }
 
-function activeCacheModel(): CacheModel {
+function activeModelVersion(): ICacheModelVersion {
   const id = getCurrentModelId() ?? 'unknown';
   const model = getAvailableModels().find(candidate => candidate.id === id);
-  if (!model) return { modelId: id, rank: 0 };
-  return { modelId: cacheModelIdOf(model), rank: model.rank };
+  if (!model) return { modelId: id, compatibilityKey: '' };
+  return { modelId: cacheModelIdOf(model), compatibilityKey: model.compatibilityKey };
 }
 
-function rankOf(modelId: string, storedRanks: Record<string, number>): number {
-  const shipped = getAvailableModels().find(model => cacheModelIdOf(model) === modelId);
-  return shipped?.rank ?? storedRanks[modelId] ?? 0;
+function readableModelIdOf(record: IVideoPredictionRecord, active: ICacheModelVersion): string | null {
+  if ((record.sampleCounts[active.modelId] ?? 0) > 0) return active.modelId;
+  const compatible = Object.entries(record.sampleCounts)
+    .filter(([modelId, count]) => count > 0 && record.modelCompatibility[modelId] === active.compatibilityKey)
+    .sort(([idA, countA], [idB, countB]) => countB - countA || idA.localeCompare(idB));
+  return compatible[0]?.[0] ?? null;
 }
 
 function defaultCacheMetadata(): ICacheMetadata {
@@ -58,7 +63,7 @@ export class VideoPredictionCacheService {
 
   publish(identity: VideoIdentity, origin: IVideoCacheOrigin, samples: readonly IStoredVideoSample[]): void {
     if (samples.length === 0 || !isPersistentIdentity(identity)) return;
-    const model = activeCacheModel();
+    const model = activeModelVersion();
     const key = `${identity.key}\n${model.modelId}`;
     const write = this.pending.get(key) ?? { identity, model, origin, samples: [] };
     write.samples.push(...samples);
@@ -82,13 +87,10 @@ export class VideoPredictionCacheService {
       await this.repository.purgeSamples(identity);
       return EMPTY_CACHED_VIDEO_PREDICTIONS;
     }
-    const samplesByModel = await this.repository.readSamplesByModel(identity.key);
-    const versions = Object.entries(samplesByModel).map(([modelId, samples]) => ({
-      modelId,
-      rank: rankOf(modelId, record.modelRanks),
-      samples,
-    }));
-    return { samples: selectAcrossVersions(versions, reader), forcedVisibility: record.forcedVisibility };
+    const modelId = readableModelIdOf(record, activeModelVersion());
+    if (modelId === null) return { samples: [], forcedVisibility: record.forcedVisibility };
+    const samples = await this.repository.readSamples(identity.key, modelId);
+    return { samples: selectCachedSamples(samples, reader), forcedVisibility: record.forcedVisibility };
   }
 
   async getForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {

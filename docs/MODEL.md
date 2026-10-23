@@ -130,13 +130,25 @@ names: # Class mapping
   1: aurat_female
   2: aurat_male
   3: safe_person
-rank: 1 # Video cache order, from offline evaluation; higher is better
+evaluation: # Offline validation result; not read by the extension
+  benchmark: samin-yolo-sem/val # Dataset split the score was measured on
+  metric: mIoU # mIoU for semantic, mAP50-95 for instance (segment) models
+  score: 0.5871 # Overall, across all classes
+  pixelAccuracy: 0.9573 # Optional
+  classScores: # Optional; the metric per class
+    background: 0.9684
+    aurat_female: 0.4501
+    aurat_male: 0.387
+    safe_person: 0.5426
 ```
 
-`rank` orders model versions in the video verdict cache: a session reads the best-ranked version
-that has samples and falls back to lower ranks for gaps. Convention: a newer generation ranks above
-an older one; within a generation, a larger input ranks above a smaller one. The folder's date
-suffix is the model version: shipping new weights in a new dated folder starts a new cache version.
+`evaluation` is not read by the extension: the video verdict cache reads only the active model
+version's samples. It records how each shipped version validated, as the source a future shared
+cache ranks versions by. The export scripts in the model repo (`model.yolo.export-sem`,
+`model.yolo.export`) validate at the export size on the dataset's val split and write this block;
+`--skip-eval` omits it. The shipped `20260607` exports scored 0.5871 / 0.6342 / 0.6635 mIoU at 320 /
+448 / 640 on `samin-yolo-sem/val`. The folder's date suffix is the model version: shipping new
+weights in a new dated folder starts a new cache version.
 
 ### Model Loader API
 
