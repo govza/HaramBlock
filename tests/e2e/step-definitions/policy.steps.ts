@@ -12,6 +12,22 @@ const checkAllImagesBlacklisted = async (): Promise<boolean> => {
   return results.every(attr => attr !== null);
 };
 
+const POLICY_CHANGE_TIMEOUT_MS = 5000;
+
+/**
+ * Waiting for the toggle to re-render instead of pausing a fixed time keeps a slow settings write
+ * (cold IndexedDB on the Android emulator) from swallowing clicks or landing them after the next one.
+ */
+const clickAndWaitForPolicyChange = async (policyButton: WebdriverIO.Element, previousPolicy: string | null) => {
+  await policyButton.click();
+  await browser
+    .waitUntil(async () => (await policyButton.getAttribute('data-policy')) !== previousPolicy, {
+      timeout: POLICY_CHANGE_TIMEOUT_MS,
+      interval: 200,
+    })
+    .catch(() => undefined);
+};
+
 const clickUntilPolicy = async (
   policyButton: WebdriverIO.Element,
   targetPolicy: string,
@@ -25,8 +41,7 @@ const clickUntilPolicy = async (
     if (currentPolicy === targetPolicy) {
       return;
     }
-    await policyButton.click();
-    await browser.pause(500);
+    await clickAndWaitForPolicyChange(policyButton, currentPolicy);
   }
 
   const finalPolicy = await policyButton.getAttribute('data-policy');
