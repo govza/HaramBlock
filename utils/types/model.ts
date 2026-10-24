@@ -6,7 +6,8 @@ import type { Context } from '@opentelemetry/api';
  * One image queued for background inference with the settings it is judged under. Higher
  * `priority` runs first. The pixels arrive pre-decoded as a transferred `bitmap` (MessageChannel)
  * or as a `blob` (Firefox structured clone) the inference library decodes, with the original
- * dimensions alongside; the timestamps and durations feed pipeline timing telemetry.
+ * dimensions alongside; the timestamps and durations feed pipeline timing telemetry. A task from a
+ * private tab never touches the persistent cache.
  */
 export interface IInferenceTask {
   imageSrc: string;
@@ -15,6 +16,7 @@ export interface IInferenceTask {
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
   priority: number;
+  isIncognito?: boolean;
   traceContext?: Context;
   bitmap?: ImageBitmap;
   blob?: Blob;

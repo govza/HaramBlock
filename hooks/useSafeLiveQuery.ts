@@ -1,46 +1,20 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState, useEffect, useRef } from 'react';
-
-import { isIncognito } from '@/utils/db/db';
-
-type LiveQueryHook = <T>(querier: () => Promise<T>, deps: unknown[]) => T | undefined;
+import { useState, useEffect } from 'react';
 
 /**
- * Incognito implementation: useState + useEffect with storage.session listener.
- * Uses a ref for the querier so the storage listener always calls the latest version.
+ * Dexie's useLiveQuery that also re-runs on `storage.session` changes, where private-tab host
+ * settings live, so one hook serves both normal and private tabs.
  */
-const useIncognitoLiveQuery: LiveQueryHook = <T>(querier: () => Promise<T>, deps: unknown[]) => {
-  const [data, setData] = useState<T | undefined>(undefined);
-  const querierRef = useRef(querier);
-  querierRef.current = querier;
+export const useSafeLiveQuery = <T>(querier: () => Promise<T>, deps: unknown[]): T | undefined => {
+  const [sessionVersion, setSessionVersion] = useState(0);
 
-  // Re-run query when deps change
-  useEffect(() => void querierRef.current().then(setData), deps);
-
-  // Re-run query on session storage changes only
   useEffect(() => {
     const handleStorageChange = (_changes: Record<string, unknown>, areaName: string) => {
-      if (areaName === 'session') {
-        void querierRef.current().then(setData);
-      }
+      if (areaName === 'session') setSessionVersion(version => version + 1);
     };
     browser.storage.onChanged.addListener(handleStorageChange);
     return () => browser.storage.onChanged.removeListener(handleStorageChange);
   }, []);
 
-  return data;
+  return useLiveQuery(querier, [...deps, sessionVersion]);
 };
-
-/**
- * Normal implementation: delegates directly to Dexie's useLiveQuery.
- */
-const useIndexedDbLiveQuery: LiveQueryHook = <T>(querier: () => Promise<T>, deps: unknown[]) => {
-  return useLiveQuery(querier, deps);
-};
-
-/**
- * A wrapper around useLiveQuery that works in incognito mode.
- * - Normal mode: Uses Dexie's useLiveQuery with live IndexedDB updates
- * - Incognito mode: Uses useState + useEffect with storage.session, auto-refreshes on storage changes
- */
-export const useSafeLiveQuery: LiveQueryHook = isIncognito ? useIncognitoLiveQuery : useIndexedDbLiveQuery;

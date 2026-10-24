@@ -51,23 +51,23 @@ vi.mock('@/entrypoints/background/services/batchCollector', () => ({
   },
 }));
 
-const cacheService = {
-  getCachedPredictionsBySrc: vi.fn(() => Promise.resolve([])),
-  cachePredictions: vi.fn(() => Promise.resolve()),
-} as unknown as ImageCacheService;
+const getCachedPredictionsBySrc = vi.fn(() => Promise.resolve([]));
+const cachePredictions = vi.fn(() => Promise.resolve());
+const cacheService = { getCachedPredictionsBySrc, cachePredictions } as unknown as ImageCacheService;
 
 function setup() {
   const queue = new QueueService();
   const service = new InferenceOrchestrationService(queue, cacheService);
   const results: ImageInferenceResult[] = [];
   service.setOnImagePredictionsCallback(batch => results.push(...batch));
-  const schedule = (imageSrc: string, priority = 0) =>
+  const schedule = (imageSrc: string, priority = 0, isIncognito = false) =>
     service.scheduleInferenceTask({
       input: { kind: 'src', imageSrc },
       hostname: 'example.com',
       hostSettings: DEFAULT_HOST_SETTINGS,
       mediaMetadata: { kind: 'image' } as IMediaMetadata,
       priority,
+      isIncognito,
     });
   return { service, queue, results, schedule };
 }
@@ -128,5 +128,19 @@ describe('InferenceOrchestrationService image dedupe', () => {
     await schedule('a');
     await vi.waitFor(() => expect(processInferenceTask).toHaveBeenCalledTimes(2));
     release('a');
+  });
+});
+
+describe('InferenceOrchestrationService private tabs', () => {
+  it('neither reads nor writes the image cache for a private tab', async () => {
+    getCachedPredictionsBySrc.mockClear();
+    cachePredictions.mockClear();
+    const { results, schedule } = setup();
+    await schedule('private', 0, true);
+    await vi.waitFor(() => expect(statuses(results, 'private')).toEqual(['started']));
+    release('private');
+    await vi.waitFor(() => expect(statuses(results, 'private')).toEqual(['started', 'ok']));
+    expect(getCachedPredictionsBySrc).not.toHaveBeenCalled();
+    expect(cachePredictions).not.toHaveBeenCalled();
   });
 });

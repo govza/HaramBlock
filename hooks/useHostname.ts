@@ -12,6 +12,7 @@ const log = getLogger('useHostname');
  */
 export function useHostname() {
   const [detectedHostname, setDetectedHostname] = useState<string>(DEFAULT_GLOBAL_KEY);
+  const [isIncognito, setIsIncognito] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Auto-detect current hostname from active tab
@@ -22,6 +23,7 @@ export function useHostname() {
           active: true,
           currentWindow: true,
         });
+        setIsIncognito(tabs[0]?.incognito ?? false);
         const urlFromTab = tabs[0]?.url;
         if (urlFromTab) {
           const currentHostname = extractHostnameFromUrl(urlFromTab);
@@ -43,6 +45,7 @@ export function useHostname() {
     // Current state
     currentHostname,
     detectedHostname,
+    isIncognito,
     error: error || undefined,
   };
 }
