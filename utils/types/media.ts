@@ -70,6 +70,7 @@ interface IImageTransferBase {
   height: number;
   metadata: IImageMetadata;
   hostname: string;
+  isIncognito: boolean;
   priority: number;
   traceparent?: string;
   // Timing from content script

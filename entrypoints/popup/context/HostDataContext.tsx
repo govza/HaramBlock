@@ -3,7 +3,6 @@ import { createContext, useContext, useState, useMemo, useEffect, useRef, useCal
 import { useHostname } from '@/hooks/useHostname';
 import { useSafeLiveQuery } from '@/hooks/useSafeLiveQuery';
 import { DEFAULT_GLOBAL_KEY, DEFAULT_HOST_SETTINGS } from '@/utils/constants';
-import { isIncognito } from '@/utils/db/db';
 import { createHostSettingsRepository, type HostSettingsRepository } from '@/utils/db/hostSettingsRepository';
 import { ImagePredictionRepository } from '@/utils/db/imagePredictionRepository';
 import { VideoPredictionRepository } from '@/utils/db/videoPredictionRepository';
@@ -48,17 +47,17 @@ type HostDataProviderProps = {
 };
 
 export const HostDataProvider = ({ children }: HostDataProviderProps) => {
-  const { currentHostname: detectedHostname, error: hostnameError } = useHostname();
+  const { currentHostname: detectedHostname, isIncognito, error: hostnameError } = useHostname();
   const [isGlobalMode, setIsGlobalMode] = useState(false);
 
   const currentHostname = isGlobalMode ? DEFAULT_GLOBAL_KEY : detectedHostname;
   const effectiveHostname = useMemo(() => getEffectiveHostname(currentHostname), [currentHostname]);
 
-  const hostSettingsRepository = useMemo(() => createHostSettingsRepository(isIncognito), []);
+  const hostSettingsRepository = useMemo(() => createHostSettingsRepository(isIncognito), [isIncognito]);
 
   const hostSettingsData = useSafeLiveQuery(
     () => hostSettingsRepository.findByHostname(effectiveHostname),
-    [effectiveHostname],
+    [effectiveHostname, hostSettingsRepository],
   );
 
   const hostSettings = hostSettingsData || {

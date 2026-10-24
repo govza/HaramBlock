@@ -66,6 +66,7 @@ export type ScheduleArgs = {
   hostSettings: IHostSettings;
   mediaMetadata: IMediaMetadata;
   priority: number;
+  isIncognito?: boolean;
   traceparent?: string;
   onResult?: (result: IImagePrediction | Error) => void;
 };
@@ -181,14 +182,14 @@ export class InferenceOrchestrationService {
   }
 
   async scheduleInferenceTask(args: ScheduleArgs): Promise<void> {
-    const { input, hostname, hostSettings, mediaMetadata } = args;
+    const { input, hostname, hostSettings, mediaMetadata, isIncognito } = args;
     const { imageSrc } = input;
     const { traceparent } = args;
     const traceContext = extractTraceparent(traceparent);
     const attributes = taskAttributes({ imageSrc, hostname, mediaMetadata });
 
     // Only check cache for images, not video frames
-    if (mediaMetadata.kind === 'image') {
+    if (mediaMetadata.kind === 'image' && !isIncognito) {
       const cacheSpan = tracer.startSpan(SPAN.cache, { attributes }, traceContext);
       try {
         const cachedPredictions = await this.imageCacheService.getCachedPredictionsBySrc(imageSrc);
@@ -229,6 +230,7 @@ export class InferenceOrchestrationService {
       hostSettings,
       mediaMetadata,
       priority: args.priority,
+      isIncognito,
       traceContext,
       requestStartAt: input.requestStartAt,
       receivedAt: input.receivedAt,
@@ -481,19 +483,22 @@ export class InferenceOrchestrationService {
           task.hostname,
         );
       } else {
-        // A cache write failure must not suppress the reply - the verdict is
-        // already computed and content is waiting on it.
-        try {
-          await this.imageCacheService.cachePredictions([
-            { ...imagePrediction, modelId: getCurrentModelId() ?? 'unknown' },
-          ]);
-        } catch (error) {
-          log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
-        }
+        if (!task.isIncognito) await this.cacheImagePrediction(task, imagePrediction);
         this.sendImageResultsToContent([{ status: 'ok', prediction: imagePrediction, traceparent }], task.hostname);
       }
     } catch (error) {
       log.error('inference.result.dispatch.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
+    }
+  }
+
+  /** A cache write failure must not suppress the reply: the verdict is computed and content is waiting on it. */
+  private async cacheImagePrediction(task: IInferenceTask, imagePrediction: IImagePrediction): Promise<void> {
+    try {
+      await this.imageCacheService.cachePredictions([
+        { ...imagePrediction, modelId: getCurrentModelId() ?? 'unknown' },
+      ]);
+    } catch (error) {
+      log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
     }
   }
 

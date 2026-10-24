@@ -12,6 +12,7 @@ import {
 } from '@/utils/lookahead/protocol';
 import { backgroundRpc } from '@/utils/messaging/content';
 import { getLogger } from '@/utils/telemetry';
+import { UNKNOWN_VIDEO_IDENTITY } from '@/utils/videoIdentity';
 
 import type {
   AnalysisStat,
@@ -240,7 +241,12 @@ function hostLink(): HostLink {
   return link;
 }
 
-export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): LookaheadSession {
+/** A private tab's analysis stays in memory: an unknown identity keeps the host off the persistent cache. */
+const cacheableReadContext = (readContext: CacheReadContext): CacheReadContext =>
+  browser.extension.inIncognitoContext ? { ...readContext, identity: UNKNOWN_VIDEO_IDENTITY } : readContext;
+
+export function openLookahead(analysis: OpenAnalysis, handlers: LookaheadHandlers): LookaheadSession {
+  const open = { ...analysis, readContext: cacheableReadContext(analysis.readContext) };
   const session: ClientSession = { open, handlers };
   sessions.set(open.sessionId, session);
   const host = hostLink();
@@ -259,7 +265,7 @@ export function openLookahead(open: OpenAnalysis, handlers: LookaheadHandlers): 
       link?.send({ t: 'liveness', sessionId: open.sessionId, liveness });
     },
     updateReadContext: change => {
-      const readContext = { ...session.open.readContext, ...change };
+      const readContext = cacheableReadContext({ ...session.open.readContext, ...change });
       session.open = { ...session.open, readContext };
       link?.send({ t: 'readContext', sessionId: open.sessionId, readContext });
     },

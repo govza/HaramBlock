@@ -68,6 +68,7 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
  * Request cached predictions for a hostname from background script
  */
 export async function requestCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
+  if (browser.extension.inIncognitoContext) return [];
   try {
     const result = await backgroundRpc.getCachedPredictions(hostname);
     return result || [];
@@ -78,6 +79,7 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
 }
 
 export async function requestVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
+  if (browser.extension.inIncognitoContext) return 'auto';
   try {
     return await backgroundRpc.getVideoForcedVisibility(identity);
   } catch (error) {
@@ -91,6 +93,7 @@ export async function requestVideoToggleUpdate(
   origin: IVideoCacheOrigin,
   forcedVisibility: ForcedVisibility,
 ): Promise<void> {
+  if (browser.extension.inIncognitoContext) return;
   try {
     await backgroundRpc.updateVideoToggleState(identity, origin, forcedVisibility);
   } catch (error) {
@@ -102,6 +105,7 @@ export async function requestVideoToggleUpdate(
  * Request background to update toggle state in cache
  */
 export async function requestToggleUpdate(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
+  if (browser.extension.inIncognitoContext) return;
   try {
     await backgroundRpc.updateToggleState(src, forcedVisibility);
   } catch (error) {
@@ -163,6 +167,7 @@ async function buildPayload(
   const src = resolveImageSource(image);
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
+  const isIncognito = browser.extension.inIncognitoContext;
   const traceparent = injectTraceparent(parent);
 
   const transferKind = await resolveImageTransferKind();
@@ -187,6 +192,7 @@ async function buildPayload(
         width,
         height,
         hostname,
+        isIncognito,
         metadata,
         priority,
         requestStartAt,
@@ -209,6 +215,7 @@ async function buildPayload(
         width,
         height,
         hostname,
+        isIncognito,
         metadata,
         priority,
         requestStartAt,
@@ -229,7 +236,7 @@ async function buildPayload(
 
   captureSpan.setAttribute(ATTR.transferKind, 'url');
   captureSpan.end();
-  return { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url', traceparent };
+  return { src, width, height, hostname, isIncognito, metadata, priority, requestStartAt, kind: 'url', traceparent };
 }
 
 /**
