@@ -10,22 +10,7 @@ const SESSION_STORAGE_PREFIX = 'hostSettings:';
 
 const log = getLogger('hostSettingsObserver');
 
-const areSettingsEqual = (a: IHostSettings, b: IHostSettings): boolean => {
-  return (
-    a.hostname === b.hostname &&
-    a.isGlobal === b.isGlobal &&
-    a.policy.behavior === b.policy.behavior &&
-    a.strictness === b.strictness &&
-    a.minSize.width === b.minSize.width &&
-    a.minSize.height === b.minSize.height &&
-    a.masking.grayscale === b.masking.grayscale &&
-    a.masking.dark === b.masking.dark &&
-    a.masking.blurIntensity === b.masking.blurIntensity &&
-    a.masking.pixelationScale === b.masking.pixelationScale &&
-    a.quickToggle.unsafeEnabled === b.quickToggle.unsafeEnabled &&
-    a.quickToggle.safeEnabled === b.quickToggle.safeEnabled
-  );
-};
+const areSettingsEqual = (a: IHostSettings, b: IHostSettings): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * Initializes a hostSettings table observer using Dexie's liveQuery.
