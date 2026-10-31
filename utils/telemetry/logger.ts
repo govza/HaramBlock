@@ -8,6 +8,10 @@ import type { LogLevel, TelemetryLogRecord } from '@/utils/telemetry/records';
 
 export type LogSink = (record: TelemetryLogRecord) => void;
 
+/**
+ * Scoped structured logger: each call records an event name with attributes and an optional trace context to every
+ * registered sink.
+ */
 export interface HbLogger {
   debug(event: string, attributes?: LooseAttributes, ctx?: Context): void;
   info(event: string, attributes?: LooseAttributes, ctx?: Context): void;

@@ -14,6 +14,7 @@ export const injectGlobalHidingDomStyles = () => {
     remove: () => {
       styleElement.remove();
     },
+
     /** Platforms where video processing is withdrawn (ADR 0003) must never hold videos hidden. */
     stopHidingVideos: () => {
       styleElement.textContent = hideRule(['img']);

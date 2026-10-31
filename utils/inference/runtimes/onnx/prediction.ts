@@ -24,6 +24,10 @@ export interface BatchItemResult {
   error?: Error;
 }
 
+/**
+ * An inference task with its bitmap decoded and its fetch, decode and queue timings recorded, ready to join a batched
+ * session run.
+ */
 interface PreparedImage {
   task: IInferenceTask;
   bitmap: ImageBitmap;
@@ -43,6 +47,10 @@ function scoreThresholdFor(task: IInferenceTask): number {
   return strictnessToScoreThreshold(task.hostSettings.strictness);
 }
 
+/**
+ * The decoded bitmap of a task, from whichever source it arrived as (transferred bitmap, blob or URL fetch), with its
+ * real dimensions and the time spent getting it.
+ */
 interface ResolvedBitmap {
   bitmap: ImageBitmap;
   imageWidth: number;

@@ -37,6 +37,10 @@ const SEVERITY: Record<TelemetryLogRecord['level'], SeverityNumber> = {
   error: SeverityNumber.ERROR,
 };
 
+/**
+ * The background's OpenTelemetry SDK wiring: providers, span processor and metric instruments, plus per-context
+ * resources and loggers for forwarded telemetry.
+ */
 interface SdkPipeline {
   loggerProvider: LoggerProvider;
   tracerProvider: BasicTracerProvider;

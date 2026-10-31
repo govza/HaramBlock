@@ -82,6 +82,9 @@ function imageTaskKey(hostname: string, imageSrc: string): ImageTaskKey {
 const log = getLogger('inferenceOrchestrationService');
 const tracer = getTracer('inference');
 
+/**
+ * Metric instruments for inference runs, created lazily once the meter provider exists.
+ */
 interface InferenceInstruments {
   runDurationMs: Histogram;
   requestCounter: Counter;
@@ -141,6 +144,7 @@ export class InferenceOrchestrationService {
   private onImagePredictionsCallback?: OnImagePredictionsCallback;
   private onFramePredictionsCallback?: OnFramePredictionsCallback;
   private onGifFramePredictionsCallback?: OnGifFramePredictionsCallback;
+
   /** At most one not-yet-started playback frame is retained per video session. */
   private queuedPlaybackFrames = new Map<string, { task: IInferenceTask; controller: AbortController }>();
   private readonly queuedLookaheadFrames = new Map<string, Map<IInferenceTask, AbortController>>();

@@ -75,6 +75,7 @@ let hookPort: MessagePort | null = null;
 let hookAcknowledged = false;
 let listeningToHook = false;
 let link: HostLink | null = null;
+
 /**
  * An open analysis as the client remembers it, so it can be re-opened with its latest playhead,
  * visibility, liveness and read context after the Firefox host reconnects.

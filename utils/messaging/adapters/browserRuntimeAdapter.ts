@@ -1,5 +1,9 @@
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
+/**
+ * Routing metadata comctx carries with each `browser.runtime` message, telling the background which context, tab and
+ * frame to answer.
+ */
 export interface MessageMeta {
   url: string;
   tabId?: number;

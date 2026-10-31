@@ -35,11 +35,17 @@ export type MediaKind = 'image' | 'gif' | 'frame';
 export type RoundtripStatus = 'success' | 'error' | 'skipped' | 'cached';
 export type RoundtripCancelReason = 'cancelled' | 'evicted' | 'disposed';
 
+/**
+ * A long-lived parent span (page or video session) that groups the inference round trips started under it.
+ */
 export interface UmbrellaSession {
   sessionId: string;
   spanContext?: SpanContext;
 }
 
+/**
+ * An open inference round-trip span, its context, and its currently open phase spans by name.
+ */
 interface ActiveRoundtrip {
   span: Span;
   ctx: Context;
@@ -74,6 +80,9 @@ export function getPageSession(): UmbrellaSession {
   return umbrella;
 }
 
+/**
+ * What opens an inference round trip: the media it is for and the umbrella session it belongs to.
+ */
 export interface RoundtripStart {
   src: string;
   hostname: string;
@@ -146,6 +155,9 @@ export function endRoundtripChild(key: string, name: string, attributes?: LooseA
   roundtrip.children.delete(name);
 }
 
+/**
+ * How an inference round trip ended, recorded on its span when it closes.
+ */
 export interface RoundtripEnd {
   status: RoundtripStatus;
   error?: unknown;

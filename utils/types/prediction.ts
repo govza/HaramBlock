@@ -2,6 +2,9 @@ import type { IRLEMask } from '@/utils/rle';
 import type { IFrameSampleRouting, IVideoTimelinePosition } from '@/utils/types/media';
 import type { PersistentIdentityKind } from '@/utils/types/videoIdentity';
 
+/**
+ * HTTP caching headers and bookkeeping timestamps that decide when a cached prediction expires.
+ */
 export interface ICacheMetadata {
   // HTTP Cache headers
   cacheControl?: string; // Cache-Control header value
@@ -19,6 +22,9 @@ export interface ICacheMetadata {
   contentLength?: number; // Size of the image in bytes
 }
 
+/**
+ * One detected class in an image: its probability, bounding box and run-length encoded mask.
+ */
 export interface IElementPrediction {
   classId: number;
   className: string;
@@ -32,7 +38,9 @@ export interface IElementPrediction {
   masks: IRLEMask;
 }
 
-// How the image was transformed to fit the model input size
+/**
+ * How an image was scaled and offset (letterboxed) to fit the model input, used to map masks back onto it.
+ */
 export interface IMaskTransform {
   scaleX: number; // Scale factor in X direction
   scaleY: number; // Scale factor in Y direction
@@ -40,6 +48,10 @@ export interface IMaskTransform {
   offsetY: number; // Offset in Y direction
 }
 
+/**
+ * The inference result for one image as cached and sent to content scripts: detections, cache metadata, timings and the
+ * user's Forced Visibility.
+ */
 export interface IImagePrediction {
   hostname: string;
   src: string;
@@ -64,6 +76,10 @@ export interface IImagePrediction {
   scoreGrid?: IScoreGrid;
 }
 
+/**
+ * Run-length encoded per-cell top probability and class of a semantic model output, kept so readers
+ * can re-threshold it at their own strictness.
+ */
 export interface IScoreGrid {
   width: number;
   height: number;
@@ -97,6 +113,9 @@ export function shouldBlock(prediction: IImagePrediction): boolean {
   return Boolean(prediction.predictions?.length);
 }
 
+/**
+ * Predictions for one sampled frame of a video, with its frame index, media timestamp and timings.
+ */
 export interface IVideoFramePrediction {
   frameIndex: number; // Frame number in the video
   timestamp: number; // Frame timestamp in seconds
@@ -139,6 +158,9 @@ export interface IFramePrediction extends IFrameSampleRouting, IVideoFrameVerdic
   src: string; // URL of the media blob image
 }
 
+/**
+ * Geometry of the model input a sample was inferred from, needed to map its predictions back onto the video frame.
+ */
 export interface IInferenceInputGeometry {
   width: number;
   height: number;
@@ -213,6 +235,9 @@ export interface IVideoSampleBucket {
   samples: IStoredVideoSample[];
 }
 
+/**
+ * What a session reads from the verdict cache: the stored samples and the video's Forced Visibility.
+ */
 export interface ICachedVideoPredictions {
   samples: IStoredVideoSample[];
   forcedVisibility: ForcedVisibility;
@@ -220,6 +245,9 @@ export interface ICachedVideoPredictions {
 
 export const EMPTY_CACHED_VIDEO_PREDICTIONS: ICachedVideoPredictions = { samples: [], forcedVisibility: 'auto' };
 
+/**
+ * The inference result for one decoded frame of an animated GIF, routed back to the content script's decode session.
+ */
 export interface IGifFramePrediction {
   sessionId: string; // Stable ID grouping decoded frames of one GIF decode
   hostname: string; // Effective hostname
@@ -252,6 +280,10 @@ export type GifFrameInferenceResult =
   | { status: 'ok'; prediction: IGifFramePrediction; traceparent?: string }
   | { status: 'error'; hostname: string; src: string; sessionId: string; reason?: string; traceparent?: string };
 
+/**
+ * Aggregate predictions for a whole video: per-frame results with the video's dimensions, sampling, timing and cache
+ * metadata.
+ */
 export interface IVideoPrediction {
   hostname: string;
   src: string; // Original video source URL

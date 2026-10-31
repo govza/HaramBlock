@@ -1,6 +1,9 @@
 import { HELP_PATH } from '@/components/ui/icons';
 import { t } from '@/utils/i18n';
 
+/**
+ * Props of the footer button that opens and closes the popup help panel.
+ */
 interface HelpToggleProps {
   isOpen: boolean;
   onToggle: () => void;

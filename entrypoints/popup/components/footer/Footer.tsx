@@ -3,6 +3,9 @@ import { HelpToggle } from '@/entrypoints/popup/components/footer/HelpToggle';
 import { ModelToggle } from '@/entrypoints/popup/components/footer/ModelToggle';
 import { OptionsIcon } from '@/entrypoints/popup/components/footer/OptionsIcon';
 
+/**
+ * Props of the popup footer, whose help toggle reflects and changes the help panel state its parent owns.
+ */
 interface FooterProps {
   isHelpOpen: boolean;
   onHelpToggle: () => void;

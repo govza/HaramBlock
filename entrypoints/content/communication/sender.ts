@@ -397,6 +397,10 @@ async function toFrameTransfer(bitmap: ImageBitmap, onEncoded?: (encodeMs: numbe
   }
 }
 
+/**
+ * A captured video frame queued for inference, with the sample kind and priority that decide its place in the
+ * background queue.
+ */
 export interface VideoFrameParams {
   sample: CapturedFrameSample;
   sampleKind: FrameSampleKind;
@@ -489,6 +493,10 @@ export async function cancelVideoSessionInference(sessionId: string): Promise<vo
 // GIF Frame Inference
 // =============================================================================
 
+/**
+ * One decoded GIF frame sent for inference, identified by its GIF session and frame index so results map back onto
+ * playback.
+ */
 export interface GifFrameParams {
   src: string;
   bitmap: ImageBitmap;

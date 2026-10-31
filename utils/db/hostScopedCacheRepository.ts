@@ -7,11 +7,17 @@ import { getEffectiveHostname } from '@/utils/hostnameUtil';
 
 import type { ICacheMetadata } from '@/utils/types';
 
+/**
+ * One row of the per-host cache overview: a hostname and how many cached records it holds.
+ */
 export interface IHostCacheSummary {
   hostname: string;
   count: number;
 }
 
+/**
+ * One page of a hostname's cached records, newest first, with the host's total record count for paging.
+ */
 export interface IHostCachePage<T> {
   records: T[];
   total: number;

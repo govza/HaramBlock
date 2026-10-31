@@ -3,6 +3,9 @@ import { t } from '@/utils/i18n';
 
 import type { PolicyTarget } from '@/utils/types';
 
+/**
+ * Props of one chip in the policy target switcher that toggles whether a media type is filtered.
+ */
 interface TargetChipProps {
   label: string;
   enabled: boolean;

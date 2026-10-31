@@ -15,6 +15,10 @@ export function isVideoNearViewport(video: HTMLVideoElement): boolean {
   );
 }
 
+/**
+ * Registry hooks Viewport Suspension needs: look up the session of an observed video and report a
+ * suspend/resume flip.
+ */
 export interface SuspensionPorts {
   handleFor(video: HTMLVideoElement): SessionHandle | undefined;
   suspendedChanged(handle: SessionHandle): void;

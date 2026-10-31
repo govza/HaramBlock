@@ -3,6 +3,9 @@ import { getLogger } from '@/utils/telemetry';
 
 const log = getLogger('gifDecoder');
 
+/**
+ * A GIF decoded into composited playback frames together with its display size and original frame count.
+ */
 export interface DecodedGif {
   frames: DecodedGifFrame[]; // Decoded composited playback frames
   totalFrames: number; // Total number of frames in the GIF
@@ -10,6 +13,9 @@ export interface DecodedGif {
   height: number; // GIF display height
 }
 
+/**
+ * One composited GIF frame ready to draw, with its original index and how long it stays on screen.
+ */
 export interface DecodedGifFrame {
   bitmap: ImageBitmap;
   frameIndex: number; // Original frame index within the GIF

@@ -2,6 +2,9 @@ import { encodeMaskRLE } from '@/utils/rle';
 
 import type { IElementPrediction, IScoreGrid } from '@/utils/types';
 
+/**
+ * Dimensions of a score grid and the size of one cell in model-input pixels.
+ */
 export interface GridGeometry {
   width: number;
   height: number;
@@ -9,6 +12,9 @@ export interface GridGeometry {
   cellHeight: number;
 }
 
+/**
+ * Per-class cell mask, confidence sum and bounding box, accumulated while scanning a semantic score grid.
+ */
 interface ClassCells {
   mask: Uint8Array;
   confidenceSum: number;

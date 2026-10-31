@@ -9,6 +9,9 @@
  * - Store consecutive run lengths, alternating between startValue and !startValue
  */
 
+/**
+ * A binary mask compressed as alternating run lengths over its row-major cells, starting with `startValue`.
+ */
 export interface IRLEMask {
   width: number;
   height: number;

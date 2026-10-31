@@ -7,6 +7,9 @@ import { type LatencySnapshot } from '@/utils/inference/shared/latencyTracker';
 import { backgroundRpc } from '@/utils/messaging/popup';
 import { type IImagePrediction } from '@/utils/types';
 
+/**
+ * Aggregate prediction figures for the current host shown in the popup help panel.
+ */
 interface PredictionStats {
   totalImages: number;
   totalDetections: number;
@@ -65,6 +68,9 @@ const calculateStats = (predictions: IImagePrediction[]): PredictionStats => {
   };
 };
 
+/**
+ * Props of the popup performance statistics, which load and poll only while active.
+ */
 interface PerformanceStatsProps {
   isActive: boolean;
 }

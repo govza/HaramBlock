@@ -1,3 +1,6 @@
+/**
+ * The rendered media content area inside its element box that mask cells are mapped onto.
+ */
 export interface ContentRect {
   offsetX: number;
   offsetY: number;

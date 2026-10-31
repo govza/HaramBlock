@@ -7,6 +7,8 @@ import globals from 'globals';
 import js from '@eslint/js';
 import { includeIgnoreFile } from '@eslint/compat';
 import path from 'node:path';
+import stylistic from '@stylistic/eslint-plugin';
+import jsdoc from 'eslint-plugin-jsdoc';
 
 export default [
   includeIgnoreFile(path.resolve(import.meta.dirname, '.gitignore')),
@@ -37,6 +39,8 @@ export default [
       '@typescript-eslint': tseslint,
       import: importPlugin,
       react: react,
+      '@stylistic': stylistic,
+      jsdoc,
     },
     rules: {
       // Import recommended rules first
@@ -110,6 +114,29 @@ export default [
       'import/namespace': 'off', // TypeScript handles this
       'import/no-cycle': 'error',
       'import/no-default-export': 'off', // Often needed in web extensions
+
+      'jsdoc/require-jsdoc': [
+        'error',
+        {
+          require: { FunctionDeclaration: false },
+          contexts: ['TSInterfaceDeclaration'],
+          checkConstructors: false,
+        },
+      ],
+      '@stylistic/lines-around-comment': [
+        'error',
+        {
+          beforeBlockComment: true,
+          allowBlockStart: true,
+          allowObjectStart: true,
+          allowArrayStart: true,
+          allowClassStart: true,
+          allowInterfaceStart: true,
+          allowTypeStart: true,
+          allowEnumStart: true,
+          allowModuleStart: true,
+        },
+      ],
 
       // General best practices (non-style)
       'no-console': ['warn', { allow: ['warn', 'error'] }],
@@ -196,6 +223,7 @@ export default [
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',
+      'jsdoc/require-jsdoc': 'off',
     },
   },
   // Configuration files override
@@ -247,6 +275,7 @@ export default [
       '@typescript-eslint/await-thenable': 'off',
       // WebdriverIO globals (describe, it, browser, $) are typed via @wdio/globals/types
       '@typescript-eslint/no-unsafe-call': 'off',
+      'jsdoc/require-jsdoc': 'off',
     },
   },
 ];

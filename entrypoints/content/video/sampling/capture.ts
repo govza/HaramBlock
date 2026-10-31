@@ -10,6 +10,7 @@ const log = getLogger('videoSamplingCapture');
 type CorsVideoEntry =
   { corsVideo: HTMLVideoElement; src: string; blobUrl?: string } | { corsVideo: null; src: string; blobUrl?: never };
 const corsVideoCache = new WeakMap<HTMLVideoElement, CorsVideoEntry>();
+
 /** Concurrent callers (sampler + mask overlay) share one clone/download per video. */
 const inflightClones = new WeakMap<HTMLVideoElement, Promise<HTMLVideoElement>>();
 

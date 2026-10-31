@@ -721,6 +721,7 @@ export function createMseAnalysis(
 }
 
 const DEFAULT_WINDOW_SEC = 60;
+
 /**
  * Lookahead Analysis of a Progressive Source, sampling a window ahead of the playhead with range reads.
  */

@@ -3,12 +3,18 @@ import type { Attributes, Counter, Histogram, Meter, ObservableGauge } from '@op
 
 export const GAUGE_STALE_AFTER_MS = 5000;
 
+/**
+ * The last value reported for one attribute set of a gauge and when it was seen, so stale series stop being observed.
+ */
 interface GaugeSample {
   value: number;
   attributes: Attributes;
   seenAt: number;
 }
 
+/**
+ * An observable gauge and its latest sample per attribute set, read on every metric collection.
+ */
 interface GaugeEntry {
   instrument: ObservableGauge;
   samples: Map<string, GaugeSample>;

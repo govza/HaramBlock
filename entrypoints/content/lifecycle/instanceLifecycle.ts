@@ -2,15 +2,23 @@ import { getLogger } from '@/utils/telemetry';
 
 const log = getLogger('InstanceLifecycle');
 
+/**
+ * Hooks the content-script instance lifecycle uses to detect a dead context or a successor instance and to tear
+ * the page work down.
+ */
 export interface InstanceLifecyclePorts {
   /** Distinguishes a dead extension context from a transient transport failure. */
   isContextValid: () => boolean;
+
   /** Fires when a successor instance claims the page (extension reload/update). Returns unsubscribe. */
   onSuperseded: (listener: () => void) => () => void;
+
   /** Fires when the transport reports permanently failed channel establishment. Returns unsubscribe. */
   onTransportDead: (listener: () => void) => () => void;
+
   /** Disposes all video sessions and stops the media pipeline and DOM observation. */
   stopPipeline: () => void;
+
   /** Strips pre-verdict styling still applied to page elements. */
   removeInitialStyling: () => void;
 }

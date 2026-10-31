@@ -3,6 +3,9 @@ import { ContactButton } from '@/entrypoints/popup/components/ContactButton';
 import { PerformanceStats } from '@/entrypoints/popup/components/PerformanceStats';
 import { t } from '@/utils/i18n';
 
+/**
+ * Props of the popup help panel, which loads its statistics only while open.
+ */
 interface HelpPanelProps {
   isOpen: boolean;
 }
