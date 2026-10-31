@@ -1,8 +1,6 @@
-// =============================================================================
-// Media Metadata Types (for inference task discrimination)
-// =============================================================================
-
-/** Live delivery identity. Never use this pair as a persistent cache key. */
+/**
+ * Live delivery identity. Never use this pair as a persistent cache key.
+ */
 export interface IFrameSampleRouting {
   sessionId: string;
   frameIndex: number;
@@ -18,7 +16,9 @@ export interface IVideoTimelinePosition {
   timestampSec: number;
 }
 
-/** Complete identity of one Frame Sample before pixels or a verdict are attached. */
+/**
+ * Complete identity of one Frame Sample before pixels or a verdict are attached.
+ */
 export interface IFrameSampleIdentity extends IFrameSampleRouting, IVideoTimelinePosition {}
 
 /**
@@ -49,13 +49,12 @@ export interface IFrameMetadata extends IFrameSampleIdentity {
  */
 export interface IGifFrameMetadata {
   kind: 'gifFrame';
-  src: string; // GIF source URL (for DOM matching)
-  frameIndex: number; // 0+ decoded frame index within the GIF
-  frameCount: number; // Total number of decoded frames in this session
-  sessionId: string; // Unique decode session identifier
+  src: string;
+  frameIndex: number;
+  frameCount: number;
+  sessionId: string;
 }
 
-// Union type for inference task metadata discrimination
 export type IMediaMetadata = IImageMetadata | IFrameMetadata | IGifFrameMetadata;
 
 /**
@@ -69,13 +68,6 @@ export interface IImageWithMetadata {
   [key: string]: string | number | IImageMetadata;
 }
 
-// =============================================================================
-// Image Transfer Payloads
-// =============================================================================
-// Architecture:
-// - Chrome: 'bitmap' primary (MessageChannel zero-copy), 'url' fallback
-// - Firefox: 'blob' primary (structured clone), 'url' fallback
-
 /**
  * Fields common to every image inference request, whatever transport carries its pixels.
  */
@@ -88,10 +80,9 @@ interface IImageTransferBase {
   isIncognito: boolean;
   priority: number;
   traceparent?: string;
-  // Timing from content script
-  requestStartAt: number; // Timestamp when content script started processing (before fetch/decode)
-  fetchTime?: number; // Fetch duration (content-side, may hit cache or network)
-  decodeTime?: number; // Time to createImageBitmap (content-side, Chrome only)
+  requestStartAt: number;
+  fetchTime?: number;
+  decodeTime?: number;
 }
 
 /**
@@ -117,15 +108,7 @@ export interface IImageWithUrl extends IImageTransferBase {
   kind: 'url';
 }
 
-// Union type for cross-browser image transfer
 export type IImageTransfer = IImageWithBitmap | IImageWithBlob | IImageWithUrl;
-
-// =============================================================================
-// Video Frame Transfer Payloads
-// =============================================================================
-// Architecture (no URL fallback - frames are generated in content, not fetchable):
-// - Chrome: 'bitmap' only (MessageChannel zero-copy), throws if unavailable
-// - Firefox: 'blob' only (structured clone with WebP compression)
 
 /**
  * Fields common to every video Frame Sample sent for inference; frames are generated in content, so there is no URL
@@ -133,12 +116,12 @@ export type IImageTransfer = IImageWithBitmap | IImageWithBlob | IImageWithUrl;
  */
 interface IVideoFrameTransferBase extends IFrameSampleIdentity {
   sampleKind: FrameSampleKind;
-  width: number; // Transferred frame width (may be resized)
-  height: number; // Transferred frame height (may be resized)
-  originalWidth: number; // Original video width (for prediction mapping)
-  originalHeight: number; // Original video height (for prediction mapping)
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
   hostname: string;
-  priority: number; // Queue priority (higher = runs first)
+  priority: number;
   traceparent?: string;
 }
 
@@ -158,33 +141,23 @@ export interface IVideoFrameWithBlob extends IVideoFrameTransferBase {
   blob: Blob;
 }
 
-// Union type for cross-browser video frame transfer
 export type IVideoFrameTransfer = IVideoFrameWithBitmap | IVideoFrameWithBlob;
-
-// =============================================================================
-// GIF Frame Transfer Payloads
-// =============================================================================
-// Animated GIF frames are decoded in the content script (ImageDecoder) and sent
-// frame-by-frame, mirroring video frames. No URL fallback - frames are generated
-// in content, not individually fetchable.
-// - Chrome: 'bitmap' only (MessageChannel zero-copy)
-// - Firefox: 'blob' only (structured clone with WebP compression)
 
 /**
  * Fields common to every decoded animated-GIF frame sent for inference; frames are generated in content, so there is no
  * URL fallback.
  */
 interface IGifFrameTransferBase {
-  src: string; // Original GIF URL (for DOM matching)
-  frameIndex: number; // 0+ decoded frame index within the GIF
-  frameCount: number; // Total number of decoded frames in this session
-  sessionId: string; // Unique decode session identifier
-  width: number; // Transferred frame width (may be resized)
-  height: number; // Transferred frame height (may be resized)
-  originalWidth: number; // Original GIF width (for prediction mapping)
-  originalHeight: number; // Original GIF height (for prediction mapping)
+  src: string;
+  frameIndex: number;
+  frameCount: number;
+  sessionId: string;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
   hostname: string;
-  priority: number; // Queue priority (higher = runs first)
+  priority: number;
   traceparent?: string;
 }
 
@@ -204,5 +177,4 @@ export interface IGifFrameWithBlob extends IGifFrameTransferBase {
   blob: Blob;
 }
 
-// Union type for cross-browser GIF frame transfer
 export type IGifFrameTransfer = IGifFrameWithBitmap | IGifFrameWithBlob;

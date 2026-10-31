@@ -1,5 +1,5 @@
 /**
- * Props of the accessible toggle switch: its controlled state, whether it accepts input, and the change callback.
+ * Props of the accessible toggle switch; the parent owns its state.
  */
 interface SwitchProps {
   checked: boolean;

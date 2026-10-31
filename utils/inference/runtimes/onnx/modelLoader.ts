@@ -64,7 +64,7 @@ export type { ModelDefinition };
 const availableModels: Map<string, ModelDefinition> = new Map();
 
 /**
- * A loaded ONNX Runtime session together with the model metadata, model id and backend it was created for.
+ * A loaded ONNX Runtime session bound to the model and backend it was created for.
  */
 interface ModelRuntime {
   session: ort.InferenceSession;

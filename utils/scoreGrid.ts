@@ -13,7 +13,7 @@ export interface GridGeometry {
 }
 
 /**
- * Per-class cell mask, confidence sum and bounding box, accumulated while scanning a semantic score grid.
+ * What one class accumulates while a semantic score grid is scanned, turned into its prediction afterwards.
  */
 interface ClassCells {
   mask: Uint8Array;

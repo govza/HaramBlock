@@ -6,20 +6,17 @@ import type { PersistentIdentityKind } from '@/utils/types/videoIdentity';
  * HTTP caching headers and bookkeeping timestamps that decide when a cached prediction expires.
  */
 export interface ICacheMetadata {
-  // HTTP Cache headers
-  cacheControl?: string; // Cache-Control header value
-  etag?: string; // ETag header value
-  lastModified?: number; // Last-Modified timestamp
-  expires?: number; // Expires header timestamp
+  cacheControl?: string;
+  etag?: string;
+  lastModified?: number;
+  expires?: number;
 
-  // Cache management
-  maxAge?: number; // Max age in seconds (from Cache-Control or computed)
-  createdAt: number; // When this cache entry was created
-  accessedAt: number; // Last time this cache entry was accessed
+  maxAge?: number;
+  createdAt: number;
+  accessedAt: number;
 
-  // Image metadata
-  contentType?: string; // MIME type of the image
-  contentLength?: number; // Size of the image in bytes
+  contentType?: string;
+  contentLength?: number;
 }
 
 /**
@@ -42,10 +39,10 @@ export interface IElementPrediction {
  * How an image was scaled and offset (letterboxed) to fit the model input, used to map masks back onto it.
  */
 export interface IMaskTransform {
-  scaleX: number; // Scale factor in X direction
-  scaleY: number; // Scale factor in Y direction
-  offsetX: number; // Offset in X direction
-  offsetY: number; // Offset in Y direction
+  scaleX: number;
+  scaleY: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 /**
@@ -59,17 +56,17 @@ export interface IImagePrediction {
   height: number;
   predictions: IElementPrediction[];
   topUnsafeScore?: number;
-  timestamp: number; // When the prediction was made
-  cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
-  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
+  timestamp: number;
+  cacheMetadata: ICacheMetadata;
+  maskTransform: IMaskTransform;
   processingTime: {
-    fetchTime: number; // Fetch duration in milliseconds (may hit cache or network)
-    decodeTime: number; // createImageBitmap duration in milliseconds
-    queueTime: number; // Time waiting in queue before inference in milliseconds
-    inferenceTime: number; // Per-image share of the batch's preprocess + inference time in ms
-    e2eTime: number; // End-to-end time from content request start to inference completion
-    backend: string; // Inference backend used (webgpu/wasm)
-    batchSize?: number; // Number of images in the batched session.run this image was part of
+    fetchTime: number;
+    decodeTime: number;
+    queueTime: number;
+    inferenceTime: number;
+    e2eTime: number;
+    backend: string;
+    batchSize?: number;
   };
   forcedVisibility: ForcedVisibility;
   modelId?: string;
@@ -117,14 +114,14 @@ export function shouldBlock(prediction: IImagePrediction): boolean {
  * Predictions for one sampled frame of a video, with its frame index, media timestamp and timings.
  */
 export interface IVideoFramePrediction {
-  frameIndex: number; // Frame number in the video
-  timestamp: number; // Frame timestamp in seconds
-  videoUrl: string; // Original video source URL (used for DOM element matching)
-  predictions: IElementPrediction[]; // Object predictions for this frame
+  frameIndex: number;
+  timestamp: number;
+  videoUrl: string;
+  predictions: IElementPrediction[];
   processingTime: {
-    frameExtractionTime: number; // Time to extract frame from video in milliseconds
-    decodeTime: number; // createImageBitmap duration in milliseconds
-    inferenceTime: number; // Model inference duration in milliseconds
+    frameExtractionTime: number;
+    decodeTime: number;
+    inferenceTime: number;
   };
 }
 
@@ -134,28 +131,30 @@ export interface IVideoFramePrediction {
  * once media revision and model identity are added to its key.
  */
 export interface IVideoFrameVerdict extends IVideoTimelinePosition {
-  width: number; // Frame media width
-  height: number; // Frame media height
+  width: number;
+  height: number;
   predictions: IElementPrediction[];
   scoreGrid?: IScoreGrid;
   topUnsafeScore: number;
-  timestamp: number; // When the prediction was made
+  timestamp: number;
   cacheMetadata: ICacheMetadata;
-  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
+  maskTransform: IMaskTransform;
   processingTime: {
-    fetchTime: number; // Fetch duration in milliseconds (may hit cache or network)
-    decodeTime: number; // createImageBitmap duration in milliseconds
-    queueTime: number; // Time waiting in queue before inference in milliseconds
-    inferenceTime: number; // Model preprocessing + inference + postprocessing in milliseconds
-    e2eTime: number; // End-to-end time from content request start to inference completion
-    backend: string; // Inference backend used (webgpu/wasm)
+    fetchTime: number;
+    decodeTime: number;
+    queueTime: number;
+    inferenceTime: number;
+    e2eTime: number;
+    backend: string;
   };
 }
 
-/** A reusable timeline verdict rebound to the VideoSession that requested it. */
+/**
+ * A reusable timeline verdict rebound to the VideoSession that requested it.
+ */
 export interface IFramePrediction extends IFrameSampleRouting, IVideoFrameVerdict {
-  hostname: string; // Effective hostname
-  src: string; // URL of the media blob image
+  hostname: string;
+  src: string;
 }
 
 /**
@@ -249,16 +248,16 @@ export const EMPTY_CACHED_VIDEO_PREDICTIONS: ICachedVideoPredictions = { samples
  * The inference result for one decoded frame of an animated GIF, routed back to the content script's decode session.
  */
 export interface IGifFramePrediction {
-  sessionId: string; // Stable ID grouping decoded frames of one GIF decode
-  hostname: string; // Effective hostname
-  src: string; // Original GIF source URL (used for DOM element matching)
-  frameIndex: number; // Sampled frame index within the GIF
-  frameCount: number; // Total number of decoded frames in this session
-  width: number; // Frame width
-  height: number; // Frame height
+  sessionId: string;
+  hostname: string;
+  src: string;
+  frameIndex: number;
+  frameCount: number;
+  width: number;
+  height: number;
   predictions: IElementPrediction[];
-  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
-  timestamp: number; // When the prediction was made
+  maskTransform: IMaskTransform;
+  timestamp: number;
 }
 
 /**
@@ -281,23 +280,22 @@ export type GifFrameInferenceResult =
   | { status: 'error'; hostname: string; src: string; sessionId: string; reason?: string; traceparent?: string };
 
 /**
- * Aggregate predictions for a whole video: per-frame results with the video's dimensions, sampling, timing and cache
- * metadata.
+ * Aggregate predictions for a whole video, built from its sampled frames.
  */
 export interface IVideoPrediction {
   hostname: string;
-  src: string; // Original video source URL
+  src: string;
   videoWidth: number;
   videoHeight: number;
-  duration: number; // Video duration in seconds
-  frameRate: number; // Frames per second
-  frames: IVideoFramePrediction[]; // Predictions for sampled frames
-  sampleInterval: number; // Interval between sampled frames in seconds
-  timestamp: number; // When the prediction was made
-  cacheMetadata: ICacheMetadata; // HTTP cache and metadata information
-  maskTransform: IMaskTransform; // Cached letterboxing parameters for mask overlays
+  duration: number;
+  frameRate: number;
+  frames: IVideoFramePrediction[];
+  sampleInterval: number;
+  timestamp: number;
+  cacheMetadata: ICacheMetadata;
+  maskTransform: IMaskTransform;
   processingTime: {
-    fetchTime: number; // Video metadata fetching duration in milliseconds
-    totalInferenceTime: number; // Total inference time for all frames in milliseconds
+    fetchTime: number;
+    totalInferenceTime: number;
   };
 }

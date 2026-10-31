@@ -18,7 +18,9 @@ import type { IInferenceTask } from '@/utils/types/model';
 const log = getLogger('prediction');
 const profilerLog = getLogger('profiler');
 
-/** One slot of a batched run: either a prediction or the error that isolated this image. */
+/**
+ * One slot of a batched run: either a prediction or the error that isolated this image.
+ */
 export interface BatchItemResult {
   result?: IImagePrediction;
   error?: Error;

@@ -11,8 +11,7 @@ export interface TabItem {
 }
 
 /**
- * Props of the options page navigation: its entries, the active panel, the selection callback and each panel's content
- * keyed by tab id.
+ * Props of the options page navigation; the parent owns which panel is active.
  */
 interface VerticalTabsProps {
   items: TabItem[];

@@ -25,14 +25,13 @@ export const TARGET_P75_MS = 35; // budget: largest model whose p75 fits under t
 export const DOWNGRADE_ABOVE_MS = 55; // hysteresis: only above this is the current model too slow
 
 /**
- * Measured inference latency of the active model and backend that automatic model selection decides on.
+ * Measured inference latency of the active model and backend that automatic model selection decides on: the p75 of
+ * per-image session.run wall time over the current window.
  */
 export interface LatencySnapshot {
   modelId: string;
   backend: string;
   sampleCount: number;
-
-  /** p75 of per-image session.run wall time over the current window, in milliseconds. */
   p75Ms: number;
 }
 

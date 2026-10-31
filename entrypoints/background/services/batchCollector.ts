@@ -1,4 +1,6 @@
-/** Result slot for one submitted task: a value or the error that isolated it. */
+/**
+ * Result slot for one submitted task: a value or the error that isolated it.
+ */
 export interface BatchItemResult<TResult> {
   result?: TResult;
   error?: Error;
@@ -14,13 +16,11 @@ interface Pending<TTask, TResult> {
 }
 
 /**
- * How the collector sizes and orders a batch: the active model's batch cap and an optional task priority.
+ * How the collector sizes and orders a batch. The cap is re-read on every flush so it follows the active model (1
+ * disables batching); higher priorities flush first so active-tab work keeps its precedence.
  */
 interface BatchCollectorOptions<TTask> {
-  /** Max tasks per batch for the active model (re-read each flush; 1 disables batching). */
   getCap: () => number;
-
-  /** Higher value flushed first - preserves active-tab priority when forming a batch. */
   getPriority?: (task: TTask) => number;
 }
 
