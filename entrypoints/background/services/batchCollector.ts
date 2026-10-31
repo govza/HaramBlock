@@ -4,15 +4,22 @@ export interface BatchItemResult<TResult> {
   error?: Error;
 }
 
+/**
+ * A submitted task waiting in the collector, with the callbacks that settle its caller's promise.
+ */
 interface Pending<TTask, TResult> {
   task: TTask;
   resolve: (result: TResult) => void;
   reject: (error: unknown) => void;
 }
 
+/**
+ * How the collector sizes and orders a batch: the active model's batch cap and an optional task priority.
+ */
 interface BatchCollectorOptions<TTask> {
   /** Max tasks per batch for the active model (re-read each flush; 1 disables batching). */
   getCap: () => number;
+
   /** Higher value flushed first - preserves active-tab priority when forming a batch. */
   getPriority?: (task: TTask) => number;
 }

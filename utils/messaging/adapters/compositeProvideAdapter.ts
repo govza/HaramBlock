@@ -6,12 +6,19 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 const log = getLogger('CompositeProvideAdapter');
 
+/**
+ * The part of `runtime.MessageSender` used to associate a MessageChannel port's secret with the tab and frame that
+ * announced it.
+ */
 interface MessageSender {
   tab?: { id?: number; url?: string };
   frameId?: number;
   url?: string;
 }
 
+/**
+ * A content script's MessageChannel port with the secret it was registered under and the tab it belongs to once known.
+ */
 interface PortInfo {
   port: MessagePort;
   secret: string;

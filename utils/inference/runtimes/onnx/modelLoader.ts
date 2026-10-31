@@ -63,6 +63,9 @@ export type { ModelDefinition };
 // Built dynamically from metadata during discoverModels()
 const availableModels: Map<string, ModelDefinition> = new Map();
 
+/**
+ * A loaded ONNX Runtime session together with the model metadata, model id and backend it was created for.
+ */
 interface ModelRuntime {
   session: ort.InferenceSession;
   config: IModelMetadata;
@@ -70,6 +73,10 @@ interface ModelRuntime {
   backend: Backend;
 }
 
+/**
+ * A model runtime held for the duration of one inference run; releasing it lets a pending model switch proceed once
+ * in-flight runs have drained.
+ */
 interface ModelRuntimeLease extends ModelRuntime {
   release: () => void;
 }

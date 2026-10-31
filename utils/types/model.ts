@@ -121,25 +121,32 @@ export interface IYamlModelMetadata {
 export interface IModelMetadata {
   names: { [key: number]: string };
   imgsz: [number, number];
+
   /** ImageNet normalization params (null for YOLO-style 0-1 normalization) */
   normalize: {
     mean: [number, number, number];
     std: [number, number, number];
   } | null;
   namesToCheck: string[];
+
   /** Output mask grid dimensions [height, width] for mask transform calculations */
   outputShape: [number, number];
+
   /** ONNX input tensor name */
   inputName: string;
+
   /** ONNX output tensor names (model-specific) */
   outputNames: {
     detections: string;
     masks: string;
   };
+
   /** Model stride for calculating output dimensions */
   stride: number;
+
   /** Model task type: 'segment' for instance segmentation, 'semantic' for semantic segmentation */
   task: ModelTask;
+
   /** Whether the export has a dynamic batch dim ([N,3,H,W]); enables adaptive batching */
   dynamicBatch: boolean;
 }

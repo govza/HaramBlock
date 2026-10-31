@@ -19,6 +19,7 @@ export class ImageCacheService {
       throw new Error('Failed to initialize ImagePredictionRepository');
     }
   }
+
   /**
    * Cache predictions ensuring uniqueness by src URL
    * @param predictions - Array of predictions to cache

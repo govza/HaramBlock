@@ -20,11 +20,18 @@ export const DOWNGRADE_COOLDOWN_MS = 5 * 60 * 1000; // Escaping a too-slow model
 export const MAX_AUTO_SWITCHES_PER_SESSION = 2; // The 3-rung ladder converges in at most 2 steps
 export const MEASUREMENT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // Re-probe hardware every week at most
 
+/**
+ * One step of the automatic model ladder: a model and the input size that orders it against the others.
+ */
 export interface ModelRung {
   id: string;
   inputSize: number;
 }
 
+/**
+ * Everything the automatic model selection weighs: the ladder, the active model and backend, its measured latency,
+ * per-model history and switch cooldown state.
+ */
 export interface DecisionInput {
   rungs: ModelRung[]; // Ascending by inputSize
   currentModelId: string;

@@ -17,6 +17,9 @@ export interface AutoModelState {
   measured?: Record<string, { p75Ms: number; at: number }>; // Per-model measured latency on `backend`
 }
 
+/**
+ * Persisted model selection: the user's preference (a model id or automatic) and the automatic switcher's state.
+ */
 export interface ModelSettings {
   preference?: ModelPreference; // undefined is treated as 'auto'
   auto?: AutoModelState;
@@ -25,6 +28,9 @@ export interface ModelSettings {
 const STORAGE_KEY = 'modelSettings';
 const DEFAULT_SETTINGS: ModelSettings = { preference: 'auto' };
 
+/**
+ * One key's old and new value as reported by `browser.storage.onChanged`.
+ */
 interface StorageChange {
   oldValue?: unknown;
   newValue?: unknown;

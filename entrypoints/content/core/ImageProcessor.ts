@@ -108,9 +108,11 @@ export class ImageProcessor {
   private readonly gifInspector: GifInspector;
   private readonly inference = createInferenceTracker(src => this.handleInferenceFailure(src, 'closed', 'timeout'));
   private readonly loadDriftWatched = new WeakSet<HTMLImageElement>();
+
   /** Last resolved source seen for an element; filters Reddit's no-op attribute churn. */
   private readonly resolvedSrcByImage = new WeakMap<HTMLImageElement, string>();
   private readonly srcChangeDebounce = new WeakMap<HTMLImageElement, ReturnType<typeof setTimeout>>();
+
   /** Unloaded copies that deferred to a pending owner and await their own load (see queueInference). */
   private readonly deferredUntilLoad = new WeakSet<HTMLImageElement>();
   private readonly visibilityMap = new WeakMap<HTMLImageElement, boolean>();

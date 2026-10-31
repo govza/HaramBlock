@@ -1,3 +1,6 @@
+/**
+ * Callbacks through which the DOM observer reports added, removed and mutated media, plus its periodic rescan cadence.
+ */
 export interface DomObserverConfig {
   onMediaAdded: (images: HTMLImageElement[], videos: HTMLVideoElement[]) => void;
   onMediaRemoved: (elements: HTMLElement[]) => void;

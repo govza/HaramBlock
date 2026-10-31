@@ -11,6 +11,7 @@ export interface CapturedFrameSample extends IFrameSampleIdentity {
   bitmap: ImageBitmap;
   originalWidth: number;
   originalHeight: number;
+
   /** Content-process monotonic time at which capture began. */
   capturedAt: number;
 }

@@ -1,5 +1,8 @@
 import { type IElementPrediction } from '@/utils/types';
 
+/**
+ * Tuning for snapping prediction geometry that lies near the image border onto the border itself.
+ */
 export interface EdgeCorrectionOptions {
   edgeThreshold?: number; // Percentage of image size to consider as edge (default: 0.1 = 10%)
 }

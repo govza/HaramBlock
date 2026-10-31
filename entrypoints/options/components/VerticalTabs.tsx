@@ -2,11 +2,18 @@ import React from 'react';
 
 import { t } from '@/utils/i18n';
 
+/**
+ * One entry of the options page navigation: the panel id it selects and its visible label.
+ */
 export interface TabItem {
   id: string;
   label: string;
 }
 
+/**
+ * Props of the options page navigation: its entries, the active panel, the selection callback and each panel's content
+ * keyed by tab id.
+ */
 interface VerticalTabsProps {
   items: TabItem[];
   activeTab: string;

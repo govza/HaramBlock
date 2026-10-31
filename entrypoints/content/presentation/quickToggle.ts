@@ -23,9 +23,11 @@ type RegisteredElement = {
   src: string;
   forcedVisibility: ForcedVisibility;
   hasDetections: boolean;
+
   /** The pipeline finalized without analyzing this element (e.g. undelayable video). */
   unprocessed: boolean;
   minSize: IHostSettings['minSize'];
+
   /** Per-element handler (videos): session-scoped state has no src-keyed store to route through. */
   onToggle?: (next: ForcedVisibility) => void;
 };
@@ -68,6 +70,7 @@ function createSvgIcon(nextState: ForcedVisibility, fill = 'white'): SVGSVGEleme
 }
 
 const DEFAULT_BUTTON_BACKGROUND = 'rgba(0, 0, 0, 0.5)';
+
 /** Inverted (white) button marks an element the AI never analyzed. */
 const UNPROCESSED_BUTTON_BACKGROUND = 'rgba(255, 255, 255, 0.7)';
 
@@ -361,13 +364,19 @@ export function shouldShowToggle(
   return hasDetections ? quickToggle.unsafeEnabled : quickToggle.safeEnabled;
 }
 
+/**
+ * An element's Quick Toggle state: its source, Forced Visibility, whether it has detections, the host settings that
+ * decide the button, and who handles a toggle.
+ */
 export interface QuickToggleRegistration {
   src: string;
   forcedVisibility: ForcedVisibility;
   hasDetections: boolean;
+
   /** The pipeline finalized without analyzing this element; the button shows an amber warning. */
   unprocessed?: boolean;
   hostSettings: IHostSettings;
+
   /** Per-element handler; omitted = the global src-keyed callback from initQuickToggle. */
   onToggle?: (next: ForcedVisibility) => void;
 }

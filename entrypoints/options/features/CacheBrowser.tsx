@@ -28,6 +28,9 @@ type CacheKind = 'images' | 'videos';
 
 type CacheRecord = IImagePrediction | IVideoPredictionRecord;
 
+/**
+ * One cached image or video prediction as the cache browser lists it.
+ */
 interface ICacheRow {
   key: string;
   linkUrl: string;
@@ -40,17 +43,26 @@ interface ICacheRow {
   detail: string;
 }
 
+/**
+ * One page of cache browser rows and the total row count used for pagination.
+ */
 interface ICachePage {
   rows: ICacheRow[];
   total: number;
   page: number;
 }
 
+/**
+ * Props of the preview element the cache browser renders for a cached media URL.
+ */
 interface IMediaProps {
   src: string;
   className: string;
 }
 
+/**
+ * A cache the browser can show (images or videos): its repository operations, page loader and preview renderer.
+ */
 interface ICacheSource {
   labelKey: string;
   repository: Pick<

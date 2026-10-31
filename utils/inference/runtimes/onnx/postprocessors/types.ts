@@ -13,6 +13,10 @@ export interface PostprocessContext {
   includeScoreGrid?: boolean;
 }
 
+/**
+ * Output of a Postprocessor: the predictions above threshold, the top unsafe score and, when
+ * requested, the raw score grid.
+ */
 export interface PostprocessResult {
   predictions: IElementPrediction[];
   topUnsafeScore: number;

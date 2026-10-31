@@ -3,6 +3,7 @@ import { getLogger } from '@/utils/telemetry';
 const log = getLogger('mediaFetch');
 
 export const MEDIA_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024;
+
 /** Whole-download bound: a stalled CDN must not hang the caller's samplers. */
 export const MEDIA_FETCH_TIMEOUT_MS = 30_000;
 

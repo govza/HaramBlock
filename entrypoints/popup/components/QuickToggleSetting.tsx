@@ -2,6 +2,9 @@ import { Switch } from '@/components/ui/Switch';
 import { useHostDataContext } from '@/entrypoints/popup/context/HostDataContext';
 import { t } from '@/utils/i18n';
 
+/**
+ * Props of one labelled switch row in the popup Quick Toggle settings.
+ */
 interface SwitchRowProps {
   label: string;
   checked: boolean;
