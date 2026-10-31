@@ -38,8 +38,7 @@ const SEVERITY: Record<TelemetryLogRecord['level'], SeverityNumber> = {
 };
 
 /**
- * The background's OpenTelemetry SDK wiring: providers, span processor and metric instruments, plus per-context
- * resources and loggers for forwarded telemetry.
+ * The background's OpenTelemetry SDK wiring, which also exports telemetry forwarded from other contexts.
  */
 interface SdkPipeline {
   loggerProvider: LoggerProvider;

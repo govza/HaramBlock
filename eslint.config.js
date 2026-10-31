@@ -120,7 +120,26 @@ export default [
         {
           require: { FunctionDeclaration: false },
           contexts: ['TSInterfaceDeclaration'],
-          checkConstructors: false,
+        },
+      ],
+      'jsdoc/no-restricted-syntax': [
+        'error',
+        {
+          contexts: [
+            {
+              comment: 'JsdocBlock[endLine=0]',
+              context: 'TSInterfaceDeclaration',
+              message: 'Write the interface JSDoc as a multi-line /** … */ block.',
+            },
+            {
+              context: 'TSPropertySignature',
+              message: 'Document the interface, not its members.',
+            },
+            {
+              context: 'TSMethodSignature',
+              message: 'Document the interface, not its members.',
+            },
+          ],
         },
       ],
       '@stylistic/lines-around-comment': [
@@ -213,7 +232,7 @@ export default [
   },
   // Test files override
   {
-    files: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**/*.ts'],
+    files: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', '**/__tests__/**/*.{ts,tsx}'],
     languageOptions: {
       globals: {
         ...globals.jest,
@@ -224,6 +243,7 @@ export default [
       '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',
       'jsdoc/require-jsdoc': 'off',
+      'jsdoc/no-restricted-syntax': 'off',
     },
   },
   // Configuration files override
@@ -276,6 +296,7 @@ export default [
       // WebdriverIO globals (describe, it, browser, $) are typed via @wdio/globals/types
       '@typescript-eslint/no-unsafe-call': 'off',
       'jsdoc/require-jsdoc': 'off',
+      'jsdoc/no-restricted-syntax': 'off',
     },
   },
 ];

@@ -19,16 +19,18 @@ const BUTTON_MARGIN_PX = 8;
 
 type ToggleCallback = (src: string, forcedVisibility: ForcedVisibility) => void;
 export type ToggleTarget = HTMLImageElement | HTMLVideoElement;
+
+/**
+ * Toggle state of one registered element. `unprocessed` marks elements the pipeline finalized without analyzing (e.g.
+ * undelayable video); videos bring their own `onToggle` because session-scoped state has no src-keyed store to route
+ * through.
+ */
 type RegisteredElement = {
   src: string;
   forcedVisibility: ForcedVisibility;
   hasDetections: boolean;
-
-  /** The pipeline finalized without analyzing this element (e.g. undelayable video). */
   unprocessed: boolean;
   minSize: IHostSettings['minSize'];
-
-  /** Per-element handler (videos): session-scoped state has no src-keyed store to route through. */
   onToggle?: (next: ForcedVisibility) => void;
 };
 
@@ -365,19 +367,15 @@ export function shouldShowToggle(
 }
 
 /**
- * An element's Quick Toggle state: its source, Forced Visibility, whether it has detections, the host settings that
- * decide the button, and who handles a toggle.
+ * What a caller hands Quick Toggle to put the eye button on an element. An `unprocessed` element gets an amber
+ * warning; without `onToggle` a toggle goes to the global src-keyed callback from initQuickToggle.
  */
 export interface QuickToggleRegistration {
   src: string;
   forcedVisibility: ForcedVisibility;
   hasDetections: boolean;
-
-  /** The pipeline finalized without analyzing this element; the button shows an amber warning. */
   unprocessed?: boolean;
   hostSettings: IHostSettings;
-
-  /** Per-element handler; omitted = the global src-keyed callback from initQuickToggle. */
   onToggle?: (next: ForcedVisibility) => void;
 }
 

@@ -29,8 +29,7 @@ export interface ModelRung {
 }
 
 /**
- * Everything the automatic model selection weighs: the ladder, the active model and backend, its measured latency,
- * per-model history and switch cooldown state.
+ * Everything the automatic model selection weighs when deciding whether to step up or down the ladder.
  */
 export interface DecisionInput {
   rungs: ModelRung[]; // Ascending by inputSize

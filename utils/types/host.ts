@@ -2,7 +2,7 @@ export type PolicyBehavior = 'whitelist' | 'blacklist' | 'process';
 export type PolicyTarget = 'image' | 'video' | 'gif';
 
 /**
- * How masked regions are painted: grayscale, darkening, blur intensity and pixelation scale.
+ * How detected regions are painted over once masked.
  */
 export interface IMaskingSettings {
   grayscale: boolean;
@@ -12,19 +12,17 @@ export interface IMaskingSettings {
 }
 
 /**
- * Whether a host is whitelisted, blacklisted or processed, and which media types that applies to.
+ * Whether a host is whitelisted, blacklisted or processed (exactly one behavior), and which media types that applies
+ * to (each toggled independently).
  */
 export interface IHostPolicy {
-  /** Single-select: exactly one behavior is active (radio / cycling toggle). */
   behavior: PolicyBehavior;
-
-  /** Multi-select: each target toggles independently (checkbox group). */
   targets: Record<PolicyTarget, boolean>;
 }
 
 /**
- * Resolved settings of one host, or of the global row it inherits from: policy, masking, strictness, minimum media
- * size and Quick Toggle visibility.
+ * Resolved settings of one host, or of the global row it inherits from; what every filtering decision on that host
+ * reads.
  */
 export interface IHostSettings {
   hostname: string;
