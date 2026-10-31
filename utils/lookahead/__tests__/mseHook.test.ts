@@ -161,6 +161,9 @@ afterEach(() => page?.close());
 const appendsOf = (messages: HookMessage[]) =>
   messages.flatMap(message => (message.t === 'append' ? [[...new Uint8Array(message.bytes)]] : []));
 
+const appendedBytesOf = (messages: HookMessage[]) =>
+  messages.flatMap(message => (message.t === 'append' ? [new Uint8Array(message.bytes)] : []));
+
 const appendAndComplete = (buffer: FakeSourceBuffer, bytes: number[] | Uint8Array<ArrayBuffer>) => {
   buffer.appendBuffer(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
   buffer.completeAppend();
@@ -335,7 +338,7 @@ describe('MSE hook: appends made before the source is wanted', () => {
     command({ t: 'want', sourceId });
 
     await vi.waitFor(() => expect(received.filter(message => message.t === 'append')).toHaveLength(3));
-    expect(appendsOf(received)[0]).toEqual(WEBM_INIT);
+    expect(appendedBytesOf(received)[0]).toEqual(new Uint8Array(WEBM_INIT));
   });
 
   it('keeps the newest appends of a dropped source past the cap, flagging where bytes went missing', async () => {
@@ -353,7 +356,7 @@ describe('MSE hook: appends made before the source is wanted', () => {
 
     command({ t: 'want', sourceId });
 
-    await vi.waitFor(() => expect(appendsOf(received).at(-1)).toEqual([0xe]));
+    await vi.waitFor(() => expect(appendedBytesOf(received).at(-1)).toEqual(new Uint8Array([0xe])));
     const replayed = received.filter(message => message.t === 'append');
     expect(received.some(message => message.t === 'overflow')).toBe(false);
     expect(replayed.map(message => message.bytes.byteLength)).toEqual([20 * 1024 * 1024, 20 * 1024 * 1024, 1]);
@@ -498,9 +501,9 @@ describe('MSE hook: a replacement port', () => {
 
     second.command({ t: 'want', sourceId });
 
-    await vi.waitFor(() => expect(appendsOf(received).at(-1)).toEqual([0xe]));
+    await vi.waitFor(() => expect(appendedBytesOf(received).at(-1)).toEqual(new Uint8Array([0xe])));
     expect(received.some(message => message.t === 'overflow')).toBe(false);
-    expect(appendsOf(received)[0]).toEqual(WEBM_INIT);
+    expect(appendedBytesOf(received)[0]).toEqual(new Uint8Array(WEBM_INIT));
   });
 
   it('gives the new port nothing of a buffer the page removed', async () => {
