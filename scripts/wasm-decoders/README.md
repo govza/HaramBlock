@@ -1,12 +1,13 @@
 # WebAssembly video decoders
 
-Sources and build script for `public/wasm-decoders/{vp9,av1}.{js,wasm}`, the software decoders used
-for lookahead decoding where WebCodecs is unavailable (Firefox for Android).
+Sources and build script for `public/wasm-decoders/{vp9,av1,h264}.{js,wasm}`, the software decoders
+used for lookahead decoding where WebCodecs is unavailable (Firefox for Android).
 
-| Output  | Library | Version (upstream tag, unmodified) | Licence      |
-| ------- | ------- | ---------------------------------- | ------------ |
-| `vp9.*` | libvpx  | `v1.17.0`                          | BSD-3-Clause |
-| `av1.*` | dav1d   | `1.5.4`                            | BSD-2-Clause |
+| Output   | Library                      | Version (upstream tag, unmodified) | Licence      |
+| -------- | ---------------------------- | ---------------------------------- | ------------ |
+| `vp9.*`  | libvpx                       | `v1.17.0`                          | BSD-3-Clause |
+| `av1.*`  | dav1d                        | `1.5.4`                            | BSD-2-Clause |
+| `h264.*` | FFmpeg (`h264` decoder only) | `n9.0.2`                           | LGPL-2.1+    |
 
 Toolchain: Docker image `emscripten/emsdk:6.0.12`
 (`sha256:77638e6c215a65f25a704c0c831d5c2463a8c0468a58c6cb82489dbe621dfa05`). Both are built
@@ -15,12 +16,12 @@ Toolchain: Docker image `emscripten/emsdk:6.0.12`
 ## Files
 
 - `build.sh` — runs inside the emsdk container; clones the pinned tags, builds the libraries, links
-  each shim. `bash build.sh [av1|vp9 ...]` builds a subset.
+  each shim. `bash build.sh [av1|vp9|h264 ...]` builds a subset.
 - `cross.meson` — meson cross file for dav1d.
-- `vp9_shim.c`, `av1_shim.c` — the `dec_*` C interface consumed by `utils/lookahead/wasmCodecs.ts`;
-  identical exports in both.
-- `verify.mjs` — encodes test clips with the host `ffmpeg`/`ffprobe` (needs libvpx-vp9 and
-  libaom-av1) and decodes them end to end through the interface:
+- `vp9_shim.c`, `av1_shim.c`, `h264_shim.c` — the `dec_*` C interface consumed by
+  `utils/lookahead/wasmCodecs.ts`; identical exports in both.
+- `verify.mjs` — encodes test clips with the host `ffmpeg`/`ffprobe` (needs libvpx-vp9, libaom-av1
+  and libx264) and decodes them end to end through the interface:
   `node scripts/wasm-decoders/verify.mjs [wasmDir]`.
 
 ## Rebuild
@@ -43,5 +44,6 @@ Clones are cached in `~/wasm-decoders-build/work`; delete it to start from scrat
 ## Licence notice
 
 The VP9 (libvpx, BSD-3-Clause) and AV1 (dav1d, BSD-2-Clause) modules require their copyright notices
-to be kept with redistributions. There is no H.264 module: AVC decoding is patent-encumbered (Via LA
-pool), which a GPL-3.0 release cannot take on; see ADR 0005.
+to be kept with redistributions. The H.264 module is FFmpeg's LGPL-2.1+ `h264` decoder built from
+the unmodified upstream tag above (no `--enable-gpl`/`--enable-nonfree`); this directory is its
+corresponding source and build recipe. AVC patents are not licensed; see ADR 0006.

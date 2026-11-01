@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * End-to-end check of the built decoders through the dec_* C interface.
- * Usage: node scripts/wasm-decoders/verify.mjs [wasmDir]  (needs ffmpeg + ffprobe with libvpx-vp9, libaom-av1 on PATH)
+ * Usage: node scripts/wasm-decoders/verify.mjs [wasmDir]  (needs ffmpeg + ffprobe with libvpx-vp9, libaom-av1, libx264 on PATH)
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -222,6 +222,7 @@ const verifyStream = async (moduleFile, factoryName, label, { extradata, packets
 encode('vp9.ivf', ['-c:v', 'libvpx-vp9']);
 encode('av1.ivf', ['-c:v', 'libaom-av1', '-cpu-used', '8']);
 encode('av1.mp4', ['-c:v', 'libaom-av1', '-cpu-used', '8']);
+encode('h264.mp4', ['-c:v', 'libx264', '-profile:v', 'high', '-bf', '2']);
 const results = [
   await verifyStream('vp9.js', 'createVp9Decoder', 'VP9 IVF', {
     extradata: new Uint8Array(0),
@@ -232,6 +233,12 @@ const results = [
     packets: readIvf('av1.ivf'),
   }),
   await verifyStream('av1.js', 'createAv1Decoder', 'AV1 MP4 samples + av1C', mp4Stream('av1.mp4', 'av1C')),
+  await verifyStream(
+    'h264.js',
+    'createH264Decoder',
+    'H.264 High MP4 samples + avcC, B-frames',
+    mp4Stream('h264.mp4', 'avcC'),
+  ),
 ];
 const passed = results.every(Boolean);
 console.log(passed ? 'ALL PASSED' : 'FAILURES');
