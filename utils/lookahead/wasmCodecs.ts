@@ -1,4 +1,4 @@
-export type WasmCodec = 'vp9' | 'av1';
+export type WasmCodec = 'vp9' | 'av1' | 'h264';
 
 /**
  * One Emscripten-built decoder instance, exposing the C interface every codec shim in
@@ -33,11 +33,13 @@ export const WASM_PIXEL_FORMAT_I420 = 0;
 export const WASM_FACTORY_NAMES: Record<WasmCodec, string> = {
   vp9: 'createVp9Decoder',
   av1: 'createAv1Decoder',
+  h264: 'createH264Decoder',
 };
 
 export function wasmCodecOf(codec: string): WasmCodec | null {
   const family = codec.split('.')[0]?.toLowerCase();
   if (family === 'vp09' || family === 'vp9') return 'vp9';
   if (family === 'av01') return 'av1';
+  if (family === 'avc1' || family === 'avc3') return 'h264';
   return null;
 }

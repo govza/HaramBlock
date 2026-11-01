@@ -53,6 +53,7 @@ const meanOf = (data: Uint8ClampedArray) => data.reduce((sum, value) => sum + va
 describe.each([
   ['progressive-vp9.webm', 'vp9'],
   ['progressive-av1.webm', 'av1'],
+  ['progressive-short-gop.mp4', 'h264'],
 ] as const)('WasmDecodeSession on %s', (name, codec) => {
   it('decodes exactly the target frames, by pts, with real pixels', async () => {
     const { config, packets, extradata } = await demuxFile(name);
