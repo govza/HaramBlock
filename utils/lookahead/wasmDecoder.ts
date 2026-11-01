@@ -52,7 +52,7 @@ function frameStream(): { channel: JobChannel; messages: AsyncIterable<FromWasmW
 }
 
 /**
- * Decodes VP9 and AV1 Decode Jobs with the bundled WebAssembly decoders in one dedicated
+ * Decodes VP9, AV1 and H.264 Decode Jobs with the bundled WebAssembly decoders in one dedicated
  * worker, converting target frames to model-input bitmaps there.
  */
 export function createWasmDecoder(inputSize: number): CapableDecoder {

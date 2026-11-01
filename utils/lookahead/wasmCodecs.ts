@@ -36,10 +36,15 @@ export const WASM_FACTORY_NAMES: Record<WasmCodec, string> = {
   h264: 'createH264Decoder',
 };
 
+const H264_I420_PROFILE_IDCS = new Set(['42', '4d', '58', '64']);
+
+const isI420H264Profile = (avcParameters: string | undefined): boolean =>
+  !avcParameters || H264_I420_PROFILE_IDCS.has(avcParameters.slice(0, 2).toLowerCase());
+
 export function wasmCodecOf(codec: string): WasmCodec | null {
-  const family = codec.split('.')[0]?.toLowerCase();
+  const [family, parameters] = codec.toLowerCase().split('.');
   if (family === 'vp09' || family === 'vp9') return 'vp9';
   if (family === 'av01') return 'av1';
-  if (family === 'avc1' || family === 'avc3') return 'h264';
+  if ((family === 'avc1' || family === 'avc3') && isI420H264Profile(parameters)) return 'h264';
   return null;
 }
