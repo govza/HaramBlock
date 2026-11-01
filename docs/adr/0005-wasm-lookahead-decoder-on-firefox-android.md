@@ -1,6 +1,6 @@
 # WebAssembly lookahead decoder restores video processing on Firefox for Android
 
-Status: accepted (2026-10-17) — supersedes ADR 0003
+Status: accepted (2026-10-17) — supersedes ADR 0003; its H.264 exclusion is superseded by ADR 0006
 
 ADR 0003 withdrew video processing on Firefox for Android because no JS path can read a video frame
 there. Two facts in mozilla-central (2026-10-16) keep that true: WebCodecs is `@IS_NIGHTLY_BUILD@`
