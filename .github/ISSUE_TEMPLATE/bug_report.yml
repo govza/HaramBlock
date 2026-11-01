@@ -30,5 +30,7 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: Optional. Paste the logs from the popup's "Copy logs" button.
+      description: >-
+        Optional. Click the copy-logs icon in the popup footer and paste here.
+        Logs contain the URLs of pages and media you visited, so redact anything private before posting.
       render: text
