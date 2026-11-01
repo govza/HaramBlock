@@ -49,8 +49,17 @@ build_vp9() {
 build_h264() {
   clone ffmpeg "$FFMPEG_TAG" https://git.ffmpeg.org/ffmpeg.git
   rm -rf ffmpeg-build ffmpeg-install && mkdir ffmpeg-build
-  (cd ffmpeg-build && ../ffmpeg/configure --prefix="$WORK/ffmpeg-install"     --target-os=none --arch=x86_32 --enable-cross-compile --cc=emcc --cxx=em++ --ar=emar --ranlib=emranlib --nm=emnm     --disable-everything --enable-decoder=h264 --enable-parser=h264     --disable-asm --disable-inline-asm --disable-x86asm     --disable-pthreads --disable-w32threads --disable-os2threads     --disable-programs --disable-doc --disable-network     --disable-avformat --disable-avdevice --disable-swscale --disable-swresample --disable-avfilter     --disable-runtime-cpudetect --disable-debug --disable-autodetect     --extra-cflags="-O3 $SIMD" && make -j"$JOBS" && make install)
-  emcc "$SRC/h264_shim.c" -Iffmpeg-install/include ffmpeg-install/lib/libavcodec.a ffmpeg-install/lib/libavutil.a     "${LINK[@]}" -sEXPORT_NAME=createH264Decoder -o "$OUT/h264.js"
+  (cd ffmpeg-build && ../ffmpeg/configure --prefix="$WORK/ffmpeg-install" \
+    --target-os=none --arch=x86_32 --enable-cross-compile --cc=emcc --cxx=em++ --ar=emar --ranlib=emranlib --nm=emnm \
+    --disable-everything --enable-decoder=h264 --enable-parser=h264 \
+    --disable-asm --disable-inline-asm --disable-x86asm \
+    --disable-pthreads --disable-w32threads --disable-os2threads \
+    --disable-programs --disable-doc --disable-network \
+    --disable-avformat --disable-avdevice --disable-swscale --disable-swresample --disable-avfilter \
+    --disable-runtime-cpudetect --disable-debug --disable-autodetect \
+    --extra-cflags="-O3 $SIMD" && make -j"$JOBS" && make install)
+  emcc "$SRC/h264_shim.c" -Iffmpeg-install/include ffmpeg-install/lib/libavcodec.a ffmpeg-install/lib/libavutil.a \
+    "${LINK[@]}" -sEXPORT_NAME=createH264Decoder -o "$OUT/h264.js"
 }
 
 targets=("$@")

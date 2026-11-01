@@ -1,6 +1,7 @@
 # WebAssembly lookahead decoder restores video processing on Firefox for Android
 
-Status: accepted (2026-10-17) — supersedes ADR 0003; its H.264 exclusion is superseded by ADR 0006
+Status: accepted (2026-10-17) — supersedes ADR 0003; its H.264 exclusion is superseded by ADR
+[0006](0006-bundle-h264-wasm-decoder.md)
 
 ADR 0003 withdrew video processing on Firefox for Android because no JS path can read a video frame
 there. Two facts in mozilla-central (2026-10-16) keep that true: WebCodecs is `@IS_NIGHTLY_BUILD@`
@@ -31,7 +32,8 @@ native decode with no release from us; desktop gains a fallback for codecs its n
 - **Codecs**: VP9 (libvpx) and AV1 (dav1d), both royalty-free. No H.264: an LGPL FFmpeg build would
   settle copyright, but AVC patents go through Via LA, and a per-unit patent licence that does not
   extend to every recipient cannot be combined with GPL-3.0 distribution (§12). H.264 sources the
-  native decoder rejects stay unprotected on Android.
+  native decoder rejects stay unprotected on Android. _Superseded by ADR
+  [0006](0006-bundle-h264-wasm-decoder.md), which bundles H.264._
 - **Output**: the WASM decoder emits 8-bit I420 planes; the worker downscales them (nearest
   neighbour) and converts to RGB (BT.709) in JS, producing the same `BitmapFrame` (`ImageBitmap` at
   model input size, original dimensions kept) as `toModelInputBitmap`. Other pixel formats fail the
