@@ -122,7 +122,8 @@ On Firefox for Android the video capability is `lookahead-only` (ADR
 empty there, so sessions are born with pixels unreadable — no bootstrap hiding, no attachment or
 pending-source blur, no Live Masking, Thumbnail from the poster only — and every gap in lookahead
 coverage fails open. Decode Jobs go to native WebCodecs when it accepts the config, otherwise to the
-bundled WebAssembly decoders (VP9, AV1) in a dedicated worker.
+bundled WebAssembly decoders (VP9, AV1, H.264 — ADR [0006](adr/0006-bundle-h264-wasm-decoder.md)) in
+a dedicated worker.
 
 ## Components
 
