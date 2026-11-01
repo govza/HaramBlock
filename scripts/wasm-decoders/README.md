@@ -10,8 +10,10 @@ used for lookahead decoding where WebCodecs is unavailable (Firefox for Android)
 | `h264.*` | FFmpeg (`h264` decoder only) | `n9.0.2`                           | LGPL-2.1+    |
 
 Toolchain: Docker image `emscripten/emsdk:6.0.12`
-(`sha256:77638e6c215a65f25a704c0c831d5c2463a8c0468a58c6cb82489dbe621dfa05`). Both are built
-`-O3 -msimd128` (WebAssembly SIMD required), single-threaded, no asm.
+(`sha256:77638e6c215a65f25a704c0c831d5c2463a8c0468a58c6cb82489dbe621dfa05`). All three are built
+`-O3 -msimd128` (WebAssembly SIMD required), single-threaded, no asm. FFmpeg is configured with
+`--arch=x86_32` only to give its configure a 32-bit arch it knows (wasm32 matches its type sizes);
+with all asm disabled the build is plain C.
 
 ## Files
 
@@ -19,7 +21,7 @@ Toolchain: Docker image `emscripten/emsdk:6.0.12`
   each shim. `bash build.sh [av1|vp9|h264 ...]` builds a subset.
 - `cross.meson` — meson cross file for dav1d.
 - `vp9_shim.c`, `av1_shim.c`, `h264_shim.c` — the `dec_*` C interface consumed by
-  `utils/lookahead/wasmCodecs.ts`; identical exports in both.
+  `utils/lookahead/wasmCodecs.ts`; identical exports in all three.
 - `verify.mjs` — encodes test clips with the host `ffmpeg`/`ffprobe` (needs libvpx-vp9, libaom-av1
   and libx264) and decodes them end to end through the interface:
   `node scripts/wasm-decoders/verify.mjs [wasmDir]`.
