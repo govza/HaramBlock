@@ -24,6 +24,11 @@ export class ImagePredictionRepository extends HostScopedCacheRepository<IImageP
     return this.where('src').equals(src).toArray();
   }
 
+  async findValidBySrc(src: string): Promise<IImagePrediction | undefined> {
+    const [stored] = await this.findBySrc(src);
+    return stored && isValidPrediction(stored) ? stored : undefined;
+  }
+
   /**
    * Find predictions by hostname
    */

@@ -1,4 +1,8 @@
-import { requestImageInference, requestToggleUpdate } from '@/entrypoints/content/communication/sender';
+import {
+  requestCachedImagePrediction,
+  requestImageInference,
+  requestToggleUpdate,
+} from '@/entrypoints/content/communication/sender';
 import { isPlaceholderResolution, resolveImageSource, type NaturalSize } from '@/entrypoints/content/core/imageSource';
 import { createInferenceTracker } from '@/entrypoints/content/core/inferenceTracker';
 import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
@@ -419,7 +423,25 @@ export class ImageProcessor {
       this.reprocessDeferredCopyOnLoad(img);
       return;
     }
+    void this.applyPersistedVerdictOrInfer(img, src);
+  }
 
+  /**
+   * A persisted verdict needs no pixels, so probing by URL first skips load, capture and the
+   * transfer, which on hosts without CORS headers is a failed fetch plus a background refetch.
+   */
+  private async applyPersistedVerdictOrInfer(img: HTMLImageElement, src: string): Promise<void> {
+    const persisted = await requestCachedImagePrediction(src, this.hostSettings.hostname);
+    if (!persisted) {
+      this.inferWhenLoaded(img, src);
+      return;
+    }
+    this.cache.set(src, persisted);
+    this.inference.settle(src);
+    await this.applyPredictionToAllImages(persisted);
+  }
+
+  private inferWhenLoaded(img: HTMLImageElement, src: string): void {
     const sendRequest = async () => {
       // If src changed before load (common with srcset), reprocess with new src
       const currentSrc = resolveImageSource(img);
