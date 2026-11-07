@@ -6,8 +6,7 @@
   (chrome-devtools MCP + `pnpm dev` browser as the primary setup). The Playwright MCP with a static
   `pnpm build` is the alternative setup — [docs/PLAYWRIGHT.md](docs/PLAYWRIGHT.md).
   - Automate browser checks rather than asking the user to test manually. Delegate the
-    browser-driving to a subagent on Sonnet (`model: "sonnet"`) instead of running it from the main
-    session.
+    browser-driving to a subagent instead of running it from the main session.
 
 ## Agent skills
 
