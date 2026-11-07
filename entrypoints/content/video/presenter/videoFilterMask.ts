@@ -1,4 +1,4 @@
-import { BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
+import { isWholeBlurred } from '@/entrypoints/content/video/session/wholeBlur';
 
 /**
  * The page's own inline `filter` declaration, saved before the fullscreen mask overrides it and
@@ -20,7 +20,7 @@ export class VideoFilterMask {
   constructor(private readonly video: HTMLVideoElement) {}
 
   apply(filter: string): void {
-    if (this.video.classList.contains(BLUR_CLASS)) return;
+    if (isWholeBlurred(this.video)) return;
     const { style } = this.video;
     this.saved ??= { value: style.getPropertyValue('filter'), priority: style.getPropertyPriority('filter') };
     style.setProperty('filter', filter, 'important');
