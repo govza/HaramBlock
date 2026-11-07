@@ -132,6 +132,16 @@ export class BackgroundRpc {
     }
   }
 
+  async getCachedImagePrediction(src: string, hostname: string): Promise<IImagePrediction | null> {
+    try {
+      const stored = await this.imageCacheService.findValidBySrc(src);
+      return stored ? this.imageCacheService.rehome(stored, hostname) : null;
+    } catch (error) {
+      log.error('cache.read.failed', { [ATTR.src]: src, error });
+      throw error;
+    }
+  }
+
   async getCachedVideoPredictions(
     identity: VideoIdentity,
     reader: CachedSampleReader,

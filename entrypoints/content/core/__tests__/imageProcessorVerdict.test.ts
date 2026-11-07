@@ -19,6 +19,7 @@ const { applyPredictionsStyling } = vi.hoisted(() => ({
 
 vi.mock('@/entrypoints/content/communication/sender', () => ({
   requestImageInference: vi.fn(() => Promise.resolve()),
+  requestCachedImagePrediction: vi.fn(() => Promise.resolve(null)),
   requestToggleUpdate: vi.fn(() => Promise.resolve()),
 }));
 vi.mock('@/entrypoints/content/presentation/predictionStyling', () => ({ applyPredictionsStyling }));

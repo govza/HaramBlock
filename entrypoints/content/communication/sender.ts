@@ -78,6 +78,20 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
   }
 }
 
+/**
+ * Looks up a persisted verdict by URL alone, so a cached image skips load, capture and transfer.
+ * Misses and errors resolve to null: the caller falls back to full inference.
+ */
+export async function requestCachedImagePrediction(src: string, hostname: string): Promise<IImagePrediction | null> {
+  if (browser.extension.inIncognitoContext) return null;
+  try {
+    return await backgroundRpc.getCachedImagePrediction(src, hostname);
+  } catch (error) {
+    log.warn('cached_prediction.request.failed', { [ATTR.src]: src, error });
+    return null;
+  }
+}
+
 export async function requestVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
   if (browser.extension.inIncognitoContext) return 'auto';
   try {

@@ -95,6 +95,22 @@ export class ImageCacheService {
     }
   }
 
+  async findValidBySrc(src: string): Promise<IImagePrediction | undefined> {
+    return this.repository.findValidBySrc(src);
+  }
+
+  /**
+   * Moves a verdict under `hostname` and refreshes its access time so the next page load on that
+   * host seeds it. Fire-and-forget: a failed write only costs a later lookup.
+   */
+  rehome(prediction: IImagePrediction, hostname: string): IImagePrediction {
+    const rehomed = { ...this.repository.updateAccessTime(prediction), hostname };
+    this.repository.savePrediction(rehomed).catch((error: unknown) => {
+      log.warn('cache.rehome.failed', { [ATTR.src]: prediction.src, error });
+    });
+    return rehomed;
+  }
+
   // Updates first prediction only. Database uses src as primary key, so only one prediction per src exists.
   async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
     try {

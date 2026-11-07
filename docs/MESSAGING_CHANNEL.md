@@ -239,6 +239,8 @@ No manual request/response correlation needed!
 
 - `getHostSettings` — per-host settings lookup
 - `getCachedPredictions` — cached predictions for a hostname
+- `getCachedImagePrediction` — URL-only probe for one persisted verdict, sent before an uncached
+  image is captured
 - `postInferenceImage` — submits an `IImageTransfer` for inference (Chrome sends a bitmap, Firefox a
   blob/url; the verdict arrives later on the results broadcast)
 - `updateIcon` — extension icon update (RpcContext auto-injected by adapter, see "RpcContext"

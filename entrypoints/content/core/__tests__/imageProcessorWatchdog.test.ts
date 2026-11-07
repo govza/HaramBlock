@@ -3,21 +3,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ImageProcessor } from '@/entrypoints/content/core/ImageProcessor';
 import { IMAGE_INFERENCE_TIMEOUT_MS, IMAGE_QUEUE_WAIT_TIMEOUT_MS } from '@/entrypoints/content/core/inferenceTracker';
-import { BLUR_CLASS, PROCESSED_SKIPPED_ATTR } from '@/entrypoints/content/presentation/constants';
+import { BLUR_CLASS, PROCESSED_SAFE_ATTR, PROCESSED_SKIPPED_ATTR } from '@/entrypoints/content/presentation/constants';
 import { DEFAULT_HOST_SETTINGS } from '@/utils/constants/hostsettings';
 
 import type { BadgeCounter } from '@/entrypoints/content/core/BadgeCounter';
+import type { IImagePrediction } from '@/utils/types';
 
-const { requestImageInference } = vi.hoisted(() => ({
+const { requestImageInference, requestCachedImagePrediction } = vi.hoisted(() => ({
   requestImageInference: vi.fn(() => Promise.resolve()),
+  requestCachedImagePrediction: vi.fn((): Promise<IImagePrediction | null> => Promise.resolve(null)),
 }));
 
-vi.mock('@/entrypoints/content/communication/sender', () => ({ requestImageInference }));
+vi.mock('@/entrypoints/content/communication/sender', () => ({ requestImageInference, requestCachedImagePrediction }));
 vi.mock('@/entrypoints/content/presentation/quickToggle', () => ({
   initQuickToggle: vi.fn(),
   ensureQuickToggleButton: vi.fn(),
   removeQuickToggleButton: vi.fn(),
   hideQuickToggleButton: vi.fn(),
+  predictionToggleRegistration: vi.fn(() => ({})),
+  registerQuickToggle: vi.fn(),
+  unregisterQuickToggle: vi.fn(),
 }));
 vi.mock('@/utils/messaging/content', () => ({ waitForMessageChannel: vi.fn(() => Promise.resolve()) }));
 
@@ -97,6 +102,25 @@ describe('ImageProcessor inference failure handling', () => {
     processor.handleInferenceResults([error]);
     expect(img.classList.contains(BLUR_CLASS)).toBe(false);
     expect(img.hasAttribute(PROCESSED_SKIPPED_ATTR)).toBe(true);
+  });
+
+  it('applies a persisted verdict without sending the image for inference', async () => {
+    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const img = loadedImage('https://cdn.test/persisted.jpg');
+    requestCachedImagePrediction.mockResolvedValueOnce({
+      src: img.src,
+      hostname: 'example.com',
+      predictions: [],
+      processingTime: {},
+    } as unknown as IImagePrediction);
+
+    processor.process(img);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(requestCachedImagePrediction).toHaveBeenCalledWith(img.src, 'example.com');
+    expect(requestImageInference).not.toHaveBeenCalled();
+    expect(img.classList.contains(BLUR_CLASS)).toBe(false);
+    expect(img.hasAttribute(PROCESSED_SAFE_ATTR)).toBe(true);
   });
 
   it('skips a decoded placeholder without sending it for inference', async () => {
