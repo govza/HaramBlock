@@ -4,6 +4,7 @@ import { LOOKAHEAD_PORT_NAME, type FirefoxPortMessage, type OpenAnalysis } from 
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
 import { toInferredSample } from '@/utils/lookahead/sampleScores';
 import { withSourceSize, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
+import { callerOf, isIncognitoCaller } from '@/utils/messaging/rpcContext';
 import { getLogger } from '@/utils/telemetry';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
@@ -35,7 +36,7 @@ export class LookaheadHostService {
             onChosen: (codec, decoder) => log.info('lookahead.decoder.chosen', { codec, decoder }),
           }),
         inference: open => this.inferencePort(open),
-        cache: open => (port.sender?.tab?.incognito ? INCOGNITO_TAB_CACHE : this.cachePort(open)),
+        cache: open => (isIncognitoCaller(callerOf(port.sender)) ? INCOGNITO_TAB_CACHE : this.cachePort(open)),
         rangeSource: url => createRangeFetchSource(url),
         toHook: command => {
           try {
