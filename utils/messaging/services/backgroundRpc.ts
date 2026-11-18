@@ -1,7 +1,8 @@
-import { getRpcContext } from '@/utils/messaging/rpcContext';
+import { getRpcContext, isPrivateCaller } from '@/utils/messaging/rpcContext';
 import { ATTR, getLogger, videoIdentityAttributes, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
 import { exportTelemetry, ingestForwardedTelemetry } from '@/utils/telemetry/setup/background';
 import {
+  EMPTY_CACHED_VIDEO_PREDICTIONS,
   type ForcedVisibility,
   type IHostSettings,
   type IImagePrediction,
@@ -124,6 +125,7 @@ export class BackgroundRpc {
   }
 
   async getCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
+    if (isPrivateCaller()) return [];
     try {
       return await this.imageCacheService.getCachedPredictionsByHostname(hostname);
     } catch (error) {
@@ -133,6 +135,7 @@ export class BackgroundRpc {
   }
 
   async getCachedImagePrediction(src: string, hostname: string): Promise<IImagePrediction | null> {
+    if (isPrivateCaller()) return null;
     try {
       const stored = await this.imageCacheService.findValidBySrc(src);
       return stored ? this.imageCacheService.rehome(stored, hostname) : null;
@@ -146,6 +149,7 @@ export class BackgroundRpc {
     identity: VideoIdentity,
     reader: CachedSampleReader,
   ): Promise<ICachedVideoPredictions> {
+    if (isPrivateCaller()) return EMPTY_CACHED_VIDEO_PREDICTIONS;
     try {
       return await this.videoPredictionCacheService.getCached(identity, reader);
     } catch (error) {
@@ -155,6 +159,7 @@ export class BackgroundRpc {
   }
 
   async getVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
+    if (isPrivateCaller()) return 'auto';
     try {
       return await this.videoPredictionCacheService.getForcedVisibility(identity);
     } catch (error) {
@@ -168,7 +173,7 @@ export class BackgroundRpc {
     origin: IVideoCacheOrigin,
     samples: IStoredVideoSample[],
   ): Promise<void> {
-    this.videoPredictionCacheService.publish(identity, origin, samples);
+    if (!isPrivateCaller()) this.videoPredictionCacheService.publish(identity, origin, samples);
     return Promise.resolve();
   }
 
@@ -177,6 +182,7 @@ export class BackgroundRpc {
     origin: IVideoCacheOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
+    if (isPrivateCaller()) return;
     try {
       await this.videoPredictionCacheService.setForcedVisibility(identity, origin, forcedVisibility);
     } catch (error) {
@@ -186,6 +192,7 @@ export class BackgroundRpc {
   }
 
   async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
+    if (isPrivateCaller()) return;
     try {
       await this.imageCacheService.updateToggleState(src, forcedVisibility);
     } catch (error) {
@@ -211,7 +218,8 @@ export class BackgroundRpc {
    */
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
     const receivedAt = Date.now();
-    const { hostname, isIncognito, src, width, height, metadata, priority, traceparent } = imageData;
+    const { hostname, src, width, height, metadata, priority, traceparent } = imageData;
+    const isIncognito = imageData.isIncognito || isPrivateCaller();
 
     if (!hostname) {
       log.error('inference.request.rejected', {

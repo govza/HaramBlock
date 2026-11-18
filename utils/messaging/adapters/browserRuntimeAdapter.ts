@@ -8,6 +8,7 @@ export interface MessageMeta {
   url: string;
   tabId?: number;
   frameId?: number;
+  incognito?: boolean;
   injector?: 'content' | 'popup';
 }
 
