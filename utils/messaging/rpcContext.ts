@@ -1,9 +1,11 @@
 /**
- * The tab and frame of the caller whose RPC is being handled, so background services can scope state to it.
+ * The tab and frame of the caller whose RPC is being handled, so background services can scope state to it, and whether
+ * that tab is in a private window: the background itself never runs in incognito context, so this is its only source.
  */
 export interface RpcContext {
   tabId?: number;
   frameId?: number;
+  incognito?: boolean;
 }
 
 let currentContext: RpcContext = {};
@@ -13,3 +15,5 @@ export const setRpcContext = (ctx: RpcContext) => {
 };
 
 export const getRpcContext = (): RpcContext => currentContext;
+
+export const isPrivateCaller = (): boolean => currentContext.incognito === true;

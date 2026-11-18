@@ -2,8 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setRpcContext } from '@/utils/messaging/rpcContext';
 import { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
-
-import type { FrameInferenceResult, ImageInferenceResult } from '@/utils/types';
+import {
+  EMPTY_CACHED_VIDEO_PREDICTIONS,
+  type FrameInferenceResult,
+  type IImageTransfer,
+  type ImageInferenceResult,
+  type IVideoCacheOrigin,
+  type VideoIdentity,
+} from '@/utils/types';
 
 const makeRpc = (): BackgroundRpc =>
   // Subscription paths never touch the injected services
@@ -134,5 +140,85 @@ describe('BackgroundRpc subscription reaping', () => {
     rpc.emitFramePredictions(frameResults, 'example.com');
 
     expect(callback).not.toHaveBeenCalled();
+  });
+});
+
+describe('BackgroundRpc called from a private-window tab', () => {
+  const imageCacheService = {
+    getCachedPredictionsByHostname: vi.fn(),
+    findValidBySrc: vi.fn(),
+    updateToggleState: vi.fn(),
+  };
+  const videoPredictionCacheService = {
+    getCached: vi.fn(),
+    getForcedVisibility: vi.fn(),
+    publish: vi.fn(),
+    setForcedVisibility: vi.fn(),
+  };
+  const inferenceService = { scheduleInferenceTask: vi.fn() };
+  const hostSettingsService = { getHostSettings: vi.fn() };
+  const identity: VideoIdentity = { kind: 'stable', key: 'yt:abc', durationSec: 10 };
+  const origin: IVideoCacheOrigin = { sourceUrl: 'blob:x', pageUrl: 'https://example.com/w', hostname: 'example.com' };
+  let rpc: BackgroundRpc;
+
+  beforeEach(() => {
+    rpc = new BackgroundRpc(
+      hostSettingsService as never,
+      imageCacheService as never,
+      inferenceService as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      videoPredictionCacheService as never,
+    );
+    setRpcContext({ tabId: 1, frameId: 0, incognito: true });
+  });
+
+  it('reads nothing from the prediction caches', async () => {
+    expect(await rpc.getCachedPredictions('example.com')).toEqual([]);
+    expect(await rpc.getCachedImagePrediction('https://example.com/a.jpg', 'example.com')).toBeNull();
+    expect(await rpc.getCachedVideoPredictions(identity, { aspectRatio: null })).toEqual(
+      EMPTY_CACHED_VIDEO_PREDICTIONS,
+    );
+    expect(await rpc.getVideoForcedVisibility(identity)).toBe('auto');
+
+    expect(imageCacheService.getCachedPredictionsByHostname).not.toHaveBeenCalled();
+    expect(imageCacheService.findValidBySrc).not.toHaveBeenCalled();
+    expect(videoPredictionCacheService.getCached).not.toHaveBeenCalled();
+    expect(videoPredictionCacheService.getForcedVisibility).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing to the prediction caches', async () => {
+    await rpc.updateToggleState('https://example.com/a.jpg', 'visible');
+    await rpc.updateVideoToggleState(identity, origin, 'visible');
+    await rpc.publishVideoSamples(identity, origin, []);
+
+    expect(imageCacheService.updateToggleState).not.toHaveBeenCalled();
+    expect(videoPredictionCacheService.setForcedVisibility).not.toHaveBeenCalled();
+    expect(videoPredictionCacheService.publish).not.toHaveBeenCalled();
+  });
+
+  it('schedules an image as private whatever the content script claims', async () => {
+    hostSettingsService.getHostSettings.mockResolvedValue({});
+    const image = {
+      kind: 'url',
+      src: 'https://example.com/a.jpg',
+      hostname: 'example.com',
+      isIncognito: false,
+      metadata: {},
+    } as unknown as IImageTransfer;
+
+    await rpc.postInferenceImage(image);
+
+    expect(inferenceService.scheduleInferenceTask).toHaveBeenCalledWith(expect.objectContaining({ isIncognito: true }));
+  });
+
+  it('keeps serving the caches to a normal tab', async () => {
+    setRpcContext({ tabId: 2, frameId: 0, incognito: false });
+    imageCacheService.getCachedPredictionsByHostname.mockResolvedValue([]);
+
+    await rpc.getCachedPredictions('example.com');
+
+    expect(imageCacheService.getCachedPredictionsByHostname).toHaveBeenCalledWith('example.com');
   });
 });

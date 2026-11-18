@@ -11,7 +11,7 @@ const log = getLogger('CompositeProvideAdapter');
  * announced it.
  */
 interface MessageSender {
-  tab?: { id?: number; url?: string };
+  tab?: { id?: number; url?: string; incognito?: boolean };
   frameId?: number;
   url?: string;
 }
@@ -24,6 +24,7 @@ interface PortInfo {
   secret: string;
   tabId?: number;
   frameId?: number;
+  incognito?: boolean;
 }
 
 /**
@@ -49,7 +50,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
       (message: Partial<Message<MessageMeta>> | undefined, sender: MessageSender) => {
         const control = message as unknown as { type?: string; secret?: string } | undefined;
         if (control?.type === 'REGISTER_CHANNEL_TAB') {
-          this.associateTab(control.secret, sender.tab?.id, sender.frameId);
+          this.associateTab(control.secret, sender.tab, sender.frameId);
           return;
         }
 
@@ -60,6 +61,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
                 ...message.meta,
                 tabId: sender.tab?.id,
                 frameId: sender.frameId,
+                incognito: sender.tab?.incognito,
                 url: sender.tab?.url || sender.url || '',
                 // Mark as runtime transport for routing
                 _transport: 'runtime' as const,
@@ -133,6 +135,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
         url: data.meta?.url || '',
         tabId: data.meta?.tabId ?? portInfo?.tabId,
         frameId: data.meta?.frameId ?? portInfo?.frameId,
+        incognito: portInfo?.incognito,
       } as MessageMeta & { _channelSecret: string; _transport: 'channel' },
     };
 
@@ -172,13 +175,15 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
    * runs in all frames, and each frame owns its own live channel — evicting by
    * tab alone lets any iframe's registration kill the top frame's port.
    */
-  private associateTab(secret: string | undefined, tabId?: number, frameId?: number): void {
+  private associateTab(secret: string | undefined, tab: MessageSender['tab'], frameId?: number): void {
+    const tabId = tab?.id;
     if (!secret || tabId === undefined) return;
     const portInfo = this.ports.get(secret);
     if (!portInfo) return;
 
     portInfo.tabId = tabId;
     portInfo.frameId = frameId;
+    portInfo.incognito = tab?.incognito;
     for (const [otherSecret, info] of this.ports) {
       if (otherSecret !== secret && info.tabId === tabId && info.frameId === frameId) {
         this.removePort(otherSecret);
@@ -288,7 +293,11 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
   onMessage: OnMessage<MessageMeta> = callback => {
     const wrapped = (message?: Partial<Message<MessageMeta>>) => {
-      setRpcContext({ tabId: message?.meta?.tabId, frameId: message?.meta?.frameId });
+      setRpcContext({
+        tabId: message?.meta?.tabId,
+        frameId: message?.meta?.frameId,
+        incognito: message?.meta?.incognito,
+      });
       callback(message);
     };
     this.messageCallbacks.add(wrapped);

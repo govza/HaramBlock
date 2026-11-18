@@ -14,6 +14,8 @@ import type { VideoIdentity } from '@/utils/types';
 
 const log = getLogger('lookaheadHostService');
 
+const PRIVATE_TAB_CACHE: SampleCachePort = { read: () => Promise.resolve([]), publish: () => {} };
+
 export class LookaheadHostService {
   private nextFrameIndex = 1;
 
@@ -33,7 +35,7 @@ export class LookaheadHostService {
             onChosen: (codec, decoder) => log.info('lookahead.decoder.chosen', { codec, decoder }),
           }),
         inference: open => this.inferencePort(open),
-        cache: open => this.cachePort(open),
+        cache: open => (port.sender?.tab?.incognito ? PRIVATE_TAB_CACHE : this.cachePort(open)),
         rangeSource: url => createRangeFetchSource(url),
         toHook: command => {
           try {
