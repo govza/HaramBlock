@@ -8,6 +8,21 @@ export interface RpcContext {
   incognito?: boolean;
 }
 
+/**
+ * The part of `runtime.MessageSender` that identifies a caller. The browser fills it in for both one-off messages and
+ * `runtime.connect` ports; the calling context cannot.
+ */
+interface CallerSender {
+  tab?: { id?: number; incognito?: boolean };
+  frameId?: number;
+}
+
+export const callerOf = (sender: CallerSender | undefined): RpcContext => ({
+  tabId: sender?.tab?.id,
+  frameId: sender?.frameId,
+  incognito: sender?.tab?.incognito,
+});
+
 let currentContext: RpcContext = {};
 
 export const setRpcContext = (ctx: RpcContext) => {
@@ -16,4 +31,4 @@ export const setRpcContext = (ctx: RpcContext) => {
 
 export const getRpcContext = (): RpcContext => currentContext;
 
-export const isIncognitoCaller = (): boolean => currentContext.incognito === true;
+export const isIncognitoCaller = (caller: RpcContext = currentContext): boolean => caller.incognito === true;

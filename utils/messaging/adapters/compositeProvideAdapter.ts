@@ -1,4 +1,4 @@
-import { setRpcContext, type RpcContext } from '@/utils/messaging/rpcContext';
+import { callerOf, setRpcContext, type RpcContext } from '@/utils/messaging/rpcContext';
 import { getLogger } from '@/utils/telemetry';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
@@ -7,8 +7,7 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 const log = getLogger('CompositeProvideAdapter');
 
 /**
- * The part of `runtime.MessageSender` the background trusts to identify a caller: the browser fills it in, the content
- * script cannot.
+ * The part of `runtime.MessageSender` the background reads from a one-off message: who sent it and from which page.
  */
 interface MessageSender {
   tab?: { id?: number; url?: string; incognito?: boolean };
@@ -29,12 +28,6 @@ interface PortInfo {
   caller?: RpcContext;
   heldMessages: ChannelMessage[];
 }
-
-const callerOf = (sender: MessageSender): RpcContext => ({
-  tabId: sender.tab?.id,
-  frameId: sender.frameId,
-  incognito: sender.tab?.incognito,
-});
 
 /**
  * CompositeProvideAdapter combines browser.runtime messaging with MessageChannel transport.
