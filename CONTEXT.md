@@ -67,6 +67,12 @@ to the span's end. _Avoid_: DVR, canvas player. See [VIDEO_PROCESSING.md](docs/V
 Visibility is `'auto'`. _Avoid_: clean image, flagged image. See
 [MEDIA_PROCESSING.md](docs/MEDIA_PROCESSING.md)
 
+**Incognito Tab**: A tab in a private window (Chrome incognito, Firefox private browsing). Its media
+is never written to or read from the prediction caches, and its host settings live in
+`storage.session`. The background never runs in incognito context, so it decides by the caller's
+tab. Code spells it `incognito` / `isIncognito`, after the browser API. _Avoid_: private tab,
+private caller, private window (in identifiers)
+
 ### Video media
 
 **MSE Source**: A video whose page player downloads the media itself and feeds it piece by piece
