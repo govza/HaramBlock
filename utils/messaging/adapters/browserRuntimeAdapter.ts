@@ -1,14 +1,13 @@
+import type { RpcContext } from '@/utils/messaging/rpcContext';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 /**
- * Routing metadata comctx carries with each `browser.runtime` message, telling the background which context, tab and
- * frame to answer.
+ * Routing metadata comctx carries with each message, telling the background which context to answer. The background
+ * stamps `caller` from the browser-provided sender; a value sent by the calling context is overwritten.
  */
 export interface MessageMeta {
   url: string;
-  tabId?: number;
-  frameId?: number;
-  incognito?: boolean;
+  caller?: RpcContext;
   injector?: 'content' | 'popup';
 }
 
