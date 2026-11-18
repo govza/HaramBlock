@@ -143,7 +143,7 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 });
 
-describe('BackgroundRpc called from a private-window tab', () => {
+describe('BackgroundRpc called from an incognito tab', () => {
   const imageCacheService = {
     getCachedPredictionsByHostname: vi.fn(),
     findValidBySrc: vi.fn(),
@@ -198,7 +198,7 @@ describe('BackgroundRpc called from a private-window tab', () => {
     expect(videoPredictionCacheService.publish).not.toHaveBeenCalled();
   });
 
-  it('schedules an image as private whatever the content script claims', async () => {
+  it('schedules an image as incognito whatever the content script claims', async () => {
     hostSettingsService.getHostSettings.mockResolvedValue({});
     const image = {
       kind: 'url',
