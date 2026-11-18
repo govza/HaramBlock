@@ -41,9 +41,10 @@ background resolves tab context when needed by querying tabs.
 ### MessageMeta
 
 `MessageMeta` (`utils/messaging/adapters/browserRuntimeAdapter.ts`) carries three fields: `url` (the
-content script's `document.location.href`), an optional `tabId` (set by browser.runtime from
-`sender.tab.id`, or resolved by the background), and an optional `injector` tag (`'content'` or
-`'popup'`) identifying the caller context.
+content script's `document.location.href`), an optional `caller` (the `RpcContext` — tab, frame and
+incognito flag — that the background stamps from the browser-provided sender, overwriting anything
+the calling context sent), and an optional `injector` tag (`'content'` or `'popup'`) identifying the
+caller context.
 
 ### How Meta Flows Through the System
 
@@ -51,8 +52,8 @@ content script's `document.location.href`), an optional `tabId` (set by browser.
    - Adapters automatically enrich with `meta: { url: document.location.href, injector: 'content' }`
 
 2. **Background receives message**:
-   - `browser.runtime` path: `CompositeProvideAdapter` adds `tabId` from `sender.tab.id`
-   - `MessageChannel` path: No sender context, but URL is available in meta
+   - `browser.runtime` path: `CompositeProvideAdapter` adds `caller` from the message sender
+   - `MessageChannel` path: `caller` is the one recorded at `REGISTER_CHANNEL_TAB`
 
 ### Why This Pattern?
 
@@ -99,7 +100,7 @@ Background: ImageBitmap → tensor → ONNX inference
 3. Content fetches image and creates Blob
 4. comctx sends RPC call via `browser.runtime.sendMessage()` with Blob
 5. `CompositeProvideAdapter` receives via `browser.runtime.onMessage`
-6. Message enriched with `tabId` from `sender.tab.id`
+6. Message enriched with `caller` from the message sender
 7. Routes to `BackgroundRpc.postInferenceImage()`
 8. Background creates ImageBitmap from Blob
 9. Inference runs with the active ONNX backend (WebGPU first when available, otherwise WASM)
@@ -333,27 +334,31 @@ them to `ImageProcessor.handleInferenceResults`.
 ### Meta Enrichment by Transport
 
 **browser.runtime path** (`CompositeProvideAdapter.initializeBrowserRuntime`): enriches meta with
-`tabId` and `url` from the browser.runtime sender context, and tags `_transport: 'runtime'`.
+`caller` and `url` from the browser.runtime sender context, and tags `_transport: 'runtime'`.
 
 **MessageChannel path** (`CompositeProvideAdapter.handlePortMessage`): enriches meta with the
 channel secret (for routing responses) and tags `_transport: 'channel'`. The `url` comes from the
-content script's own meta; `tabId` is not available on this path and is resolved by querying tabs
-when needed.
+content script's own meta. A raw port carries no sender, so `caller` is the one recorded when the
+content script registered the channel with `REGISTER_CHANNEL_TAB` over `browser.runtime`. Messages
+that arrive on a port before its registration are held and handled once the caller is known: the
+background never handles a channel message for an unidentified tab, which is what keeps an Incognito
+Tab's first requests away from the prediction caches.
 
 ### RpcContext — Exposing Sender Tab ID to Handlers
 
 comctx's `createProvide` only passes explicit method arguments to handlers — the enriched message
-meta (which contains `tabId`) is not exposed. `CompositeProvideAdapter` uses a request-scoped module
-variable (`utils/messaging/rpcContext.ts`) to surface sender context to handlers without mutating
-argument lists.
+meta (which contains `caller`) is not exposed. `CompositeProvideAdapter` uses a request-scoped
+module variable (`utils/messaging/rpcContext.ts`) to surface sender context to handlers without
+mutating argument lists.
 
-The `onMessage` wrapper calls `setRpcContext({ tabId })` before comctx dispatches. Since JS is
+The `onMessage` wrapper calls `setRpcContext(meta.caller)` before comctx dispatches. Since JS is
 single-threaded, handlers read `getRpcContext()` synchronously before any `await` and get the
 correct value. Callers are unchanged (no extra arguments); handlers that need the sender tab (e.g.
 `updateIcon`) read it from the context and no-op when it's absent.
 
-On the MessageChannel path, `tabId` is undefined because raw ports don't carry sender context —
-methods that require it no-op.
+The context is built in one place (`callerOf(sender)` in `CompositeProvideAdapter`) and travels
+whole on both transports, so a new caller fact is one field on `RpcContext` plus that builder.
+Callers without a tab (the popup) have an empty context — methods that require a tab no-op.
 
 ## Usage
 

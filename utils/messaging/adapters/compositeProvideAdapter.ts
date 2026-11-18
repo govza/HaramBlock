@@ -1,4 +1,4 @@
-import { setRpcContext } from '@/utils/messaging/rpcContext';
+import { setRpcContext, type RpcContext } from '@/utils/messaging/rpcContext';
 import { getLogger } from '@/utils/telemetry';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
@@ -7,8 +7,8 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 const log = getLogger('CompositeProvideAdapter');
 
 /**
- * The part of `runtime.MessageSender` used to associate a MessageChannel port's secret with the tab and frame that
- * announced it.
+ * The part of `runtime.MessageSender` the background trusts to identify a caller: the browser fills it in, the content
+ * script cannot.
  */
 interface MessageSender {
   tab?: { id?: number; url?: string; incognito?: boolean };
@@ -16,16 +16,25 @@ interface MessageSender {
   url?: string;
 }
 
+type ChannelMessage = Partial<Message<MessageMeta>>;
+
 /**
- * A content script's MessageChannel port with the secret it was registered under and the tab it belongs to once known.
+ * A content script's MessageChannel port with the secret it was registered under. The port carries no sender, so its
+ * caller is unknown until the content script registers it over `browser.runtime`; messages arriving before that are
+ * held rather than handled for an unidentified tab.
  */
 interface PortInfo {
   port: MessagePort;
   secret: string;
-  tabId?: number;
-  frameId?: number;
-  incognito?: boolean;
+  caller?: RpcContext;
+  heldMessages: ChannelMessage[];
 }
+
+const callerOf = (sender: MessageSender): RpcContext => ({
+  tabId: sender.tab?.id,
+  frameId: sender.frameId,
+  incognito: sender.tab?.incognito,
+});
 
 /**
  * CompositeProvideAdapter combines browser.runtime messaging with MessageChannel transport.
@@ -50,7 +59,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
       (message: Partial<Message<MessageMeta>> | undefined, sender: MessageSender) => {
         const control = message as unknown as { type?: string; secret?: string } | undefined;
         if (control?.type === 'REGISTER_CHANNEL_TAB') {
-          this.associateTab(control.secret, sender.tab, sender.frameId);
+          this.associateCaller(control.secret, callerOf(sender));
           return;
         }
 
@@ -59,9 +68,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
               ...message,
               meta: {
                 ...message.meta,
-                tabId: sender.tab?.id,
-                frameId: sender.frameId,
-                incognito: sender.tab?.incognito,
+                caller: callerOf(sender),
                 url: sender.tab?.url || sender.url || '',
                 // Mark as runtime transport for routing
                 _transport: 'runtime' as const,
@@ -94,8 +101,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
       return;
     }
 
-    // Store port info
-    const portInfo: PortInfo = { port, secret };
+    const portInfo: PortInfo = { port, secret, heldMessages: [] };
     this.ports.set(secret, portInfo);
 
     // Wire up message handler
@@ -117,25 +123,26 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
   };
 
   private handlePortMessage(secret: string, event: MessageEvent): void {
-    const data = event.data as Partial<Message<MessageMeta>> | undefined;
-    if (!data) return;
-
-    // The channel itself carries no sender info; tabId/frameId come from the
-    // REGISTER_CHANNEL_TAB association done at channel establishment.
+    const data = event.data as ChannelMessage | undefined;
     const portInfo = this.ports.get(secret);
+    if (!data || !portInfo) return;
 
-    // Enrich message with routing metadata
-    const enrichedMessage: Partial<Message<MessageMeta>> = {
+    if (portInfo.caller) {
+      this.dispatchChannelMessage(secret, portInfo.caller, data);
+    } else {
+      portInfo.heldMessages.push(data);
+    }
+  }
+
+  private dispatchChannelMessage(secret: string, caller: RpcContext, data: ChannelMessage): void {
+    const enrichedMessage: ChannelMessage = {
       ...data,
       meta: {
         ...data.meta,
-        // Store secret for routing responses back via MessageChannel
         _channelSecret: secret,
         _transport: 'channel' as const,
         url: data.meta?.url || '',
-        tabId: data.meta?.tabId ?? portInfo?.tabId,
-        frameId: data.meta?.frameId ?? portInfo?.frameId,
-        incognito: portInfo?.incognito,
+        caller,
       } as MessageMeta & { _channelSecret: string; _transport: 'channel' },
     };
 
@@ -167,28 +174,29 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
   }
 
   /**
-   * Associate a channel secret with the tab AND frame that own it. Sent by the
-   * content script over browser.runtime (which carries sender.tab.id/frameId)
-   * once the channel is established. A reload or navigation produces a fresh
+   * Associate a channel secret with the caller (tab AND frame) that owns it, then
+   * handle the messages held while it was unknown. Sent by the content script over
+   * browser.runtime (which carries the sender) once the channel is established.
+   * A reload or navigation produces a fresh
    * secret for the same frame, so that frame's previous port is stale and
    * removed here. Eviction must be per frame, not per tab: the content script
    * runs in all frames, and each frame owns its own live channel — evicting by
    * tab alone lets any iframe's registration kill the top frame's port.
    */
-  private associateTab(secret: string | undefined, tab: MessageSender['tab'], frameId?: number): void {
-    const tabId = tab?.id;
-    if (!secret || tabId === undefined) return;
+  private associateCaller(secret: string | undefined, caller: RpcContext): void {
+    if (!secret || caller.tabId === undefined) return;
     const portInfo = this.ports.get(secret);
     if (!portInfo) return;
 
-    portInfo.tabId = tabId;
-    portInfo.frameId = frameId;
-    portInfo.incognito = tab?.incognito;
+    portInfo.caller = caller;
     for (const [otherSecret, info] of this.ports) {
-      if (otherSecret !== secret && info.tabId === tabId && info.frameId === frameId) {
+      if (otherSecret !== secret && info.caller?.tabId === caller.tabId && info.caller?.frameId === caller.frameId) {
         this.removePort(otherSecret);
       }
     }
+
+    const heldMessages = portInfo.heldMessages.splice(0);
+    heldMessages.forEach(data => this.dispatchChannelMessage(secret, caller, data));
   }
 
   /**
@@ -197,7 +205,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
    */
   private releaseTab = (tabId: number): void => {
     for (const [secret, info] of this.ports) {
-      if (info.tabId === tabId) {
+      if (info.caller?.tabId === tabId) {
         this.removePort(secret);
       }
     }
@@ -254,8 +262,9 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
       switch (meta?.injector) {
         case 'content': {
-          if (typeof meta.tabId === 'number' && meta.tabId >= 0) {
-            await browser.tabs.sendMessage(meta.tabId, cleanMessage).catch((error: Error) => {
+          const tabId = meta.caller?.tabId;
+          if (typeof tabId === 'number' && tabId >= 0) {
+            await browser.tabs.sendMessage(tabId, cleanMessage).catch((error: Error) => {
               // Tab might be closed - silently ignore
               if (error.message?.includes('Receiving end does not exist')) {
                 return;
@@ -293,11 +302,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
 
   onMessage: OnMessage<MessageMeta> = callback => {
     const wrapped = (message?: Partial<Message<MessageMeta>>) => {
-      setRpcContext({
-        tabId: message?.meta?.tabId,
-        frameId: message?.meta?.frameId,
-        incognito: message?.meta?.incognito,
-      });
+      setRpcContext(message?.meta?.caller ?? {});
       callback(message);
     };
     this.messageCallbacks.add(wrapped);
