@@ -68,7 +68,6 @@ export async function requestHostSettings(hostname: string): Promise<IHostSettin
  * Request cached predictions for a hostname from background script
  */
 export async function requestCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
-  if (browser.extension.inIncognitoContext) return [];
   try {
     const result = await backgroundRpc.getCachedPredictions(hostname);
     return result || [];
@@ -83,7 +82,6 @@ export async function requestCachedPredictions(hostname: string): Promise<IImage
  * Misses and errors resolve to null: the caller falls back to full inference.
  */
 export async function requestCachedImagePrediction(src: string, hostname: string): Promise<IImagePrediction | null> {
-  if (browser.extension.inIncognitoContext) return null;
   try {
     return await backgroundRpc.getCachedImagePrediction(src, hostname);
   } catch (error) {
@@ -93,7 +91,6 @@ export async function requestCachedImagePrediction(src: string, hostname: string
 }
 
 export async function requestVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
-  if (browser.extension.inIncognitoContext) return 'auto';
   try {
     return await backgroundRpc.getVideoForcedVisibility(identity);
   } catch (error) {
@@ -107,7 +104,6 @@ export async function requestVideoToggleUpdate(
   origin: IVideoCacheOrigin,
   forcedVisibility: ForcedVisibility,
 ): Promise<void> {
-  if (browser.extension.inIncognitoContext) return;
   try {
     await backgroundRpc.updateVideoToggleState(identity, origin, forcedVisibility);
   } catch (error) {
@@ -119,7 +115,6 @@ export async function requestVideoToggleUpdate(
  * Request background to update toggle state in cache
  */
 export async function requestToggleUpdate(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
-  if (browser.extension.inIncognitoContext) return;
   try {
     await backgroundRpc.updateToggleState(src, forcedVisibility);
   } catch (error) {
