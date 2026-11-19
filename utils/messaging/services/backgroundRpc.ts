@@ -32,6 +32,29 @@ import type { ModelPreference } from '@/utils/modelSettings';
 const BASE64_CHUNK_BYTES = 0x8000;
 const log = getLogger('backgroundRpc');
 
+type ImagePredictionCache = Pick<
+  ImageCacheService,
+  'getCachedPredictionsByHostname' | 'findValidBySrc' | 'rehome' | 'updateToggleState'
+>;
+type VideoPredictionCache = Pick<
+  VideoPredictionCacheService,
+  'getCached' | 'getForcedVisibility' | 'publish' | 'setForcedVisibility'
+>;
+
+const INCOGNITO_IMAGE_CACHE: ImagePredictionCache = {
+  getCachedPredictionsByHostname: () => Promise.resolve([]),
+  findValidBySrc: () => Promise.resolve(undefined),
+  rehome: prediction => prediction,
+  updateToggleState: () => Promise.resolve(),
+};
+
+const INCOGNITO_VIDEO_CACHE: VideoPredictionCache = {
+  getCached: () => Promise.resolve(EMPTY_CACHED_VIDEO_PREDICTIONS),
+  getForcedVisibility: () => Promise.resolve('auto'),
+  publish: () => {},
+  setForcedVisibility: () => Promise.resolve(),
+};
+
 function encodeBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
@@ -118,6 +141,18 @@ export class BackgroundRpc {
     private videoPredictionCacheService: VideoPredictionCacheService,
   ) {}
 
+  /**
+   * The prediction caches the current caller may use: an Incognito Tab gets ones that hold nothing and store nothing.
+   * Reads the RPC context, so call it before the first `await`.
+   */
+  private imageCache(): ImagePredictionCache {
+    return isIncognitoCaller() ? INCOGNITO_IMAGE_CACHE : this.imageCacheService;
+  }
+
+  private videoCache(): VideoPredictionCache {
+    return isIncognitoCaller() ? INCOGNITO_VIDEO_CACHE : this.videoPredictionCacheService;
+  }
+
   // ============ Request-Response Methods (replaces controllers) ============
 
   async getHostSettings(hostname: string, isIncognito = false): Promise<IHostSettings> {
@@ -125,9 +160,8 @@ export class BackgroundRpc {
   }
 
   async getCachedPredictions(hostname: string): Promise<IImagePrediction[]> {
-    if (isIncognitoCaller()) return [];
     try {
-      return await this.imageCacheService.getCachedPredictionsByHostname(hostname);
+      return await this.imageCache().getCachedPredictionsByHostname(hostname);
     } catch (error) {
       log.error('cache.read.failed', { [ATTR.hostname]: hostname, error });
       throw error;
@@ -135,10 +169,10 @@ export class BackgroundRpc {
   }
 
   async getCachedImagePrediction(src: string, hostname: string): Promise<IImagePrediction | null> {
-    if (isIncognitoCaller()) return null;
     try {
-      const stored = await this.imageCacheService.findValidBySrc(src);
-      return stored ? this.imageCacheService.rehome(stored, hostname) : null;
+      const cache = this.imageCache();
+      const stored = await cache.findValidBySrc(src);
+      return stored ? cache.rehome(stored, hostname) : null;
     } catch (error) {
       log.error('cache.read.failed', { [ATTR.src]: src, error });
       throw error;
@@ -149,9 +183,8 @@ export class BackgroundRpc {
     identity: VideoIdentity,
     reader: CachedSampleReader,
   ): Promise<ICachedVideoPredictions> {
-    if (isIncognitoCaller()) return EMPTY_CACHED_VIDEO_PREDICTIONS;
     try {
-      return await this.videoPredictionCacheService.getCached(identity, reader);
+      return await this.videoCache().getCached(identity, reader);
     } catch (error) {
       log.error('video_cache.read.failed', { ...videoIdentityAttributes(identity), error });
       throw error;
@@ -159,9 +192,8 @@ export class BackgroundRpc {
   }
 
   async getVideoForcedVisibility(identity: VideoIdentity): Promise<ForcedVisibility> {
-    if (isIncognitoCaller()) return 'auto';
     try {
-      return await this.videoPredictionCacheService.getForcedVisibility(identity);
+      return await this.videoCache().getForcedVisibility(identity);
     } catch (error) {
       log.error('video_cache.read.failed', { ...videoIdentityAttributes(identity), error });
       throw error;
@@ -173,7 +205,7 @@ export class BackgroundRpc {
     origin: IVideoCacheOrigin,
     samples: IStoredVideoSample[],
   ): Promise<void> {
-    if (!isIncognitoCaller()) this.videoPredictionCacheService.publish(identity, origin, samples);
+    this.videoCache().publish(identity, origin, samples);
     return Promise.resolve();
   }
 
@@ -182,9 +214,8 @@ export class BackgroundRpc {
     origin: IVideoCacheOrigin,
     forcedVisibility: ForcedVisibility,
   ): Promise<void> {
-    if (isIncognitoCaller()) return;
     try {
-      await this.videoPredictionCacheService.setForcedVisibility(identity, origin, forcedVisibility);
+      await this.videoCache().setForcedVisibility(identity, origin, forcedVisibility);
     } catch (error) {
       log.error('video_cache.toggle.update.failed', { ...videoIdentityAttributes(identity), error });
       throw error;
@@ -192,9 +223,8 @@ export class BackgroundRpc {
   }
 
   async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
-    if (isIncognitoCaller()) return;
     try {
-      await this.imageCacheService.updateToggleState(src, forcedVisibility);
+      await this.imageCache().updateToggleState(src, forcedVisibility);
     } catch (error) {
       log.error('toggle.update.failed', { [ATTR.src]: src, error });
       throw error;
