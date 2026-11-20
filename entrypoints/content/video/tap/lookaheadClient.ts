@@ -242,7 +242,7 @@ function hostLink(): HostLink {
   return link;
 }
 
-/** A private tab's analysis stays in memory: an unknown identity keeps the host off the persistent cache. */
+/** An incognito tab's analysis stays in memory: an unknown identity keeps the host off the persistent cache. */
 const cacheableReadContext = (readContext: CacheReadContext): CacheReadContext =>
   browser.extension.inIncognitoContext ? { ...readContext, identity: UNKNOWN_VIDEO_IDENTITY } : readContext;
 

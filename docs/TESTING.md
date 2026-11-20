@@ -20,13 +20,16 @@ the test.
 - Image size/dimension calculations
 - Settings merge and resolution (global → per-host)
 - Hostname parsing and URL normalization
+- Privacy invariants (what an Incognito Tab may read or store), even when the only observable is
+  that a store was not written
 - Any pure function with edge cases that aren't obvious from the code
 
 **What NOT to test:**
 
 - Simple getters/setters, pass-through wiring, or trivial CRUD
 - React components (covered by E2E)
-- Messaging adapters (covered by E2E)
+- Messaging adapters (covered by E2E), except logic E2E cannot reach reliably: who the caller is and
+  the order messages are handled in
 - Anything where the test would just restate the implementation
 
 **Rule of thumb:** If the test would break every time the implementation changes without catching a

@@ -73,5 +73,5 @@ const LEGACY_CACHE_DATABASE_NAMES = ['ImageDatabase', 'VideoDatabase'];
 export const deleteLegacyCacheDatabases = () =>
   Promise.all(LEGACY_CACHE_DATABASE_NAMES.map(name => Dexie.delete(name)));
 
-/** Whether running in incognito/private browsing mode */
+/** Whether running in incognito context */
 export const isIncognito = browser.extension.inIncognitoContext;

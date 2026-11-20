@@ -10,7 +10,7 @@ const STORAGE_PREFIX = 'hostSettings:';
 
 /**
  * Repository for managing host settings records
- * Uses storage.session in private browsing mode (ephemeral), IndexedDB otherwise
+ * Uses storage.session for incognito tabs (ephemeral), IndexedDB otherwise
  */
 export class HostSettingsRepository extends BaseRepository<IHostSettings, string> {
   private readonly useSessionStorage: boolean;
@@ -20,7 +20,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     this.useSessionStorage = isIncognito || isIncognitoOverride;
   }
 
-  // ============ Storage.session methods for private browsing (ephemeral) ============
+  // ============ Storage.session methods for incognito tabs (ephemeral) ============
 
   private storageKey(hostname: string): string {
     return `${STORAGE_PREFIX}${hostname}`;
@@ -275,7 +275,7 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
 
 const instances = new Map<boolean, HostSettingsRepository>();
 
-/** Get a cached repository instance - pass true for incognito/private browsing contexts */
+/** Get a cached repository instance - pass true for incognito contexts */
 export function createHostSettingsRepository(isIncognito = false): HostSettingsRepository {
   let instance = instances.get(isIncognito);
   if (!instance) {

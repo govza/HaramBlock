@@ -7,7 +7,7 @@ const log = getLogger('iconService');
 
 /**
  * IconService handles browser extension icon and badge updates.
- * Automatically detects private/incognito mode from tab context.
+ * Automatically detects incognito mode from tab context.
  */
 export class IconService {
   // Update icon for a specific tab given its hostname. Used by RPC handlers via RpcContext.
