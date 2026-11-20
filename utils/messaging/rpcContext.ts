@@ -1,12 +1,4 @@
-/**
- * The tab and frame of the caller whose RPC is being handled, so background services can scope state to it, and whether
- * that tab is an incognito tab: the background itself never runs in incognito context, so this is its only source.
- */
-export interface RpcContext {
-  tabId?: number;
-  frameId?: number;
-  incognito?: boolean;
-}
+import type { IRpcContext } from '@/utils/types';
 
 /**
  * The part of `runtime.MessageSender` that identifies a caller. The browser fills it in for both one-off messages and
@@ -17,18 +9,18 @@ interface CallerSender {
   frameId?: number;
 }
 
-export const callerOf = (sender: CallerSender | undefined): RpcContext => ({
+export const callerOf = (sender: CallerSender | undefined): IRpcContext => ({
   tabId: sender?.tab?.id,
   frameId: sender?.frameId,
   incognito: sender?.tab?.incognito,
 });
 
-let currentContext: RpcContext = {};
+let currentContext: IRpcContext = {};
 
-export const setRpcContext = (ctx: RpcContext) => {
+export const setRpcContext = (ctx: IRpcContext) => {
   currentContext = ctx;
 };
 
-export const getRpcContext = (): RpcContext => currentContext;
+export const getRpcContext = (): IRpcContext => currentContext;
 
-export const isIncognitoCaller = (caller: RpcContext = currentContext): boolean => caller.incognito === true;
+export const isIncognitoCaller = (caller: IRpcContext = currentContext): boolean => caller.incognito === true;

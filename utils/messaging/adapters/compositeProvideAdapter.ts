@@ -1,13 +1,14 @@
-import { callerOf, setRpcContext, type RpcContext } from '@/utils/messaging/rpcContext';
+import { callerOf, setRpcContext } from '@/utils/messaging/rpcContext';
 import { getLogger } from '@/utils/telemetry';
 
 import type { MessageMeta } from '@/utils/messaging/adapters/browserRuntimeAdapter';
+import type { IRpcContext } from '@/utils/types';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 const log = getLogger('CompositeProvideAdapter');
 
 const CHANNEL_REGISTRATION_TIMEOUT_MS = 5000;
-const UNIDENTIFIED_CALLER: RpcContext = { incognito: true };
+const UNIDENTIFIED_CALLER: IRpcContext = { incognito: true };
 
 /**
  * The part of `runtime.MessageSender` the background reads from a one-off message: who sent it and from which page.
@@ -29,7 +30,7 @@ type ChannelMessage = Partial<Message<MessageMeta>>;
 interface PortInfo {
   port: MessagePort;
   secret: string;
-  caller?: RpcContext;
+  caller?: IRpcContext;
   heldMessages: ChannelMessage[];
   registrationDeadline: ReturnType<typeof setTimeout>;
 }
@@ -137,7 +138,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     }
   }
 
-  private dispatchChannelMessage(secret: string, caller: RpcContext, data: ChannelMessage): void {
+  private dispatchChannelMessage(secret: string, caller: IRpcContext, data: ChannelMessage): void {
     const enrichedMessage: ChannelMessage = {
       ...data,
       meta: {
@@ -187,7 +188,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
    * runs in all frames, and each frame owns its own live channel — evicting by
    * tab alone lets any iframe's registration kill the top frame's port.
    */
-  private associateCaller(secret: string | undefined, caller: RpcContext): void {
+  private associateCaller(secret: string | undefined, caller: IRpcContext): void {
     if (!secret || caller.tabId === undefined) return;
     const portInfo = this.ports.get(secret);
     if (!portInfo) return;
@@ -208,7 +209,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     this.identifyPort(portInfo, UNIDENTIFIED_CALLER);
   }
 
-  private identifyPort(portInfo: PortInfo, caller: RpcContext): void {
+  private identifyPort(portInfo: PortInfo, caller: IRpcContext): void {
     portInfo.caller = caller;
     const heldMessages = portInfo.heldMessages.splice(0);
     heldMessages.forEach(data => this.dispatchChannelMessage(portInfo.secret, caller, data));
