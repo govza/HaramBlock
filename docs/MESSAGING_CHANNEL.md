@@ -342,7 +342,8 @@ content script's own meta. A raw port carries no sender, so `caller` is the one 
 content script registered the channel with `REGISTER_CHANNEL_TAB` over `browser.runtime`. Messages
 that arrive on a port before its registration are held and handled once the caller is known: the
 background never handles a channel message for an unidentified tab, which is what keeps an Incognito
-Tab's first requests away from the prediction caches.
+Tab's first requests away from the prediction caches. A channel still unregistered after 5 s is
+served as an Incognito Tab, so its media is processed and nothing of it is cached.
 
 ### RpcContext — Exposing Sender Tab ID to Handlers
 

@@ -6,6 +6,9 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 const log = getLogger('CompositeProvideAdapter');
 
+const CHANNEL_REGISTRATION_TIMEOUT_MS = 5000;
+const UNIDENTIFIED_CALLER: RpcContext = { incognito: true };
+
 /**
  * The part of `runtime.MessageSender` the background reads from a one-off message: who sent it and from which page.
  */
@@ -20,13 +23,15 @@ type ChannelMessage = Partial<Message<MessageMeta>>;
 /**
  * A content script's MessageChannel port with the secret it was registered under. The port carries no sender, so its
  * caller is unknown until the content script registers it over `browser.runtime`; messages arriving before that are
- * held rather than handled for an unidentified tab.
+ * held rather than handled for an unidentified tab. A channel never registered by its deadline is served as an
+ * Incognito Tab: its media is still processed, and nothing of it reaches the prediction caches.
  */
 interface PortInfo {
   port: MessagePort;
   secret: string;
   caller?: RpcContext;
   heldMessages: ChannelMessage[];
+  registrationDeadline: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -94,7 +99,12 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
       return;
     }
 
-    const portInfo: PortInfo = { port, secret, heldMessages: [] };
+    const portInfo: PortInfo = {
+      port,
+      secret,
+      heldMessages: [],
+      registrationDeadline: setTimeout(() => this.giveUpOnRegistration(secret), CHANNEL_REGISTRATION_TIMEOUT_MS),
+    };
     this.ports.set(secret, portInfo);
 
     // Wire up message handler
@@ -156,6 +166,7 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     const portInfo = this.ports.get(secret);
     if (!portInfo) return;
 
+    clearTimeout(portInfo.registrationDeadline);
     portInfo.port.onmessage = null;
     portInfo.port.onmessageerror = null;
     try {
@@ -181,15 +192,26 @@ export class CompositeProvideAdapter implements Adapter<MessageMeta> {
     const portInfo = this.ports.get(secret);
     if (!portInfo) return;
 
-    portInfo.caller = caller;
+    clearTimeout(portInfo.registrationDeadline);
     for (const [otherSecret, info] of this.ports) {
       if (otherSecret !== secret && info.caller?.tabId === caller.tabId && info.caller?.frameId === caller.frameId) {
         this.removePort(otherSecret);
       }
     }
+    this.identifyPort(portInfo, caller);
+  }
 
+  private giveUpOnRegistration(secret: string): void {
+    const portInfo = this.ports.get(secret);
+    if (!portInfo || portInfo.caller) return;
+    log.warn('channel.registration_timeout', { heldMessages: portInfo.heldMessages.length });
+    this.identifyPort(portInfo, UNIDENTIFIED_CALLER);
+  }
+
+  private identifyPort(portInfo: PortInfo, caller: RpcContext): void {
+    portInfo.caller = caller;
     const heldMessages = portInfo.heldMessages.splice(0);
-    heldMessages.forEach(data => this.dispatchChannelMessage(secret, caller, data));
+    heldMessages.forEach(data => this.dispatchChannelMessage(portInfo.secret, caller, data));
   }
 
   /**

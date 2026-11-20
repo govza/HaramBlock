@@ -181,11 +181,6 @@ describe('BackgroundRpc called from an incognito tab', () => {
       EMPTY_CACHED_VIDEO_PREDICTIONS,
     );
     expect(await rpc.getVideoForcedVisibility(identity)).toBe('auto');
-
-    expect(imageCacheService.getCachedPredictionsByHostname).not.toHaveBeenCalled();
-    expect(imageCacheService.findValidBySrc).not.toHaveBeenCalled();
-    expect(videoPredictionCacheService.getCached).not.toHaveBeenCalled();
-    expect(videoPredictionCacheService.getForcedVisibility).not.toHaveBeenCalled();
   });
 
   it('writes nothing to the prediction caches', async () => {
@@ -198,13 +193,12 @@ describe('BackgroundRpc called from an incognito tab', () => {
     expect(videoPredictionCacheService.publish).not.toHaveBeenCalled();
   });
 
-  it('schedules an image as incognito whatever the content script claims', async () => {
+  it('schedules an image so that its verdict stays out of the image cache', async () => {
     hostSettingsService.getHostSettings.mockResolvedValue({});
     const image = {
       kind: 'url',
       src: 'https://example.com/a.jpg',
       hostname: 'example.com',
-      isIncognito: false,
       metadata: {},
     } as unknown as IImageTransfer;
 

@@ -176,7 +176,6 @@ async function buildPayload(
   const src = resolveImageSource(image);
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
-  const isIncognito = browser.extension.inIncognitoContext;
   const traceparent = injectTraceparent(parent);
 
   const transferKind = await resolveImageTransferKind();
@@ -201,7 +200,6 @@ async function buildPayload(
         width,
         height,
         hostname,
-        isIncognito,
         metadata,
         priority,
         requestStartAt,
@@ -224,7 +222,6 @@ async function buildPayload(
         width,
         height,
         hostname,
-        isIncognito,
         metadata,
         priority,
         requestStartAt,
@@ -245,7 +242,7 @@ async function buildPayload(
 
   captureSpan.setAttribute(ATTR.transferKind, 'url');
   captureSpan.end();
-  return { src, width, height, hostname, isIncognito, metadata, priority, requestStartAt, kind: 'url', traceparent };
+  return { src, width, height, hostname, metadata, priority, requestStartAt, kind: 'url', traceparent };
 }
 
 /**

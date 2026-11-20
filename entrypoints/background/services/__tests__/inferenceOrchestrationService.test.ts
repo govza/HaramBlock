@@ -131,8 +131,8 @@ describe('InferenceOrchestrationService image dedupe', () => {
   });
 });
 
-describe('InferenceOrchestrationService private tabs', () => {
-  it('neither reads nor writes the image cache for a private tab', async () => {
+describe('InferenceOrchestrationService incognito tabs', () => {
+  it('neither reads nor writes the image cache for an incognito tab', async () => {
     getCachedPredictionsBySrc.mockClear();
     cachePredictions.mockClear();
     const { results, schedule } = setup();

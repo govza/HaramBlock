@@ -249,7 +249,7 @@ export class BackgroundRpc {
   async postInferenceImage(imageData: IImageTransfer): Promise<void> {
     const receivedAt = Date.now();
     const { hostname, src, width, height, metadata, priority, traceparent } = imageData;
-    const isIncognito = imageData.isIncognito || isIncognitoCaller();
+    const isIncognito = isIncognitoCaller();
 
     if (!hostname) {
       log.error('inference.request.rejected', {

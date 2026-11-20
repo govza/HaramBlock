@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
 import { CompositeProvideAdapter } from '@/utils/messaging/adapters/compositeProvideAdapter';
@@ -33,6 +33,10 @@ describe('CompositeProvideAdapter caller identity', () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const openChannel = (secret: string) => {
     const port = makePort();
     announcePort({ data: { type: 'PORT_READY', secret }, ports: [port] });
@@ -51,6 +55,16 @@ describe('CompositeProvideAdapter caller identity', () => {
     port.onmessage?.({ data: { id: 'late', meta: { url: 'https://example.com/' } } });
     expect(callersSeen).toHaveLength(2);
     expect(callersSeen[1]).toEqual({ tabId: 5, frameId: 0, incognito: true });
+  });
+
+  it('handles held messages as an incognito caller when the channel is never registered', () => {
+    vi.useFakeTimers();
+    const port = openChannel('secret-3');
+    port.onmessage?.({ data: { id: 'early', meta: { url: 'https://example.com/' } } });
+
+    vi.advanceTimersByTime(5000);
+
+    expect(callersSeen).toEqual([{ incognito: true }]);
   });
 
   it('ignores a caller the content script puts in a channel message', async () => {

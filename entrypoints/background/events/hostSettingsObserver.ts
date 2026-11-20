@@ -49,7 +49,7 @@ export function initHostSettingsObserver(onSettingsChanged: SettingsChangedCallb
     },
   });
 
-  // Private/incognito host settings are stored in browser.storage.session.
+  // Incognito host settings are stored in browser.storage.session.
   // Listen for those writes/deletes so the same callback path is triggered.
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'session') {
