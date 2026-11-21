@@ -46,4 +46,26 @@ describe('createCacheMetadataFromMediaMetadata', () => {
     const image = { kind: 'image', cacheControl: 'no-cache, max-age=0' } as IMediaMetadata;
     expect(createCacheMetadataFromMediaMetadata(image).maxAge).toBe(MIN_CACHE_MAX_AGE_SEC);
   });
+
+  it.each(['private', 'no-store', 'no-cache', 'max-age=0', 'Public, Max-Age=31536000 , immutable'])(
+    'keeps the image response header "%s" unmodified',
+    cacheControl => {
+      const image = { kind: 'image', cacheControl } as IMediaMetadata;
+      expect(createCacheMetadataFromMediaMetadata(image).cacheControl).toBe(cacheControl);
+    },
+  );
+
+  it('stores an image response without the header as absent, with the floor lifetime', () => {
+    const image = { kind: 'image', cacheControl: null } as IMediaMetadata;
+    const metadata = createCacheMetadataFromMediaMetadata(image);
+    expect(metadata).not.toHaveProperty('cacheControl');
+    expect(metadata.maxAge).toBe(MIN_CACHE_MAX_AGE_SEC);
+  });
+
+  it('keeps a long image max-age as the lifetime, capped at the ceiling', () => {
+    const inside = MIN_CACHE_MAX_AGE_SEC + 1;
+    const image = (cacheControl: string) => ({ kind: 'image', cacheControl }) as IMediaMetadata;
+    expect(createCacheMetadataFromMediaMetadata(image(`max-age=${inside}`)).maxAge).toBe(inside);
+    expect(createCacheMetadataFromMediaMetadata(image('max-age=999999999')).maxAge).toBe(MAX_CACHE_MAX_AGE_SEC);
+  });
 });

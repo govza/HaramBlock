@@ -65,10 +65,11 @@ facts only: no DNS, no network, no settings. Host policy is not an input.
 - **Never shared.** GIFs (by `.gif` extension or `image/gif` content type) and videos whose identity
   is not `stable` (`page:` and unknown). A `url:` video identity also passes the media URL test.
 - **Report only.** An image whose `Cache-Control` has `private`, `no-store`, `no-cache` or
-  `max-age=0` is not reported; the header is unknown at lookup time, so it is still looked up. A
-  record whose `modelId` is missing, `'unknown'` or not in the caller's set of shipped ids is not
-  reported. The caller builds that set in the form the record uses: bare ids for image rows,
-  `<id>@<version>` for video buckets.
+  `max-age=0` is not reported; the header is unknown at lookup time, so it is still looked up. The
+  record's `cacheMetadata.cacheControl` is the image response's own header, read where the image is
+  fetched (`fetchCachedMedia`), and absent when the site sent none. A record whose `modelId` is
+  missing, `'unknown'` or not in the caller's set of shipped ids is not reported. The caller builds
+  that set in the form the record uses: bare ids for image rows, `<id>@<version>` for video buckets.
 
 Incognito Tabs are not this filter's business: their media never reaches the cache.
 

@@ -1,3 +1,4 @@
+import { fetchCachedMedia } from '@/utils/fetchMedia';
 import { ATTR, getLogger } from '@/utils/telemetry';
 
 import type { IModelMetadata } from '@/utils/types';
@@ -6,12 +7,14 @@ const log = getLogger('preprocessing');
 
 export async function loadImageBitmap(imageSrc: string): Promise<{
   imageBitmap: ImageBitmap;
+  cacheControl: string | null;
   fetchTime: number;
   decodeTime: number;
 }> {
   try {
+    log.debug('preprocess.image.fetching', { [ATTR.src]: imageSrc });
     const fetchStartTime = Date.now();
-    const blob = await fetchImageBlob(imageSrc);
+    const { blob, cacheControl } = await fetchCachedMedia(imageSrc);
     const fetchTime = Date.now() - fetchStartTime;
 
     const decodeStartTime = Date.now();
@@ -20,21 +23,11 @@ export async function loadImageBitmap(imageSrc: string): Promise<{
 
     log.debug('preprocess.image.loaded', { [ATTR.src]: imageSrc, fetchMs: fetchTime, decodeMs: decodeTime });
 
-    return { imageBitmap, fetchTime, decodeTime };
+    return { imageBitmap, cacheControl, fetchTime, decodeTime };
   } catch (error) {
     log.error('preprocess.image.load_failed', { [ATTR.src]: imageSrc, error });
     throw new Error(`Failed to load image from ${imageSrc.substring(0, 50)}...`, { cause: error });
   }
-}
-
-async function fetchImageBlob(imageSrc: string): Promise<Blob> {
-  log.debug('preprocess.image.fetching', { [ATTR.src]: imageSrc });
-
-  const response = await fetch(imageSrc, { cache: 'force-cache' });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
-  }
-  return response.blob();
 }
 
 async function createBitmapFromBlob(blob: Blob): Promise<ImageBitmap> {

@@ -12,7 +12,7 @@ import {
 import { MIN_SCORE_THRESHOLD, strictnessToScoreThreshold } from '@/utils/scoreThreshold';
 import { ATTR, getLogger } from '@/utils/telemetry';
 
-import type { IImagePrediction } from '@/utils/types';
+import type { IImagePrediction, IMediaMetadata } from '@/utils/types';
 import type { IInferenceTask } from '@/utils/types/model';
 
 const log = getLogger('prediction');
@@ -37,6 +37,7 @@ interface PreparedImage {
   imageHeight: number;
   bitmapWidth: number;
   bitmapHeight: number;
+  mediaMetadata: IMediaMetadata;
   fetchTime: number;
   decodeTime: number;
   queueTime: number;
@@ -57,9 +58,13 @@ interface ResolvedBitmap {
   bitmap: ImageBitmap;
   imageWidth: number;
   imageHeight: number;
+  mediaMetadata: IMediaMetadata;
   fetchTime: number;
   decodeTime: number;
 }
+
+const withFetchedCacheControl = (mediaMetadata: IMediaMetadata, cacheControl: string | null): IMediaMetadata =>
+  mediaMetadata.kind === 'image' ? { ...mediaMetadata, cacheControl } : mediaMetadata;
 
 // Mirrors processInferenceTask's old bitmap sources: MessageChannel transferable, Firefox
 // structured-clone blob, or a URL fetch fallback.
@@ -72,6 +77,7 @@ async function resolveBitmap(task: IInferenceTask): Promise<ResolvedBitmap> {
       bitmap: task.bitmap,
       imageWidth: task.bitmap.width || task.originalWidth || 0,
       imageHeight: task.bitmap.height || task.originalHeight || 0,
+      mediaMetadata: task.mediaMetadata,
       fetchTime: task.fetchTime ?? 0,
       decodeTime: task.decodeTime ?? 0,
     };
@@ -84,6 +90,7 @@ async function resolveBitmap(task: IInferenceTask): Promise<ResolvedBitmap> {
       bitmap,
       imageWidth: bitmap.width || task.originalWidth || 0,
       imageHeight: bitmap.height || task.originalHeight || 0,
+      mediaMetadata: task.mediaMetadata,
       fetchTime: task.fetchTime ?? 0,
       decodeTime: Date.now() - decodeStartTime,
     };
@@ -94,6 +101,7 @@ async function resolveBitmap(task: IInferenceTask): Promise<ResolvedBitmap> {
     bitmap: loaded.imageBitmap,
     imageWidth: loaded.imageBitmap.width,
     imageHeight: loaded.imageBitmap.height,
+    mediaMetadata: withFetchedCacheControl(task.mediaMetadata, loaded.cacheControl),
     fetchTime: loaded.fetchTime,
     decodeTime: loaded.decodeTime,
   };
@@ -139,11 +147,12 @@ function buildImagePrediction(
   inferenceEndAt: number,
   batchSize: number,
 ): IImagePrediction {
-  const { task, imageWidth, imageHeight, bitmapWidth, bitmapHeight, fetchTime, decodeTime, queueTime } = prepared;
+  const { task, mediaMetadata, imageWidth, imageHeight, bitmapWidth, bitmapHeight } = prepared;
+  const { fetchTime, decodeTime, queueTime } = prepared;
 
   const predictions = edgeBoundingBoxCorrection(rawPredictions, bitmapWidth, bitmapHeight);
   const e2eTime = task.requestStartAt ? inferenceEndAt - task.requestStartAt : 0;
-  const cacheMetadata = createCacheMetadataFromMediaMetadata(task.mediaMetadata);
+  const cacheMetadata = createCacheMetadataFromMediaMetadata(mediaMetadata);
 
   return {
     hostname: getEffectiveHostname(task.hostname),

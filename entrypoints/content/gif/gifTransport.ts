@@ -1,10 +1,7 @@
-import {
-  fetchMediaBlob,
-  requestGifFrameInference,
-  type GifFrameParams,
-} from '@/entrypoints/content/communication/sender';
+import { requestGifFrameInference, type GifFrameParams } from '@/entrypoints/content/communication/sender';
 import { decodeGifFrames, type DecodedGif } from '@/entrypoints/content/gif/gifDecoder';
 import { IS_CHROME } from '@/utils/constants/environment';
+import { fetchCachedMedia } from '@/utils/fetchMedia';
 import { waitForMessageChannel } from '@/utils/messaging/content';
 
 /**
@@ -24,7 +21,10 @@ export interface GifTransport {
  */
 const channelReady = async (): Promise<boolean> => !IS_CHROME || waitForMessageChannel();
 
-const decode = async (src: string): Promise<DecodedGif | null> => decodeGifFrames(await fetchMediaBlob(src));
+const decode = async (src: string): Promise<DecodedGif | null> => {
+  const { blob } = await fetchCachedMedia(src);
+  return decodeGifFrames(blob);
+};
 
 const sendFrame = async (params: GifFrameParams): Promise<void> =>
   requestGifFrameInference({ ...params, bitmap: await createImageBitmap(params.bitmap) });

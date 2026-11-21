@@ -20,13 +20,14 @@ export function createCacheMetadataFromMediaMetadata(mediaMetadata: IMediaMetada
   if (mediaMetadata.kind === 'image') {
     const cacheControlHeader = mediaMetadata.cacheControl;
     const contentType = mediaMetadata.contentType ?? 'image/jpeg';
-    const maxAge = clampMaxAge(typeof cacheControlHeader === 'string' ? extractMaxAge(cacheControlHeader) : null);
+    const hasHeader = typeof cacheControlHeader === 'string';
+    const maxAge = clampMaxAge(hasHeader ? extractMaxAge(cacheControlHeader) : null);
 
     return {
       createdAt: now,
       accessedAt: now,
       maxAge,
-      cacheControl: cacheControlHeader || `max-age=${maxAge}`,
+      ...(hasHeader && { cacheControl: cacheControlHeader }),
       contentType,
     };
   }

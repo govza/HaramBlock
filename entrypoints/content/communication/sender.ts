@@ -8,6 +8,7 @@ import {
   type ImageTransferKind,
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
+import { fetchCachedMedia } from '@/utils/fetchMedia';
 import { backgroundRpc, waitForMessageChannel } from '@/utils/messaging/content';
 import {
   ATTR,
@@ -155,14 +156,6 @@ async function resolveImageTransferKind(): Promise<ImageTransferKind> {
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 2000;
 
-export async function fetchMediaBlob(src: string): Promise<Blob> {
-  const response = await fetch(src, { cache: 'force-cache' });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${src} (${response.status})`);
-  }
-  return response.blob();
-}
-
 async function buildPayload(
   hostname: string,
   image: HTMLImageElement,
@@ -179,15 +172,15 @@ async function buildPayload(
   const transferKind = await resolveImageTransferKind();
   const captureSpan = tracer.startSpan(SPAN.capture, { attributes: { [ATTR.transferKind]: transferKind } }, parent);
 
-  const fetchImageBlob = async (): Promise<{ blob: Blob; fetchTime: number }> => {
+  const fetchImage = async (): Promise<{ blob: Blob; fetchTime: number; fetchedMetadata: IImageMetadata }> => {
     const fetchStart = Date.now();
-    const blob = await fetchMediaBlob(src);
-    return { blob, fetchTime: Date.now() - fetchStart };
+    const { blob, cacheControl } = await fetchCachedMedia(src);
+    return { blob, fetchTime: Date.now() - fetchStart, fetchedMetadata: { ...metadata, cacheControl } };
   };
 
   if (transferKind === 'bitmap') {
     try {
-      const { blob, fetchTime } = await fetchImageBlob();
+      const { blob, fetchTime, fetchedMetadata } = await fetchImage();
       const decodeStart = Date.now();
       const bitmap = await createImageBitmap(blob);
       const decodeTime = Date.now() - decodeStart;
@@ -198,7 +191,7 @@ async function buildPayload(
         width,
         height,
         hostname,
-        metadata,
+        metadata: fetchedMetadata,
         priority,
         requestStartAt,
         fetchTime,
@@ -212,7 +205,7 @@ async function buildPayload(
     }
   } else if (transferKind === 'blob') {
     try {
-      const { blob, fetchTime } = await fetchImageBlob();
+      const { blob, fetchTime, fetchedMetadata } = await fetchImage();
       captureSpan.setAttribute(ATTR.fetchMs, fetchTime);
       captureSpan.end();
       return {
@@ -220,7 +213,7 @@ async function buildPayload(
         width,
         height,
         hostname,
-        metadata,
+        metadata: fetchedMetadata,
         priority,
         requestStartAt,
         fetchTime,
@@ -306,7 +299,7 @@ export async function requestImageInference(
     contentType: image.dataset.contentType || null,
     contentLength: image.dataset.contentLength ? parseInt(image.dataset.contentLength) : null,
     lastModified: image.dataset.lastModified || null,
-    cacheControl: image.dataset.cacheControl || null,
+    cacheControl: null,
     etag: image.dataset.etag || null,
     expires: image.dataset.expires || null,
   };
