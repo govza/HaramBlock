@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isGifCandidate } from '@/entrypoints/content/gif/gifSupport';
+import { isGifCandidate } from '@/utils/gifSupport';
 
 describe('isGifCandidate', () => {
   it('matches .gif URLs regardless of query or hash', () => {

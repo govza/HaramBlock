@@ -7,7 +7,6 @@ import { isPlaceholderResolution, resolveImageSource, type NaturalSize } from '@
 import { createInferenceTracker } from '@/entrypoints/content/core/inferenceTracker';
 import { PredictionCache } from '@/entrypoints/content/core/predictionCache';
 import { createGifInspector, type GifInspector } from '@/entrypoints/content/gif/gifInspector';
-import { isGifCandidate } from '@/entrypoints/content/gif/gifSupport';
 import { gifTransport } from '@/entrypoints/content/gif/gifTransport';
 import { BLACKLIST_ATTR, BLUR_CLASS } from '@/entrypoints/content/presentation/constants';
 import { gifMaskPlayer } from '@/entrypoints/content/presentation/gifMaskPlayer';
@@ -31,6 +30,7 @@ import {
 } from '@/entrypoints/content/presentation/quickToggle';
 import { clearSrcDriftHandler, setSrcDriftHandler } from '@/entrypoints/content/presentation/srcDrift';
 import { INFERENCE_PRIORITY } from '@/utils/constants/inference';
+import { isGifCandidate } from '@/utils/gifSupport';
 import { ATTR, getLogger } from '@/utils/telemetry';
 import {
   cancelAllRoundtrips,

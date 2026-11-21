@@ -2,8 +2,8 @@
 
 Opt-in sharing of the predictions this install computes with the Shared Prediction Cache (Diwan),
 and later receiving predictions other installs computed. Users read "mask" for a prediction and
-"Install ID" for the Reporter ID. This page covers consent and the switch; the sender and the lookup
-are not built yet.
+"Install ID" for the Reporter ID. This page covers consent, the switch and the eligibility filter;
+the sender and the lookup are not built yet.
 
 ## Consent state
 
@@ -48,6 +48,29 @@ Its own "Cloud Predictions" tab on the options page
 (`entrypoints/options/features/CloudPredictions.tsx`) with three worded states: never agreed (no
 Install ID yet), on, and off after having agreed. Switching on there is the agree click; the consent
 tab is not shown again. Nothing is in the popup.
+
+## Eligibility filter
+
+`utils/cloudPredictions/eligibility.ts`: the one pure answer to "may this media be shared", for the
+sender (`isEligibleForReport`) and the lookup (`isEligibleForLookup`). It reads syntax and record
+facts only: no DNS, no network, no settings. Host policy is not an input.
+
+- **Media URL.** Rejected when it is not `http(s)`, carries userinfo, or its host is `localhost`, an
+  IP literal in a private range (loopback, RFC 1918, link-local, carrier-grade NAT, unspecified,
+  IPv6 unique-local, link-local and site-local, and IPv6 forms that embed a private IPv4 address:
+  mapped, translated, NAT64), single-label, or ends in `.local`, `.internal`, `.lan`, `.home.arpa`
+  or `.localhost`. A public name that resolves to a private address passes: nothing is resolved.
+  Query strings and unknown tokens do not reject.
+- **Page hostname.** The same host test.
+- **Never shared.** GIFs (by `.gif` extension or `image/gif` content type) and videos whose identity
+  is not `stable` (`page:` and unknown). A `url:` video identity also passes the media URL test.
+- **Report only.** An image whose `Cache-Control` has `private`, `no-store`, `no-cache` or
+  `max-age=0` is not reported; the header is unknown at lookup time, so it is still looked up. A
+  record whose `modelId` is missing, `'unknown'` or not in the caller's set of shipped ids is not
+  reported. The caller builds that set in the form the record uses: bare ids for image rows,
+  `<id>@<version>` for video buckets.
+
+Incognito Tabs are not this filter's business: their media never reaches the cache.
 
 ## Manifest
 
