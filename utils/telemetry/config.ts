@@ -1,6 +1,6 @@
 declare const __HB_OTEL_ENDPOINT__: string;
 
-export type HbContext = 'content' | 'background' | 'popup' | 'options';
+export type HbContext = 'content' | 'background' | 'popup' | 'options' | 'consent';
 
 export const OTEL_ENDPOINT: string = __HB_OTEL_ENDPOINT__;
 
