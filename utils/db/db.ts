@@ -4,7 +4,7 @@ import { DEFAULT_HOST_SETTINGS } from '@/utils/constants';
 
 import type {
   IHostSettings,
-  IImagePrediction,
+  IStoredImagePrediction,
   IVideoPredictionRecord,
   IVideoSampleBucket,
   SampleBucketKey,
@@ -32,8 +32,14 @@ hostSettingsDb.on('populate', () => {
   void hostSettingsDb.hostSettings.add(DEFAULT_HOST_SETTINGS);
 });
 
+/**
+ * Dexie cannot change a primary key in place, so the version before schema v5 drops the video sample
+ * buckets and v5 recreates them under the key that carries provenance.
+ */
+const DROP_REKEYED_VIDEO_BUCKETS_VERSION = 4.5;
+
 export class MediaCacheDatabase extends Dexie {
-  imagePredictions!: Table<IImagePrediction, string>;
+  imagePredictions!: Table<IStoredImagePrediction, string>;
   videos!: Table<IVideoPredictionRecord, string>;
   videoSampleBuckets!: Table<IVideoSampleBucket, SampleBucketKey>;
 
@@ -63,6 +69,20 @@ export class MediaCacheDatabase extends Dexie {
       videos: '&identityKey, hostname, timestamp, [hostname+timestamp]',
       videoSampleBuckets: '[identityKey+modelId+latticeVersion+bucketStartUs], identityKey, hostname',
     });
+    this.version(DROP_REKEYED_VIDEO_BUCKETS_VERSION).stores({ videoSampleBuckets: null });
+    this.version(5)
+      .stores({
+        imagePredictions: '&src, hostname, timestamp, [hostname+timestamp], [reportStatus+reportChangedAt]',
+        videoSampleBuckets:
+          '[identityKey+modelId+latticeVersion+provenance+bucketStartUs], identityKey, hostname, [reportStatus+reportChangedAt]',
+      })
+      .upgrade(async tx => {
+        await tx.table<IStoredImagePrediction>('imagePredictions').toCollection().modify({ provenance: 'own' });
+        await tx
+          .table<IVideoPredictionRecord>('videos')
+          .toCollection()
+          .modify({ sampleCounts: {}, modelCompatibility: {} });
+      });
   }
 }
 

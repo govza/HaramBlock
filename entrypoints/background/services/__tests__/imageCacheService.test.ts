@@ -5,7 +5,7 @@ import { type IImagePrediction } from '@/utils/types';
 
 const repository = vi.hoisted(() => ({
   storeOwn: vi.fn(() => Promise.resolve()),
-  setForcedVisibility: vi.fn(() => Promise.resolve()),
+  setForcedVisibility: vi.fn(() => Promise.resolve(false)),
   touch: vi.fn(() => Promise.resolve()),
   rehome: vi.fn(() => Promise.resolve()),
   findValidByHostname: vi.fn((): Promise<IImagePrediction[]> => Promise.resolve([])),
@@ -15,6 +15,10 @@ vi.mock('@/utils/db/imagePredictionRepository', () => ({
   ImagePredictionRepository: vi.fn(function ImagePredictionRepository() {
     return repository;
   }),
+}));
+
+vi.mock('@inference-runtime', () => ({
+  getAvailableModels: () => [{ id: 'sem-i320', version: '20260607' }],
 }));
 
 const SRC = 'https://cdn.example.com/a.jpg';
@@ -31,6 +35,7 @@ const STORED: IImagePrediction = {
   maskTransform: { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 },
   processingTime: { fetchTime: 0, decodeTime: 0, queueTime: 0, inferenceTime: 0, e2eTime: 0, backend: 'wasm' },
   forcedVisibility: 'auto',
+  modelId: 'sem-i320',
 };
 
 describe('ImageCacheService', () => {
@@ -44,14 +49,50 @@ describe('ImageCacheService', () => {
     vi.useRealTimers();
   });
 
-  it('stores an own prediction exactly as inferred', async () => {
-    await new ImageCacheService().storeOwn(STORED);
-    expect(repository.storeOwn).toHaveBeenCalledWith(STORED);
+  it('stores an eligible own prediction as inferred, waiting to be reported', async () => {
+    const onReportPending = vi.fn();
+    const service = new ImageCacheService();
+    service.setOnReportPending(onReportPending);
+    await service.storeOwn(STORED);
+    expect(repository.storeOwn).toHaveBeenCalledWith({
+      ...STORED,
+      provenance: 'own',
+      reportStatus: 'pending',
+      reportChangedAt: NOW,
+      reportHostname: 'example.com',
+    });
+    expect(onReportPending).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['an image on the local network', { src: 'http://192.168.1.20/cam.jpg' }],
+    ['an image shown on a page of the local network', { hostname: 'nas.local' }],
+    ['an image the site marked private', { cacheMetadata: { ...STORED.cacheMetadata, cacheControl: 'private' } }],
+    ['a GIF', { cacheMetadata: { ...STORED.cacheMetadata, contentType: 'image/gif' } }],
+    ['a prediction of an unknown model', { modelId: 'unknown' }],
+  ])('stores %s as own with no Report Status', async (_rule, overrides) => {
+    const onReportPending = vi.fn();
+    const service = new ImageCacheService();
+    service.setOnReportPending(onReportPending);
+    await service.storeOwn({ ...STORED, ...overrides });
+    expect(repository.storeOwn).toHaveBeenCalledWith({ ...STORED, ...overrides, provenance: 'own' });
+    expect(onReportPending).not.toHaveBeenCalled();
   });
 
   it('persists the forced visibility of an image by its src', async () => {
     await new ImageCacheService().setForcedVisibility(SRC, 'visible');
-    expect(repository.setForcedVisibility).toHaveBeenCalledWith(SRC, 'visible');
+    expect(repository.setForcedVisibility).toHaveBeenCalledWith(SRC, 'visible', NOW);
+  });
+
+  it('announces a pending report only when a toggle made the row pending', async () => {
+    const onReportPending = vi.fn();
+    const service = new ImageCacheService();
+    service.setOnReportPending(onReportPending);
+    await service.setForcedVisibility(SRC, 'visible');
+    expect(onReportPending).not.toHaveBeenCalled();
+    repository.setForcedVisibility.mockResolvedValueOnce(true);
+    await service.setForcedVisibility(SRC, 'auto');
+    expect(onReportPending).toHaveBeenCalledTimes(1);
   });
 
   it('rehomes a prediction under the reading hostname and refreshes its access time', () => {

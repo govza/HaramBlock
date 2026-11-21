@@ -73,6 +73,31 @@ export interface IImagePrediction {
   scoreGrid?: IScoreGrid;
 }
 
+export type ReportStatus = 'pending' | 'reported' | 'rejected';
+
+export type Provenance = 'own' | 'served';
+
+/**
+ * What a cached image row or video sample bucket records for Cloud Predictions: whether this install
+ * computed it (an Own Prediction) or received it (a Served Prediction), and its Report Status with
+ * the time it last changed in a way a report carries. No status means never reported: a served
+ * record, one the eligibility filter rejected when it was written, or one carried over from schema v4.
+ * The record's own `hostname` follows the last page the media was seen on, so a record that passed
+ * the filter also keeps the page hostname that passed it, the only one a report may carry.
+ */
+export interface IReportTracking {
+  provenance: Provenance;
+  servedAt?: number;
+  reportStatus?: ReportStatus;
+  reportChangedAt?: number;
+  reportHostname?: string;
+}
+
+/**
+ * An image prediction as its cache row holds it: the prediction plus its Cloud Predictions tracking.
+ */
+export interface IStoredImagePrediction extends IImagePrediction, IReportTracking {}
+
 /**
  * Run-length encoded per-cell top probability and class of a semantic model output, kept so readers
  * can re-threshold it at their own strictness.
@@ -216,15 +241,22 @@ export interface IVideoPredictionRecord extends IVideoCacheOrigin {
   modelCompatibility: Record<string, string>;
 }
 
-export type SampleBucketKey = [identityKey: string, modelId: string, latticeVersion: number, bucketStartUs: number];
+export type SampleBucketKey = [
+  identityKey: string,
+  modelId: string,
+  latticeVersion: number,
+  provenance: Provenance,
+  bucketStartUs: number,
+];
 
 /**
  * Up to five minutes of one video's lookahead samples from one versioned model on one Sample Lattice
  * version, stored as a single row; the lattice version is part of its key so a new lattice never
- * overwrites the old one's samples. The sample format version (score floor, encoding) is not: a
- * bucket in another format is unreadable and the next write replaces it.
+ * overwrites the old one's samples, and so is the provenance, so own and served buckets coexist. The
+ * sample format version (score floor, encoding) is not: a bucket in another format is unreadable and
+ * the next write replaces it.
  */
-export interface IVideoSampleBucket {
+export interface IVideoSampleBucket extends IReportTracking {
   identityKey: string;
   modelId: string;
   bucketStartUs: number;

@@ -1,14 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import 'fake-indexeddb/auto';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { mediaCacheDb } from '@/utils/db/db';
 import {
   bucketStartOf,
   groupByBucket,
   isVideoCacheFresh,
   mergeVideoSamples,
   VIDEO_SAMPLE_BUCKET_US,
+  VideoPredictionRepository,
 } from '@/utils/db/videoPredictionRepository';
 
-import type { IStoredVideoSample } from '@/utils/types';
+import type { IPersistentVideoIdentity, IStoredVideoSample } from '@/utils/types';
 
 function sample(pointUs: number, topUnsafeScore = 0.1): IStoredVideoSample {
   return {
@@ -99,6 +103,140 @@ describe('sample buckets', () => {
       [5 * MINUTE_US, [6 * MINUTE_US]],
       [0, [1_000_000, 4 * MINUTE_US]],
     ]);
+  });
+});
+
+describe('VideoPredictionRepository Report Status', () => {
+  const VIDEO: IPersistentVideoIdentity = {
+    kind: 'stable',
+    key: 'url:https://example.com/video.mp4',
+    durationSec: 3600,
+  };
+  const MODEL = { modelId: 'sem-i320@20260607', compatibilityKey: 'semantic:aurat_female,aurat_male' };
+  const NOW = 1_800_000_000_000;
+  const ORIGIN = {
+    sourceUrl: 'https://example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/42',
+    hostname: 'example.com',
+    cacheMetadata: { createdAt: NOW, accessedAt: NOW, maxAge: 2_592_000 },
+  };
+  const SECOND_BUCKET_US = 6 * MINUTE_US;
+  const repository = new VideoPredictionRepository();
+
+  const bucketsByStart = async () => {
+    const buckets = await mediaCacheDb.videoSampleBuckets.toArray();
+    return buckets.sort((a, b) => a.bucketStartUs - b.bucketStartUs);
+  };
+
+  const markAllReported = () =>
+    mediaCacheDb.videoSampleBuckets.toCollection().modify({ reportStatus: 'reported', reportChangedAt: 1 });
+
+  const storeOwn = (samples: IStoredVideoSample[], isReportable = true) =>
+    repository.storeOwn(VIDEO, MODEL, ORIGIN, samples, isReportable);
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    await mediaCacheDb.videoSampleBuckets.clear();
+    await mediaCacheDb.videos.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('stores reportable own samples in a pending own bucket', async () => {
+    await expect(storeOwn([sample(1_000_000)])).resolves.toBe(true);
+    expect(await bucketsByStart()).toMatchObject([
+      { bucketStartUs: 0, provenance: 'own', reportStatus: 'pending', reportChangedAt: NOW },
+    ]);
+  });
+
+  it('gives samples the eligibility filter rejected no Report Status', async () => {
+    await expect(storeOwn([sample(1_000_000)], false)).resolves.toBe(false);
+    const [bucket] = await bucketsByStart();
+    expect(bucket).toMatchObject({ provenance: 'own' });
+    expect(bucket).not.toHaveProperty('reportStatus');
+    expect(bucket).not.toHaveProperty('reportChangedAt');
+  });
+
+  it('keeps a reported bucket reported when a write adds nothing to it', async () => {
+    await storeOwn([sample(1_000_000)]);
+    await markAllReported();
+    await expect(storeOwn([sample(1_000_000)])).resolves.toBe(false);
+    expect(await bucketsByStart()).toMatchObject([{ reportStatus: 'reported', reportChangedAt: 1 }]);
+  });
+
+  it('keeps the hostname a pending bucket is reported under when the video replays on another host', async () => {
+    await storeOwn([sample(1_000_000)]);
+    const replayOrigin = { ...ORIGIN, hostname: 'wiki.corp.internal' };
+    await repository.storeOwn(VIDEO, MODEL, replayOrigin, [sample(1_000_000)], false);
+    await repository.setForcedVisibility(VIDEO, replayOrigin, 'blocked');
+    expect(await bucketsByStart()).toMatchObject([
+      { hostname: 'wiki.corp.internal', reportHostname: 'example.com', reportStatus: 'pending' },
+    ]);
+  });
+
+  it('marks only the bucket that gained samples pending again', async () => {
+    await storeOwn([sample(1_000_000), sample(SECOND_BUCKET_US)]);
+    await markAllReported();
+    await expect(storeOwn([sample(SECOND_BUCKET_US + 1_000_000)])).resolves.toBe(true);
+    expect(await bucketsByStart()).toMatchObject([
+      { bucketStartUs: 0, reportStatus: 'reported' },
+      { bucketStartUs: 5 * MINUTE_US, reportStatus: 'pending', reportChangedAt: NOW },
+    ]);
+  });
+
+  it("marks only the video's earliest bucket pending when its Forced Visibility flips", async () => {
+    await storeOwn([sample(1_000_000), sample(SECOND_BUCKET_US)]);
+    await markAllReported();
+    await expect(repository.setForcedVisibility(VIDEO, ORIGIN, 'blocked')).resolves.toBe(true);
+    expect(await bucketsByStart()).toMatchObject([
+      { bucketStartUs: 0, reportStatus: 'pending', reportChangedAt: NOW },
+      { bucketStartUs: 5 * MINUTE_US, reportStatus: 'reported' },
+    ]);
+  });
+
+  it('skips buckets without a Report Status when a Forced Visibility flip picks the earliest', async () => {
+    await storeOwn([sample(1_000_000)], false);
+    await storeOwn([sample(SECOND_BUCKET_US)]);
+    vi.setSystemTime(NOW + 1000);
+    await repository.setForcedVisibility(VIDEO, ORIGIN, 'blocked');
+    const [earliest, later] = await bucketsByStart();
+    expect(earliest).not.toHaveProperty('reportStatus');
+    expect(later).toMatchObject({ reportStatus: 'pending', reportChangedAt: NOW + 1000 });
+  });
+
+  it('marks nothing when a video with no bucket gets a Forced Visibility', async () => {
+    await expect(repository.setForcedVisibility(VIDEO, ORIGIN, 'blocked')).resolves.toBe(false);
+    expect(await mediaCacheDb.videoSampleBuckets.count()).toBe(0);
+    expect((await mediaCacheDb.videos.get(VIDEO.key))?.forcedVisibility).toBe('blocked');
+  });
+
+  it('does not re-report a toggle that changes nothing, or an access-time touch', async () => {
+    await storeOwn([sample(1_000_000)]);
+    await markAllReported();
+    await expect(repository.setForcedVisibility(VIDEO, ORIGIN, 'auto')).resolves.toBe(false);
+    await repository.touch(VIDEO.key);
+    expect(await bucketsByStart()).toMatchObject([{ reportStatus: 'reported', reportChangedAt: 1 }]);
+  });
+
+  it('counts and reads own samples only', async () => {
+    await mediaCacheDb.videoSampleBuckets.put({
+      identityKey: VIDEO.key,
+      modelId: MODEL.modelId,
+      bucketStartUs: 0,
+      latticeVersion: 1,
+      formatVersion: 1,
+      hostname: 'example.com',
+      samples: [sample(2_000_000), sample(3_000_000), sample(4_000_000)],
+      provenance: 'served',
+      servedAt: NOW,
+    });
+    await storeOwn([sample(1_000_000), sample(1_500_000)]);
+    expect((await mediaCacheDb.videos.get(VIDEO.key))?.sampleCounts).toEqual({ [MODEL.modelId]: 2 });
+    const read = await repository.readSamples(VIDEO.key, MODEL.modelId);
+    expect(read.map(stored => stored.pointUs)).toEqual([1_000_000, 1_500_000]);
   });
 });
 

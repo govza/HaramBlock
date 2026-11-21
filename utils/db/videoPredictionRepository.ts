@@ -9,6 +9,7 @@ import {
   type IPersistentVideoIdentity,
   type ForcedVisibility,
   type ICacheMetadata,
+  type IReportTracking,
   type IStoredVideoSample,
   type IVideoCacheOrigin,
   type IVideoPredictionRecord,
@@ -62,12 +63,18 @@ export interface VideoPredictionOrigin extends IVideoCacheOrigin {
   cacheMetadata: ICacheMetadata;
 }
 
-const currentLatticeBucketKey = (identityKey: string, modelId: string, bucketStartUs: number): SampleBucketKey => [
+const ownBucketKey = (identityKey: string, modelId: string, bucketStartUs: number): SampleBucketKey => [
   identityKey,
   modelId,
   LATTICE_VERSION,
+  'own',
   bucketStartUs,
 ];
+
+type ReportState = Pick<IReportTracking, 'reportStatus' | 'reportChangedAt' | 'reportHostname'>;
+
+const reportStateOf = ({ reportStatus, reportChangedAt, reportHostname }: IVideoSampleBucket): ReportState =>
+  reportStatus === undefined ? {} : { reportStatus, reportChangedAt, reportHostname };
 
 const newRecord = (
   identity: IPersistentVideoIdentity,
@@ -107,23 +114,31 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       .where('identityKey')
       .equals(identityKey)
       .filter(
-        bucket => bucket.modelId === modelId && bucket.latticeVersion === LATTICE_VERSION && isCurrentFormat(bucket),
+        bucket =>
+          bucket.modelId === modelId &&
+          bucket.latticeVersion === LATTICE_VERSION &&
+          bucket.provenance === 'own' &&
+          isCurrentFormat(bucket),
       )
       .toArray();
     return buckets.flatMap(bucket => bucket.samples);
   }
 
   /**
-   * Merges locally inferred samples into the video's buckets and counts them on its meta row.
+   * Merges locally inferred samples into the video's own buckets and counts them on its meta row.
+   * A bucket whose samples changed becomes `pending` under the write's hostname when the write is
+   * reportable and loses its Report Status when it is not; an unchanged bucket keeps both. Resolves
+   * whether any bucket became `pending`.
    */
   async storeOwn(
     identity: IPersistentVideoIdentity,
     { modelId, compatibilityKey }: ICacheModelVersion,
     origin: VideoPredictionOrigin,
     samples: readonly IStoredVideoSample[],
-  ): Promise<void> {
-    if (isCacheDisabled || samples.length === 0) return;
-    await mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
+    isReportable: boolean,
+  ): Promise<boolean> {
+    if (isCacheDisabled || samples.length === 0) return false;
+    return mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
       const stored = await this.table.get(identity.key);
       if (stored && !isVideoCacheFresh(stored)) {
         await this.buckets.where('identityKey').equals(identity.key).delete();
@@ -132,11 +147,22 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
         await this.purgeSamplesWithin(identity);
       }
       let added = 0;
+      let becamePending = false;
+      const changedAt = Date.now();
       for (const [bucketStartUs, incoming] of groupByBucket(samples)) {
-        const existing = await this.buckets.get(currentLatticeBucketKey(identity.key, modelId, bucketStartUs));
-        const existingSamples = existing && isCurrentFormat(existing) ? existing.samples : [];
+        const existing = await this.buckets.get(ownBucketKey(identity.key, modelId, bucketStartUs));
+        const readable = existing && isCurrentFormat(existing) ? existing : undefined;
+        const existingSamples = readable?.samples ?? [];
         const merged = mergeVideoSamples(existingSamples, incoming);
         added += merged.length - existingSamples.length;
+        const hasChanged = merged.some((sample, index) => sample !== existingSamples[index]);
+        let reportState: ReportState = {};
+        if (!hasChanged && readable) {
+          reportState = reportStateOf(readable);
+        } else if (isReportable) {
+          reportState = { reportStatus: 'pending', reportChangedAt: changedAt, reportHostname: origin.hostname };
+          becamePending = true;
+        }
         await this.buckets.put({
           identityKey: identity.key,
           modelId,
@@ -145,6 +171,8 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
           formatVersion: SAMPLE_FORMAT_VERSION,
           hostname: origin.hostname,
           samples: merged,
+          provenance: 'own',
+          ...reportState,
         });
       }
       const record = (await this.table.get(identity.key)) ?? newRecord(identity, origin, 'auto');
@@ -157,6 +185,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
         sampleCounts: { ...record.sampleCounts, [modelId]: (record.sampleCounts[modelId] ?? 0) + added },
         modelCompatibility: { ...record.modelCompatibility, [modelId]: compatibilityKey },
       });
+      return becamePending;
     });
   }
 
@@ -178,21 +207,40 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       });
   }
 
+  /**
+   * Stores the user's toggle and resolves whether a bucket became `pending`: a flip re-reports the
+   * video through its earliest readable bucket that carries a Report Status, and through none when it
+   * has none.
+   */
   async setForcedVisibility(
     identity: IPersistentVideoIdentity,
     origin: VideoPredictionOrigin,
     forcedVisibility: ForcedVisibility,
-  ): Promise<void> {
-    if (isCacheDisabled) return;
-    await mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
+  ): Promise<boolean> {
+    if (isCacheDisabled) return false;
+    return mediaCacheDb.transaction('rw', this.table, this.buckets, async () => {
       const stored = await this.table.get(identity.key);
-      if (!stored && forcedVisibility === 'auto') return;
+      if (!stored && forcedVisibility === 'auto') return false;
       if (stored && isDurationMismatch(stored.durationSec, identity)) await this.purgeSamplesWithin(identity);
       const existing = await this.table.get(identity.key);
       await this.table.put(
         existing ? { ...existing, forcedVisibility } : newRecord(identity, origin, forcedVisibility),
       );
+      const isFlip = (existing?.forcedVisibility ?? 'auto') !== forcedVisibility;
+      return isFlip && this.markEarliestTrackedBucketPending(identity.key);
     });
+  }
+
+  private async markEarliestTrackedBucketPending(identityKey: string): Promise<boolean> {
+    const tracked = await this.buckets
+      .where('identityKey')
+      .equals(identityKey)
+      .filter(bucket => bucket.reportStatus !== undefined && isCurrentFormat(bucket))
+      .toArray();
+    const [earliest] = tracked.sort((a, b) => a.bucketStartUs - b.bucketStartUs);
+    if (!earliest) return false;
+    await this.buckets.put({ ...earliest, reportStatus: 'pending', reportChangedAt: Date.now() });
+    return true;
   }
 
   async touch(identityKey: string): Promise<void> {
