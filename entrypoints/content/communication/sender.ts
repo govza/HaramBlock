@@ -5,7 +5,6 @@ import { bitmapToCompressedBlob } from '@/entrypoints/content/video/sampling/com
 import {
   IS_CHROME,
   IMAGE_TRANSFER_KIND,
-  IMAGE_FALLBACK_KIND,
   type ImageTransferKind,
   type VideoFrameTransferKind,
 } from '@/utils/constants/environment';
@@ -143,8 +142,8 @@ async function resolveImageTransferKind(): Promise<ImageTransferKind> {
   if (IS_CHROME && IMAGE_TRANSFER_KIND === 'bitmap') {
     const channelReady = await waitForMessageChannel();
     if (!channelReady) {
-      log.warn('transport.channel.unavailable', { fallback: IMAGE_FALLBACK_KIND });
-      return IMAGE_FALLBACK_KIND;
+      log.warn('transport.channel.unavailable', { fallback: 'url' });
+      return 'url';
     }
     return 'bitmap';
   }

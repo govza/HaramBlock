@@ -130,9 +130,7 @@ metadata).
 ### Transfer Kind Configuration
 
 `IMAGE_TRANSFER_KIND` (`utils/constants/environment.ts`) controls how images are sent. It defaults
-by browser: `bitmap` on Chrome, `blob` on Firefox, with `IMAGE_FALLBACK_KIND` fixed to `url` for
-both. Per-browser union types (`bitmap | url` for Chrome, `blob | url` for Firefox) make the
-forbidden combinations unrepresentable.
+by browser: `bitmap` on Chrome, `blob` on Firefox; the fallback is `url` on both.
 
 | Kind     | Transport       | Overhead             | Browser      |
 | -------- | --------------- | -------------------- | ------------ |
@@ -146,10 +144,9 @@ forbidden combinations unrepresentable.
 - **Firefox**: If `blob` transfer fails (fetch/CORS error), falls back to `url`
 
 **Key constraint**: Chrome never falls back to `blob` - this would defeat the purpose of
-MessageChannel. The type system enforces this separation.
+MessageChannel.
 
 **Testing different modes**: Change `IMAGE_TRANSFER_KIND` in `utils/constants/environment.ts`.
-Runtime validation throws if you set an invalid kind for the browser (e.g., `bitmap` on Firefox).
 
 ### Transport Selection Logic
 
