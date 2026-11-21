@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { config as baseConfig } from './wdio.conf.js';
+import { closeConsentTabOpenedOnInstall } from '../utils/consent-tab.js';
 import { getExtensionPath, getGeckoAddonId } from '../utils/extension-path.js';
 
 const DEBUG_CI_MODE = process.argv.includes('--debug');
@@ -129,6 +130,8 @@ export const config: WebdriverIO.Config = {
         }
       });
     }
+
+    await closeConsentTabOpenedOnInstall(browser);
 
     const addonId = browserName === 'firefox' ? await getGeckoAddonId() : undefined;
     browser.addCommand('getExtensionPath', () => getExtensionPath(browser, addonId));

@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 
 import { config as baseConfig } from './wdio.conf.js';
 import { ADB_BIN, ADB_DEVICE_SERIAL, ANDROID_HOME, adb, adbOutput, runAdbCleanup } from '../utils/android.js';
+import { closeConsentTabOpenedOnInstall } from '../utils/consent-tab.js';
 import { getExtensionPath, getGeckoAddonId } from '../utils/extension-path.js';
 
 const ADDON_ID = await getGeckoAddonId();
@@ -501,6 +502,8 @@ export const config: WebdriverIO.Config = {
       }
       console.warn('[android] Extension installed.');
     });
+
+    await closeConsentTabOpenedOnInstall(browser);
 
     // Resolve moz-extension:// UUID and verify popup is reachable
     const extUrl = await getExtensionPath(browser, ADDON_ID);
