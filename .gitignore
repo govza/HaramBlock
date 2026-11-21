@@ -1,8 +1,11 @@
-# Environment files (secrets)
+# Environment files (secrets). The two mode files are committed defaults without secrets;
+# .env.local and .env.*.local stay ignored for overrides.
 .env
 .env.*
 !.env.example
 !.env.submit.example
+!.env.development
+!.env.production
 
 # Logs
 logs

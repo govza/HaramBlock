@@ -1,0 +1,6 @@
+declare const __HB_CLOUD_PREDICTIONS_URL__: string;
+declare const __HB_CLOUD_PREDICTIONS_REPORT__: boolean;
+
+export const CLOUD_PREDICTIONS_URL: string = __HB_CLOUD_PREDICTIONS_URL__;
+
+export const IS_CLOUD_PREDICTIONS_REPORT_ENABLED: boolean = __HB_CLOUD_PREDICTIONS_REPORT__;
