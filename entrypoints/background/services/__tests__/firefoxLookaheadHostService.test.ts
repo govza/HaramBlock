@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { LookaheadHostService } from '@/entrypoints/background/services/lookaheadHostService';
+import { FirefoxLookaheadHostService } from '@/entrypoints/background/services/firefoxLookaheadHostService';
 import { LOOKAHEAD_PORT_NAME, type FirefoxPortMessage, type OpenAnalysis } from '@/utils/lookahead/protocol';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';
@@ -34,7 +34,7 @@ function connectContentScript(sender?: Browser.runtime.MessageSender) {
     onConnect = listener;
   });
   const getCached = vi.fn(() => Promise.resolve({ samples: [] }));
-  new LookaheadHostService(
+  new FirefoxLookaheadHostService(
     {} as InferenceOrchestrationService,
     {} as HostSettingsService,
     { getCached } as unknown as VideoPredictionCacheService,

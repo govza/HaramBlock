@@ -13,11 +13,11 @@ import type { VideoPredictionCacheService } from '@/entrypoints/background/servi
 import type { InferencePort, InferredSample, SampleCachePort } from '@/utils/lookahead/ports';
 import type { VideoIdentity } from '@/utils/types';
 
-const log = getLogger('lookaheadHostService');
+const log = getLogger('firefoxLookaheadHostService');
 
 const INCOGNITO_TAB_CACHE: SampleCachePort = { read: () => Promise.resolve([]), publish: () => {} };
 
-export class LookaheadHostService {
+export class FirefoxLookaheadHostService {
   private nextFrameIndex = 1;
 
   constructor(
