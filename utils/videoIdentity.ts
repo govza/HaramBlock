@@ -31,6 +31,11 @@ export const isKnownDuration = (durationSec: number): boolean => Number.isFinite
 
 export const stableIdentityKey = (namespace: StableIdentityNamespace, id: string): string => `${namespace}:${id}`;
 
+const DIRECT_URL_KEY_PREFIX = stableIdentityKey('url', '');
+
+export const directUrlOfIdentityKey = (identityKey: string): string | null =>
+  identityKey.startsWith(DIRECT_URL_KEY_PREFIX) ? identityKey.slice(DIRECT_URL_KEY_PREFIX.length) : null;
+
 function withoutFragment(href: string): string {
   const url = tryParseUrl(href);
   if (!url) return href;

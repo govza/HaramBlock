@@ -27,7 +27,7 @@ presentation, single-frame fallback) through injected dependencies.
 
 | Concern                 | Module                                                                                              |
 | ----------------------- | --------------------------------------------------------------------------------------------------- |
-| Detection               | `entrypoints/content/gif/gifSupport.ts`                                                             |
+| Detection               | `utils/gifSupport.ts`                                                                               |
 | Decode + sampling       | `entrypoints/content/gif/gifDecoder.ts`                                                             |
 | Orchestration           | `entrypoints/content/gif/gifInspector.ts`                                                           |
 | Verdict aggregation     | `entrypoints/content/gif/gifVerdict.ts`                                                             |
