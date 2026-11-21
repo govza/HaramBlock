@@ -261,7 +261,7 @@ export class BackgroundRpc {
     }
 
     try {
-      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname, isIncognito);
       const mediaMetadata = { ...metadata, kind: 'image' as const };
 
       if (imageData.kind === 'bitmap') {
@@ -341,6 +341,7 @@ export class BackgroundRpc {
       priority,
       traceparent,
     } = frameData;
+    const isIncognito = isIncognitoCaller();
 
     if (!hostname) {
       log.error('inference.request.rejected', {
@@ -361,7 +362,7 @@ export class BackgroundRpc {
     });
 
     try {
-      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname, isIncognito);
 
       const input =
         frameData.kind === 'bitmap'
@@ -411,6 +412,7 @@ export class BackgroundRpc {
   async postInferenceGifFrame(frameData: IGifFrameTransfer): Promise<void> {
     const { hostname, src, frameIndex, frameCount, sessionId, originalWidth, originalHeight, priority, traceparent } =
       frameData;
+    const isIncognito = isIncognitoCaller();
 
     if (!hostname) {
       log.error('inference.request.rejected', { reason: 'missing hostname', [ATTR.src]: src, [ATTR.mediaKind]: 'gif' });
@@ -418,7 +420,7 @@ export class BackgroundRpc {
     }
 
     try {
-      const hostSettings = await this.hostSettingsService.getHostSettings(hostname);
+      const hostSettings = await this.hostSettingsService.getHostSettings(hostname, isIncognito);
 
       const input =
         frameData.kind === 'bitmap'

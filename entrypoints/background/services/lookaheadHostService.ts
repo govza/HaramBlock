@@ -29,14 +29,15 @@ export class LookaheadHostService {
   listen(): void {
     browser.runtime.onConnect.addListener(port => {
       if (port.name !== LOOKAHEAD_PORT_NAME) return;
+      const isIncognito = isIncognitoCaller(callerOf(port.sender));
       const host = new LookaheadHost({
         decoder: open =>
           lookaheadDecoder(open.inputSize, {
             hardwareAcceleration: 'prefer-software',
             onChosen: (codec, decoder) => log.info('lookahead.decoder.chosen', { codec, decoder }),
           }),
-        inference: open => this.inferencePort(open),
-        cache: open => (isIncognitoCaller(callerOf(port.sender)) ? INCOGNITO_TAB_CACHE : this.cachePort(open)),
+        inference: open => this.inferencePort(open, isIncognito),
+        cache: open => (isIncognito ? INCOGNITO_TAB_CACHE : this.cachePort(open)),
         rangeSource: url => createRangeFetchSource(url),
         toHook: command => {
           try {
@@ -62,11 +63,11 @@ export class LookaheadHostService {
     });
   }
 
-  private inferencePort(open: OpenAnalysis): InferencePort {
+  private inferencePort(open: OpenAnalysis, isIncognito: boolean): InferencePort {
     return {
       infer: async ({ pointUs, frame, priority }) => {
         const { bitmap, originalWidth, originalHeight } = frame as BitmapFrame;
-        const hostSettings = await this.hostSettingsService.getHostSettings(open.origin.hostname);
+        const hostSettings = await this.hostSettingsService.getHostSettings(open.origin.hostname, isIncognito);
         return new Promise<InferredSample>((resolve, reject) => {
           void this.inferenceService.scheduleInferenceTask({
             input: { kind: 'bitmap', imageSrc: open.origin.sourceUrl, bitmap, originalWidth, originalHeight },
