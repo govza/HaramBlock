@@ -10,7 +10,8 @@
       "hostList": "Liste des hôtes",
       "customSettings": "Paramètres personnalisés",
       "cache": "Cache",
-      "about": "À propos"
+      "about": "À propos",
+      "cloudPredictions": "Prédictions cloud"
     },
     "Cache": {
       "title": "Éléments en cache",
@@ -147,5 +148,48 @@
   },
   "CopyLogs": {
     "tooltip": "Copier les journaux dans le presse-papiers"
+  },
+  "CloudPredictions": {
+    "name": "Prédictions cloud",
+    "privacyPolicy": "Politique de confidentialité",
+    "privacyPolicyInline": "politique de confidentialité",
+    "askDelete": "Demandez-nous de les supprimer",
+    "deleteMailSubject": "Supprimer mes données des Prédictions cloud",
+    "deleteMailBody": "ID d'installation : $1",
+    "installId": "ID d'installation",
+    "copy": "Copier",
+    "ConsentTab": {
+      "brand": "HaramBlock · Prédictions cloud",
+      "title": "Un filtrage plus rapide, moins de travail pour votre appareil",
+      "intro": "Les navigateurs partagent ce qu'ils trouvent : chaque image et chaque vidéo n'est analysée qu'une fois, et non sur chaque appareil. C'est surtout utile sur les ordinateurs et téléphones anciens.",
+      "youGet": "Vous recevez",
+      "getLead": "Un HaramBlock plus rapide.",
+      "getBody": "Les masques déjà créés par d'autres appareils cachent une image ou une vidéo immédiatement, sans que votre appareil ait à refaire le calcul.",
+      "youShare": "Vous partagez",
+      "shareMasksLead": "Les masques créés par votre appareil",
+      "shareMasks": "$1 : quelles parties d'une image ou d'une vidéo cacher. Les masques déjà créés sur cet appareil sont inclus.",
+      "shareAddress": "L'adresse de l'image ou de la vidéo, pour trouver ou partager son masque, et le site où elle a été vue.",
+      "shareChoices": "Vos choix de masquage manuels.",
+      "shareId": "Un identifiant aléatoire, pour prévenir les abus. Aucun nom, aucun compte.",
+      "shareReview": "Les masques partagés et leurs images peuvent être examinés pour améliorer la détection.",
+      "neverSent": "Jamais envoyé",
+      "neverSentBody": "L'adresse de la page, rien des fenêtres de navigation privée, rien de ce qui est stocké sur votre ordinateur ou votre propre réseau.",
+      "closing": "Seuls les navigateurs qui partagent reçoivent les masques des autres. Jamais vendu, pas de publicité. Désactivable à tout moment dans les Options. $1",
+      "agree": "J'accepte",
+      "notNow": "Pas maintenant",
+      "eitherWay": "HaramBlock continue de fonctionner sur votre appareil dans tous les cas."
+    },
+    "Options": {
+      "neverAgreedIntro": "Un HaramBlock plus rapide, avec moins de travail pour votre appareil : recevez les masques déjà créés par d'autres appareils et partagez les vôtres.",
+      "youShareLabel": "Vous partagez :",
+      "neverAgreedShare": "$1 les masques créés par votre appareil, y compris ceux déjà créés, l'adresse de l'image ou de la vidéo et le site où elle a été vue, vos choix de masquage manuels et un identifiant aléatoire pour prévenir les abus. Les masques partagés et leurs images peuvent être examinés pour améliorer la détection.",
+      "neverSentLabel": "Jamais envoyé :",
+      "neverAgreedNeverSent": "$1 l'adresse de la page, rien des fenêtres de navigation privée, rien de ce qui est stocké sur votre ordinateur ou votre propre réseau.",
+      "switchingOnAgrees": "Activer cette option vaut accord. $1",
+      "onSummary": "Ce navigateur partage ses masques et utilise ceux des autres. $1",
+      "onDeletion": "La désactivation arrête immédiatement l'envoi. Les rapports déjà envoyés restent sur le serveur. $1.",
+      "offSummary": "Désactivé. Rien n'est envoyé et aucun masque n'est récupéré. Les masques d'autres appareils déjà présents sur cet appareil sont utilisés jusqu'à leur expiration.",
+      "offAgreement": "Activer cette option vaut accord pour envoyer les données décrites dans la $1, y compris les médias analysés pendant la désactivation. Les rapports déjà envoyés restent sur le serveur. $2."
+    }
   }
 }
