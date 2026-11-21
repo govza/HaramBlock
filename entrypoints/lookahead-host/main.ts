@@ -15,7 +15,7 @@ function serve(contentPort: MessagePort, hookPort: MessagePort): void {
   const send = (message: HostToContent, transfer: Transferable[] = []) => contentPort.postMessage(message, transfer);
 
   const host = new LookaheadHost({
-    decoder: open => lookaheadDecoder(open.inputSize),
+    decoder: open => lookaheadDecoder(open.inputSize, 'service-worker'),
     inference: open => ({
       infer: ({ pointUs, frame, priority }) => {
         const { bitmap, originalWidth, originalHeight } = frame as BitmapFrame;

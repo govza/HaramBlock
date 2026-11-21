@@ -269,10 +269,13 @@ ranges only for GOPs that are actually analysed.
 Both run `LookaheadHost` (`utils/lookahead/host.ts`): it maps object URLs to hooked sources, and an
 `open` for an MSE Source sends `want` so the hook replays what it recorded and then streams live;
 `close` sends `drop`. An `open` for an object URL waits up to 3 s for its source; none means
-unreachable (`hook`). Decoding uses WebCodecs (`no-preference` on Chrome, `prefer-software` on
-Firefox); decoded `VideoFrame`s are closed right after the bitmap hand-off. On Chrome the host
-reaches inference and the cache through the content script (`infer` / `cacheRead` / `cachePublish`
-messages); on Firefox it calls the services directly.
+unreachable (`hook`). Each host tells `lookaheadDecoder` (`decoderSelection.ts`) where its frames
+are inferred, and the decoder derives the native WebCodecs tuning from that: `service-worker`
+(Chrome) decodes with `no-preference` and copies each bitmap into CPU memory, because reading a
+GPU-backed bitmap in the service worker drops its WebGPU instance; `host-page` (Firefox) decodes
+with `prefer-software` and hands the bitmap over as decoded. Decoded `VideoFrame`s are closed right
+after the bitmap hand-off. On Chrome the host reaches inference and the cache through the content
+script (`infer` / `cacheRead` / `cachePublish` messages); on Firefox it calls the services directly.
 
 ## Lookahead Analysis
 
