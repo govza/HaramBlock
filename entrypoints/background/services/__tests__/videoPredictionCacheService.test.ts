@@ -4,11 +4,11 @@ import { VideoPredictionCacheService } from '@/entrypoints/background/services/v
 import { type IStoredVideoSample, type IVideoPredictionRecord, type IPersistentVideoIdentity } from '@/utils/types';
 
 const repository = vi.hoisted(() => ({
-  mergeSamples: vi.fn(() => Promise.resolve()),
+  storeOwn: vi.fn(() => Promise.resolve()),
   purgeSamples: vi.fn(() => Promise.resolve()),
-  updateForcedVisibility: vi.fn(() => Promise.resolve()),
+  setForcedVisibility: vi.fn(() => Promise.resolve()),
   findValidByIdentityKey: vi.fn((): Promise<IVideoPredictionRecord | undefined> => Promise.resolve(undefined)),
-  touchAccessed: vi.fn(() => Promise.resolve()),
+  touch: vi.fn(() => Promise.resolve()),
   readSamples: vi.fn((): Promise<IStoredVideoSample[]> => Promise.resolve([])),
 }));
 
@@ -59,7 +59,7 @@ function sample(pointUs: number, source?: { width: number; height: number }): IS
 }
 
 const mergedCalls = () =>
-  repository.mergeSamples.mock.calls.map(call => {
+  repository.storeOwn.mock.calls.map(call => {
     const [identity, model, , samples] = call as unknown as [
       IPersistentVideoIdentity,
       { modelId: string },
@@ -81,7 +81,7 @@ describe('VideoPredictionCacheService', () => {
 
   it('never reads or writes media whose identity is unknown', async () => {
     const service = new VideoPredictionCacheService();
-    service.publish({ kind: 'unknown' }, ORIGIN, [sample(0)]);
+    service.storeOwn({ kind: 'unknown' }, ORIGIN, [sample(0)]);
     await service.setForcedVisibility({ kind: 'unknown' }, ORIGIN, 'blocked');
     await vi.runAllTimersAsync();
 
@@ -90,31 +90,31 @@ describe('VideoPredictionCacheService', () => {
       forcedVisibility: 'auto',
     });
     await expect(service.getForcedVisibility({ kind: 'unknown' })).resolves.toBe('auto');
-    expect(repository.mergeSamples).not.toHaveBeenCalled();
-    expect(repository.updateForcedVisibility).not.toHaveBeenCalled();
+    expect(repository.storeOwn).not.toHaveBeenCalled();
+    expect(repository.setForcedVisibility).not.toHaveBeenCalled();
     expect(repository.findValidByIdentityKey).not.toHaveBeenCalled();
   });
 
   it('batches publishes per identity and model until the flush interval elapses', async () => {
     const service = new VideoPredictionCacheService();
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
-    service.publish(VIDEO, ORIGIN, [sample(500_000)]);
-    expect(repository.mergeSamples).not.toHaveBeenCalled();
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(500_000)]);
+    expect(repository.storeOwn).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2000);
     expect(mergedCalls()).toEqual([{ identity: VIDEO, modelId: 'sem-i320@20260607', count: 2 }]);
   });
 
   it('files samples of new weights under an existing model id as a new cache version', async () => {
     const service = new VideoPredictionCacheService();
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
     await vi.advanceTimersByTimeAsync(2000);
     runtime.models[0] = { ...runtime.shipped320, basePath: '/models/sem-320-20261001', version: '20261001' };
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
     await vi.advanceTimersByTimeAsync(2000);
     runtime.models[0] = runtime.shipped320;
 
     expect(mergedCalls().map(call => call.modelId)).toEqual(['sem-i320@20260607', 'sem-i320@20261001']);
-    expect(repository.mergeSamples).toHaveBeenCalledWith(
+    expect(repository.storeOwn).toHaveBeenCalledWith(
       VIDEO,
       { modelId: 'sem-i320@20261001', compatibilityKey: SEMANTIC },
       expect.anything(),
@@ -124,11 +124,11 @@ describe('VideoPredictionCacheService', () => {
 
   it('records the page a video played on with its samples and its forced visibility', async () => {
     const service = new VideoPredictionCacheService();
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
     await service.setForcedVisibility(VIDEO, ORIGIN, 'blocked');
     const page: unknown = expect.objectContaining({ pageUrl: 'https://example.com/watch/42' });
-    expect(repository.mergeSamples).toHaveBeenCalledWith(VIDEO, expect.anything(), page, [sample(0)]);
-    expect(repository.updateForcedVisibility).toHaveBeenCalledWith(VIDEO, page, 'blocked');
+    expect(repository.storeOwn).toHaveBeenCalledWith(VIDEO, expect.anything(), page, [sample(0)]);
+    expect(repository.setForcedVisibility).toHaveBeenCalledWith(VIDEO, page, 'blocked');
   });
 
   it('keeps videos with different identities apart', async () => {
@@ -138,25 +138,25 @@ describe('VideoPredictionCacheService', () => {
       durationSec: 45,
     };
     const service = new VideoPredictionCacheService();
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
-    service.publish(other, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(other, ORIGIN, [sample(0)]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(mergedCalls().map(call => call.identity.key)).toEqual([VIDEO.key, other.key]);
   });
 
   it('flushes immediately once the entry threshold is reached', async () => {
     const service = new VideoPredictionCacheService();
-    for (let i = 0; i < 50; i++) service.publish(VIDEO, ORIGIN, [sample(i * 500_000)]);
+    for (let i = 0; i < 50; i++) service.storeOwn(VIDEO, ORIGIN, [sample(i * 500_000)]);
     await Promise.resolve();
     expect(mergedCalls()).toEqual([{ identity: VIDEO, modelId: 'sem-i320@20260607', count: 50 }]);
   });
 
   it('flushes pending samples before persisting a forced visibility', async () => {
     const service = new VideoPredictionCacheService();
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
     await service.setForcedVisibility(VIDEO, ORIGIN, 'blocked');
-    expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.updateForcedVisibility);
-    expect(repository.updateForcedVisibility).toHaveBeenCalledWith(
+    expect(repository.storeOwn).toHaveBeenCalledBefore(repository.setForcedVisibility);
+    expect(repository.setForcedVisibility).toHaveBeenCalledWith(
       VIDEO,
       expect.objectContaining({ hostname: 'example.com' }),
       'blocked',
@@ -256,22 +256,22 @@ describe('VideoPredictionCacheService', () => {
   it('flushes pending samples before reading, so a reopened session never re-infers them', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce(META);
     const service = new VideoPredictionCacheService();
-    service.publish(VIDEO, ORIGIN, [sample(0)]);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
     await service.getCached(VIDEO, READER);
-    expect(repository.mergeSamples).toHaveBeenCalledBefore(repository.readSamples);
+    expect(repository.storeOwn).toHaveBeenCalledBefore(repository.readSamples);
   });
 
   it('reads only after a flush already writing has committed its samples', async () => {
     repository.findValidByIdentityKey.mockResolvedValueOnce(META);
     let commitWrite = () => {};
-    repository.mergeSamples.mockImplementationOnce(
+    repository.storeOwn.mockImplementationOnce(
       () =>
         new Promise<void>(resolve => {
           commitWrite = resolve;
         }),
     );
     const service = new VideoPredictionCacheService();
-    service.publish(
+    service.storeOwn(
       VIDEO,
       ORIGIN,
       Array.from({ length: 50 }, (_, index) => sample(index)),
@@ -302,6 +302,6 @@ describe('VideoPredictionCacheService', () => {
   it('returns empty samples on a miss without touching the row', async () => {
     const service = new VideoPredictionCacheService();
     await expect(service.getCached(VIDEO, READER)).resolves.toEqual({ samples: [], forcedVisibility: 'auto' });
-    expect(repository.touchAccessed).not.toHaveBeenCalled();
+    expect(repository.touch).not.toHaveBeenCalled();
   });
 });

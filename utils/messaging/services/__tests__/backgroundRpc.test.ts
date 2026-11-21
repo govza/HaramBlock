@@ -147,12 +147,12 @@ describe('BackgroundRpc called from an incognito tab', () => {
   const imageCacheService = {
     getCachedPredictionsByHostname: vi.fn(),
     findValidBySrc: vi.fn(),
-    updateToggleState: vi.fn(),
+    setForcedVisibility: vi.fn(),
   };
   const videoPredictionCacheService = {
     getCached: vi.fn(),
     getForcedVisibility: vi.fn(),
-    publish: vi.fn(),
+    storeOwn: vi.fn(),
     setForcedVisibility: vi.fn(),
   };
   const inferenceService = { scheduleInferenceTask: vi.fn() };
@@ -184,13 +184,13 @@ describe('BackgroundRpc called from an incognito tab', () => {
   });
 
   it('writes nothing to the prediction caches', async () => {
-    await rpc.updateToggleState('https://example.com/a.jpg', 'visible');
-    await rpc.updateVideoToggleState(identity, origin, 'visible');
+    await rpc.setImageForcedVisibility('https://example.com/a.jpg', 'visible');
+    await rpc.setVideoForcedVisibility(identity, origin, 'visible');
     await rpc.publishVideoSamples(identity, origin, []);
 
-    expect(imageCacheService.updateToggleState).not.toHaveBeenCalled();
+    expect(imageCacheService.setForcedVisibility).not.toHaveBeenCalled();
     expect(videoPredictionCacheService.setForcedVisibility).not.toHaveBeenCalled();
-    expect(videoPredictionCacheService.publish).not.toHaveBeenCalled();
+    expect(videoPredictionCacheService.storeOwn).not.toHaveBeenCalled();
   });
 
   it('schedules an image so that its verdict stays out of the image cache', async () => {

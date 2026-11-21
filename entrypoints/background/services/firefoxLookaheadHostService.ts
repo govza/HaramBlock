@@ -96,7 +96,7 @@ export class FirefoxLookaheadHostService {
     return {
       read: async (identity: VideoIdentity, reader) =>
         (await this.videoPredictionCacheService.getCached(identity, reader)).samples,
-      publish: (identity, samples) => this.videoPredictionCacheService.publish(identity, open.origin, samples),
+      publish: (identity, samples) => this.videoPredictionCacheService.storeOwn(identity, open.origin, samples),
     };
   }
 }

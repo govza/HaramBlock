@@ -61,7 +61,10 @@ export class VideoPredictionCacheService {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushed: Promise<void> = Promise.resolve();
 
-  publish(identity: VideoIdentity, origin: IVideoCacheOrigin, samples: readonly IStoredVideoSample[]): void {
+  /**
+   * Buffers samples this install inferred; they reach the cache on the next flush.
+   */
+  storeOwn(identity: VideoIdentity, origin: IVideoCacheOrigin, samples: readonly IStoredVideoSample[]): void {
     if (samples.length === 0 || !isPersistentIdentity(identity)) return;
     const model = activeModelVersion();
     const key = `${identity.key}\n${model.modelId}`;
@@ -80,9 +83,7 @@ export class VideoPredictionCacheService {
     await this.flush(identity.key);
     const record = await this.repository.findValidByIdentityKey(identity.key);
     if (!record) return EMPTY_CACHED_VIDEO_PREDICTIONS;
-    this.repository.touchAccessed(identity.key).catch((error: unknown) => {
-      log.warn('cache.touch.failed', { ...videoIdentityAttributes(identity), error });
-    });
+    this.touch(identity);
     if (isDurationMismatch(record.durationSec, identity)) {
       await this.repository.purgeSamples(identity);
       return EMPTY_CACHED_VIDEO_PREDICTIONS;
@@ -107,11 +108,21 @@ export class VideoPredictionCacheService {
   ): Promise<void> {
     if (!isPersistentIdentity(identity)) return;
     await this.flush(identity.key);
-    await this.repository.updateForcedVisibility(
+    await this.repository.setForcedVisibility(
       identity,
       { ...origin, cacheMetadata: defaultCacheMetadata() },
       forcedVisibility,
     );
+  }
+
+  /**
+   * Refreshes a cached video's access time, which its expiry follows. Fire-and-forget.
+   */
+  touch(identity: VideoIdentity): void {
+    if (!isPersistentIdentity(identity)) return;
+    this.repository.touch(identity.key).catch((error: unknown) => {
+      log.warn('cache.touch.failed', { ...videoIdentityAttributes(identity), error });
+    });
   }
 
   flush(identityKey?: string): Promise<void> {
@@ -137,7 +148,7 @@ export class VideoPredictionCacheService {
   private async write(writes: PendingWrite[]): Promise<void> {
     for (const write of writes) {
       try {
-        await this.repository.mergeSamples(
+        await this.repository.storeOwn(
           write.identity,
           write.model,
           { ...write.origin, cacheMetadata: defaultCacheMetadata() },

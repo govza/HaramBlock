@@ -113,7 +113,10 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     return buckets.flatMap(bucket => bucket.samples);
   }
 
-  async mergeSamples(
+  /**
+   * Merges locally inferred samples into the video's buckets and counts them on its meta row.
+   */
+  async storeOwn(
     identity: IPersistentVideoIdentity,
     { modelId, compatibilityKey }: ICacheModelVersion,
     origin: VideoPredictionOrigin,
@@ -175,7 +178,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
       });
   }
 
-  async updateForcedVisibility(
+  async setForcedVisibility(
     identity: IPersistentVideoIdentity,
     origin: VideoPredictionOrigin,
     forcedVisibility: ForcedVisibility,
@@ -192,7 +195,7 @@ export class VideoPredictionRepository extends HostScopedCacheRepository<IVideoP
     });
   }
 
-  async touchAccessed(identityKey: string): Promise<void> {
+  async touch(identityKey: string): Promise<void> {
     if (isCacheDisabled) return;
     await this.table
       .where('identityKey')

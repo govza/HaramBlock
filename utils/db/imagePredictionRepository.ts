@@ -3,7 +3,7 @@ import { mediaCacheDb } from '@/utils/db/db';
 import { HostScopedCacheRepository } from '@/utils/db/hostScopedCacheRepository';
 import { isValidPrediction } from '@/utils/db/predictionValidity';
 import { getEffectiveHostname } from '@/utils/hostnameUtil';
-import { type IImagePrediction } from '@/utils/types';
+import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
 /**
  * Repository for managing image prediction cache records
@@ -87,28 +87,6 @@ export class ImagePredictionRepository extends HostScopedCacheRepository<IImageP
   }
 
   /**
-   * Create a new prediction cache record
-   */
-  async createPrediction(prediction: IImagePrediction, hostname: string): Promise<IImagePrediction> {
-    const effectiveHostname = getEffectiveHostname(hostname);
-    const now = Date.now();
-
-    const predictionRecord: IImagePrediction = {
-      ...prediction,
-      hostname: effectiveHostname,
-      timestamp: now,
-      cacheMetadata: {
-        ...prediction.cacheMetadata,
-        createdAt: now,
-        accessedAt: now,
-      },
-    };
-
-    await this.save(predictionRecord);
-    return predictionRecord;
-  }
-
-  /**
    * Delete predictions older than timestamp
    */
   async deleteOlderThan(timestamp: number): Promise<number> {
@@ -119,41 +97,29 @@ export class ImagePredictionRepository extends HostScopedCacheRepository<IImageP
   }
 
   /**
-   * Save a prediction record to the database
-   * @param prediction - The prediction record to save
-   * @returns The src key of the saved record
+   * Writes the row of a locally inferred prediction, replacing whatever the src held.
    */
-  async savePrediction(prediction: IImagePrediction): Promise<string> {
-    // Don't save when cache is disabled
-    if (isCacheDisabled) {
-      return prediction.src;
-    }
-
+  async storeOwn(prediction: IImagePrediction): Promise<void> {
+    if (isCacheDisabled) return;
     try {
-      if (prediction.src) {
-        await mediaCacheDb.imagePredictions.put(prediction);
-        return prediction.src;
-      } else {
-        const src = await mediaCacheDb.imagePredictions.add(prediction);
-        return src;
-      }
+      await this.table.put(prediction);
     } catch (error) {
       throw new Error('Failed to save prediction record', { cause: error });
     }
   }
 
-  /**
-   * Update the access time for a cache entry
-   * @param prediction - The prediction record to update
-   * @returns Updated prediction record
-   */
-  updateAccessTime(prediction: IImagePrediction): IImagePrediction {
-    return {
-      ...prediction,
-      cacheMetadata: {
-        ...prediction.cacheMetadata,
-        accessedAt: Date.now(),
-      },
-    };
+  async setForcedVisibility(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
+    if (isCacheDisabled) return;
+    await this.table.update(src, { forcedVisibility });
+  }
+
+  async touch(src: string, accessedAt: number): Promise<void> {
+    if (isCacheDisabled) return;
+    await this.table.update(src, { 'cacheMetadata.accessedAt': accessedAt });
+  }
+
+  async rehome(src: string, hostname: string, accessedAt: number): Promise<void> {
+    if (isCacheDisabled) return;
+    await this.table.update(src, { hostname, 'cacheMetadata.accessedAt': accessedAt });
   }
 }

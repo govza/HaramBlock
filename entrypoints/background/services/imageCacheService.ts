@@ -21,19 +21,11 @@ export class ImageCacheService {
   }
 
   /**
-   * Cache predictions ensuring uniqueness by src URL
-   * @param predictions - Array of predictions to cache
-   * @param hostname - Hostname for caching
+   * Caches a prediction this install inferred, replacing whatever its src held.
    */
-  async cachePredictions(predictions: IImagePrediction[]): Promise<void> {
+  async storeOwn(prediction: IImagePrediction): Promise<void> {
     try {
-      const cachePromises = predictions.map(async prediction => {
-        // Save prediction directly (upsert)
-        // The database schema ensures src uniqueness, so put() will overwrite existing entries
-        return this.repository.savePrediction(prediction);
-      });
-
-      await Promise.all(cachePromises);
+      await this.repository.storeOwn(prediction);
     } catch (error) {
       log.error('cache.write.failed', { error });
       throw error;
@@ -54,26 +46,8 @@ export class ImageCacheService {
       // Get only valid (non-expired) predictions
       const predictions = await this.repository.findValidByHostname(hostname);
 
-      // Return the predictions directly (no need to serialize since they're already plain objects)
-      const predictionsToReturn = [...predictions];
-
-      // Update access time and save in background (fire-and-forget)
-      if (predictions.length > 0) {
-        Promise.all(
-          predictions.map(async prediction => {
-            try {
-              const updatedPrediction = this.repository.updateAccessTime(prediction);
-              await this.repository.savePrediction(updatedPrediction);
-            } catch (error) {
-              log.warn('cache.access_time.update.failed', { [ATTR.src]: prediction.src, error });
-            }
-          }),
-        ).catch(error => {
-          log.warn('cache.access_time.batch_update.failed', { error });
-        });
-      }
-
-      return predictionsToReturn;
+      predictions.forEach(prediction => this.touch(prediction.src));
+      return predictions;
     } catch (error) {
       log.error('cache.read_by_hostname.failed', { [ATTR.hostname]: hostname, error });
       throw error;
@@ -104,25 +78,25 @@ export class ImageCacheService {
    * host seeds it. Fire-and-forget: a failed write only costs a later lookup.
    */
   rehome(prediction: IImagePrediction, hostname: string): IImagePrediction {
-    const rehomed = { ...this.repository.updateAccessTime(prediction), hostname };
-    this.repository.savePrediction(rehomed).catch((error: unknown) => {
+    const accessedAt = Date.now();
+    this.repository.rehome(prediction.src, hostname, accessedAt).catch((error: unknown) => {
       log.warn('cache.rehome.failed', { [ATTR.src]: prediction.src, error });
     });
-    return rehomed;
+    return { ...prediction, hostname, cacheMetadata: { ...prediction.cacheMetadata, accessedAt } };
   }
 
-  // Updates first prediction only. Database uses src as primary key, so only one prediction per src exists.
-  async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
-    try {
-      const predictions = await this.repository.findBySrc(src);
-      const original = predictions[0];
-      if (!original) return;
+  /**
+   * Refreshes a cached prediction's access time. Fire-and-forget: a failed write changes no verdict.
+   */
+  touch(src: string): void {
+    this.repository.touch(src, Date.now()).catch((error: unknown) => {
+      log.warn('cache.access_time.update.failed', { [ATTR.src]: src, error });
+    });
+  }
 
-      const updatedPrediction: IImagePrediction = {
-        ...original,
-        forcedVisibility,
-      };
-      await this.repository.savePrediction(updatedPrediction);
+  async setForcedVisibility(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
+    try {
+      await this.repository.setForcedVisibility(src, forcedVisibility);
     } catch (error) {
       log.error('cache.toggle_state.update.failed', { [ATTR.src]: src, error });
       throw error;

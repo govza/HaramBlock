@@ -199,13 +199,9 @@ export class InferenceOrchestrationService {
         const cachedPredictions = await this.imageCacheService.getCachedPredictionsBySrc(imageSrc);
 
         if (cachedPredictions && cachedPredictions.length > 0) {
-          const predictionsWithHostname = cachedPredictions.map(prediction => ({
-            ...prediction,
-            hostname,
-          }));
-          await this.imageCacheService.cachePredictions(predictionsWithHostname);
+          const rehomed = cachedPredictions.map(prediction => this.imageCacheService.rehome(prediction, hostname));
           this.sendImageResultsToContent(
-            predictionsWithHostname.map(prediction => ({ status: 'ok' as const, prediction, traceparent })),
+            rehomed.map(prediction => ({ status: 'ok' as const, prediction, traceparent })),
             hostname,
           );
           const detectionsCount = cachedPredictions.reduce((sum, p) => sum + p.predictions.length, 0);
@@ -498,9 +494,7 @@ export class InferenceOrchestrationService {
   /** A cache write failure must not suppress the reply: the verdict is computed and content is waiting on it. */
   private async cacheImagePrediction(task: IInferenceTask, imagePrediction: IImagePrediction): Promise<void> {
     try {
-      await this.imageCacheService.cachePredictions([
-        { ...imagePrediction, modelId: getCurrentModelId() ?? 'unknown' },
-      ]);
+      await this.imageCacheService.storeOwn({ ...imagePrediction, modelId: getCurrentModelId() ?? 'unknown' });
     } catch (error) {
       log.warn('inference.cache.write.failed', { [ATTR.src]: task.imageSrc, error }, task.traceContext);
     }
