@@ -1,4 +1,4 @@
-import type { IRpcContext } from '@/utils/types';
+import type { ICallerContext } from '@/utils/types';
 import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
 
 /**
@@ -7,7 +7,7 @@ import type { Adapter, Message, SendMessage, OnMessage } from 'comctx';
  */
 export interface MessageMeta {
   url: string;
-  caller?: IRpcContext;
+  caller?: ICallerContext;
   injector?: 'content' | 'popup';
 }
 

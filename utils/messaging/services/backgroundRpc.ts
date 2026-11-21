@@ -1,4 +1,4 @@
-import { getRpcContext, isIncognitoCaller } from '@/utils/messaging/rpcContext';
+import { getCallerContext, isIncognitoCaller } from '@/utils/messaging/callerContext';
 import { ATTR, getLogger, videoIdentityAttributes, type TelemetryBatch, type TelemetryExport } from '@/utils/telemetry';
 import { exportTelemetry, ingestForwardedTelemetry } from '@/utils/telemetry/setup/background';
 import {
@@ -69,7 +69,7 @@ type GifFramePredictionsCallback = (data: { results: GifFrameInferenceResult[]; 
 type ContextMenuToggleCallback = (data: { src: string; forcedVisibility: ForcedVisibility }) => void;
 
 /**
- * Subscription entry tagged with the owning tab/frame (from the RPC context of
+ * Subscription entry tagged with the owning tab/frame (from the caller context of
  * the subscribe call) so background-side entries can be reaped when the frame
  * goes away without an explicit unsubscribe - content scripts skip unload
  * cleanup on purpose, so untagged entries accumulate for the background's
@@ -107,7 +107,7 @@ export class BackgroundRpc {
    * CompositeProvideAdapter.associateTab evicts a frame's stale port.
    */
   private subscribe<T>(map: Map<string, Subscription<T>>, callback: T): string {
-    const { tabId, frameId } = getRpcContext();
+    const { tabId, frameId } = getCallerContext();
     if (tabId !== undefined) {
       for (const [id, entry] of map) {
         if (entry.tabId === tabId && entry.frameId === frameId) {
@@ -143,7 +143,7 @@ export class BackgroundRpc {
 
   /**
    * The prediction caches the current caller may use: an Incognito Tab gets ones that hold nothing and store nothing.
-   * Reads the RPC context, so call it before the first `await`.
+   * Reads the caller context, so call it before the first `await`.
    */
   private imageCache(): ImagePredictionCache {
     return isIncognitoCaller() ? INCOGNITO_IMAGE_CACHE : this.imageCacheService;
@@ -232,7 +232,7 @@ export class BackgroundRpc {
   }
 
   pushTelemetry(batch: TelemetryBatch): Promise<void> {
-    const { tabId } = getRpcContext();
+    const { tabId } = getCallerContext();
     ingestForwardedTelemetry(batch, tabId);
     return Promise.resolve();
   }
@@ -453,14 +453,14 @@ export class BackgroundRpc {
   }
 
   async updateIconBadge(count: number, _url: string): Promise<void> {
-    const { tabId } = getRpcContext();
+    const { tabId } = getCallerContext();
     if (!tabId) return;
     await this.iconService.updateBadgeForTab(tabId, count);
   }
 
   async updateIcon(hostname: string): Promise<void> {
     // Read tabId synchronously before any await — set by CompositeProvideAdapter per request
-    const { tabId } = getRpcContext();
+    const { tabId } = getCallerContext();
 
     if (!hostname) {
       throw new Error('Hostname is required for icon update');
