@@ -10,7 +10,7 @@ entrypoints/popup/
 ├── main.tsx                     # React entry point
 ├── App.tsx                      # Root component with context provider
 ├── index.html                   # HTML template
-├── style.css                    # Global styles
+├── style.css                    # Popup-only styles (page base lives in assets/page.css)
 ├── context/
 │   └── HostDataContext.tsx      # Global state management
 ├── layouts/

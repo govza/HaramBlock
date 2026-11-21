@@ -1,8 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
+import '@/assets/page.css';
 import App from '@/entrypoints/options/App.tsx';
-import '@/entrypoints/options/style.css';
 import { t } from '@/utils/i18n';
 import { backgroundRpc } from '@/utils/messaging/popup';
 import { initClientTelemetry } from '@/utils/telemetry/setup/client';
