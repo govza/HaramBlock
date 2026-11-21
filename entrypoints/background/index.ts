@@ -19,7 +19,7 @@ import {
   isBackendCapableOf,
 } from '@/entrypoints/background/services/autoModelDecision';
 import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
-import { LookaheadHostService } from '@/entrypoints/background/services/lookaheadHostService';
+import { FirefoxLookaheadHostService } from '@/entrypoints/background/services/firefoxLookaheadHostService';
 import { resolveVideoCapability } from '@/utils/capabilities/videoCapability';
 import { deleteLegacyCacheDatabases } from '@/utils/db/db';
 import { getInferenceBackend, initializeInference } from '@/utils/inference';
@@ -74,7 +74,7 @@ export default defineBackground({
     const videoPredictionCacheService = new VideoPredictionCacheService();
     const inferenceService = new InferenceOrchestrationService(queueService, imageCacheService);
     const mediaFetchService = new MediaFetchService();
-    new LookaheadHostService(inferenceService, hostSettingsService, videoPredictionCacheService).listen();
+    new FirefoxLookaheadHostService(inferenceService, hostSettingsService, videoPredictionCacheService).listen();
 
     // Initialize event listeners (event handling layer)
     const contextMenuListener = new ContextMenuListener();
