@@ -4,10 +4,11 @@
 interface SwitchProps {
   checked: boolean;
   disabled?: boolean;
+  label?: string;
   onChange: (checked: boolean) => void;
 }
 
-export const Switch = ({ checked, disabled = false, onChange }: SwitchProps) => (
+export const Switch = ({ checked, disabled = false, label, onChange }: SwitchProps) => (
   <label className={`flex select-none items-center ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
     <div className='relative'>
       <input
@@ -15,6 +16,7 @@ export const Switch = ({ checked, disabled = false, onChange }: SwitchProps) => 
         checked={checked}
         onChange={e => onChange(e.target.checked)}
         disabled={disabled}
+        aria-label={label}
         className='sr-only'
       />
       <div

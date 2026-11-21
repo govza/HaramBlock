@@ -41,6 +41,7 @@ export function VerticalTabs({ items, activeTab, onTabChange, children }: Vertic
                     : 'text-text-body hover:text-text-primary'
                 }`}
                 onClick={() => onTabChange(item.id)}
+                data-testid={`options-tab-${item.id}`}
               >
                 {item.label}
               </button>
