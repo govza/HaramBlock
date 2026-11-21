@@ -4,9 +4,9 @@ import { VideoPredictionCacheService } from '@/entrypoints/background/services/v
 import { type IStoredVideoSample, type IVideoPredictionRecord, type IPersistentVideoIdentity } from '@/utils/types';
 
 const repository = vi.hoisted(() => ({
-  storeOwn: vi.fn(() => Promise.resolve()),
+  storeOwn: vi.fn(() => Promise.resolve(false)),
   purgeSamples: vi.fn(() => Promise.resolve()),
-  setForcedVisibility: vi.fn(() => Promise.resolve()),
+  setForcedVisibility: vi.fn(() => Promise.resolve(false)),
   findValidByIdentityKey: vi.fn((): Promise<IVideoPredictionRecord | undefined> => Promise.resolve(undefined)),
   touch: vi.fn(() => Promise.resolve()),
   readSamples: vi.fn((): Promise<IStoredVideoSample[]> => Promise.resolve([])),
@@ -119,6 +119,7 @@ describe('VideoPredictionCacheService', () => {
       { modelId: 'sem-i320@20261001', compatibilityKey: SEMANTIC },
       expect.anything(),
       [sample(0)],
+      true,
     );
   });
 
@@ -127,7 +128,7 @@ describe('VideoPredictionCacheService', () => {
     service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
     await service.setForcedVisibility(VIDEO, ORIGIN, 'blocked');
     const page: unknown = expect.objectContaining({ pageUrl: 'https://example.com/watch/42' });
-    expect(repository.storeOwn).toHaveBeenCalledWith(VIDEO, expect.anything(), page, [sample(0)]);
+    expect(repository.storeOwn).toHaveBeenCalledWith(VIDEO, expect.anything(), page, [sample(0)], true);
     expect(repository.setForcedVisibility).toHaveBeenCalledWith(VIDEO, page, 'blocked');
   });
 
@@ -161,6 +162,58 @@ describe('VideoPredictionCacheService', () => {
       expect.objectContaining({ hostname: 'example.com' }),
       'blocked',
     );
+  });
+
+  const reportableFlags = () => repository.storeOwn.mock.calls.map(call => (call as unknown[])[4]);
+
+  it('stores samples of a stable video under a shipped model as reportable', async () => {
+    const service = new VideoPredictionCacheService();
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
+    await service.flush();
+    expect(reportableFlags()).toEqual([true]);
+  });
+
+  it.each([
+    [
+      'a video identified only on this device',
+      { ...VIDEO, kind: 'local', key: 'page:https://example.com/feed|d=600' },
+      ORIGIN,
+    ],
+    ['a video played on a page of the local network', VIDEO, { ...ORIGIN, hostname: 'nas.local' }],
+  ] as const)('stores samples of %s as not reportable', async (_rule, identity, origin) => {
+    const service = new VideoPredictionCacheService();
+    service.storeOwn(identity, origin, [sample(0)]);
+    await service.flush();
+    expect(reportableFlags()).toEqual([false]);
+  });
+
+  it('stores samples of a model this build does not ship as not reportable', async () => {
+    runtime.currentModelId = 'sem-retired';
+    const service = new VideoPredictionCacheService();
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
+    await service.flush();
+    runtime.currentModelId = 'sem-i320';
+    expect(reportableFlags()).toEqual([false]);
+  });
+
+  it('announces a pending report when stored samples or a toggle made a bucket pending', async () => {
+    const onReportPending = vi.fn();
+    const service = new VideoPredictionCacheService();
+    service.setOnReportPending(onReportPending);
+
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
+    await service.flush();
+    await service.setForcedVisibility(VIDEO, ORIGIN, 'blocked');
+    expect(onReportPending).not.toHaveBeenCalled();
+
+    repository.storeOwn.mockResolvedValueOnce(true);
+    service.storeOwn(VIDEO, ORIGIN, [sample(0)]);
+    await service.flush();
+    expect(onReportPending).toHaveBeenCalledTimes(1);
+
+    repository.setForcedVisibility.mockResolvedValueOnce(true);
+    await service.setForcedVisibility(VIDEO, ORIGIN, 'auto');
+    expect(onReportPending).toHaveBeenCalledTimes(2);
   });
 
   const META: IVideoPredictionRecord = {
@@ -266,8 +319,8 @@ describe('VideoPredictionCacheService', () => {
     let commitWrite = () => {};
     repository.storeOwn.mockImplementationOnce(
       () =>
-        new Promise<void>(resolve => {
-          commitWrite = resolve;
+        new Promise<boolean>(resolve => {
+          commitWrite = () => resolve(false);
         }),
     );
     const service = new VideoPredictionCacheService();

@@ -1,8 +1,20 @@
+import { shippedModelIds } from '@/entrypoints/background/services/shippedModelIds';
+import { isEligibleForReport } from '@/utils/cloudPredictions/eligibility';
 import { ImagePredictionRepository } from '@/utils/db/imagePredictionRepository';
 import { ATTR, getLogger } from '@/utils/telemetry';
 import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
 const log = getLogger('imageCacheService');
+
+const isReportableImage = ({ src, hostname, modelId, cacheMetadata }: IImagePrediction): boolean =>
+  isEligibleForReport(
+    {
+      media: { kind: 'image', src, contentType: cacheMetadata.contentType, cacheControl: cacheMetadata.cacheControl },
+      hostname,
+      modelId,
+    },
+    shippedModelIds(),
+  );
 
 /**
  * ImageCacheService handles business logic for image prediction cache
@@ -10,6 +22,7 @@ const log = getLogger('imageCacheService');
  */
 export class ImageCacheService {
   private repository: ImagePredictionRepository;
+  private onReportPending?: () => void;
 
   constructor() {
     try {
@@ -20,16 +33,30 @@ export class ImageCacheService {
     }
   }
 
+  setOnReportPending(listener: () => void): void {
+    this.onReportPending = listener;
+  }
+
   /**
-   * Caches a prediction this install inferred, replacing whatever its src held.
+   * Caches a prediction this install inferred, replacing whatever its src held. Eligibility for the
+   * Shared Prediction Cache is decided here, once: an eligible row waits to be reported under the
+   * page hostname that passed, a rejected one never gets a Report Status.
    */
   async storeOwn(prediction: IImagePrediction): Promise<void> {
+    const isReportable = isReportableImage(prediction);
     try {
-      await this.repository.storeOwn(prediction);
+      await this.repository.storeOwn({
+        ...prediction,
+        provenance: 'own',
+        ...(isReportable
+          ? { reportStatus: 'pending', reportChangedAt: Date.now(), reportHostname: prediction.hostname }
+          : {}),
+      });
     } catch (error) {
       log.error('cache.write.failed', { error });
       throw error;
     }
+    if (isReportable) this.onReportPending?.();
   }
 
   /**
@@ -95,11 +122,13 @@ export class ImageCacheService {
   }
 
   async setForcedVisibility(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
+    let becamePending: boolean;
     try {
-      await this.repository.setForcedVisibility(src, forcedVisibility);
+      becamePending = await this.repository.setForcedVisibility(src, forcedVisibility, Date.now());
     } catch (error) {
       log.error('cache.toggle_state.update.failed', { [ATTR.src]: src, error });
       throw error;
     }
+    if (becamePending) this.onReportPending?.();
   }
 }

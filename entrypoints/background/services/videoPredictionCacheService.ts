@@ -1,6 +1,8 @@
 import { getAvailableModels, getCurrentModelId } from '@inference-runtime';
 
+import { shippedModelIds } from '@/entrypoints/background/services/shippedModelIds';
 import { clampMaxAge } from '@/utils/cacheUtils';
+import { isEligibleForReport } from '@/utils/cloudPredictions/eligibility';
 import { VideoPredictionRepository } from '@/utils/db/videoPredictionRepository';
 import { cacheModelIdOf } from '@/utils/inference/shared/modelRegistry';
 import { selectCachedSamples, type CachedSampleReader } from '@/utils/lookahead/sampleQuality';
@@ -55,11 +57,26 @@ function defaultCacheMetadata(): ICacheMetadata {
   return { createdAt: now, accessedAt: now, maxAge, cacheControl: `max-age=${maxAge}`, contentType: 'video/frame' };
 }
 
+const isReportableWrite = ({ identity, model, origin }: PendingWrite): boolean =>
+  isEligibleForReport(
+    {
+      media: { kind: 'video', identityKind: identity.kind, identityKey: identity.key },
+      hostname: origin.hostname,
+      modelId: model.modelId,
+    },
+    shippedModelIds(),
+  );
+
 export class VideoPredictionCacheService {
   private readonly repository = new VideoPredictionRepository();
   private readonly pending = new Map<string, PendingWrite>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushed: Promise<void> = Promise.resolve();
+  private onReportPending?: () => void;
+
+  setOnReportPending(listener: () => void): void {
+    this.onReportPending = listener;
+  }
 
   /**
    * Buffers samples this install inferred; they reach the cache on the next flush.
@@ -108,11 +125,12 @@ export class VideoPredictionCacheService {
   ): Promise<void> {
     if (!isPersistentIdentity(identity)) return;
     await this.flush(identity.key);
-    await this.repository.setForcedVisibility(
+    const becamePending = await this.repository.setForcedVisibility(
       identity,
       { ...origin, cacheMetadata: defaultCacheMetadata() },
       forcedVisibility,
     );
+    if (becamePending) this.onReportPending?.();
   }
 
   /**
@@ -148,12 +166,14 @@ export class VideoPredictionCacheService {
   private async write(writes: PendingWrite[]): Promise<void> {
     for (const write of writes) {
       try {
-        await this.repository.storeOwn(
+        const becamePending = await this.repository.storeOwn(
           write.identity,
           write.model,
           { ...write.origin, cacheMetadata: defaultCacheMetadata() },
           write.samples,
+          isReportableWrite(write),
         );
+        if (becamePending) this.onReportPending?.();
       } catch (error) {
         log.warn('cache.write.failed', { ...videoIdentityAttributes(write.identity), error });
       }

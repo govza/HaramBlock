@@ -98,10 +98,16 @@ The tests use Vitest with WXT's testing plugin, which provides:
 - ES modules support
 - Fast test execution
 
-## Database Mocking
+## Database Tests
 
-Database operations are mocked using `vi.mock()` to avoid actual IndexedDB operations during
-testing:
+Two styles, by what is under test:
+
+- **Repositories and migrations** run against real Dexie on `fake-indexeddb`
+  (`import 'fake-indexeddb/auto'` as the file's first import), e.g.
+  `utils/db/__tests__/imagePredictionRepository.test.ts`, `videoPredictionRepository.test.ts` and
+  `mediaCacheMigration.test.ts`. Index queries, `modify` and version upgrades are the behaviour
+  there, so a mock would test nothing. Clear the tables in `beforeEach`.
+- **Callers of the database** (services, settings logic) mock it with `vi.mock()`:
 
 ```typescript
 vi.mock('@/utils/db/db', () => ({
@@ -114,7 +120,7 @@ vi.mock('@/utils/db/db', () => ({
 }));
 ```
 
-This ensures tests run quickly and don't interfere with actual browser storage.
+Neither style touches real browser storage.
 
 ## E2E Testing
 

@@ -341,14 +341,19 @@ identity (`identityKey`, `identityKind`, `durationSec`, the last source URL and 
 local to this device, never shared) with the video's Forced Visibility, cache metadata and
 `sampleCounts` per model (the Cache Browser lists the identity key and kind, links the page URL, and
 previews only non-`blob:` sources). `videoSampleBuckets` holds the samples in 5-minute media-time
-buckets keyed `[identityKey+modelId+latticeVersion+bucketStartUs]` (`VIDEO_SAMPLE_BUCKET_US`). There
-is no per-video sample cap; expiry follows the meta row's `accessedAt`, and an expired video is
-purged before a merge. A stored duration more than 1 s off the playing identity's purges that
-video's samples and its Forced Visibility (on read, on merge and on a toggle update) and adopts the
-new duration; `getVideoForcedVisibility` reads the meta row alone and ignores a Forced Visibility
-stored for another duration. The service buffers publishes per (video, model) and merges every 2 s
-or 50 samples; `getCached` flushes pending writes first. Sessions publish only under the active
-model version.
+buckets (`VIDEO_SAMPLE_BUCKET_US`). Schema v5 keys them
+`[identityKey+modelId+latticeVersion+provenance+bucketStartUs]`, so a video's own buckets and the
+served ones of the lookup release coexist; Dexie cannot change a primary key in place, so the update
+drops every v4 bucket once and resets `sampleCounts` / `modelCompatibility` on the meta rows (Forced
+Visibility is kept). `sampleCounts` counts own samples only and reads take own buckets only. Each
+bucket also carries its Report Status ([CLOUD_PREDICTIONS.md](CLOUD_PREDICTIONS.md)). There is no
+per-video sample cap; expiry follows the meta row's `accessedAt`, and an expired video is purged
+before a merge. A stored duration more than 1 s off the playing identity's purges that video's
+samples and its Forced Visibility (on read, on merge and on a toggle update) and adopts the new
+duration; `getVideoForcedVisibility` reads the meta row alone and ignores a Forced Visibility stored
+for another duration. The service buffers publishes per (video, model) and merges every 2 s or 50
+samples; `getCached` flushes pending writes first. Sessions publish only under the active model
+version.
 
 Within one model version a merge keeps, per point, the sample of higher quality
 (`utils/lookahead/sampleQuality.ts`): the long side the model actually saw,

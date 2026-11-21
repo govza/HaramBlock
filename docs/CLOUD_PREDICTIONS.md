@@ -2,8 +2,8 @@
 
 Opt-in sharing of the predictions this install computes with the Shared Prediction Cache (Diwan),
 and later receiving predictions other installs computed. Users read "mask" for a prediction and
-"Install ID" for the Reporter ID. This page covers consent, the switch and the eligibility filter;
-the sender and the lookup are not built yet.
+"Install ID" for the Reporter ID. This page covers consent, the switch, the eligibility filter and
+the Report Status of cached records; the sender and the lookup are not built yet.
 
 ## Consent state
 
@@ -72,6 +72,45 @@ facts only: no DNS, no network, no settings. Host policy is not an input.
   that set in the form the record uses: bare ids for image rows, `<id>@<version>` for video buckets.
 
 Incognito Tabs are not this filter's business: their media never reaches the cache.
+
+## Report Status and provenance (schema v5)
+
+Image rows (`imagePredictions`) and video sample buckets (`videoSampleBuckets`) carry
+`IReportTracking`:
+
+- `provenance: 'own' | 'served'` and `servedAt?`. Everything written today is `'own'`; served
+  records arrive with the lookup release. Provenance is part of the video bucket key.
+- `reportStatus?: 'pending' | 'reported' | 'rejected'` and `reportChangedAt?`, the time the record
+  last changed in a way a report carries. Both tables index `[reportStatus+reportChangedAt]`, the
+  one index every sender query uses.
+
+No status means never reported. The rules, all applied where the row is written:
+
+- **`storeOwn`** decides eligibility once, in the cache service (`isEligibleForReport` with
+  `shippedModelIds()`, which holds both id forms). An eligible image row is `pending`; a rejected
+  one has no status. A video bucket becomes `pending` when the write changed its samples, keeps its
+  status when the write added nothing, and loses it when the write is not eligible.
+- **`setForcedVisibility`** re-reports only on a real flip, and only a record that already has a
+  status: an image row goes back to `pending`; a video marks its earliest bucket that has a status,
+  and nothing when it has none (the first bucket stored later is `pending` anyway and is reported
+  with the meta row's toggle). A bucket without a status is skipped on purpose: the filter rejected
+  it when it was written (say, on a private-host page) or it was served, so it has no
+  `reportHostname` and must not be sent. The toggle belongs to the video, the bucket only carries
+  it, so the next bucket that passed the filter carries it instead.
+- **`touch` and `rehome`** never change the status.
+- **`reportHostname`.** A record's `hostname` follows the last page the media was seen on: `rehome`
+  moves an image row's, and every video `storeOwn` moves the bucket's and the meta row's, even when
+  it adds no samples. So a record that becomes `pending` in `storeOwn` also gets `reportHostname`,
+  the page hostname that passed the filter, and keeps it for as long as it keeps its status. A
+  report carries `reportHostname`, never `hostname`: a later private-host page is never sent.
+- **Migrated rows.** v4 image rows are kept as `'own'` with no status, so they are never reported,
+  toggled or not: their `cacheControl` may be a synthesised value. v4 video buckets are dropped.
+
+Both cache services call the listener given to `setOnReportPending` whenever a record became
+`pending`; the sender will create its alarm on it. Nothing is sent yet.
+
+Tests run these rules and the v4 → v5 migration against real Dexie on `fake-indexeddb`
+(`utils/db/__tests__/`).
 
 ## Manifest
 
