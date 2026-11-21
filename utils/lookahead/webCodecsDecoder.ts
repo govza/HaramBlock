@@ -18,9 +18,8 @@ export const withSourceSize = (
 ): InferredSample => ({ ...sample, source: { width: originalWidth, height: originalHeight } });
 
 /**
- * Copy a bitmap's pixels into CPU memory. A bitmap resized from a decoded `VideoFrame` stays GPU-backed, and reading
- * one back inside the service worker drops the worker's WebGPU instance: the next ONNX Runtime run fails and the one
- * after it never returns, which blocks the worker and stalls the page's own video (issue #137).
+ * A bitmap resized from a decoded `VideoFrame` stays GPU-backed, and reading one back inside the service worker drops
+ * the worker's WebGPU instance.
  */
 async function toCpuBackedBitmap(gpuBackedBitmap: ImageBitmap): Promise<ImageBitmap> {
   try {
