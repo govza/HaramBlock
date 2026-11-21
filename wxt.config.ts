@@ -3,6 +3,8 @@ import { loadEnv } from 'vite';
 import { defineConfig } from 'wxt';
 
 // eslint-disable-next-line no-restricted-imports
+import { resolveCloudPredictionsBuildConfig } from './scripts/cloudPredictionsBuildConfig';
+// eslint-disable-next-line no-restricted-imports
 import toUtf8 from './scripts/vite-plugin-to-utf8';
 
 const DEFAULT_OTEL_ENDPOINT = 'http://localhost:4318';
@@ -19,19 +21,26 @@ const debugChromiumArgs = [
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   vite: env => {
-    const otelEndpoint = loadEnv(env.mode, process.cwd(), 'WXT_').WXT_OTEL_ENDPOINT ?? DEFAULT_OTEL_ENDPOINT;
+    const buildEnv = loadEnv(env.mode, process.cwd(), 'WXT_');
+    const otelEndpoint = buildEnv.WXT_OTEL_ENDPOINT ?? DEFAULT_OTEL_ENDPOINT;
+    const cloud = resolveCloudPredictionsBuildConfig(buildEnv, env.mode);
     return {
       plugins: [toUtf8(), tailwindcss()],
       define: {
         __WEBGPU_WARMUP_RUNS__: JSON.stringify(Number.isFinite(WEBGPU_WARMUP_RUNS) ? WEBGPU_WARMUP_RUNS : 2),
         __HB_TELEMETRY_ENABLED__: JSON.stringify(env.mode === 'development' && otelEndpoint !== ''),
         __HB_OTEL_ENDPOINT__: JSON.stringify(otelEndpoint),
+        __HB_CLOUD_PREDICTIONS_URL__: JSON.stringify(cloud.url),
+        __HB_CLOUD_PREDICTIONS_REPORT__: JSON.stringify(cloud.isReportEnabled),
       },
     };
   },
   modules: ['@wxt-dev/module-react', '@wxt-dev/i18n/module'],
   webExt: {
     chromiumArgs: NO_GPU ? debugChromiumArgs : [],
+  },
+  zip: {
+    includeSources: ['**/*', '.env.production'],
   },
   manifestVersion: 3,
   manifest: {

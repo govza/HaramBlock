@@ -12,6 +12,8 @@ export default defineConfig({
   define: {
     __HB_TELEMETRY_ENABLED__: 'false',
     __HB_OTEL_ENDPOINT__: JSON.stringify(''),
+    __HB_CLOUD_PREDICTIONS_URL__: JSON.stringify('https://cloud.test'),
+    __HB_CLOUD_PREDICTIONS_REPORT__: 'true',
   },
 
   plugins: [WxtVitest()],
