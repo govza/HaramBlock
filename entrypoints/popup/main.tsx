@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
+import '@/assets/page.css';
 import App from '@/entrypoints/popup/App.tsx';
 import '@/entrypoints/popup/style.css';
 import { t } from '@/utils/i18n';
