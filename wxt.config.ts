@@ -42,13 +42,13 @@ export default defineConfig({
       gecko: {
         id: 'admin@haramblock.com',
         strict_min_version: '142.0',
-        data_collection_permissions: { required: ['none'] },
+        data_collection_permissions: { required: ['none'], optional: ['browsingActivity', 'websiteContent'] },
       },
       gecko_android: {
         strict_min_version: '142.0',
       },
     },
-    permissions: ['tabs', 'storage', 'contextMenus'],
+    permissions: ['tabs', 'storage', 'contextMenus', 'alarms'],
     host_permissions: ['<all_urls>'],
     options_page: 'options.html',
     web_accessible_resources: [
