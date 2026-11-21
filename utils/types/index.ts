@@ -1,4 +1,5 @@
 export * from '@/utils/types/cloudPredictions';
+export * from '@/utils/types/cloudPredictionsClient';
 export * from '@/utils/types/host';
 export * from '@/utils/types/media';
 export * from '@/utils/types/model';
