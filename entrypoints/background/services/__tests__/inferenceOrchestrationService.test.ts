@@ -51,9 +51,10 @@ vi.mock('@/entrypoints/background/services/batchCollector', () => ({
   },
 }));
 
-const getCachedPredictionsBySrc = vi.fn(() => Promise.resolve([]));
-const cachePredictions = vi.fn(() => Promise.resolve());
-const cacheService = { getCachedPredictionsBySrc, cachePredictions } as unknown as ImageCacheService;
+const getCachedPredictionsBySrc = vi.fn((): Promise<IImagePrediction[]> => Promise.resolve([]));
+const storeOwn = vi.fn(() => Promise.resolve());
+const rehome = vi.fn((prediction: IImagePrediction, hostname: string) => ({ ...prediction, hostname }));
+const cacheService = { getCachedPredictionsBySrc, storeOwn, rehome } as unknown as ImageCacheService;
 
 function setup() {
   const queue = new QueueService();
@@ -134,13 +135,37 @@ describe('InferenceOrchestrationService image dedupe', () => {
 describe('InferenceOrchestrationService incognito tabs', () => {
   it('neither reads nor writes the image cache for an incognito tab', async () => {
     getCachedPredictionsBySrc.mockClear();
-    cachePredictions.mockClear();
+    storeOwn.mockClear();
     const { results, schedule } = setup();
     await schedule('private', 0, true);
     await vi.waitFor(() => expect(statuses(results, 'private')).toEqual(['started']));
     release('private');
     await vi.waitFor(() => expect(statuses(results, 'private')).toEqual(['started', 'ok']));
     expect(getCachedPredictionsBySrc).not.toHaveBeenCalled();
-    expect(cachePredictions).not.toHaveBeenCalled();
+    expect(storeOwn).not.toHaveBeenCalled();
+  });
+});
+
+describe('InferenceOrchestrationService image cache writes', () => {
+  it('stores a finished inference as an own prediction under the model that made it', async () => {
+    storeOwn.mockClear();
+    const { results, schedule } = setup();
+    await schedule('fresh');
+    await vi.waitFor(() => expect(statuses(results, 'fresh')).toEqual(['started']));
+    release('fresh');
+    await vi.waitFor(() => expect(statuses(results, 'fresh')).toEqual(['started', 'ok']));
+    expect(storeOwn).toHaveBeenCalledWith(expect.objectContaining({ src: 'fresh', modelId: 'test-model' }));
+  });
+
+  it('answers a cached image by rehoming its row, without storing it as an own prediction', async () => {
+    storeOwn.mockClear();
+    const cached = { src: 'cached', hostname: 'first.example', predictions: [] } as unknown as IImagePrediction;
+    getCachedPredictionsBySrc.mockResolvedValueOnce([cached]);
+    const { results, schedule } = setup();
+    await schedule('cached');
+    expect(results).toEqual([{ status: 'ok', prediction: { ...cached, hostname: 'example.com' } }]);
+    expect(rehome).toHaveBeenCalledWith(cached, 'example.com');
+    expect(storeOwn).not.toHaveBeenCalled();
+    expect(processInferenceTask).not.toHaveBeenCalledWith(expect.objectContaining({ imageSrc: 'cached' }));
   });
 });

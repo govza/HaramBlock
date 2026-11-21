@@ -104,7 +104,7 @@ export async function requestVideoToggleUpdate(
   forcedVisibility: ForcedVisibility,
 ): Promise<void> {
   try {
-    await backgroundRpc.updateVideoToggleState(identity, origin, forcedVisibility);
+    await backgroundRpc.setVideoForcedVisibility(identity, origin, forcedVisibility);
   } catch (error) {
     log.error('video_toggle.update.failed', { ...videoIdentityAttributes(identity), forcedVisibility, error });
   }
@@ -115,7 +115,7 @@ export async function requestVideoToggleUpdate(
  */
 export async function requestToggleUpdate(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
   try {
-    await backgroundRpc.updateToggleState(src, forcedVisibility);
+    await backgroundRpc.setImageForcedVisibility(src, forcedVisibility);
   } catch (error) {
     log.error('toggle.update.failed', { [ATTR.src]: src, forcedVisibility, error });
   }

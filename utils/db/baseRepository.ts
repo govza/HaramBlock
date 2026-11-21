@@ -26,20 +26,6 @@ export abstract class BaseRepository<T, K = string> {
   }
 
   /**
-   * Save/update a record
-   */
-  async save(record: T): Promise<K> {
-    return this.table.put(record);
-  }
-
-  /**
-   * Create a new record
-   */
-  async create(record: T): Promise<K> {
-    return this.table.add(record);
-  }
-
-  /**
    * Delete a record by key
    */
   async delete(key: K): Promise<void> {

@@ -88,7 +88,7 @@ Icons shared via `@/components/ui/icons.ts`:
 ### Persistence
 
 - Toggle state stored in `IImagePrediction.forcedVisibility` field (`'auto' | 'visible' | 'blocked'`)
-- Persists in IndexedDB cache via `ImageCacheService.updateToggleState()`
+- Persists in IndexedDB cache via `ImageCacheService.setForcedVisibility()`
 - Multiple images with same `src` share toggle state
 - Use `shouldBlock(prediction)` helper to determine if image should be blocked
 
@@ -140,15 +140,15 @@ function shouldBlock(prediction: IImagePrediction): boolean {
 
 ### Components
 
-| File                                                   | Purpose                                           |
-| ------------------------------------------------------ | ------------------------------------------------- |
-| `components/ui/icons.ts`                               | Shared SVG icon paths                             |
-| `entrypoints/content/presentation/quickToggle.ts`      | Global button, hover tracking, state management   |
-| `entrypoints/content/core/ImageProcessor.ts`           | Handles toggle callback, applies visibility state |
-| `entrypoints/content/presentation/boundingBox.ts`      | Integration - uses shouldBlock for rendering      |
-| `entrypoints/content/presentation/imageMaskOverlay.ts` | Integration - uses shouldBlock for rendering      |
-| `entrypoints/background/services/imageCacheService.ts` | `updateToggleState()` persists state to IndexedDB |
-| `entrypoints/popup/components/QuickToggleSetting.tsx`  | Popup UI for host settings                        |
+| File                                                   | Purpose                                             |
+| ------------------------------------------------------ | --------------------------------------------------- |
+| `components/ui/icons.ts`                               | Shared SVG icon paths                               |
+| `entrypoints/content/presentation/quickToggle.ts`      | Global button, hover tracking, state management     |
+| `entrypoints/content/core/ImageProcessor.ts`           | Handles toggle callback, applies visibility state   |
+| `entrypoints/content/presentation/boundingBox.ts`      | Integration - uses shouldBlock for rendering        |
+| `entrypoints/content/presentation/imageMaskOverlay.ts` | Integration - uses shouldBlock for rendering        |
+| `entrypoints/background/services/imageCacheService.ts` | `setForcedVisibility()` persists state to IndexedDB |
+| `entrypoints/popup/components/QuickToggleSetting.tsx`  | Popup UI for host settings                          |
 
 ### Exported API (`quickToggle.ts`)
 

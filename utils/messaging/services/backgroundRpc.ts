@@ -34,25 +34,28 @@ const log = getLogger('backgroundRpc');
 
 type ImagePredictionCache = Pick<
   ImageCacheService,
-  'getCachedPredictionsByHostname' | 'findValidBySrc' | 'rehome' | 'updateToggleState'
+  'getCachedPredictionsByHostname' | 'findValidBySrc' | 'storeOwn' | 'setForcedVisibility' | 'touch' | 'rehome'
 >;
 type VideoPredictionCache = Pick<
   VideoPredictionCacheService,
-  'getCached' | 'getForcedVisibility' | 'publish' | 'setForcedVisibility'
+  'getCached' | 'getForcedVisibility' | 'storeOwn' | 'setForcedVisibility' | 'touch'
 >;
 
 const INCOGNITO_IMAGE_CACHE: ImagePredictionCache = {
   getCachedPredictionsByHostname: () => Promise.resolve([]),
   findValidBySrc: () => Promise.resolve(undefined),
+  storeOwn: () => Promise.resolve(),
+  setForcedVisibility: () => Promise.resolve(),
+  touch: () => {},
   rehome: prediction => prediction,
-  updateToggleState: () => Promise.resolve(),
 };
 
 const INCOGNITO_VIDEO_CACHE: VideoPredictionCache = {
   getCached: () => Promise.resolve(EMPTY_CACHED_VIDEO_PREDICTIONS),
   getForcedVisibility: () => Promise.resolve('auto'),
-  publish: () => {},
+  storeOwn: () => {},
   setForcedVisibility: () => Promise.resolve(),
+  touch: () => {},
 };
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -205,11 +208,11 @@ export class BackgroundRpc {
     origin: IVideoCacheOrigin,
     samples: IStoredVideoSample[],
   ): Promise<void> {
-    this.videoCache().publish(identity, origin, samples);
+    this.videoCache().storeOwn(identity, origin, samples);
     return Promise.resolve();
   }
 
-  async updateVideoToggleState(
+  async setVideoForcedVisibility(
     identity: VideoIdentity,
     origin: IVideoCacheOrigin,
     forcedVisibility: ForcedVisibility,
@@ -222,9 +225,9 @@ export class BackgroundRpc {
     }
   }
 
-  async updateToggleState(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
+  async setImageForcedVisibility(src: string, forcedVisibility: ForcedVisibility): Promise<void> {
     try {
-      await this.imageCache().updateToggleState(src, forcedVisibility);
+      await this.imageCache().setForcedVisibility(src, forcedVisibility);
     } catch (error) {
       log.error('toggle.update.failed', { [ATTR.src]: src, error });
       throw error;

@@ -20,6 +20,10 @@ export class HostSettingsRepository extends BaseRepository<IHostSettings, string
     this.useSessionStorage = isIncognito || isIncognitoOverride;
   }
 
+  async create(record: IHostSettings): Promise<string> {
+    return this.table.add(record);
+  }
+
   // ============ Storage.session methods for incognito tabs (ephemeral) ============
 
   private storageKey(hostname: string): string {
