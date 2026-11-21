@@ -207,6 +207,12 @@ describe('BackgroundRpc called from an incognito tab', () => {
     expect(inferenceService.scheduleInferenceTask).toHaveBeenCalledWith(expect.objectContaining({ isIncognito: true }));
   });
 
+  it('reads host settings as an incognito caller without the content script saying so', async () => {
+    await rpc.getHostSettings('example.com');
+
+    expect(hostSettingsService.getHostSettings).toHaveBeenCalledWith('example.com', true);
+  });
+
   it('keeps serving the caches to a normal tab', async () => {
     setRpcContext({ tabId: 2, frameId: 0, incognito: false });
     imageCacheService.getCachedPredictionsByHostname.mockResolvedValue([]);

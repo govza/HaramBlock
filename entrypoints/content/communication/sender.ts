@@ -52,8 +52,7 @@ const tracer = getTracer('inference');
  */
 export async function requestHostSettings(hostname: string): Promise<IHostSettings> {
   try {
-    const isIncognito = browser.extension.inIncognitoContext;
-    const result = await backgroundRpc.getHostSettings(hostname, isIncognito);
+    const result = await backgroundRpc.getHostSettings(hostname);
     if (!result) {
       throw new Error('No host settings returned from background script');
     }
