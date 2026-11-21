@@ -22,6 +22,8 @@ implementation details). If you’re a user, start with the project [`README.md`
 - **AI model (architecture, classes, registry, per-model perf)**: [MODEL.md](MODEL.md)
 - **Inference pipeline (runtime, queueing, adaptive batching)**:
   [INFERENCE_PIPELINE.md](INFERENCE_PIPELINE.md)
+- **Cloud Predictions (consent state, switch, consent tab, Install ID)**:
+  [CLOUD_PREDICTIONS.md](CLOUD_PREDICTIONS.md)
 - **Batched inference benchmark results**: [PHASE2_RESULTS.md](PHASE2_RESULTS.md)
 - **Telemetry (structured logs, traces, metrics)**: [LOGGING.md](LOGGING.md); local Grafana stack +
   video dashboard in [DEBUGGING_OTEL.md](DEBUGGING_OTEL.md)
