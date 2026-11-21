@@ -213,6 +213,21 @@ describe('BackgroundRpc called from an incognito tab', () => {
     expect(hostSettingsService.getHostSettings).toHaveBeenCalledWith('example.com', true);
   });
 
+  it('runs inference under the incognito tab’s own host settings', async () => {
+    hostSettingsService.getHostSettings.mockResolvedValue({});
+    const media = { kind: 'url', src: 'https://example.com/a.jpg', hostname: 'example.com', metadata: {} };
+
+    await rpc.postInferenceImage(media as unknown as IImageTransfer);
+    await rpc.postInferenceVideoFrame(media as never);
+    await rpc.postInferenceGifFrame(media as never);
+
+    expect(hostSettingsService.getHostSettings.mock.calls).toEqual([
+      ['example.com', true],
+      ['example.com', true],
+      ['example.com', true],
+    ]);
+  });
+
   it('keeps serving the caches to a normal tab', async () => {
     setRpcContext({ tabId: 2, frameId: 0, incognito: false });
     imageCacheService.getCachedPredictionsByHostname.mockResolvedValue([]);

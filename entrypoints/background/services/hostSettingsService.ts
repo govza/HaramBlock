@@ -14,7 +14,7 @@ const log = getLogger('hostSettingsService');
 export class HostSettingsService {
   private readonly resolved = new Map<string, Promise<IHostSettings>>();
 
-  async getHostSettings(hostname: string, isIncognito = false): Promise<IHostSettings> {
+  async getHostSettings(hostname: string, isIncognito: boolean): Promise<IHostSettings> {
     if (!hostname) {
       throw new Error('Hostname is required');
     }

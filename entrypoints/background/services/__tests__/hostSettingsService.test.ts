@@ -21,8 +21,8 @@ describe('HostSettingsService', () => {
   it('reads each hostname from storage once', async () => {
     const service = new HostSettingsService();
 
-    await service.getHostSettings('example.com');
-    await service.getHostSettings('example.com');
+    await service.getHostSettings('example.com', false);
+    await service.getHostSettings('example.com', false);
 
     expect(findByHostname).toHaveBeenCalledTimes(1);
   });
@@ -30,7 +30,7 @@ describe('HostSettingsService', () => {
   it('shares one read between concurrent callers', async () => {
     const service = new HostSettingsService();
 
-    await Promise.all([service.getHostSettings('example.com'), service.getHostSettings('example.com')]);
+    await Promise.all([service.getHostSettings('example.com', false), service.getHostSettings('example.com', false)]);
 
     expect(findByHostname).toHaveBeenCalledTimes(1);
   });
@@ -38,7 +38,7 @@ describe('HostSettingsService', () => {
   it('keeps incognito and regular settings apart', async () => {
     const service = new HostSettingsService();
 
-    await service.getHostSettings('example.com');
+    await service.getHostSettings('example.com', false);
     await service.getHostSettings('example.com', true);
 
     expect(findByHostname).toHaveBeenCalledTimes(2);
@@ -46,20 +46,20 @@ describe('HostSettingsService', () => {
 
   it('re-reads every hostname after invalidate', async () => {
     const service = new HostSettingsService();
-    await service.getHostSettings('example.com');
+    await service.getHostSettings('example.com', false);
     findByHostname.mockImplementation(hostname => Promise.resolve(settingsFor(hostname, 0.9)));
 
     service.invalidate();
 
-    await expect(service.getHostSettings('example.com')).resolves.toMatchObject({ strictness: 0.9 });
+    await expect(service.getHostSettings('example.com', false)).resolves.toMatchObject({ strictness: 0.9 });
   });
 
   it('does not cache a failed read', async () => {
     const service = new HostSettingsService();
     findByHostname.mockRejectedValueOnce(new Error('db closed'));
 
-    await expect(service.getHostSettings('example.com')).rejects.toThrow('db closed');
+    await expect(service.getHostSettings('example.com', false)).rejects.toThrow('db closed');
 
-    await expect(service.getHostSettings('example.com')).resolves.toMatchObject({ hostname: 'example.com' });
+    await expect(service.getHostSettings('example.com', false)).resolves.toMatchObject({ hostname: 'example.com' });
   });
 });
