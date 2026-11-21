@@ -17,16 +17,34 @@ export const withSourceSize = (
   { originalWidth, originalHeight }: Pick<BitmapFrame, 'originalWidth' | 'originalHeight'>,
 ): InferredSample => ({ ...sample, source: { width: originalWidth, height: originalHeight } });
 
+/**
+ * Copy a bitmap's pixels into CPU memory. A bitmap resized from a decoded `VideoFrame` stays GPU-backed, and reading
+ * one back inside the service worker drops the worker's WebGPU instance: the next ONNX Runtime run fails and the one
+ * after it never returns, which blocks the worker and stalls the page's own video (issue #137).
+ */
+async function toCpuBackedBitmap(gpuBackedBitmap: ImageBitmap): Promise<ImageBitmap> {
+  try {
+    const canvas = new OffscreenCanvas(gpuBackedBitmap.width, gpuBackedBitmap.height);
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('2D canvas context unavailable');
+    context.drawImage(gpuBackedBitmap, 0, 0);
+    return await createImageBitmap(context.getImageData(0, 0, canvas.width, canvas.height));
+  } finally {
+    gpuBackedBitmap.close();
+  }
+}
+
 export async function toModelInputBitmap(frame: VideoFrame, inputSize: number): Promise<BitmapFrame> {
   const originalWidth = frame.displayWidth;
   const originalHeight = frame.displayHeight;
   const scale = Math.min(1, inputSize / Math.max(originalWidth, originalHeight));
   try {
-    const bitmap = await createImageBitmap(frame, {
+    const resizedFrame = await createImageBitmap(frame, {
       resizeWidth: Math.max(1, Math.round(originalWidth * scale)),
       resizeHeight: Math.max(1, Math.round(originalHeight * scale)),
       resizeQuality: 'low',
     });
+    const bitmap = await toCpuBackedBitmap(resizedFrame);
     return { bitmap, originalWidth, originalHeight, close: () => bitmap.close() };
   } finally {
     frame.close();
