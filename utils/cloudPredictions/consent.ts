@@ -1,3 +1,4 @@
+import { IS_CLOUD_PREDICTIONS_SERVER_CONFIGURED } from '@/utils/cloudPredictions/config';
 import {
   hasDataCollection,
   onDataCollectionChange,
@@ -38,7 +39,9 @@ const ensureReporterId = async (): Promise<void> => {
 
 const isAgreed: Gate = async () => (await getConsent()) === 'agreed';
 
-const isOnGates: readonly Gate[] = [isAgreed, hasDataCollection];
+const hasServer: Gate = () => Promise.resolve(IS_CLOUD_PREDICTIONS_SERVER_CONFIGURED);
+
+const isOnGates: readonly Gate[] = [isAgreed, hasServer, hasDataCollection];
 
 /**
  * The single gate for reports and lookups. Every condition must hold; a new one joins
