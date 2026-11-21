@@ -1,6 +1,12 @@
 import { getAvailableModels } from '@inference-runtime';
 
-import { ContextMenuListener, initHostSettingsObserver, IconEventListener } from '@/entrypoints/background/events';
+import {
+  ContextMenuListener,
+  initDataCollectionListener,
+  initHostSettingsObserver,
+  initInstallListener,
+  IconEventListener,
+} from '@/entrypoints/background/events';
 import {
   CacheEvictionService,
   HostSettingsService,
@@ -21,7 +27,6 @@ import {
 import { AutoModelService } from '@/entrypoints/background/services/autoModelService';
 import { FirefoxLookaheadHostService } from '@/entrypoints/background/services/firefoxLookaheadHostService';
 import { resolveVideoCapability } from '@/utils/capabilities/videoCapability';
-import { deleteLegacyCacheDatabases } from '@/utils/db/db';
 import { getInferenceBackend, initializeInference } from '@/utils/inference';
 import { CompositeProvideAdapter, provideBackgroundRpc } from '@/utils/messaging';
 import { getModelSettings, setModelSettings, updateAutoModelState, type ModelSettings } from '@/utils/modelSettings';
@@ -54,11 +59,8 @@ function getStartupModelId(settings: ModelSettings): string | undefined {
 export default defineBackground({
   type: 'module',
   main() {
-    browser.runtime.onInstalled.addListener(() => {
-      deleteLegacyCacheDatabases().catch((error: unknown) => {
-        log.warn('cache.legacy_delete.failed', { error });
-      });
-    });
+    initInstallListener();
+    initDataCollectionListener();
 
     void resolveVideoCapability().catch(error => {
       log.error('capability.video.resolve.failed', { error });
