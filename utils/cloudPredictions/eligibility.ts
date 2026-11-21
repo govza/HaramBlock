@@ -2,7 +2,7 @@ import { isGifCandidate } from '@/utils/gifSupport';
 import { isOnHost, tryParseUrl } from '@/utils/url';
 import { directUrlOfIdentityKey } from '@/utils/videoIdentity';
 
-import type { IReportCandidate, IShareCandidate, ShareableMedia } from '@/utils/types';
+import type { CandidateMedia, ILookupCandidate, IReportCandidate, StoredModelId } from '@/utils/types';
 
 const PRIVATE_HOST_SUFFIXES = ['localhost', 'local', 'internal', 'lan', 'home.arpa'];
 const UNSHAREABLE_CACHE_DIRECTIVES = new Set(['private', 'no-store', 'no-cache']);
@@ -51,18 +51,18 @@ function isPrivateIpv6(address: string): boolean {
   return isUniqueLocal || isLinkOrSiteLocal;
 }
 
-function isPublicNormalisedHost(normalisedHost: string): boolean {
-  const [, ipv6Address] = IPV6_LITERAL.exec(normalisedHost) ?? [];
+function isPublicNormalizedHost(normalizedHost: string): boolean {
+  const [, ipv6Address] = IPV6_LITERAL.exec(normalizedHost) ?? [];
   if (ipv6Address !== undefined) return !isPrivateIpv6(ipv6Address);
-  const ipv4 = IPV4_LITERAL.exec(normalisedHost);
+  const ipv4 = IPV4_LITERAL.exec(normalizedHost);
   if (ipv4) return !isPrivateIpv4(Number(ipv4[1]), Number(ipv4[2]));
-  const host = normalisedHost.replace(/\.$/, '');
+  const host = normalizedHost.replace(/\.$/, '');
   return host.includes('.') && !PRIVATE_HOST_SUFFIXES.some(suffix => isOnHost(host, suffix));
 }
 
 function isPublicHostname(hostname: string): boolean {
-  const normalisedHost = tryParseUrl(`http://${hostname}/`)?.hostname;
-  return normalisedHost !== undefined && isPublicNormalisedHost(normalisedHost);
+  const normalizedHost = tryParseUrl(`http://${hostname}/`)?.hostname;
+  return normalizedHost !== undefined && isPublicNormalizedHost(normalizedHost);
 }
 
 function isPublicHttpUrl(href: string): boolean {
@@ -70,7 +70,7 @@ function isPublicHttpUrl(href: string): boolean {
   if (!url) return false;
   const isHttp = url.protocol === 'http:' || url.protocol === 'https:';
   const hasUserinfo = url.username !== '' || url.password !== '';
-  return isHttp && !hasUserinfo && isPublicNormalisedHost(url.hostname);
+  return isHttp && !hasUserinfo && isPublicNormalizedHost(url.hostname);
 }
 
 function isShareableVideoKey(identityKey: string): boolean {
@@ -78,7 +78,7 @@ function isShareableVideoKey(identityKey: string): boolean {
   return directUrl === null || isPublicHttpUrl(directUrl);
 }
 
-function isShareableMedia(media: ShareableMedia): boolean {
+function isShareableMedia(media: CandidateMedia): boolean {
   if (media.kind === 'image') return !isGifCandidate(media.src, media.contentType) && isPublicHttpUrl(media.src);
   const { identityKind, identityKey } = media;
   return (
@@ -97,11 +97,11 @@ function forbidsSharedCaching(cacheControl: string): boolean {
   });
 }
 
-export function isEligibleForLookup({ media, hostname }: IShareCandidate): boolean {
+export function isEligibleForLookup({ media, hostname }: ILookupCandidate): boolean {
   return isPublicHostname(hostname) && isShareableMedia(media);
 }
 
-export function isEligibleForReport(candidate: IReportCandidate, shippedModelIds: ReadonlySet<string>): boolean {
+export function isEligibleForReport(candidate: IReportCandidate, shippedModelIds: ReadonlySet<StoredModelId>): boolean {
   const { media, modelId } = candidate;
   const isShippedModel = modelId !== undefined && shippedModelIds.has(modelId);
   const isMarkedPrivate =

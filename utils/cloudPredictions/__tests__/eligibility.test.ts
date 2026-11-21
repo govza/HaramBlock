@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { isEligibleForLookup, isEligibleForReport } from '@/utils/cloudPredictions';
 
-import type { IReportCandidate, ShareableMedia } from '@/utils/types';
+import type { IReportCandidate, CandidateMedia } from '@/utils/types';
 
 const PAGE = 'news.example.com';
 const SHIPPED_MODEL_IDS = new Set(['sem-i320', 'sem-i640', 'sem-i320@20260607']);
 
-const image = (src: string, contentType?: string, cacheControl?: string): ShareableMedia => ({
+const image = (src: string, contentType?: string, cacheControl?: string): CandidateMedia => ({
   kind: 'image',
   src,
   contentType,
@@ -102,7 +102,7 @@ describe('page hostname', () => {
 });
 
 describe('media kind', () => {
-  it.each<[string, ShareableMedia, boolean]>([
+  it.each<[string, CandidateMedia, boolean]>([
     ['an image', image('https://cdn.example.com/a.jpg', 'image/jpeg'), true],
     ['a GIF by extension', image('https://cdn.example.com/a.gif'), false],
     ['a GIF by extension before a query', image('https://cdn.example.com/a.GIF?v=2'), false],
@@ -138,9 +138,9 @@ describe('media kind', () => {
 
 describe('report', () => {
   const IMAGE = image('https://cdn.example.com/a.jpg', 'image/jpeg');
-  const marked = (cacheControl: string): ShareableMedia =>
+  const marked = (cacheControl: string): CandidateMedia =>
     image('https://cdn.example.com/a.jpg', 'image/jpeg', cacheControl);
-  const VIDEO: ShareableMedia = { kind: 'video', identityKind: 'stable', identityKey: 'yt:dQw4w9WgXcQ' };
+  const VIDEO: CandidateMedia = { kind: 'video', identityKind: 'stable', identityKey: 'yt:dQw4w9WgXcQ' };
   const report = (overrides: Partial<IReportCandidate>): IReportCandidate => ({
     media: IMAGE,
     hostname: PAGE,
