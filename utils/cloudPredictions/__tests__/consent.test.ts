@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
-const environment = vi.hoisted(() => ({ isChrome: true }));
+const environment = vi.hoisted(() => ({ isChrome: true, isServerConfigured: true }));
+vi.mock('@/utils/cloudPredictions/config', () => ({
+  get IS_CLOUD_PREDICTIONS_SERVER_CONFIGURED() {
+    return environment.isServerConfigured;
+  },
+}));
 vi.mock('@/utils/constants/environment', () => ({
   get IS_CHROME() {
     return environment.isChrome;
@@ -45,6 +50,7 @@ beforeEach(() => {
   fakeBrowser.permissions.request = permissionRequest;
   fakeBrowser.permissions.contains = permissionContains;
   useBrowser('chrome');
+  environment.isServerConfigured = true;
 });
 
 describe('consent state', () => {
@@ -79,6 +85,15 @@ describe('consent state', () => {
 
     await agree();
     await expect(getReporterId()).resolves.toBe(firstId);
+  });
+
+  it('stays off while agreed in a build without a server URL', async () => {
+    environment.isServerConfigured = false;
+
+    await agree();
+
+    await expect(getConsent()).resolves.toBe('agreed');
+    await expect(isOn()).resolves.toBe(false);
   });
 
   it('never asks Chrome for a data-collection permission', async () => {
