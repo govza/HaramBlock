@@ -41,10 +41,10 @@ background resolves tab context when needed by querying tabs.
 ### MessageMeta
 
 `MessageMeta` (`utils/messaging/adapters/browserRuntimeAdapter.ts`) carries three fields: `url` (the
-content script's `document.location.href`), an optional `caller` (the `IRpcContext` — tab, frame and
-incognito flag — that the background stamps from the browser-provided sender, overwriting anything
-the calling context sent), and an optional `injector` tag (`'content'` or `'popup'`) identifying the
-caller context.
+content script's `document.location.href`), an optional `caller` (the `ICallerContext` — tab, frame
+and incognito flag — that the background stamps from the browser-provided sender, overwriting
+anything the calling context sent), and an optional `injector` tag (`'content'` or `'popup'`)
+identifying the caller context.
 
 ### How Meta Flows Through the System
 
@@ -244,8 +244,8 @@ No manual request/response correlation needed!
   image is captured
 - `postInferenceImage` — submits an `IImageTransfer` for inference (Chrome sends a bitmap, Firefox a
   blob/url; the verdict arrives later on the results broadcast)
-- `updateIcon` — extension icon update (IRpcContext auto-injected by adapter, see "IRpcContext"
-  section)
+- `updateIcon` — extension icon update (ICallerContext auto-injected by adapter, see
+  "ICallerContext" section)
 - `notifyHostSettingsChanged` — pushes settings changes to content scripts
 
 ### Subscription Methods
@@ -345,20 +345,20 @@ background never handles a channel message for an unidentified tab, which is wha
 Tab's first requests away from the prediction caches. A channel still unregistered after 5 s is
 served as an Incognito Tab, so its media is processed and nothing of it is cached.
 
-### IRpcContext — Exposing Sender Tab ID to Handlers
+### ICallerContext — Exposing Sender Tab ID to Handlers
 
 comctx's `createProvide` only passes explicit method arguments to handlers — the enriched message
 meta (which contains `caller`) is not exposed. `CompositeProvideAdapter` uses a request-scoped
-module variable (`utils/messaging/rpcContext.ts`) to surface sender context to handlers without
+module variable (`utils/messaging/callerContext.ts`) to surface sender context to handlers without
 mutating argument lists.
 
-The `onMessage` wrapper calls `setRpcContext(meta.caller)` before comctx dispatches. Since JS is
-single-threaded, handlers read `getRpcContext()` synchronously before any `await` and get the
+The `onMessage` wrapper calls `setCallerContext(meta.caller)` before comctx dispatches. Since JS is
+single-threaded, handlers read `getCallerContext()` synchronously before any `await` and get the
 correct value. Callers are unchanged (no extra arguments); handlers that need the sender tab (e.g.
 `updateIcon`) read it from the context and no-op when it's absent.
 
 The context is built in one place (`callerOf(sender)` in `CompositeProvideAdapter`) and travels
-whole on both transports, so a new caller fact is one field on `IRpcContext` plus that builder.
+whole on both transports, so a new caller fact is one field on `ICallerContext` plus that builder.
 Callers without a tab (the popup) have an empty context — methods that require a tab no-op.
 
 ## Usage

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setRpcContext } from '@/utils/messaging/rpcContext';
+import { setCallerContext } from '@/utils/messaging/callerContext';
 import { BackgroundRpc } from '@/utils/messaging/services/backgroundRpc';
 import {
   EMPTY_CACHED_VIDEO_PREDICTIONS,
@@ -31,11 +31,11 @@ describe('BackgroundRpc subscription reaping', () => {
 
   beforeEach(() => {
     rpc = makeRpc();
-    setRpcContext({});
+    setCallerContext({});
   });
 
   it('delivers emissions to a registered subscriber', () => {
-    setRpcContext({ tabId: 1, frameId: 0 });
+    setCallerContext({ tabId: 1, frameId: 0 });
     const callback = vi.fn();
     rpc.onFramePredictions(callback);
 
@@ -45,7 +45,7 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 
   it('releaseTab drops every subscription kind owned by that tab', () => {
-    setRpcContext({ tabId: 7, frameId: 0 });
+    setCallerContext({ tabId: 7, frameId: 0 });
     const image = vi.fn();
     const frame = vi.fn();
     const gif = vi.fn();
@@ -69,15 +69,15 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 
   it('releaseTab leaves other tabs and context-free subscribers alone', () => {
-    setRpcContext({ tabId: 7, frameId: 0 });
+    setCallerContext({ tabId: 7, frameId: 0 });
     const doomed = vi.fn();
     rpc.onFramePredictions(doomed);
 
-    setRpcContext({ tabId: 8, frameId: 0 });
+    setCallerContext({ tabId: 8, frameId: 0 });
     const otherTab = vi.fn();
     rpc.onFramePredictions(otherTab);
 
-    setRpcContext({});
+    setCallerContext({});
     const popup = vi.fn();
     rpc.onFramePredictions(popup);
 
@@ -90,11 +90,11 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 
   it('a resubscribe from the same tab+frame evicts the stale entry of the same kind', () => {
-    setRpcContext({ tabId: 3, frameId: 5 });
+    setCallerContext({ tabId: 3, frameId: 5 });
     const stale = vi.fn();
     rpc.onFramePredictions(stale);
 
-    setRpcContext({ tabId: 3, frameId: 5 });
+    setCallerContext({ tabId: 3, frameId: 5 });
     const fresh = vi.fn();
     rpc.onFramePredictions(fresh);
 
@@ -105,11 +105,11 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 
   it('same tab, different frames coexist', () => {
-    setRpcContext({ tabId: 3, frameId: 0 });
+    setCallerContext({ tabId: 3, frameId: 0 });
     const top = vi.fn();
     rpc.onFramePredictions(top);
 
-    setRpcContext({ tabId: 3, frameId: 42 });
+    setCallerContext({ tabId: 3, frameId: 42 });
     const iframe = vi.fn();
     rpc.onFramePredictions(iframe);
 
@@ -120,11 +120,11 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 
   it('resubscribe does not evict a different kind from the same frame', () => {
-    setRpcContext({ tabId: 3, frameId: 0 });
+    setCallerContext({ tabId: 3, frameId: 0 });
     const image = vi.fn();
     rpc.onImagePredictions(image);
 
-    setRpcContext({ tabId: 3, frameId: 0 });
+    setCallerContext({ tabId: 3, frameId: 0 });
     rpc.onFramePredictions(vi.fn());
 
     rpc.emitImagePredictions(imageResults, 'example.com');
@@ -132,7 +132,7 @@ describe('BackgroundRpc subscription reaping', () => {
   });
 
   it('explicit unsubscribe still works', () => {
-    setRpcContext({ tabId: 1, frameId: 0 });
+    setCallerContext({ tabId: 1, frameId: 0 });
     const callback = vi.fn();
     const id = rpc.onFramePredictions(callback);
 
@@ -171,7 +171,7 @@ describe('BackgroundRpc called from an incognito tab', () => {
       undefined as never,
       videoPredictionCacheService as never,
     );
-    setRpcContext({ tabId: 1, frameId: 0, incognito: true });
+    setCallerContext({ tabId: 1, frameId: 0, incognito: true });
   });
 
   it('reads nothing from the prediction caches', async () => {
@@ -229,7 +229,7 @@ describe('BackgroundRpc called from an incognito tab', () => {
   });
 
   it('keeps serving the caches to a normal tab', async () => {
-    setRpcContext({ tabId: 2, frameId: 0, incognito: false });
+    setCallerContext({ tabId: 2, frameId: 0, incognito: false });
     imageCacheService.getCachedPredictionsByHostname.mockResolvedValue([]);
 
     await rpc.getCachedPredictions('example.com');

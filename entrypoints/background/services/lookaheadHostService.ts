@@ -4,7 +4,7 @@ import { LOOKAHEAD_PORT_NAME, type FirefoxPortMessage, type OpenAnalysis } from 
 import { createRangeFetchSource } from '@/utils/lookahead/rangeFetchSource';
 import { toInferredSample } from '@/utils/lookahead/sampleScores';
 import { withSourceSize, type BitmapFrame } from '@/utils/lookahead/webCodecsDecoder';
-import { callerOf, isIncognitoCaller } from '@/utils/messaging/rpcContext';
+import { callerOf, isIncognitoCaller } from '@/utils/messaging/callerContext';
 import { getLogger } from '@/utils/telemetry';
 
 import type { HostSettingsService } from '@/entrypoints/background/services/hostSettingsService';

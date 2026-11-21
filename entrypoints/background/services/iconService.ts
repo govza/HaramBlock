@@ -10,7 +10,7 @@ const log = getLogger('iconService');
  * Automatically detects incognito mode from tab context.
  */
 export class IconService {
-  // Update icon for a specific tab given its hostname. Used by RPC handlers via IRpcContext.
+  // Update icon for a specific tab given its hostname. Used by RPC handlers via ICallerContext.
   async updateIconForTab(tabId: number, hostname: string): Promise<void> {
     try {
       const tab = await browser.tabs.get(tabId);

@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
 import { CompositeProvideAdapter } from '@/utils/messaging/adapters/compositeProvideAdapter';
-import { getRpcContext } from '@/utils/messaging/rpcContext';
+import { getCallerContext } from '@/utils/messaging/callerContext';
 
-import type { IRpcContext } from '@/utils/types';
+import type { ICallerContext } from '@/utils/types';
 
 type GlobalMessageListener = (event: { data: unknown; ports: unknown[] }) => void;
 
@@ -22,7 +22,7 @@ const deliverRuntimeMessage = (message: unknown): Promise<void> =>
 
 describe('CompositeProvideAdapter caller identity', () => {
   let announcePort: GlobalMessageListener;
-  let callersSeen: IRpcContext[];
+  let callersSeen: ICallerContext[];
 
   beforeEach(() => {
     fakeBrowser.reset();
@@ -31,7 +31,7 @@ describe('CompositeProvideAdapter caller identity', () => {
     });
     callersSeen = [];
     void new CompositeProvideAdapter().onMessage(() => {
-      callersSeen.push(getRpcContext());
+      callersSeen.push(getCallerContext());
     });
   });
 
