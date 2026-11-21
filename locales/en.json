@@ -10,7 +10,8 @@
       "hostList": "List of hosts",
       "customSettings": "Custom settings",
       "cache": "Cache",
-      "about": "About"
+      "about": "About",
+      "cloudPredictions": "Cloud Predictions"
     },
     "Cache": {
       "title": "Cached items",
@@ -147,5 +148,48 @@
   },
   "CopyLogs": {
     "tooltip": "Copy logs to clipboard"
+  },
+  "CloudPredictions": {
+    "name": "Cloud Predictions",
+    "privacyPolicy": "Privacy policy",
+    "privacyPolicyInline": "privacy policy",
+    "askDelete": "Ask us to delete them",
+    "deleteMailSubject": "Delete my Cloud Predictions data",
+    "deleteMailBody": "Install ID: $1",
+    "installId": "Install ID",
+    "copy": "Copy",
+    "ConsentTab": {
+      "brand": "HaramBlock · Cloud Predictions",
+      "title": "Faster filtering, less work for your device",
+      "intro": "Browsers share what they find, so each image and video is checked once, not on every device. It helps most on older computers and phones.",
+      "youGet": "You get",
+      "getLead": "A faster HaramBlock.",
+      "getBody": "Masks other devices already made hide an image or video right away, without your device working it out again.",
+      "youShare": "You share",
+      "shareMasksLead": "The masks your device makes",
+      "shareMasks": "$1: which parts of an image or video to hide. Masks already made on this device are included.",
+      "shareAddress": "The address of the image or video, to find or share its mask, and the site it was seen on.",
+      "shareChoices": "Your manual masking choices.",
+      "shareId": "A random ID, to prevent abuse. No name, no account.",
+      "shareReview": "Shared masks and their images may be reviewed to improve detection.",
+      "neverSent": "Never sent",
+      "neverSentBody": "The address of the page, anything from private windows, anything stored on your computer or your own network.",
+      "closing": "Only browsers that share get masks from others. Never sold, no ads. Turn it off any time in Options. $1",
+      "agree": "Agree",
+      "notNow": "Not now",
+      "eitherWay": "HaramBlock keeps working on your device either way."
+    },
+    "Options": {
+      "neverAgreedIntro": "A faster HaramBlock, with less work for your device: get masks other devices already made, and share yours.",
+      "youShareLabel": "You share:",
+      "neverAgreedShare": "$1 the masks your device makes, including ones already made, the address of the image or video and the site it was seen on, your manual masking choices, and a random ID to prevent abuse. Shared masks and their images may be reviewed to improve detection.",
+      "neverSentLabel": "Never sent:",
+      "neverAgreedNeverSent": "$1 the address of the page, anything from private windows, anything stored on your computer or your own network.",
+      "switchingOnAgrees": "Switching on means you agree. $1",
+      "onSummary": "This browser shares its masks and uses masks from others. $1",
+      "onDeletion": "Switching off stops sending at once. Reports already sent stay on the server. $1.",
+      "offSummary": "Off. Nothing is sent and no masks are fetched. Masks from others already on this device are used until they expire.",
+      "offAgreement": "Switching on is your agreement to send the data described in the $1, including media checked while this was off. Reports already sent stay on the server. $2."
+    }
   }
 }

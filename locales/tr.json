@@ -10,7 +10,8 @@
       "hostList": "Host Listesi",
       "customSettings": "Özel Ayarlar",
       "cache": "Önbellek",
-      "about": "Hakkında"
+      "about": "Hakkında",
+      "cloudPredictions": "Bulut Tahminleri"
     },
     "Cache": {
       "title": "Önbelleğe alınan öğeler",
@@ -147,5 +148,48 @@
   },
   "CopyLogs": {
     "tooltip": "Günlükleri panoya kopyala"
+  },
+  "CloudPredictions": {
+    "name": "Bulut Tahminleri",
+    "privacyPolicy": "Gizlilik politikası",
+    "privacyPolicyInline": "gizlilik politikasında",
+    "askDelete": "Silmemizi isteyin",
+    "deleteMailSubject": "Bulut Tahminleri verilerimi sil",
+    "deleteMailBody": "Kurulum kimliği: $1",
+    "installId": "Kurulum kimliği",
+    "copy": "Kopyala",
+    "ConsentTab": {
+      "brand": "HaramBlock · Bulut Tahminleri",
+      "title": "Daha hızlı filtreleme, cihazınız için daha az iş",
+      "intro": "Tarayıcılar bulduklarını paylaşır; böylece her görsel ve video her cihazda değil, yalnızca bir kez kontrol edilir. En çok eski bilgisayarlarda ve telefonlarda işe yarar.",
+      "youGet": "Size sağladığı",
+      "getLead": "Daha hızlı bir HaramBlock.",
+      "getBody": "Diğer cihazların önceden oluşturduğu maskeler, cihazınızın yeniden hesaplamasına gerek kalmadan bir görseli veya videoyu hemen gizler.",
+      "youShare": "Paylaştıklarınız",
+      "shareMasksLead": "Cihazınızın oluşturduğu maskeler",
+      "shareMasks": "$1: bir görselin veya videonun hangi kısımlarının gizleneceği. Bu cihazda önceden oluşturulmuş maskeler de dahildir.",
+      "shareAddress": "Maskesini bulmak veya paylaşmak için görselin ya da videonun adresi ve görüldüğü site.",
+      "shareChoices": "Elle yaptığınız maskeleme seçimleri.",
+      "shareId": "Kötüye kullanımı önlemek için rastgele bir kimlik. İsim yok, hesap yok.",
+      "shareReview": "Paylaşılan maskeler ve görselleri, algılamayı iyileştirmek için incelenebilir.",
+      "neverSent": "Asla gönderilmeyenler",
+      "neverSentBody": "Sayfanın adresi, gizli pencerelerden hiçbir şey, bilgisayarınızda veya kendi ağınızda saklanan hiçbir şey.",
+      "closing": "Yalnızca paylaşan tarayıcılar başkalarının maskelerini alır. Asla satılmaz, reklam yok. İstediğiniz zaman Seçenekler’den kapatabilirsiniz. $1",
+      "agree": "Kabul ediyorum",
+      "notNow": "Şimdi değil",
+      "eitherWay": "HaramBlock her durumda cihazınızda çalışmaya devam eder."
+    },
+    "Options": {
+      "neverAgreedIntro": "Cihazınız için daha az işle daha hızlı bir HaramBlock: diğer cihazların önceden oluşturduğu maskeleri alın, sizinkileri paylaşın.",
+      "youShareLabel": "Paylaştıklarınız:",
+      "neverAgreedShare": "$1 cihazınızın oluşturduğu maskeler (önceden oluşturulanlar dahil), görselin veya videonun adresi ve görüldüğü site, elle yaptığınız maskeleme seçimleri ve kötüye kullanımı önlemek için rastgele bir kimlik. Paylaşılan maskeler ve görselleri, algılamayı iyileştirmek için incelenebilir.",
+      "neverSentLabel": "Asla gönderilmeyenler:",
+      "neverAgreedNeverSent": "$1 sayfanın adresi, gizli pencerelerden hiçbir şey, bilgisayarınızda veya kendi ağınızda saklanan hiçbir şey.",
+      "switchingOnAgrees": "Açmak, kabul ettiğiniz anlamına gelir. $1",
+      "onSummary": "Bu tarayıcı maskelerini paylaşır ve başkalarının maskelerini kullanır. $1",
+      "onDeletion": "Kapatmak gönderimi hemen durdurur. Önceden gönderilen raporlar sunucuda kalır. $1.",
+      "offSummary": "Kapalı. Hiçbir şey gönderilmez ve maske alınmaz. Bu cihazda bulunan başkalarına ait maskeler süreleri dolana kadar kullanılır.",
+      "offAgreement": "Açmak, $1 açıklanan verileri, bu özellik kapalıyken kontrol edilen medya dahil, göndermeyi kabul ettiğiniz anlamına gelir. Önceden gönderilen raporlar sunucuda kalır. $2."
+    }
   }
 }

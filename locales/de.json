@@ -10,7 +10,8 @@
       "hostList": "Hostliste",
       "customSettings": "Benutzerdefinierte Einstellungen",
       "cache": "Cache",
-      "about": "Über"
+      "about": "Über",
+      "cloudPredictions": "Cloud-Vorhersagen"
     },
     "Cache": {
       "title": "Zwischengespeicherte Elemente",
@@ -147,5 +148,48 @@
   },
   "CopyLogs": {
     "tooltip": "Logs in die Zwischenablage kopieren"
+  },
+  "CloudPredictions": {
+    "name": "Cloud-Vorhersagen",
+    "privacyPolicy": "Datenschutzerklärung",
+    "privacyPolicyInline": "Datenschutzerklärung",
+    "askDelete": "Bitten Sie uns, sie zu löschen",
+    "deleteMailSubject": "Meine Daten aus den Cloud-Vorhersagen löschen",
+    "deleteMailBody": "Installations-ID: $1",
+    "installId": "Installations-ID",
+    "copy": "Kopieren",
+    "ConsentTab": {
+      "brand": "HaramBlock · Cloud-Vorhersagen",
+      "title": "Schneller filtern, weniger Arbeit für Ihr Gerät",
+      "intro": "Browser teilen, was sie finden, sodass jedes Bild und jedes Video nur einmal geprüft wird, nicht auf jedem Gerät. Das hilft am meisten auf älteren Computern und Handys.",
+      "youGet": "Sie erhalten",
+      "getLead": "Ein schnelleres HaramBlock.",
+      "getBody": "Masken, die andere Geräte bereits erstellt haben, verdecken ein Bild oder Video sofort, ohne dass Ihr Gerät es erneut berechnen muss.",
+      "youShare": "Sie teilen",
+      "shareMasksLead": "Die Masken, die Ihr Gerät erstellt",
+      "shareMasks": "$1: welche Teile eines Bildes oder Videos verdeckt werden. Masken, die bereits auf diesem Gerät erstellt wurden, sind eingeschlossen.",
+      "shareAddress": "Die Adresse des Bildes oder Videos, um seine Maske zu finden oder zu teilen, und die Website, auf der es gesehen wurde.",
+      "shareChoices": "Ihre manuellen Maskierungsentscheidungen.",
+      "shareId": "Eine zufällige ID, um Missbrauch zu verhindern. Kein Name, kein Konto.",
+      "shareReview": "Geteilte Masken und ihre Bilder können geprüft werden, um die Erkennung zu verbessern.",
+      "neverSent": "Nie gesendet",
+      "neverSentBody": "Die Adresse der Seite, nichts aus privaten Fenstern, nichts, was auf Ihrem Computer oder in Ihrem eigenen Netzwerk gespeichert ist.",
+      "closing": "Nur Browser, die teilen, erhalten Masken von anderen. Nie verkauft, keine Werbung. Jederzeit in den Optionen abschaltbar. $1",
+      "agree": "Zustimmen",
+      "notNow": "Jetzt nicht",
+      "eitherWay": "HaramBlock arbeitet so oder so weiter auf Ihrem Gerät."
+    },
+    "Options": {
+      "neverAgreedIntro": "Ein schnelleres HaramBlock mit weniger Arbeit für Ihr Gerät: Erhalten Sie Masken, die andere Geräte bereits erstellt haben, und teilen Sie Ihre.",
+      "youShareLabel": "Sie teilen:",
+      "neverAgreedShare": "$1 die Masken, die Ihr Gerät erstellt, auch die bereits erstellten, die Adresse des Bildes oder Videos und die Website, auf der es gesehen wurde, Ihre manuellen Maskierungsentscheidungen und eine zufällige ID, um Missbrauch zu verhindern. Geteilte Masken und ihre Bilder können geprüft werden, um die Erkennung zu verbessern.",
+      "neverSentLabel": "Nie gesendet:",
+      "neverAgreedNeverSent": "$1 die Adresse der Seite, nichts aus privaten Fenstern, nichts, was auf Ihrem Computer oder in Ihrem eigenen Netzwerk gespeichert ist.",
+      "switchingOnAgrees": "Mit dem Einschalten stimmen Sie zu. $1",
+      "onSummary": "Dieser Browser teilt seine Masken und nutzt Masken von anderen. $1",
+      "onDeletion": "Das Ausschalten beendet das Senden sofort. Bereits gesendete Berichte bleiben auf dem Server. $1.",
+      "offSummary": "Aus. Es wird nichts gesendet und es werden keine Masken abgerufen. Masken von anderen, die bereits auf diesem Gerät sind, werden genutzt, bis sie ablaufen.",
+      "offAgreement": "Mit dem Einschalten stimmen Sie zu, die in der $1 beschriebenen Daten zu senden, einschließlich Medien, die geprüft wurden, während dies aus war. Bereits gesendete Berichte bleiben auf dem Server. $2."
+    }
   }
 }
