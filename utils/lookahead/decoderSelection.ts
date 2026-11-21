@@ -1,5 +1,5 @@
 import { createWasmDecoder } from '@/utils/lookahead/wasmDecoder';
-import { createWebCodecsDecoder, toModelInputBitmap } from '@/utils/lookahead/webCodecsDecoder';
+import { createWebCodecsDecoder, toModelInputBitmap, type BitmapBacking } from '@/utils/lookahead/webCodecsDecoder';
 
 import type { CapableDecoder, DecodedTarget, DecodeJob, DecoderPort } from '@/utils/lookahead/ports';
 
@@ -41,6 +41,24 @@ export function createFirstSupportingDecoder(
   };
 }
 
+export type InferenceSite = 'service-worker' | 'host-page';
+
+/**
+ * How native decoding is tuned for where a host's frames are inferred. A frame transferred to the service worker is
+ * copied into CPU memory, because reading a GPU-backed bitmap there drops the worker's WebGPU instance. A frame
+ * inferred in the host's own page comes from a software decoder, which skips the GPU readback a hardware frame pays
+ * before its colour conversion.
+ */
+interface NativeDecodePolicy {
+  hardwareAcceleration: HardwareAcceleration;
+  bitmapBacking: BitmapBacking;
+}
+
+const NATIVE_DECODE_POLICY: Record<InferenceSite, NativeDecodePolicy> = {
+  'service-worker': { hardwareAcceleration: 'no-preference', bitmapBacking: 'cpu' },
+  'host-page': { hardwareAcceleration: 'prefer-software', bitmapBacking: 'as-decoded' },
+};
+
 const wasmDecoderByInputSize = new Map<number, CapableDecoder>();
 
 /**
@@ -49,16 +67,18 @@ const wasmDecoderByInputSize = new Map<number, CapableDecoder>();
  */
 export function lookaheadDecoder(
   inputSize: number,
-  options: {
-    hardwareAcceleration?: HardwareAcceleration;
-    onChosen?: DecoderChoiceListener;
-  } = {},
+  inferenceSite: InferenceSite,
+  onChosen?: DecoderChoiceListener,
 ): DecoderPort {
   let wasm = wasmDecoderByInputSize.get(inputSize);
   if (!wasm) {
     wasm = createWasmDecoder(inputSize);
     wasmDecoderByInputSize.set(inputSize, wasm);
   }
-  const native = createWebCodecsDecoder(frame => toModelInputBitmap(frame, inputSize), options.hardwareAcceleration);
-  return createFirstSupportingDecoder([native, wasm], options.onChosen);
+  const { hardwareAcceleration, bitmapBacking } = NATIVE_DECODE_POLICY[inferenceSite];
+  const native = createWebCodecsDecoder(
+    frame => toModelInputBitmap(frame, inputSize, bitmapBacking),
+    hardwareAcceleration,
+  );
+  return createFirstSupportingDecoder([native, wasm], onChosen);
 }

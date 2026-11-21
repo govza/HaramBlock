@@ -32,10 +32,9 @@ export class FirefoxLookaheadHostService {
       const isIncognito = isIncognitoCaller(callerOf(port.sender));
       const host = new LookaheadHost({
         decoder: open =>
-          lookaheadDecoder(open.inputSize, {
-            hardwareAcceleration: 'prefer-software',
-            onChosen: (codec, decoder) => log.info('lookahead.decoder.chosen', { codec, decoder }),
-          }),
+          lookaheadDecoder(open.inputSize, 'host-page', (codec, decoder) =>
+            log.info('lookahead.decoder.chosen', { codec, decoder }),
+          ),
         inference: open => this.inferencePort(open, isIncognito),
         cache: open => (isIncognito ? INCOGNITO_TAB_CACHE : this.cachePort(open)),
         rangeSource: url => createRangeFetchSource(url),

@@ -17,10 +17,8 @@ export const withSourceSize = (
   { originalWidth, originalHeight }: Pick<BitmapFrame, 'originalWidth' | 'originalHeight'>,
 ): InferredSample => ({ ...sample, source: { width: originalWidth, height: originalHeight } });
 
-/**
- * A bitmap resized from a decoded `VideoFrame` stays GPU-backed, and reading one back inside the service worker drops
- * the worker's WebGPU instance.
- */
+export type BitmapBacking = 'cpu' | 'as-decoded';
+
 async function toCpuBackedBitmap(gpuBackedBitmap: ImageBitmap): Promise<ImageBitmap> {
   try {
     const canvas = new OffscreenCanvas(gpuBackedBitmap.width, gpuBackedBitmap.height);
@@ -33,17 +31,21 @@ async function toCpuBackedBitmap(gpuBackedBitmap: ImageBitmap): Promise<ImageBit
   }
 }
 
-export async function toModelInputBitmap(frame: VideoFrame, inputSize: number): Promise<BitmapFrame> {
+export async function toModelInputBitmap(
+  frame: VideoFrame,
+  inputSize: number,
+  backing: BitmapBacking,
+): Promise<BitmapFrame> {
   const originalWidth = frame.displayWidth;
   const originalHeight = frame.displayHeight;
   const scale = Math.min(1, inputSize / Math.max(originalWidth, originalHeight));
   try {
-    const resizedFrame = await createImageBitmap(frame, {
+    const resized = await createImageBitmap(frame, {
       resizeWidth: Math.max(1, Math.round(originalWidth * scale)),
       resizeHeight: Math.max(1, Math.round(originalHeight * scale)),
       resizeQuality: 'low',
     });
-    const bitmap = await toCpuBackedBitmap(resizedFrame);
+    const bitmap = backing === 'cpu' ? await toCpuBackedBitmap(resized) : resized;
     return { bitmap, originalWidth, originalHeight, close: () => bitmap.close() };
   } finally {
     frame.close();
@@ -52,7 +54,7 @@ export async function toModelInputBitmap(frame: VideoFrame, inputSize: number): 
 
 export function createWebCodecsDecoder(
   toFrame: (frame: VideoFrame) => Promise<AnalysisFrame>,
-  hardwareAcceleration: HardwareAcceleration = 'no-preference',
+  hardwareAcceleration: HardwareAcceleration,
 ): CapableDecoder {
   const configFor = (config: VideoDecoderConfig): VideoDecoderConfig => ({
     ...config,
