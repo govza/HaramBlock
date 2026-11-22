@@ -2,8 +2,9 @@
 
 Opt-in sharing of the predictions this install computes with the Shared Prediction Cache (Diwan),
 and later receiving predictions other installs computed. Users read "mask" for a prediction and
-"Install ID" for the Reporter ID. This page covers consent, the switch, the eligibility filter and
-the Report Status of cached records; the sender and the lookup are not built yet.
+"Install ID" for the Reporter ID. This page covers consent, the switch, the eligibility filter, the
+Report Status of cached records, and the server configuration and the client seam; the real client,
+the sender and the lookup are not built yet.
 
 ## Consent state
 
@@ -15,10 +16,10 @@ or on the server.
 Code: `utils/cloudPredictions/` (`agree`, `decline`, `declineIfDataCollectionRevoked`, `getConsent`,
 `getReporterId`, `isOn`, `getCloudPredictionsStatus`, `onCloudPredictionsChange`).
 
-- **`isOn()`** is the single gate for reports and lookups. It holds when the state is `agreed` and,
-  on Firefox, both optional data-collection types (`browsingActivity`, `websiteContent`) are
-  granted. Its conditions are a list (`isOnGates`), so a new one (the configured server URL) is
-  added there without touching callers.
+- **`isOn()`** is the single gate for reports and lookups. It holds when the state is `agreed`, the
+  build has a server URL (`IS_CLOUD_PREDICTIONS_SERVER_CONFIGURED`) and, on Firefox, both optional
+  data-collection types (`browsingActivity`, `websiteContent`) are granted. Its conditions are a
+  list (`isOnGates`), so a new one is added there without touching callers.
 - **Firefox.** `agree()` first calls `permissions.request({ data_collection: [...] })`, so it must
   be the first call of the click handler to keep the user gesture. A refusal leaves the stored state
   unchanged. Revoking either type in about:addons makes `isOn()` false at once, and the background
@@ -111,6 +112,69 @@ Both cache services call the listener given to `setOnReportPending` whenever a r
 
 Tests run these rules and the v4 → v5 migration against real Dexie on `fake-indexeddb`
 (`utils/db/__tests__/`).
+
+## Server configuration
+
+Where the Shared Prediction Cache is, and whether a build reports, is decided at build time. Nothing
+is fetched from the server for configuration: no remote off switch, no config endpoint.
+
+- **`WXT_CLOUD_PREDICTIONS_URL`**: the server URL. `wxt.config.ts` reads it and bakes it in as
+  `__HB_CLOUD_PREDICTIONS_URL__`, which only `utils/cloudPredictions/config.ts` reads. The address
+  itself (`CLOUD_PREDICTIONS_URL`) is for the client module alone; everything else, `isOn()`
+  included, asks `IS_CLOUD_PREDICTIONS_SERVER_CONFIGURED`. There is no default: a build without it
+  fails. Outside development mode it must be `https://`. A development build may use `http://` (a
+  local Diwan) or leave it empty, which keeps `isOn()` false.
+- **`WXT_CLOUD_PREDICTIONS_REPORT`**: `true` or `false`, anything else fails the build. Baked in as
+  `__HB_CLOUD_PREDICTIONS_REPORT__` (`IS_CLOUD_PREDICTIONS_REPORT_ENABLED`). `false` stops this
+  build reporting and leaves lookups; set it while running unshipped inference changes. Never a user
+  setting.
+- **Env files.** `.env.development` and `.env.production` are committed, both with
+  `https://api.haramblock.com` and reporting on, so `pnpm dev` and E2E talk to production. Vite lets
+  a mode file win over `.env` and `.env.local`, so overrides go in `.env.development.local` /
+  `.env.production.local` (ignored) or a non-empty process environment value (an empty one loses to
+  the file). `.env.production` is added to the Firefox sources ZIP (`zip.includeSources`), since the
+  reviewer's rebuild fails without it.
+- The rules are `resolveCloudPredictionsBuildConfig` (`scripts/cloudPredictionsBuildConfig.ts`).
+  Vitest defines the two constants itself (`vitest.config.ts`).
+
+## Client seam
+
+`ICloudPredictionsClient` (`utils/types/cloudPredictionsClient.ts`) is the one way background
+services talk to the server: `reportImages` (`POST /api/image-reports`), `reportVideo`
+(`POST /api/video-reports`, one bucket) and `lookUpPredictions` (`POST /api/prediction-lookups`,
+hits only). Each takes an optional `AbortSignal` and resolves to a typed outcome, never throwing:
+
+| Outcome      | Meaning                                                            |
+| ------------ | ------------------------------------------------------------------ |
+| `ok`         | accepted; a lookup carries its `hits`                              |
+| `rejected`   | the server refused the request for good (400)                      |
+| `retryAfter` | the server asked for a pause (429), with `retryAfterMs`            |
+| `failed`     | network error, server error or an aborted call: retry with backoff |
+
+The request and hit shapes are hand-written until Diwan's OpenAPI document exists; the real client
+then types them from `openapi-typescript` output. An image hit carries no hostname and no Forced
+Visibility: other users' toggles are never received. No real client exists yet.
+
+Service tests use `FakeCloudPredictionsClient`
+(`utils/cloudPredictions/testing/fakeCloudPredictionsClient.ts`): it records calls, accepts reports,
+answers lookups from `serve(hit)`, fails the next calls with `failNext(...)`, and holds calls
+between `stall()` and `release()` (an aborted held call is `failed`).
+
+## Timings
+
+Every Cloud Predictions timing and cap is a named constant in `utils/cloudPredictions/timings.ts`,
+changed by a release only.
+
+| Constant                                              | Value        |
+| ----------------------------------------------------- | ------------ |
+| `REPORT_FLUSH_INTERVAL_MS` ± `REPORT_FLUSH_JITTER_MS` | 60 s ± 30 s  |
+| `VIDEO_BUCKET_QUIET_MS`                               | 2 min        |
+| `IMAGE_REPORTS_PER_FLUSH` / `VIDEO_REPORTS_PER_FLUSH` | 200 / 10     |
+| `LOOKUP_BATCH_WINDOW_MS` / `LOOKUP_BATCH_SIZE`        | 100 ms / 100 |
+| `LOOKUP_TIMEOUT_MS`                                   | 3 s          |
+| `BACKOFF_CEILING_MS`                                  | 1 h          |
+| `RETRY_AFTER_CAP_MS`                                  | 24 h         |
+| `SERVED_LIFETIME_MS`                                  | 7 days       |
 
 ## Manifest
 
