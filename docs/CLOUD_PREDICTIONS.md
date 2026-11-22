@@ -88,7 +88,7 @@ Image rows (`imagePredictions`) and video sample buckets (`videoSampleBuckets`) 
 No status means never reported. The rules, all applied where the row is written:
 
 - **`storeOwn`** decides eligibility once, in the cache service (`isEligibleForReport` with
-  `shippedModelIds()`, which holds both id forms). An eligible image row is `pending`; a rejected
+  `shippedModelIdsOf`, which holds both id forms). An eligible image row is `pending`; a rejected
   one has no status. A video bucket becomes `pending` when the write changed its samples, keeps its
   status when the write added nothing, and loses it when the write is not eligible.
 - **`setForcedVisibility`** re-reports only on a real flip, and only a record that already has a

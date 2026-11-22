@@ -2,7 +2,7 @@ import { load } from 'js-yaml';
 
 import { getLogger } from '@/utils/telemetry';
 
-import type { IModelMetadata, IYamlModelMetadata, ModelTask } from '@/utils/types';
+import type { IModelMetadata, IYamlModelMetadata, ModelTask, StoredModelId } from '@/utils/types';
 
 const log = getLogger('modelLoader');
 
@@ -26,6 +26,14 @@ export const modelVersionOf = (basePath: string): string => MODEL_FOLDER_VERSION
 
 export const cacheModelIdOf = (model: Pick<ModelDefinition, 'id' | 'version'>): string =>
   `${model.id}@${model.version}`;
+
+/**
+ * Every model id a cache record of this build can carry: image rows store the plain id, video sample
+ * buckets the versioned one.
+ */
+export const shippedModelIdsOf = (
+  models: readonly Pick<ModelDefinition, 'id' | 'version'>[],
+): ReadonlySet<StoredModelId> => new Set(models.flatMap(model => [model.id, cacheModelIdOf(model)]));
 
 const NON_TARGET_CLASSES = new Set(['background', 'safe_person', 'person']);
 
