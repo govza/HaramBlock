@@ -1,0 +1,19 @@
+const SECOND_MS = 1000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+export const REPORT_FLUSH_INTERVAL_MS = MINUTE_MS;
+export const REPORT_FLUSH_JITTER_MS = 30 * SECOND_MS;
+export const VIDEO_BUCKET_QUIET_MS = 2 * MINUTE_MS;
+export const IMAGE_REPORTS_PER_FLUSH = 200;
+export const VIDEO_REPORTS_PER_FLUSH = 10;
+
+export const LOOKUP_BATCH_WINDOW_MS = 100;
+export const LOOKUP_BATCH_SIZE = 100;
+export const LOOKUP_TIMEOUT_MS = 3 * SECOND_MS;
+
+export const BACKOFF_CEILING_MS = HOUR_MS;
+export const RETRY_AFTER_CAP_MS = DAY_MS;
+
+export const SERVED_LIFETIME_MS = 7 * DAY_MS;
