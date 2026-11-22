@@ -2,7 +2,7 @@
  * What a build bakes in about the Shared Prediction Cache: the server URL (empty only in a development build that leaves
  * Cloud Predictions off) and whether this build may send reports.
  */
-export interface CloudPredictionsBuildConfig {
+interface CloudPredictionsBuildConfig {
   url: string;
   isReportEnabled: boolean;
 }

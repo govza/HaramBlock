@@ -1,6 +1,8 @@
-import { shippedModelIds } from '@/entrypoints/background/services/shippedModelIds';
+import { getAvailableModels } from '@inference-runtime';
+
 import { isEligibleForReport } from '@/utils/cloudPredictions/eligibility';
 import { ImagePredictionRepository } from '@/utils/db/imagePredictionRepository';
+import { shippedModelIdsOf } from '@/utils/inference/shared/modelRegistry';
 import { ATTR, getLogger } from '@/utils/telemetry';
 import { type ForcedVisibility, type IImagePrediction } from '@/utils/types';
 
@@ -13,7 +15,7 @@ const isReportableImage = ({ src, hostname, modelId, cacheMetadata }: IImagePred
       hostname,
       modelId,
     },
-    shippedModelIds(),
+    shippedModelIdsOf(getAvailableModels()),
   );
 
 /**

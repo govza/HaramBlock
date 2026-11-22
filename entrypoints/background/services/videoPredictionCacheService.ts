@@ -1,10 +1,9 @@
 import { getAvailableModels, getCurrentModelId } from '@inference-runtime';
 
-import { shippedModelIds } from '@/entrypoints/background/services/shippedModelIds';
 import { clampMaxAge } from '@/utils/cacheUtils';
 import { isEligibleForReport } from '@/utils/cloudPredictions/eligibility';
 import { VideoPredictionRepository } from '@/utils/db/videoPredictionRepository';
-import { cacheModelIdOf } from '@/utils/inference/shared/modelRegistry';
+import { cacheModelIdOf, shippedModelIdsOf } from '@/utils/inference/shared/modelRegistry';
 import { selectCachedSamples, type CachedSampleReader } from '@/utils/lookahead/sampleQuality';
 import { getLogger, videoIdentityAttributes } from '@/utils/telemetry';
 import {
@@ -64,7 +63,7 @@ const isReportableWrite = ({ identity, model, origin }: PendingWrite): boolean =
       hostname: origin.hostname,
       modelId: model.modelId,
     },
-    shippedModelIds(),
+    shippedModelIdsOf(getAvailableModels()),
   );
 
 export class VideoPredictionCacheService {
