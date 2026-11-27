@@ -123,6 +123,37 @@ describe('ImageProcessor inference failure handling', () => {
     expect(img.hasAttribute(PROCESSED_SAFE_ATTR)).toBe(true);
   });
 
+  it('skips a loaded image below the minimum size without ever blurring it', () => {
+    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const img = document.createElement('img');
+    img.src = 'https://cdn.test/logo.png';
+    Object.defineProperty(img, 'complete', { value: true });
+    Object.defineProperty(img, 'naturalWidth', { value: 26 });
+    Object.defineProperty(img, 'naturalHeight', { value: 26 });
+    document.body.append(img);
+    const blurred = vi.spyOn(img.classList, 'add');
+
+    processor.process(img);
+
+    expect(blurred).not.toHaveBeenCalledWith(BLUR_CLASS);
+    expect(img.hasAttribute(PROCESSED_SKIPPED_ATTR)).toBe(true);
+    expect(requestCachedImagePrediction).not.toHaveBeenCalledWith(img.src, 'example.com');
+  });
+
+  it('keeps an unloaded image blurred until its size is known', () => {
+    const processor = new ImageProcessor(hostSettings, badgeCounter);
+    const img = document.createElement('img');
+    img.src = 'https://cdn.test/unloaded.jpg';
+    Object.defineProperty(img, 'complete', { value: false });
+    img.decode = () => new Promise<void>(() => {});
+    document.body.append(img);
+
+    processor.process(img);
+
+    expect(img.classList.contains(BLUR_CLASS)).toBe(true);
+    expect(img.hasAttribute(PROCESSED_SKIPPED_ATTR)).toBe(false);
+  });
+
   it('skips a decoded placeholder without sending it for inference', async () => {
     const processor = new ImageProcessor(hostSettings, badgeCounter);
     const img = document.createElement('img');

@@ -221,6 +221,8 @@ export class ImageProcessor {
       return;
     }
 
+    if (this.skipLoadedBelowMinSize(img, src)) return;
+
     startRoundtrip(src, { src, hostname: this.hostSettings.hostname, mediaKind: 'image' });
 
     this.protect(img);
@@ -596,6 +598,18 @@ export class ImageProcessor {
     const w = img.clientWidth || img.naturalWidth;
     const h = img.clientHeight || img.naturalHeight;
     return w < this.hostSettings.minSize.width || h < this.hostSettings.minSize.height;
+  }
+
+  /**
+   * Deciding before the blur spares a small loaded image the persisted-verdict probe it would
+   * otherwise stay blurred for. An unloaded image has no trustworthy size yet, so it keeps the
+   * blur until inferWhenLoaded measures it.
+   */
+  private skipLoadedBelowMinSize(img: HTMLImageElement, src: string): boolean {
+    const hasPixels = img.complete && img.naturalWidth > 0;
+    if (!hasPixels || !this.isBelowMinSizeForSrc(src, img)) return false;
+    finalizeImageProcessing(img, 'skipped');
+    return true;
   }
 
   private isBelowMinSizeForSrc(src: string, seedImg: HTMLImageElement): boolean {
